@@ -12,7 +12,7 @@
 import { CONFIG } from "./config";
 import { digestOf, hashSecret, nid, randomTokenHex, timingSafeEqual, type NexusEngine } from "./db";
 import { Err } from "./errors";
-import type { NetworkPolicy, Permission, PublicUser, Role, SecretReference, Session, User } from "./types";
+import type { IdentityStatus, NetworkPolicy, Permission, PublicUser, Role, SecretReference, Session, User } from "./types";
 
 /* ---------------------------------- RBAC ---------------------------------- */
 
@@ -393,12 +393,11 @@ export class NetworkPolicyService {
   }
 }
 
-import type { NetworkPolicy } from "./types";
-
 /* ------------------------------ User management ---------------------------- */
 
 export function toPublicUser(u: User): PublicUser {
-  return { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, created_at: u.created_at };
+  // Legacy Phase 1 records predate updated_at — normalize at the boundary.
+  return { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, created_at: u.created_at, updated_at: u.updated_at ?? u.created_at };
 }
 
 /** Hash a password with PBKDF2 — plaintext never persists. */
@@ -408,6 +407,7 @@ export async function createUserRecord(input: { email: string; name: string; pas
   validatePassword(input.password);
   const salt = randomTokenHex(16);
   const password_hash = await hashSecret(input.password, salt, CONFIG.pbkdf2Iterations);
+  const now = Date.now();
   return {
     id: nid("usr"),
     email,
@@ -417,7 +417,8 @@ export async function createUserRecord(input: { email: string; name: string; pas
     password_hash,
     salt,
     iterations: CONFIG.pbkdf2Iterations,
-    created_at: Date.now(),
+    created_at: now,
+    updated_at: now,
   };
 }
 
@@ -433,6 +434,63 @@ export function userRecordIsSafe(u: User): boolean {
     typeof u.password_hash === "string" &&
     u.password_hash.length === 64
   );
+}
+
+/* ------------------------------ IdentityService ----------------------------- */
+
+/**
+ * Phase 2 Pass 1 — identity lifecycle management.
+ *
+ * Centralized: every status change flows through the AuthorizationService
+ * (platform configuration permission) and is audited with the real reason.
+ * A non-active identity immediately fails authentication and every
+ * authorization decision — no write path can resurrect access implicitly.
+ */
+export class IdentityService {
+  constructor(
+    private engine: NexusEngine,
+    private authz: AuthorizationService,
+    private audit: AuditService,
+  ) {}
+
+  /** All identities as public views — credential material never leaves here. */
+  async list(): Promise<PublicUser[]> {
+    const users = await this.engine.all<User>("users");
+    return users.map(toPublicUser).sort((a, b) => a.created_at - b.created_at);
+  }
+
+  async get(userId: string): Promise<PublicUser> {
+    const user = await this.engine.get<User>("users", userId);
+    if (!user) throw Err.notFound("IDENTITY_NOT_FOUND", "identity not found");
+    return toPublicUser(user);
+  }
+
+  /** Transition an identity between lifecycle states. Audited; the target
+   *  session set is untouched here — validate() rejects non-active identities,
+   *  so revocation-on-login is enforced by the session layer itself. */
+  async setStatus(actor: Pick<User, "id" | "role" | "status" | "email">, targetId: string, status: IdentityStatus, reason: string): Promise<PublicUser> {
+    await this.authz.authorize(actor, "system:configure", { type: "identity", id: targetId });
+    const user = await this.engine.get<User>("users", targetId);
+    if (!user) throw Err.notFound("IDENTITY_NOT_FOUND", "identity not found");
+    if (user.id === actor.id) {
+      throw Err.validation("SELF_STATUS_CHANGE", "an identity cannot change its own lifecycle status");
+    }
+    const previous = user.status;
+    if (previous === status) return toPublicUser(user);
+    user.status = status;
+    user.updated_at = Date.now();
+    await this.engine.put("users", user.id, user);
+    // The lifecycle change itself is audited — reason included, never secrets.
+    await this.audit.record({
+      actor: actor.email,
+      action: `identity.status:${status}`,
+      resource_type: "identity",
+      resource_id: user.id,
+      result: "allow",
+      metadata: { from: previous, to: status, reason: reason.slice(0, 200), target_email: user.email },
+    });
+    return toPublicUser(user);
+  }
 }
 
 export { digestOf };

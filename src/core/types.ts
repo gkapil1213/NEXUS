@@ -70,19 +70,21 @@ export const PERMISSIONS = [
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
-/** Identity lifecycle beyond active/suspended. */
-export type IdentityStatus = "active" | "suspended";
+/** Identity lifecycle: ACTIVE → SUSPENDED / DISABLED. Non-active identities
+ *  cannot authenticate or pass any authorization check. */
+export type IdentityStatus = "active" | "suspended" | "disabled";
 
 export interface User {
   id: Id;
   email: string;
   name: string;
   role: Role;
-  status: "active" | "suspended";
+  status: IdentityStatus;
   password_hash: string; // PBKDF2 — plaintext never persisted
   salt: string;
   iterations: number;
   created_at: number;
+  updated_at: number; // Phase 2 — last identity change (status/role)
 }
 
 /** Public view of a user — never includes credential material. */
@@ -91,8 +93,9 @@ export interface PublicUser {
   email: string;
   name: string;
   role: Role;
-  status: "active" | "suspended";
+  status: IdentityStatus;
   created_at: number;
+  updated_at: number;
 }
 
 export interface Session {

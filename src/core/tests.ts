@@ -57,6 +57,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
     salt: "x",
     iterations: 1,
     created_at: Date.now(),
+    updated_at: Date.now(),
   };
   const ownerUser: User = { ...scratchUser, id: "usr_scratch_owner", role: "OWNER", email: "scratch.owner@tests.nexus" };
   const suspendedUser: User = { ...scratchUser, id: "usr_scratch_susp", status: "suspended", email: "scratch.susp@tests.nexus" };

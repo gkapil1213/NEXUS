@@ -15,7 +15,16 @@ import { Err, NexusError } from "./errors";
 import { EventService } from "./events";
 import { NexusOrchestrator } from "./orchestration";
 import { ArtifactService, ExecutionService, EvidenceService, ProjectService, type ServiceContext } from "./services";
-import { LocalSecretProvider, SessionService, createUserRecord, toPublicUser, verifyPassword, type SecretProvider } from "./security";
+import {
+  AuthorizationService,
+  IdentityService,
+  LocalSecretProvider,
+  SessionService,
+  createUserRecord,
+  toPublicUser,
+  verifyPassword,
+  type SecretProvider,
+} from "./security";
 import { GitHubService } from "./github";
 import type { BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
@@ -32,6 +41,9 @@ export interface KernelServices {
   sessions: SessionService;
   secrets: SecretProvider;
   github: GitHubService;
+  // Phase 2 Pass 1 — centralized authorization + identity lifecycle.
+  authz: AuthorizationService;
+  identity: IdentityService;
 }
 
 const BOOT_ORDER = [
