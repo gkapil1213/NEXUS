@@ -50,6 +50,10 @@ export function GitHubScreen() {
   const [rate, setRate] = useState<RateLimit | null>(null);
   const [selected, setSelected] = useState<GitHubRepo | null>(null);
 
+  // The screen renders inside the authenticated shell; if the kernel isn't
+  // up there is nothing to integrate with.
+  if (!services || !user) return null;
+
   const connected = services.github.state().connected;
   const identity = services.github.state().identity;
   const canConnect = user ? can(user, "github:connect") : false;
@@ -223,9 +227,9 @@ export function GitHubScreen() {
           ) : visible.length === 0 ? (
             <EmptyState
               icon="github"
-              title={repos.length === 0 ? "This account exposes no repositories" : "No repositories match"}
+              title={(repos ?? []).length === 0 ? "This account exposes no repositories" : "No repositories match"}
               body={
-                repos.length === 0
+                (repos ?? []).length === 0
                   ? "GitHub returned an empty list — with a fine-grained token only explicitly granted repositories are visible. That is the real state, not a placeholder."
                   : "Adjust the filter to see the rest of the account's repositories."
               }
@@ -413,6 +417,7 @@ function RepoDrawer({ repo, canPush, onClose, onRate }: { repo: GitHubRepo; canP
     setCommits(null);
     setLoadError(null);
     (async () => {
+      if (!services) return;
       try {
         const [b, c] = await Promise.all([services.github.listBranches(repo.owner, repo.name), services.github.listCommits(repo.owner, repo.name)]);
         if (abortRef.current) return;
@@ -426,7 +431,9 @@ function RepoDrawer({ repo, canPush, onClose, onRate }: { repo: GitHubRepo; canP
     return () => {
       abortRef.current = true;
     };
-  }, [repo, services.github, onRate]);
+  }, [repo, services?.github, onRate]);
+
+  if (!services || !user) return null;
 
   return (
     <div className="fixed inset-0 z-[70]">
@@ -595,6 +602,7 @@ function PushModal({
     setArtifactId("");
     setArtifacts(null);
     (async () => {
+      if (!services || !user) return;
       try {
         const list = await services.executions.list(user);
         setExecutions(list);
@@ -603,7 +611,7 @@ function PushModal({
         setExecutions([]);
       }
     })();
-  }, [open, services.executions, user]);
+  }, [open, services?.executions, user]);
 
   useEffect(() => {
     if (!executionId) {
@@ -611,11 +619,15 @@ function PushModal({
       return;
     }
     (async () => {
+      if (!services) return;
       const list = await services.artifacts.list(executionId);
       setArtifacts(list);
       setArtifactId(list[0]?.id ?? "");
     })();
-  }, [executionId, services.artifacts]);
+  }, [executionId, services?.artifacts]);
+
+  // Push/PR live inside the authenticated shell.
+  if (!services || !user) return null;
 
   const artifact = artifacts?.find((a) => a.id === artifactId) ?? null;
   const execution = executions?.find((e) => e.id === executionId) ?? null;
@@ -644,7 +656,7 @@ function PushModal({
         metadata: { repo: repo.full_name, branch: res.branch, commit: res.commit_sha.slice(0, 12), artifact: artifact.name }, // sha prefix only
       });
       await services.evidence.record(execution.id, {
-        type: "artifact",
+        type: "report",
         source: "REAL_EXECUTION",
         content: JSON.stringify({ provider: "github", repo: repo.full_name, commit_sha: res.commit_sha, tree_sha: res.tree_sha, branch: res.branch, url: res.html_url, created_branch: res.created_branch }),
         metadata: { kind: "github_commit", commit: res.commit_sha },
