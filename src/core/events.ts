@@ -18,6 +18,9 @@ export class EventService {
   private seq = 0;
   private listeners = new Set<EventListener>();
   private ready: Promise<void>;
+  /** Serializes every emit so the max-read → seq-assign → put cycle is atomic
+   *  per instance. Rapid concurrent emissions cannot interleave. */
+  private chain: Promise<unknown> = Promise.resolve();
 
   constructor(engine: NexusEngine) {
     this.engine = engine;
@@ -37,27 +40,43 @@ export class EventService {
   }
 
   /** Append an event. Returns the persisted record. Append-only: this method
-   *  can only create, never modify, an event. */
-  async emit(input: {
+   *  can only create, never modify or renumber, an event.
+   *
+   *  Sequence guarantee: before assigning, the counter is re-synced against
+   *  the persisted maximum. This keeps ordering strictly increasing across
+   *  page reloads AND across independent EventService instances that share
+   *  the same store (e.g. a second booted kernel in the verification suite),
+   *  which a construction-time-only resume cannot guarantee. Existing history
+   *  is never rewritten. */
+  emit(input: {
     type: NexusEventType;
     source: string;
     execution_id?: string | null;
     payload?: Record<string, unknown>;
   }): Promise<NexusEvent> {
-    await this.ready;
-    this.seq += 1;
-    const event: NexusEvent = {
-      id: nid("evt"),
-      seq: this.seq,
-      execution_id: input.execution_id ?? null,
-      type: input.type,
-      timestamp: Date.now(),
-      source: input.source,
-      payload: input.payload ?? {},
+    const run = async (): Promise<NexusEvent> => {
+      await this.ready;
+      // Re-sync with the store: another instance (or a prior page session)
+      // may have appended events this instance has not seen.
+      const storedMax = await this.engine.maxSeq("events");
+      this.seq = Math.max(this.seq, storedMax) + 1;
+      const event: NexusEvent = {
+        id: nid("evt"),
+        seq: this.seq,
+        execution_id: input.execution_id ?? null,
+        type: input.type,
+        timestamp: Date.now(),
+        source: input.source,
+        payload: input.payload ?? {},
+      };
+      await this.engine.put("events", event.id, event);
+      this.listeners.forEach((fn) => fn(event));
+      return event;
     };
-    await this.engine.put("events", event.id, event);
-    this.listeners.forEach((fn) => fn(event));
-    return event;
+    // Queue the emission; a failure must not stall later emissions.
+    const next = this.chain.then(run, run);
+    this.chain = next.catch(() => undefined);
+    return next;
   }
 
   async list(limit = 200): Promise<NexusEvent[]> {

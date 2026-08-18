@@ -66,7 +66,7 @@ export class NexusOrchestrator {
         result: "deny",
         metadata: { role: actor.role },
       });
-      throw Err.denied("PERMISSION_DENIED", `role ${actor.role} does not hold 'execution:create'`);
+      throw Err.denied("PERMISSION_DENIED", `permission denied: role ${actor.role} does not hold 'execution:create'`);
     }
 
     // The project must exist and be ACTIVE.

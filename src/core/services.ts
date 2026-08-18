@@ -48,7 +48,7 @@ async function authorize(
       result: "deny",
       metadata: { role: actor.role, permission },
     });
-    throw Err.denied("PERMISSION_DENIED", `role ${actor.role} does not hold '${permission}'`);
+    throw Err.denied("PERMISSION_DENIED", `permission denied: role ${actor.role} does not hold '${permission}'`);
   }
 }
 
