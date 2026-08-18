@@ -19,7 +19,11 @@
 import { CONFIG } from "./config";
 import { Err } from "./errors";
 
-export const SCHEMA_VERSION = 1;
+/** Schema v2 (Phase 2): ADDITIVE migration — adds workspaces, workspace_files
+ *  and approvals stores. IndexedDB preserves every existing object store and
+ *  record across version bumps; the upgrade handler only creates stores that
+ *  are missing, so Phase 1 data survives intact. */
+export const SCHEMA_VERSION = 2;
 
 export const NEXUS_STORES = [
   "users",
@@ -33,6 +37,10 @@ export const NEXUS_STORES = [
   "artifacts",
   "secrets",
   "kv",
+  // Phase 2
+  "workspaces",
+  "workspace_files",
+  "approvals",
 ] as const;
 export type StoreName = (typeof NEXUS_STORES)[number];
 
@@ -69,6 +77,12 @@ const INDEXES: Record<string, [string, string][]> = {
   audit: [["byResource", "resource_id"]],
   evidence: [["byExecution", "execution_id"]],
   artifacts: [["byExecution", "execution_id"]],
+  // Phase 2
+  workspaces: [
+    ["byProject", "project_id"],
+    ["byExecution", "execution_id"],
+  ],
+  workspace_files: [["byWorkspace", "workspace_id"]],
 };
 
 class IdbEngine implements NexusEngine {

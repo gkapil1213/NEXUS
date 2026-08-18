@@ -12,27 +12,60 @@
 import { CONFIG } from "./config";
 import { digestOf, hashSecret, nid, randomTokenHex, timingSafeEqual, type NexusEngine } from "./db";
 import { Err } from "./errors";
-import type { Permission, PublicUser, Role, SecretReference, Session, User } from "./types";
+import type { NetworkPolicy, Permission, PublicUser, Role, SecretReference, Session, User } from "./types";
 
 /* ---------------------------------- RBAC ---------------------------------- */
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   OWNER: [
     "project:create", "project:read", "project:update", "project:archive",
-    "execution:create", "execution:read", "execution:cancel",
-    "agent:register", "agent:read",
+    "execution:create", "execution:read", "execution:cancel", "execution:retry",
+    "agent:register", "agent:read", "agent:execute", "agent:configure",
+    "artifact:read", "artifact:create",
+    "workspace:create", "workspace:read", "workspace:delete",
+    "secret:reference", "secret:manage",
+    "approval:request", "approval:decide",
     "event:read", "audit:read", "evidence:read",
-    "secret:reference", "config:read", "system:health",
+    "config:read", "system:health", "system:configure",
     "github:connect", "github:read", "github:push",
   ],
   ADMIN: [
     "project:create", "project:read", "project:update", "project:archive",
-    "execution:create", "execution:read", "execution:cancel",
-    "agent:register", "agent:read",
+    "execution:create", "execution:read", "execution:cancel", "execution:retry",
+    "agent:register", "agent:read", "agent:execute", "agent:configure",
+    "artifact:read", "artifact:create",
+    "workspace:create", "workspace:read", "workspace:delete",
+    "secret:reference",
+    "approval:request", "approval:decide",
     "event:read", "audit:read", "evidence:read",
-    "secret:reference", "config:read", "system:health",
+    "config:read", "system:health",
     "github:connect", "github:read", "github:push",
   ],
+  OPERATOR: [
+    "project:read",
+    "execution:create", "execution:read", "execution:cancel", "execution:retry",
+    "agent:read", "agent:execute",
+    "artifact:read", "artifact:create",
+    "workspace:create", "workspace:read",
+    "secret:reference",
+    "approval:request",
+    "event:read", "audit:read", "evidence:read",
+    "config:read", "system:health",
+    "github:read",
+  ],
+  DEVELOPER: [
+    "project:create", "project:read", "project:update",
+    "execution:create", "execution:read", "execution:retry",
+    "agent:read", "agent:execute",
+    "artifact:read", "artifact:create",
+    "workspace:create", "workspace:read",
+    "secret:reference",
+    "approval:request",
+    "event:read", "evidence:read",
+    "config:read", "system:health",
+    "github:read", "github:push",
+  ],
+  // Legacy Phase 1 role — retained unchanged so existing identities keep working.
   ENGINEER: [
     "project:create", "project:read", "project:update",
     "execution:create", "execution:read", "execution:cancel",
@@ -208,7 +241,159 @@ export class SessionService {
       await this.engine.put("sessions", session.token, session);
     }
   }
+
+  /** Rotate a session: the old token is revoked and becomes invalid
+   *  immediately; a fresh token with a full TTL is issued. */
+  async refresh(token: string): Promise<Session> {
+    const current = await this.validate(token); // throws if expired/revoked
+    await this.revoke(token);
+    return this.issue(current.user_id);
+  }
 }
+
+/* --------------------------- AuthorizationService --------------------------- */
+
+import type { AuditService } from "./audit";
+
+/**
+ * Phase 2 — the single authorization choke point. Every protected operation
+ * resolves through here, so authorization logic is never scattered across UI
+ * components or services. Deny-by-default: suspended identities and missing
+ * permissions are refused, and BOTH outcomes are auditable.
+ */
+export class AuthorizationService {
+  constructor(private audit: AuditService) {}
+
+  /** Pure decision — no side effects. */
+  decide(actor: Pick<User, "role" | "status" | "email">, permission: Permission): { allowed: boolean; reason: string } {
+    if (actor.status !== "active") {
+      return { allowed: false, reason: `identity is ${actor.status}` };
+    }
+    if (!ROLE_PERMISSIONS[actor.role].includes(permission)) {
+      return { allowed: false, reason: `role ${actor.role} does not hold '${permission}'` };
+    }
+    return { allowed: true, reason: `role ${actor.role} holds '${permission}'` };
+  }
+
+  /** Enforced decision — records an audit entry for the outcome. */
+  async authorize(
+    actor: Pick<User, "role" | "status" | "email">,
+    permission: Permission,
+    resource: { type: string; id: string },
+  ): Promise<void> {
+    const decision = this.decide(actor, permission);
+    await this.audit.record({
+      actor: actor.email,
+      action: decision.allowed ? `authorization.granted:${permission}` : `authorization.denied:${permission}`,
+      resource_type: resource.type,
+      resource_id: resource.id,
+      result: decision.allowed ? "allow" : "deny",
+      metadata: { role: actor.role, permission, reason: decision.reason },
+    });
+    if (!decision.allowed) {
+      throw Err.denied("PERMISSION_DENIED", `permission denied: ${decision.reason}`);
+    }
+  }
+
+  /** The effective permission set for an identity (UI + policy previews). */
+  effective(actor: Pick<User, "role" | "status">): Permission[] {
+    return actor.status === "active" ? permissionsFor(actor.role) : [];
+  }
+}
+
+/* ----------------------------- CredentialService ---------------------------- */
+
+/**
+ * Phase 2 — secret access mediation. Agents and requests only ever see
+ * SecretReferences; a value is resolved exclusively here, behind an
+ * authorization check, with every attempt audited (values never are).
+ */
+export class CredentialService {
+  constructor(
+    private provider: SecretProvider,
+    private authz: AuthorizationService,
+    private audit: AuditService,
+  ) {}
+
+  /** Store a secret (management permission) — only the reference is returned. */
+  async put(actor: Pick<User, "role" | "status" | "email">, name: string, value: string): Promise<SecretReference> {
+    await this.authz.authorize(actor, "secret:manage", { type: "secret", id: name });
+    return this.provider.put(name, value);
+  }
+
+  /** Resolve a reference for an authorized service. Denials are audited. */
+  async resolve(actor: Pick<User, "role" | "status" | "email">, ref: SecretReference, purpose: string): Promise<string> {
+    const decision = this.authz.decide(actor, "secret:reference");
+    await this.audit.record({
+      actor: actor.email,
+      action: decision.allowed ? "secret.requested" : "secret.denied",
+      resource_type: "secret",
+      resource_id: ref.id,
+      result: decision.allowed ? "allow" : "deny",
+      metadata: { secret: ref.name, purpose, reason: decision.reason },
+    });
+    if (!decision.allowed) {
+      throw Err.denied("PERMISSION_DENIED", `permission denied: ${decision.reason}`);
+    }
+    return this.provider.resolve(ref);
+  }
+
+  list(): Promise<SecretReference[]> {
+    return this.provider.list();
+  }
+}
+
+/* ------------------------------- Path policy ------------------------------- */
+
+/**
+ * Normalize and authorize a workspace-relative path. Rejects traversal,
+ * absolute host paths, backslashes, control characters and system locations.
+ */
+export function safeWorkspacePath(path: string): string {
+  const p = path.trim();
+  if (!p || p.length > 240) throw Err.security("INVALID_PATH", "path must be 1–240 characters");
+  if (p.includes("..")) throw Err.security("PATH_TRAVERSAL", "path traversal is not permitted");
+  if (p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p)) throw Err.security("ABSOLUTE_PATH", "absolute host paths are not permitted");
+  if (p.includes("\\") || p.includes("\0")) throw Err.security("UNSAFE_PATH", "backslashes and control characters are not permitted");
+  if (p.endsWith("/")) throw Err.security("INVALID_PATH", "path must reference a file, not a directory");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._\-/]*$/.test(p)) throw Err.security("INVALID_PATH", "path contains unsupported characters");
+  const banned = ["etc/", "proc/", "sys/", "usr/", "var/", "boot/", ".ssh/", ".aws/", ".gnupg/"];
+  const lower = p.toLowerCase();
+  if (banned.some((b) => lower.startsWith(b) || lower.includes(`/${b}`))) {
+    throw Err.security("SYSTEM_PATH", "system and credential directories are not accessible");
+  }
+  return p;
+}
+
+/* ------------------------------ Network policy ------------------------------ */
+
+/**
+ * Phase 2 — network access policy. Default-deny with an explicit allowlist;
+ * every decision is auditable through the returned check record.
+ */
+export class NetworkPolicyService {
+  private policy: NetworkPolicy;
+  constructor(policy?: NetworkPolicy) {
+    this.policy = policy ?? { mode: "ALLOWLIST", allowlist: ["https://api.github.com"] };
+  }
+
+  current(): NetworkPolicy {
+    return { mode: this.policy.mode, allowlist: [...this.policy.allowlist] };
+  }
+
+  check(origin: string): { allowed: boolean; reason: string } {
+    if (this.policy.mode === "DENY") {
+      return { allowed: false, reason: "network policy mode is DENY" };
+    }
+    const clean = origin.trim().toLowerCase().replace(/\/$/, "");
+    if (this.policy.allowlist.map((o) => o.toLowerCase().replace(/\/$/, "")).includes(clean)) {
+      return { allowed: true, reason: `origin '${clean}' is on the allowlist` };
+    }
+    return { allowed: false, reason: `origin '${clean}' is not on the network allowlist` };
+  }
+}
+
+import type { NetworkPolicy } from "./types";
 
 /* ------------------------------ User management ---------------------------- */
 

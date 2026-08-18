@@ -33,7 +33,7 @@ export interface SystemError {
 
 /* -------------------------------- Security -------------------------------- */
 
-export const ROLES = ["OWNER", "ADMIN", "ENGINEER", "VIEWER"] as const;
+export const ROLES = ["OWNER", "ADMIN", "OPERATOR", "DEVELOPER", "ENGINEER", "VIEWER"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const PERMISSIONS = [
@@ -44,19 +44,34 @@ export const PERMISSIONS = [
   "execution:create",
   "execution:read",
   "execution:cancel",
+  "execution:retry",
   "agent:register",
   "agent:read",
+  "agent:execute",
+  "agent:configure",
+  "artifact:read",
+  "artifact:create",
+  "workspace:create",
+  "workspace:read",
+  "workspace:delete",
+  "secret:reference",
+  "secret:manage",
+  "approval:request",
+  "approval:decide",
   "event:read",
   "audit:read",
   "evidence:read",
-  "secret:reference",
   "config:read",
   "system:health",
+  "system:configure",
   "github:connect",
   "github:read",
   "github:push",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
+
+/** Identity lifecycle beyond active/suspended. */
+export type IdentityStatus = "active" | "suspended";
 
 export interface User {
   id: Id;
@@ -147,6 +162,11 @@ export interface AgentDefinition {
   description: string;
   version: string;
   capabilities: AgentCapability[];
+  /** Phase 2 — declared risk of the operations this agent performs. */
+  risk_level?: "LOW" | "MEDIUM" | "HIGH";
+  /** Phase 2 — permissions the invoking identity must hold for this agent
+   *  to be allowed to run. Agents never inherit permissions from requests. */
+  required_permissions?: Permission[];
 }
 
 export interface AgentContext {
@@ -190,7 +210,19 @@ export type NexusEventType =
   | "evidence.created"
   | "project.created"
   | "project.updated"
-  | "project.archived";
+  | "project.archived"
+  // Phase 2 — security & isolation events (append-only, ordered like all others)
+  | "session.refreshed"
+  | "authorization.granted"
+  | "authorization.denied"
+  | "secret.requested"
+  | "secret.denied"
+  | "workspace.created"
+  | "workspace.destroyed"
+  | "command.blocked"
+  | "network.blocked"
+  | "approval.requested"
+  | "approval.decided";
 
 export interface NexusEvent {
   id: Id;
@@ -333,4 +365,149 @@ export interface SuiteReport {
   duration_ms: number;
   ran_at: number;
   engine: string;
+}
+
+/* ============================ Phase 2 — Security ============================ */
+
+/* -------------------------------- Workspaces ------------------------------- */
+
+export interface WorkspaceRecord {
+  id: Id;
+  project_id: Id;
+  execution_id: Id;
+  status: "ACTIVE" | "DESTROYED";
+  file_count: number;
+  total_bytes: number;
+  created_at: number;
+  destroyed_at: number | null;
+}
+
+export interface WorkspaceFileRecord {
+  id: Id;
+  workspace_id: Id;
+  path: string; // normalized, traversal-free, workspace-relative
+  content: string;
+  size: number;
+  created_at: number;
+  updated_at: number;
+}
+
+/* --------------------------------- Approvals ------------------------------- */
+
+export type ApprovalState = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface ApprovalRecord {
+  id: Id;
+  operation: string;
+  description: string;
+  risk: "MEDIUM" | "HIGH" | "DESTRUCTIVE";
+  requester: string; // email
+  approver: string | null;
+  state: ApprovalState;
+  reason: string | null;
+  created_at: number;
+  decided_at: number | null;
+}
+
+/* ------------------------------ Command safety ----------------------------- */
+
+export type CommandKind = "READ_ONLY" | "SAFE_WRITE" | "RESTRICTED" | "DESTRUCTIVE";
+
+export interface CommandClassification {
+  command: string;
+  kind: CommandKind;
+  risk: "LOW" | "MEDIUM" | "HIGH" | "DESTRUCTIVE";
+  description: string;
+}
+
+/* ----------------------------- Natural language ---------------------------- */
+
+/** A structured operation parsed from natural language. Only catalog intents
+ *  are recognized — unrecognized text never becomes an executable command. */
+export interface OperationIntent {
+  verb: string;
+  operation: string; // catalog id, e.g. "inspect.project"
+  label: string;
+  capability: AgentCapability | null;
+  permission: Permission;
+  risk: "LOW" | "MEDIUM" | "HIGH" | "DESTRUCTIVE";
+}
+
+/* ------------------------------ Policy decisions --------------------------- */
+
+export type PolicyVerdict = "ALLOWED" | "DENIED" | "BLOCKED" | "REQUIRES_APPROVAL";
+
+export interface PolicyCheck {
+  name: string;
+  passed: boolean | null; // null = not applicable
+  detail: string;
+}
+
+export interface PolicyDecision {
+  verdict: PolicyVerdict;
+  reason: string;
+  checks: PolicyCheck[];
+}
+
+/** Full security preview of a requested operation — every check that ran. */
+export interface SecurityPreviewResult {
+  operation: string;
+  actor: string;
+  role: Role;
+  agent_id: string | null;
+  permission_required: Permission;
+  risk: "LOW" | "MEDIUM" | "HIGH" | "DESTRUCTIVE";
+  workspace: string;
+  network_access: string;
+  secret_access: string;
+  decision: PolicyDecision;
+  evaluated_at: number;
+}
+
+/* --------------------------------- Policies -------------------------------- */
+
+export type NetworkMode = "DENY" | "ALLOWLIST";
+
+export interface NetworkPolicy {
+  mode: NetworkMode;
+  allowlist: string[]; // origins
+}
+
+export interface ExecutionLimits {
+  timeout_ms: number;
+  max_output_bytes: number;
+  max_file_bytes: number;
+  max_files: number;
+}
+
+export interface ExecutionPolicy {
+  allowed_agents: string[]; // agent ids; empty = deny all
+  allowed_operations: string[]; // catalog operations; empty = deny all
+  allowed_environments: string[];
+  limits: ExecutionLimits;
+  network: NetworkPolicy;
+  destructive_requires_approval: boolean;
+}
+
+/* --------------------------------- Sandbox --------------------------------- */
+
+export type SandboxKind = "browser" | "container" | "vm" | "remote-worker";
+
+export interface SandboxIsolationReport {
+  kind: SandboxKind;
+  available: boolean;
+  filesystem: string; // honest description of the boundary
+  process: string;
+  network: string;
+  reason: string | null; // real blocker when unavailable
+}
+
+export interface SandboxCommandResult {
+  command: string;
+  classification: CommandKind;
+  exit_code: number; // 0 ok · non-zero failure · 124 timeout
+  stdout: string;
+  stderr: string;
+  duration_ms: number;
+  timed_out: boolean;
 }
