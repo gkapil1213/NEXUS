@@ -9,7 +9,7 @@ import { createAuthApi, NexusKernel, type AuthApi, type KernelServices } from ".
 import { CONFIG } from "./core/config";
 import type { BootStep, NexusEvent, PublicUser } from "./core/types";
 
-export type RouteName = "dashboard" | "projects" | "executions" | "audit" | "control";
+export type RouteName = "dashboard" | "projects" | "executions" | "audit" | "github" | "control";
 
 interface Toast {
   id: number;

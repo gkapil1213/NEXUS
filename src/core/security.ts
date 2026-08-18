@@ -23,6 +23,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "agent:register", "agent:read",
     "event:read", "audit:read", "evidence:read",
     "secret:reference", "config:read", "system:health",
+    "github:connect", "github:read", "github:push",
   ],
   ADMIN: [
     "project:create", "project:read", "project:update", "project:archive",
@@ -30,6 +31,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "agent:register", "agent:read",
     "event:read", "audit:read", "evidence:read",
     "secret:reference", "config:read", "system:health",
+    "github:connect", "github:read", "github:push",
   ],
   ENGINEER: [
     "project:create", "project:read", "project:update",
@@ -37,6 +39,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "agent:read",
     "event:read", "evidence:read",
     "config:read", "system:health",
+    "github:read", "github:push",
   ],
   VIEWER: ["project:read", "execution:read", "agent:read", "event:read", "system:health"],
 };

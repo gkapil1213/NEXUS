@@ -17,6 +17,8 @@ export interface NexusConfig {
   sessionTtlMs: number;
   pbkdf2Iterations: number;
   maxRequestChars: number;
+  /** GitHub REST API base (override for GHES); never a secret. */
+  githubApi: string;
   issues: string[]; // startup validation findings (safe to display)
 }
 
@@ -52,6 +54,7 @@ function buildConfig(): NexusConfig {
     sessionTtlMs: num(env.VITE_NEXUS_SESSION_TTL_MS, 12 * 3_600_000, 10 * 60_000, 24 * 3_600_000),
     pbkdf2Iterations: num(env.VITE_NEXUS_PBKDF2_ITERATIONS, 150_000, 100_000, 1_000_000),
     maxRequestChars: num(env.VITE_NEXUS_MAX_REQUEST_CHARS, 2000, 100, 20_000),
+    githubApi: env.VITE_NEXUS_GITHUB_API ?? "https://api.github.com",
     issues,
   };
 }

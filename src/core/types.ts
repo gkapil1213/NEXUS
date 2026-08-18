@@ -52,6 +52,9 @@ export const PERMISSIONS = [
   "secret:reference",
   "config:read",
   "system:health",
+  "github:connect",
+  "github:read",
+  "github:push",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

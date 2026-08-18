@@ -16,6 +16,7 @@ import { EventService } from "./events";
 import { NexusOrchestrator } from "./orchestration";
 import { ArtifactService, ExecutionService, EvidenceService, ProjectService, type ServiceContext } from "./services";
 import { LocalSecretProvider, SessionService, createUserRecord, toPublicUser, verifyPassword, type SecretProvider } from "./security";
+import { GitHubService } from "./github";
 import type { BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -30,6 +31,7 @@ export interface KernelServices {
   artifacts: ArtifactService;
   sessions: SessionService;
   secrets: SecretProvider;
+  github: GitHubService;
 }
 
 const BOOT_ORDER = [
@@ -109,7 +111,21 @@ export class NexusKernel {
       const orchestrator = new NexusOrchestrator({ engine, events, audit, registry, projects, executions, evidence, artifacts });
       this.step("orchestration", "ok", "deterministic path assembled");
 
-      this.services = { engine, events, audit, registry, orchestrator, projects, executions, evidence, artifacts, sessions: new SessionService(engine), secrets };
+      this.services = {
+        engine,
+        events,
+        audit,
+        registry,
+        orchestrator,
+        projects,
+        executions,
+        evidence,
+        artifacts,
+        sessions: new SessionService(engine),
+        secrets,
+        // Optional integration: no boot dependency, connects on demand.
+        github: new GitHubService(),
+      };
       this.status = "ready";
       await audit.record({
         actor: "system",
@@ -165,6 +181,18 @@ export class NexusKernel {
       name: "config",
       status: configBlocked() ? "blocked" : CONFIG.issues.length > 0 ? "degraded" : "healthy",
       detail: CONFIG.issues.length > 0 ? CONFIG.issues[0] : `${CONFIG.env} validated`,
+      latency_ms: null,
+    });
+
+    // GitHub is an optional integration — unconnected is a valid, honest state.
+    const gh = this.services.github.state();
+    const rate = gh.rate;
+    subsystems.push({
+      name: "github",
+      status: gh.connected ? "healthy" : "degraded",
+      detail: gh.connected
+        ? `connected as @${gh.identity?.login}${rate ? ` · rate ${rate.remaining}/${rate.limit}` : ""}`
+        : "not connected — optional integration (token held in memory only)",
       latency_ms: null,
     });
 
