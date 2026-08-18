@@ -123,6 +123,10 @@ export class NexusKernel {
       const orchestrator = new NexusOrchestrator({ engine, events, audit, registry, projects, executions, evidence, artifacts });
       this.step("orchestration", "ok", "deterministic path assembled");
 
+      // Phase 2 Pass 1 — centralized authorization + identity lifecycle.
+      const authz = new AuthorizationService(audit);
+      const identity = new IdentityService(engine, authz, audit);
+
       this.services = {
         engine,
         events,
@@ -135,6 +139,8 @@ export class NexusKernel {
         artifacts,
         sessions: new SessionService(engine),
         secrets,
+        authz,
+        identity,
         // Optional integration: no boot dependency, connects on demand.
         github: new GitHubService(),
       };
