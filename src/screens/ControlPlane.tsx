@@ -10,8 +10,10 @@ import { runPhase1Suite } from "../core/tests";
 import { CONFIG } from "../core/config";
 import { detectCapabilities } from "../core/capabilities";
 import type { CapabilityReport } from "../core/capabilities";
+import { GATE_STAGES } from "../core/runtime";
+import type { GateEvidence, GateStage, RuntimeStatus, SmokeRunResult } from "../core/runtime";
 import { Badge, Button, Icon, Reveal, SectionHead, Skeleton, StatusPill, cx, fmtDuration, timeAgo } from "../ui";
-import type { HealthReport, SuiteReport } from "../core/types";
+import type { HealthReport, QualityGateResult, SuiteReport } from "../core/types";
 
 export function ControlPlaneScreen() {
   const { kernel, services, bootSteps } = useNexus();
@@ -62,6 +64,72 @@ export function ControlPlaneScreen() {
 
   const agents = services?.registry.list() ?? [];
   const config = kernel?.configView() ?? {};
+
+  /* ---- Runtime bridge: real capability detection + smoke + quality gate ---- */
+  const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [stagingUrl, setStagingUrl] = useState("http://localhost:8080");
+  const [healthUrl, setHealthUrl] = useState("");
+  const [smokeRunning, setSmokeRunning] = useState(false);
+  const [smokeResult, setSmokeResult] = useState<SmokeRunResult | null>(null);
+  const [gate, setGate] = useState<Partial<Record<GateStage, GateEvidence>>>({});
+  const [gateResult, setGateResult] = useState<QualityGateResult | null>(null);
+
+  const detectRuntime = useCallback(async () => {
+    if (!services) return;
+    setDetecting(true);
+    try {
+      setRuntime(await services.runtime.detect());
+    } finally {
+      setDetecting(false);
+    }
+  }, [services]);
+  useEffect(() => {
+    void detectRuntime();
+  }, [detectRuntime]);
+
+  const runSmoke = async () => {
+    if (!services || !stagingUrl.trim()) return;
+    setSmokeRunning(true);
+    setSmokeResult(null);
+    try {
+      const res = await services.runtime.smoke.run({
+        execution_id: null,
+        staging_url: stagingUrl.trim(),
+        health_url: healthUrl.trim() || undefined,
+      });
+      setSmokeResult(res);
+      // Populate HEALTH + SMOKE gate entries from the REAL result.
+      const healthStatus: GateEvidence["status"] = res.health.ok
+        ? "PASS"
+        : res.health.status_code === null && res.health.response_time_ms === null
+          ? "BLOCKED"
+          : "FAIL";
+      const smokeStatus: GateEvidence["status"] = res.smoke.status === "PASSED" ? "PASS" : res.smoke.status === "FAILED" ? "FAIL" : "BLOCKED";
+      setGate((g) => ({
+        ...g,
+        HEALTH: { status: healthStatus, reason: res.health.error },
+        SMOKE: { status: smokeStatus, reason: res.smoke.status === "PASSED" ? null : res.smoke.detail },
+      }));
+    } finally {
+      setSmokeRunning(false);
+    }
+  };
+
+  const evaluateGate = async () => {
+    if (!services) return;
+    setGateResult(await services.runtime.qualityGate.evaluate(null, gate));
+  };
+
+  const capChip = (name: string, status: string | undefined) => {
+    const tone = status === "AVAILABLE" ? "moss" : status === "BLOCKED" ? "gold" : status === "UNAVAILABLE" ? "flame" : "mut";
+    return (
+      <span className="flex items-center justify-between gap-2 rounded-md border border-edge bg-ink-850 px-2.5 py-1.5">
+        <span className="font-mono text-[11px] text-mut">{name}</span>
+        <Badge tone={tone as never}>{status ?? "—"}</Badge>
+      </span>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -285,6 +353,111 @@ export function ControlPlaneScreen() {
               </div>
             </>
           ) : null}
+        </div>
+      </Reveal>
+
+      {/* runtime bridge */}
+      <Reveal delay={210}>
+        <div className="panel overflow-hidden">
+          <div className="flex flex-wrap items-center gap-3 border-b border-edge px-4 py-3">
+            <span className="mono-label flex items-center gap-2"><Icon name="cpu" size={11} /> runtime bridge · process execution</span>
+            <span className="font-mono text-[10px] text-dim">real capability probes — BLOCKED is an honest state, never a fake pass</span>
+            <span className="ml-auto flex items-center gap-2">
+              {runtime ? (
+                <Badge tone={runtime.runtime === "EXTERNAL_HOST_RUNTIME" ? "moss" : "gold"}>{runtime.runtime}</Badge>
+              ) : null}
+              <Button size="sm" variant="outline" icon="refresh" loading={detecting} onClick={() => void detectRuntime()}>
+                re-detect
+              </Button>
+            </span>
+          </div>
+
+          {!runtime ? (
+            <div className="space-y-2 p-4"><Skeleton className="h-8" /><Skeleton className="h-8" /></div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2 border-b border-edge/60 px-4 py-3 sm:grid-cols-4 lg:grid-cols-8">
+                {capChip("process", runtime.processExecution)}
+                {capChip("docker", runtime.docker)}
+                {capChip("trivy", runtime.trivy)}
+                {capChip("playwright", runtime.playwright)}
+                {capChip("chromium", runtime.chromium)}
+                {capChip("node", runtime.node)}
+                {capChip("npm", runtime.npm)}
+                {capChip("git", runtime.git)}
+              </div>
+              <div className="border-b border-edge/60 px-4 py-2 font-mono text-[10px] text-dim">
+                platform <span className="text-mut">{runtime.platform}</span>
+                {runtime.capabilities.filter((c) => c.reason).slice(0, 2).map((c) => (
+                  <span key={c.name} className="ml-3">{c.name}: {c.reason}</span>
+                ))}
+              </div>
+
+              {/* smoke test runner */}
+              <div className="border-b border-edge/60 px-4 py-3">
+                <div className="mono-label mb-2">staging smoke test · real health + browser check</div>
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="flex-1 min-w-[180px]">
+                    <span className="mb-1 block font-mono text-[10px] text-dim">staging url</span>
+                    <input value={stagingUrl} onChange={(e) => setStagingUrl(e.target.value)} className="w-full rounded-md border border-edge bg-ink-850 px-2.5 py-1.5 font-mono text-xs text-fg focus:border-mint/50 focus:outline-none" placeholder="http://localhost:8080" />
+                  </label>
+                  <label className="flex-1 min-w-[180px]">
+                    <span className="mb-1 block font-mono text-[10px] text-dim">health endpoint (optional)</span>
+                    <input value={healthUrl} onChange={(e) => setHealthUrl(e.target.value)} className="w-full rounded-md border border-edge bg-ink-850 px-2.5 py-1.5 font-mono text-xs text-fg focus:border-mint/50 focus:outline-none" placeholder="/health" />
+                  </label>
+                  <Button size="sm" icon="play" loading={smokeRunning} onClick={() => void runSmoke()}>run smoke</Button>
+                </div>
+                {smokeResult ? (
+                  <div className="anim-fade mt-2 rounded-md border border-edge bg-ink-850 px-3 py-2 font-mono text-[11px]">
+                    <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <span className="text-mut">verdict <Badge tone={smokeResult.verdict === "PASS" ? "moss" : smokeResult.verdict === "FAIL" ? "flame" : "gold"}>{smokeResult.verdict}</Badge></span>
+                      <span className="text-mut">health {smokeResult.health.ok ? "ok" : "fail"} {smokeResult.health.status_code !== null ? `· HTTP ${smokeResult.health.status_code}` : ""} {smokeResult.health.response_time_ms !== null ? `· ${smokeResult.health.response_time_ms}ms` : ""}</span>
+                      <span className="text-mut">smoke <Badge tone={smokeResult.smoke.status === "PASSED" ? "moss" : smokeResult.smoke.status === "FAILED" ? "flame" : "gold"}>{smokeResult.smoke.status}</Badge></span>
+                    </span>
+                    {smokeResult.reason ? <p className="mt-1 text-gold">{smokeResult.reason}</p> : null}
+                    <p className="mt-1 text-dim">{smokeResult.smoke.detail}</p>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* quality gate */}
+              <div className="px-4 py-3">
+                <div className="mono-label mb-2">quality gate · evidence-based (blocked never becomes pass)</div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+                  {GATE_STAGES.map((stage) => {
+                    const val = gate[stage]?.status ?? "BLOCKED";
+                    return (
+                      <label key={stage} className="flex flex-col gap-1">
+                        <span className="font-mono text-[10px] text-dim">{stage}</span>
+                        <select
+                          value={val}
+                          onChange={(e) => setGate((g) => ({ ...g, [stage]: { status: e.target.value as GateEvidence["status"], reason: g[stage]?.reason ?? null } }))}
+                          className="rounded-md border border-edge bg-ink-850 px-1.5 py-1 font-mono text-[11px] text-fg focus:border-mint/50 focus:outline-none"
+                        >
+                          <option value="PASS">PASS</option>
+                          <option value="FAIL">FAIL</option>
+                          <option value="BLOCKED">BLOCKED</option>
+                        </select>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <Button size="sm" icon="shield" onClick={() => void evaluateGate()}>evaluate gate</Button>
+                  {gateResult ? (
+                    <Badge tone={gateResult.verdict === "VERIFIED" ? "moss" : gateResult.verdict === "FAILED" ? "flame" : "gold"}>
+                      {gateResult.verdict} · {gateResult.required_passed}/{gateResult.required_total}
+                    </Badge>
+                  ) : null}
+                </div>
+                {gateResult && gateResult.blocking_stages.length > 0 ? (
+                  <p className="mt-1.5 font-mono text-[10px] text-gold">
+                    blocking: {gateResult.blocking_stages.map((b) => `${b.stage}:${b.status}`).join(", ")}
+                  </p>
+                ) : null}
+              </div>
+            </>
+          )}
         </div>
       </Reveal>
 
