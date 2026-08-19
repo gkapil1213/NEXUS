@@ -238,6 +238,12 @@ export interface AgentContext {
   configuration: Record<string, unknown>; // safe values only — never secrets
   evidence_refs: Id[];
   secret_refs: SecretReference[]; // references only; values never enter context
+  /** Pass 3 — workspace boundary. Present only when the execution was granted
+   *  a workspace. Never a host path, never another execution's workspace. */
+  workspace_id?: Id;
+  workspace_reference?: string; // "ws://<id>" — logical reference, not a host path
+  allowed_root?: string; // normalized root the file policy confines ops to
+  authorized_file_operations?: FileOp[];
 }
 
 /** Discriminated outcome of an agent run. */
@@ -283,7 +289,17 @@ export type NexusEventType =
   | "command.blocked"
   | "network.blocked"
   | "approval.requested"
-  | "approval.decided";
+  | "approval.decided"
+  // Phase 2 Pass 3 — workspace & sandbox isolation events (append-only)
+  | "workspace.activated"
+  | "workspace.access.denied"
+  | "workspace.file.read"
+  | "workspace.file.write"
+  | "workspace.path.blocked"
+  | "workspace.expired"
+  | "workspace.cleanup.started"
+  | "workspace.cleanup.completed"
+  | "workspace.cleanup.failed";
 
 export interface NexusEvent {
   id: Id;
@@ -432,14 +448,31 @@ export interface SuiteReport {
 
 /* -------------------------------- Workspaces ------------------------------- */
 
+/** Pass 3 — full workspace lifecycle. */
+export type WorkspaceStatus = "CREATING" | "READY" | "ACTIVE" | "CLEANING" | "DESTROYED" | "FAILED";
+
+/** File operations an agent is authorized to perform inside its workspace. */
+export type FileOp = "read" | "write" | "list" | "exists";
+
+/** Configurable resource limits enforced by the workspace layer. */
+export interface WorkspaceLimits {
+  max_file_bytes: number;
+  max_total_bytes: number;
+  max_file_count: number;
+  max_output_bytes: number;
+}
+
 export interface WorkspaceRecord {
   id: Id;
   project_id: Id;
   execution_id: Id;
-  status: "ACTIVE" | "DESTROYED";
+  owner_identity_id: Id; // Pass 3 — the identity the workspace was created for
+  status: WorkspaceStatus;
   file_count: number;
   total_bytes: number;
   created_at: number;
+  updated_at: number; // Pass 3 — last lifecycle/state change
+  expires_at: number; // Pass 3 — TTL; expired workspaces cannot be activated
   destroyed_at: number | null;
 }
 
@@ -554,9 +587,15 @@ export interface ExecutionPolicy {
 
 export type SandboxKind = "browser" | "container" | "vm" | "remote-worker";
 
+/** Pass 3 — explicit honesty marker. LOGICAL_BOUNDARY means path/policy
+ *  confinement only; REAL_ISOLATION means OS/container/VM separation and must
+ *  never be claimed unless that isolation actually executed. */
+export type IsolationBoundary = "REAL_ISOLATION" | "LOGICAL_BOUNDARY";
+
 export interface SandboxIsolationReport {
   kind: SandboxKind;
   available: boolean;
+  boundary: IsolationBoundary;
   filesystem: string; // honest description of the boundary
   process: string;
   network: string;
