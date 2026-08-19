@@ -611,3 +611,30 @@ export interface SandboxCommandResult {
   duration_ms: number;
   timed_out: boolean;
 }
+
+/* ------------------------------- Pass 3 types ------------------------------ */
+
+/** A structured, allow-listed sandbox operation. Anything else is refused. */
+export type SandboxOperation =
+  | { kind: "list" }
+  | { kind: "read"; path: string }
+  | { kind: "exists"; path: string }
+  | { kind: "write"; path: string; content: string };
+
+/**
+ * Sandbox abstraction. The current runtime ships BrowserSandbox, which
+ * provides a LOGICAL_BOUNDARY only. Container/VM/RemoteWorker implementations
+ * may be added later; isolationReport() must always state the true boundary.
+ */
+export interface ExecutionSandbox {
+  isolationReport(): SandboxIsolationReport;
+  create(actor: SandboxActor, input: { project_id: Id; execution_id: Id; ttl_ms?: number }): Promise<WorkspaceRecord>;
+  prepare(actor: SandboxActor, id: Id): Promise<WorkspaceRecord>;
+  execute(actor: SandboxActor, id: Id, op: SandboxOperation): Promise<{ output: string; truncated: false }>;
+  collectOutput(actor: SandboxActor, id: Id): Promise<string[]>;
+  cleanup(actor: SandboxActor, id: Id): Promise<WorkspaceRecord>;
+  destroy(actor: SandboxActor, id: Id): Promise<WorkspaceRecord>;
+}
+
+/** Minimal authenticated identity accepted by sandbox operations. */
+export type SandboxActor = { id: Id; email: string; role: Role; status: IdentityStatus };

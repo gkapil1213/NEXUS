@@ -30,7 +30,9 @@ import type { AuthorizationService } from "./security";
 import { nid, type NexusEngine } from "./db";
 import { Err, toSystemError } from "./errors";
 import type {
+  AgentContext,
   AgentExecutionRecord,
+  FileOp,
   OperationSpec,
   OperationType,
   Permission,
@@ -41,6 +43,7 @@ import type {
   RiskLevel,
   User,
 } from "./types";
+import type { WorkspaceService } from "./workspace";
 
 /** Minimal authenticated identity needed for policy decisions. */
 export type PolicyActor = Pick<User, "id" | "email" | "role" | "status">;
@@ -204,7 +207,15 @@ export interface AgentExecutionServices {
  * enforcement. preview() answers the same policy question without executing.
  */
 export class AgentExecutionService {
+  /** Pass 3 — optional workspace layer. When attached, every ALLOWED execution
+   *  runs inside a disposable, isolated workspace that is always cleaned up. */
+  private workspaces: WorkspaceService | null = null;
+
   constructor(private svc: AgentExecutionServices) {}
+
+  attachSandbox(workspaces: WorkspaceService): void {
+    this.workspaces = workspaces;
+  }
 
   /** Policy-only answer — identical engine to run(), no side effects beyond none. */
   preview(req: PolicyRequest): PolicyDecision {
@@ -296,13 +307,61 @@ export class AgentExecutionService {
       return rec;
     }
 
-    const ctx = buildAgentContext({
-      execution_id: executionId,
-      project,
-      request: req.requestText ?? "",
-      permissions: [],
-      configuration: {},
-    });
+    // Pass 3 — every ALLOWED execution gets an isolated workspace boundary.
+    // Fail closed: if the workspace cannot be created or activated, the
+    // execution FAILS with the real error — it never runs unbounded.
+    let workspaceId: string | null = null;
+    let ctx: AgentContext;
+    try {
+      const wsFields: {
+        workspace_id?: string;
+        workspace_reference?: string;
+        allowed_root?: string;
+        authorized_file_operations?: FileOp[];
+      } = {};
+      if (this.workspaces) {
+        const ws = await this.workspaces.create(req.actor, { project_id: project.id, execution_id: executionId });
+        const active = await this.workspaces.activate(req.actor, ws.id);
+        workspaceId = active.id;
+        wsFields.workspace_id = active.id;
+        wsFields.workspace_reference = `ws://${active.id}`;
+        wsFields.allowed_root = `ws://${active.id}/`;
+        wsFields.authorized_file_operations = ["read", "write", "list", "exists"];
+      }
+      ctx = buildAgentContext({
+        execution_id: executionId,
+        project,
+        request: req.requestText ?? "",
+        permissions: [],
+        configuration: {},
+        ...wsFields,
+      });
+    } catch (e) {
+      const error = toSystemError(e, "WORKSPACE_PREPARATION_FAILED");
+      const rec = this.persist({
+        execution_id: executionId,
+        agent_id: req.agentId,
+        operation,
+        identity_id: req.actor.id,
+        project_id: project.id,
+        risk,
+        decision: "ALLOWED",
+        status: "FAILED",
+        started_at: started,
+        completed_at: Date.now(),
+        result_summary: error.message,
+        error,
+      });
+      await this.svc.engine.put("agent_executions", rec.id, rec);
+      await this.audit("agent.execution.failed", req, "ALLOWED", error.message, rec.id);
+      await this.svc.events.emit({ type: "agent.failed", source: agent.definition.id, execution_id: executionId, payload: { code: error.code } });
+      // Best-effort cleanup of a partially created workspace (idempotent;
+      // failures are recorded by the workspace service, never silenced).
+      if (this.workspaces && workspaceId) {
+        await this.workspaces.cleanup(req.actor, workspaceId).catch(() => undefined);
+      }
+      return rec;
+    }
 
     try {
       const outcome = await agent.execute(ctx);
@@ -366,6 +425,14 @@ export class AgentExecutionService {
       await this.audit("agent.execution.failed", req, "ALLOWED", error.message, rec.id);
       await this.svc.events.emit({ type: "agent.failed", source: agent.definition.id, execution_id: executionId, payload: { code: error.code } });
       return rec;
+    } finally {
+      // Pass 3 — cleanup on success, failure and exception. Cleanup is
+      // idempotent; an honest cleanup failure is recorded by the workspace
+      // service (workspace.cleanup.failed), so the rethrow is swallowed here
+      // without ever hiding the failure.
+      if (this.workspaces && workspaceId) {
+        await this.workspaces.cleanup(req.actor, workspaceId).catch(() => undefined);
+      }
     }
   }
 

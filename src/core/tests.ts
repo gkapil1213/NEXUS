@@ -11,10 +11,20 @@ import { createAuthApi, NexusKernel } from "./kernel";
 import { can, createUserRecord, permissionsFor, validateEmail } from "./security";
 import { redactText } from "./audit";
 import { digestOf, sha256Hex } from "./db";
-import { AgentRegistry, InspectorAgent, buildAgentContext } from "./agents";
+import { AgentRegistry, InspectorAgent, buildAgentContext, type Agent } from "./agents";
 import { Err, NexusError, toSystemError } from "./errors";
 import { PERMISSIONS } from "./types";
-import type { Session, SuiteReport, TestResult, User } from "./types";
+import { FileAccessPolicy, WorkspaceService, DEFAULT_WORKSPACE_LIMITS } from "./workspace";
+import type {
+  AgentExecutionRecord,
+  OperationType,
+  Session,
+  SuiteReport,
+  TestResult,
+  User,
+  WorkspaceFileRecord,
+  WorkspaceRecord,
+} from "./types";
 
 type TestFn = () => Promise<string | void>;
 
@@ -64,7 +74,26 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
   const suspendedUser: User = { ...scratchUser, id: "usr_scratch_susp", status: "suspended", email: "scratch.susp@tests.nexus" };
 
   // Scratch records created by the suite — cleaned up at the end, and only these.
-  const created: { projects: string[]; executions: string[]; users: string[] } = { projects: [], executions: [], users: [] };
+  const created: {
+    projects: string[];
+    executions: string[];
+    users: string[];
+    workspaces: string[];
+    agentExecs: string[];
+  } = { projects: [], executions: [], users: [], workspaces: [], agentExecs: [] };
+
+  // Pass 3 — lazily-provisioned scratch project shared by workspace tests.
+  const p3: { projectId: string } = { projectId: "" };
+  async function p3Project(): Promise<string> {
+    if (!p3.projectId) {
+      const p = await services.projects.create(ownerUser, { name: "p3-workspace-scratch" });
+      created.projects.push(p.id);
+      p3.projectId = p.id;
+    }
+    return p3.projectId;
+  }
+  // Second OWNER identity, used to prove cross-ownership denial.
+  const owner2User: User = { ...ownerUser, id: "usr_scratch_owner2", email: "scratch.owner2@tests.nexus" };
 
   const tests: TestDef[] = [
     /* ------------------------------- kernel -------------------------------- */
@@ -469,6 +498,569 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         return "history preserved";
       },
     },
+
+    /* ================= Phase 2 Pass 3 — workspace & sandbox ================= */
+
+    /* ------------------------------- Workspace ------------------------------ */
+    {
+      name: "P3 workspace: authorized OWNER creation succeeds and records ownership",
+      category: "p3-workspace",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_create" });
+        created.workspaces.push(ws.id);
+        assert(ws.status === "READY", `creation must reach READY, got ${ws.status}`);
+        assert(ws.owner_identity_id === ownerUser.id, "owner identity must be recorded");
+        return `created ${ws.id}`;
+      },
+    },
+    {
+      name: "P3 workspace: VIEWER creation is denied (workspace:create)",
+      category: "p3-workspace",
+      fn: async () => {
+        const projectId = await p3Project();
+        await expectThrow(() => services.workspaces.create(scratchUser, { project_id: projectId, execution_id: "aex_p3_viewer" }), "permission");
+      },
+    },
+    {
+      name: "P3 workspace: belongs to the exact execution it was created for",
+      category: "p3-workspace",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_exec_bind" });
+        created.workspaces.push(ws.id);
+        assert(ws.execution_id === "aex_p3_exec_bind", "execution_id must match");
+      },
+    },
+    {
+      name: "P3 workspace: belongs to the exact project it was created for",
+      category: "p3-workspace",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_proj_bind" });
+        created.workspaces.push(ws.id);
+        assert(ws.project_id === projectId, "project_id must match");
+      },
+    },
+    {
+      name: "P3 workspace: duplicate creation is handled safely (two valid records, no crash)",
+      category: "p3-workspace",
+      fn: async () => {
+        const projectId = await p3Project();
+        const w1 = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_dup" });
+        const w2 = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_dup" });
+        created.workspaces.push(w1.id, w2.id);
+        assert(w1.id !== w2.id, "duplicates must be distinct records");
+        assert(w1.execution_id === w2.execution_id, "both must reference the same execution");
+      },
+    },
+
+    /* ------------------------------- Lifecycle ------------------------------ */
+    {
+      name: "P3 lifecycle: CREATING → READY on creation",
+      category: "p3-lifecycle",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_lc_ready" });
+        created.workspaces.push(ws.id);
+        assert(ws.status === "READY", "must be READY after create");
+      },
+    },
+    {
+      name: "P3 lifecycle: READY → ACTIVE on activation",
+      category: "p3-lifecycle",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_lc_active" });
+        created.workspaces.push(ws.id);
+        const active = await services.workspaces.activate(ownerUser, ws.id);
+        assert(active.status === "ACTIVE", "must be ACTIVE after activate");
+      },
+    },
+    {
+      name: "P3 lifecycle: ACTIVE → CLEANING → DESTROYED via cleanup (audited)",
+      category: "p3-lifecycle",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_lc_clean" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        const destroyed = await services.workspaces.cleanup(ownerUser, ws.id);
+        assert(destroyed.status === "DESTROYED", "must reach DESTROYED");
+        const audit = await services.audit.list(100);
+        assert(audit.some((a) => a.action === "workspace.cleanup.started" && a.resource_id === ws.id), "cleanup.started audited");
+        assert(audit.some((a) => a.action === "workspace.cleanup.completed" && a.resource_id === ws.id), "cleanup.completed audited");
+      },
+    },
+    {
+      name: "P3 lifecycle: destroyed workspace is terminal (destroyed_at set, not reusable)",
+      category: "p3-lifecycle",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_lc_term" });
+        created.workspaces.push(ws.id);
+        const destroyed = await services.workspaces.cleanup(ownerUser, ws.id);
+        assert(destroyed.destroyed_at !== null, "destroyed_at must be set");
+        await expectThrow(() => services.workspaces.activate(ownerUser, ws.id), "cannot move workspace");
+      },
+    },
+    {
+      name: "P3 lifecycle: illegal transition is rejected",
+      category: "p3-lifecycle",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_lc_illegal" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.cleanup(ownerUser, ws.id); // now DESTROYED
+        await expectThrow(() => services.workspaces.activate(ownerUser, ws.id), "cannot move workspace");
+      },
+    },
+    {
+      name: "P3 lifecycle: cleanup is idempotent (second call is a safe no-op)",
+      category: "p3-lifecycle",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_lc_idem" });
+        created.workspaces.push(ws.id);
+        const d1 = await services.workspaces.cleanup(ownerUser, ws.id);
+        const d2 = await services.workspaces.cleanup(ownerUser, ws.id);
+        assert(d1.status === "DESTROYED" && d2.status === "DESTROYED", "both must be DESTROYED");
+        assert(d1.id === d2.id, "idempotent cleanup must not create a new record");
+      },
+    },
+    {
+      name: "P3 lifecycle: expired workspace cannot be activated (BLOCKED + audited)",
+      category: "p3-lifecycle",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_lc_exp", ttl_ms: 1 });
+        created.workspaces.push(ws.id);
+        await new Promise((r) => setTimeout(r, 5));
+        await expectThrow(() => services.workspaces.activate(ownerUser, ws.id), "expired");
+        const audit = await services.audit.list(100);
+        assert(audit.some((a) => a.action === "workspace.expired" && a.resource_id === ws.id), "expiry audited");
+      },
+    },
+
+    /* ----------------------------- Path security ---------------------------- */
+    {
+      name: "P3 path: valid workspace path is allowed (write + read)",
+      category: "p3-path",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_ok" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await services.workspaces.writeFile(ownerUser, ws.id, "src/main.ts", "export const ok = true;");
+        const f = await services.workspaces.readFile(ownerUser, ws.id, "src/main.ts");
+        assert(f.content === "export const ok = true;", "content round-trips");
+      },
+    },
+    {
+      name: "P3 path: '../' traversal is denied",
+      category: "p3-path",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_dotdot" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await expectThrow(() => services.workspaces.writeFile(ownerUser, ws.id, "../secret.txt", "x"), "denied");
+      },
+    },
+    {
+      name: "P3 path: absolute host path is denied",
+      category: "p3-path",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_abs" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await expectThrow(() => services.workspaces.readFile(ownerUser, ws.id, "/etc/passwd"), "denied");
+      },
+    },
+    {
+      name: "P3 path: encoded traversal is denied",
+      category: "p3-path",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_enc" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await expectThrow(() => services.workspaces.readFile(ownerUser, ws.id, "%2e%2e/secret"), "denied");
+      },
+    },
+    {
+      name: "P3 path: mixed-separator traversal is denied",
+      category: "p3-path",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_mix" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await expectThrow(() => services.workspaces.readFile(ownerUser, ws.id, "..\\..\\etc"), "denied");
+      },
+    },
+    {
+      name: "P3 path: a path referencing another workspace is denied (foreign)",
+      category: "p3-path",
+      fn: async () => {
+        const projectId = await p3Project();
+        const w1 = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_f1" });
+        const w2 = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_f2" });
+        created.workspaces.push(w1.id, w2.id);
+        await services.workspaces.activate(ownerUser, w1.id);
+        await expectThrow(() => services.workspaces.readFile(ownerUser, w1.id, `${w2.id}/file.txt`), "denied");
+      },
+    },
+    {
+      name: "P3 path: a different project's workspace is denied to a non-owner",
+      category: "p3-path",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_own" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await expectThrow(() => services.workspaces.readFile(owner2User, ws.id, "src/main.ts"), "denied");
+      },
+    },
+    {
+      name: "P3 path: protected system/credential paths are denied",
+      category: "p3-path",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_sys" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await expectThrow(() => services.workspaces.readFile(ownerUser, ws.id, ".ssh/id_rsa"), "denied");
+        await expectThrow(() => services.workspaces.readFile(ownerUser, ws.id, "etc/passwd"), "denied");
+      },
+    },
+    {
+      name: "P3 path: ws:// escape reference is denied; sandbox reports LOGICAL_BOUNDARY",
+      category: "p3-path",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_path_esc" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await expectThrow(() => services.workspaces.readFile(ownerUser, ws.id, "ws://other/x"), "denied");
+        const report = services.sandbox.isolationReport();
+        assert(report.boundary === "LOGICAL_BOUNDARY", "must honestly report LOGICAL_BOUNDARY");
+      },
+    },
+
+    /* ---------------------------- File operations --------------------------- */
+    {
+      name: "P3 files: authorized read returns written content",
+      category: "p3-files",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_file_read" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await services.workspaces.writeFile(ownerUser, ws.id, "a.txt", "hello");
+        const f = await services.workspaces.readFile(ownerUser, ws.id, "a.txt");
+        assert(f.content === "hello", "read must return content");
+      },
+    },
+    {
+      name: "P3 files: authorized write updates size/count bookkeeping",
+      category: "p3-files",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_file_write" });
+        created.workspaces.push(ws.id);
+        const active = await services.workspaces.activate(ownerUser, ws.id);
+        await services.workspaces.writeFile(ownerUser, ws.id, "b.txt", "12345");
+        const after = await services.workspaces.get(ownerUser, ws.id);
+        assert(after.file_count === active.file_count + 1, "file_count increments");
+        assert(after.total_bytes === active.total_bytes + 5, "total_bytes increments");
+      },
+    },
+    {
+      name: "P3 files: unauthorized read is denied (VIEWER)",
+      category: "p3-files",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_file_uread" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await expectThrow(() => services.workspaces.readFile(scratchUser, ws.id, "a.txt"), "permission");
+      },
+    },
+    {
+      name: "P3 files: unauthorized write is denied (VIEWER)",
+      category: "p3-files",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_file_uwrite" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await expectThrow(() => services.workspaces.writeFile(scratchUser, ws.id, "a.txt", "x"), "permission");
+      },
+    },
+    {
+      name: "P3 files: file size limit is enforced",
+      category: "p3-files",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_file_size" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        const big = "x".repeat(DEFAULT_WORKSPACE_LIMITS.max_file_bytes + 1);
+        await expectThrow(() => services.workspaces.writeFile(ownerUser, ws.id, "big.txt", big), "limit");
+      },
+    },
+    {
+      name: "P3 files: file count limit is enforced (configurable)",
+      category: "p3-files",
+      fn: async () => {
+        const projectId = await p3Project();
+        const tight = new WorkspaceService({
+          engine: services.engine,
+          authz: services.authz,
+          audit: services.audit,
+          events: services.events,
+          policy: new FileAccessPolicy(),
+          limits: { ...DEFAULT_WORKSPACE_LIMITS, max_file_count: 3 },
+        });
+        const ws = await tight.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_file_count" });
+        created.workspaces.push(ws.id);
+        await tight.activate(ownerUser, ws.id);
+        await tight.writeFile(ownerUser, ws.id, "1.txt", "a");
+        await tight.writeFile(ownerUser, ws.id, "2.txt", "b");
+        await tight.writeFile(ownerUser, ws.id, "3.txt", "c");
+        await expectThrow(() => tight.writeFile(ownerUser, ws.id, "4.txt", "d"), "limit");
+      },
+    },
+    {
+      name: "P3 files: total workspace size limit is enforced (configurable)",
+      category: "p3-files",
+      fn: async () => {
+        const projectId = await p3Project();
+        const tight = new WorkspaceService({
+          engine: services.engine,
+          authz: services.authz,
+          audit: services.audit,
+          events: services.events,
+          policy: new FileAccessPolicy(),
+          limits: { ...DEFAULT_WORKSPACE_LIMITS, max_total_bytes: 1000, max_file_bytes: 600 },
+        });
+        const ws = await tight.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_file_total" });
+        created.workspaces.push(ws.id);
+        await tight.activate(ownerUser, ws.id);
+        await tight.writeFile(ownerUser, ws.id, "a.txt", "x".repeat(600));
+        await expectThrow(() => tight.writeFile(ownerUser, ws.id, "b.txt", "y".repeat(600)), "limit");
+      },
+    },
+
+    /* ------------------------------- Execution ------------------------------ */
+    {
+      name: "P3 exec: an agent execution is bound to exactly one owned workspace",
+      category: "p3-exec",
+      fn: async () => {
+        const projectId = await p3Project();
+        const execId = "aex_p3_exec_one";
+        created.agentExecs.push(execId);
+        const rec = await services.agentExec.run({ actor: ownerUser, agentId: "nexus.inspector", operation: "PROJECT_INSPECT" as OperationType, projectId, executionId: execId, requestText: "inspect me" });
+        assert(rec.status === "SUCCEEDED", `run must succeed, got ${rec.status}`);
+        const wss = await services.engine.byIndex<WorkspaceRecord>("workspaces", "byExecution", execId);
+        assert(wss.length === 1, `exactly one workspace per execution, got ${wss.length}`);
+        assert(wss[0].owner_identity_id === ownerUser.id, "workspace owned by the executing identity");
+      },
+    },
+    {
+      name: "P3 exec: a different identity cannot access the execution's workspace",
+      category: "p3-exec",
+      fn: async () => {
+        const projectId = await p3Project();
+        const execId = "aex_p3_exec_foreign";
+        created.agentExecs.push(execId);
+        await services.agentExec.run({ actor: ownerUser, agentId: "nexus.inspector", operation: "PROJECT_INSPECT" as OperationType, projectId, executionId: execId, requestText: "inspect" });
+        const wss = await services.engine.byIndex<WorkspaceRecord>("workspaces", "byExecution", execId);
+        assert(wss.length === 1, "workspace exists");
+        await expectThrow(() => services.workspaces.readFile(owner2User, wss[0].id, "a.txt"), "workspace");
+      },
+    },
+    {
+      name: "P3 exec: workspace is cleaned up after success",
+      category: "p3-exec",
+      fn: async () => {
+        const projectId = await p3Project();
+        const execId = "aex_p3_exec_clean_ok";
+        created.agentExecs.push(execId);
+        await services.agentExec.run({ actor: ownerUser, agentId: "nexus.inspector", operation: "PROJECT_INSPECT" as OperationType, projectId, executionId: execId, requestText: "inspect" });
+        const wss = await services.engine.byIndex<WorkspaceRecord>("workspaces", "byExecution", execId);
+        assert(wss[0].status === "DESTROYED", `workspace must be DESTROYED after success, got ${wss[0].status}`);
+      },
+    },
+    {
+      name: "P3 exec: workspace is cleaned up after agent failure",
+      category: "p3-exec",
+      fn: async () => {
+        const failKernel = new NexusKernel();
+        const failSvc = await failKernel.boot();
+        class FailingAgent implements Agent {
+          definition = { id: "nexus.p3.failing", name: "Failing", description: "returns failure", version: "1.0.0", capabilities: ["inspect" as const], required_permissions: ["agent:execute" as const], risk_level: "LOW" as const };
+          async execute() {
+            return { status: "failed" as const, summary: "deliberate failure", error: toSystemError(Err.runtime("FORCED", "forced failure")) };
+          }
+        }
+        failSvc.registry.register(new FailingAgent());
+        const projectId = await p3Project();
+        const execId = "aex_p3_exec_clean_fail";
+        created.agentExecs.push(execId);
+        const rec = await failSvc.agentExec.run({ actor: ownerUser, agentId: "nexus.p3.failing", operation: "PROJECT_INSPECT" as OperationType, projectId, executionId: execId, requestText: "fail" });
+        assert(rec.status === "FAILED", "must be FAILED");
+        const wss = await failSvc.engine.byIndex<WorkspaceRecord>("workspaces", "byExecution", execId);
+        assert(wss.length === 1 && wss[0].status === "DESTROYED", "workspace cleaned after failure");
+      },
+    },
+    {
+      name: "P3 exec: workspace is cleaned up after an agent exception (interruption)",
+      category: "p3-exec",
+      fn: async () => {
+        const failKernel = new NexusKernel();
+        const failSvc = await failKernel.boot();
+        class ThrowingAgent implements Agent {
+          definition = { id: "nexus.p3.throwing", name: "Throwing", description: "throws", version: "1.0.0", capabilities: ["inspect" as const], required_permissions: ["agent:execute" as const], risk_level: "LOW" as const };
+          async execute(): Promise<never> {
+            throw new Error("forced exception");
+          }
+        }
+        failSvc.registry.register(new ThrowingAgent());
+        const projectId = await p3Project();
+        const execId = "aex_p3_exec_clean_throw";
+        created.agentExecs.push(execId);
+        const rec = await failSvc.agentExec.run({ actor: ownerUser, agentId: "nexus.p3.throwing", operation: "PROJECT_INSPECT" as OperationType, projectId, executionId: execId, requestText: "throw" });
+        assert(rec.status === "FAILED", "thrown agent must be FAILED");
+        assert(rec.error?.code === "AGENT_EXECUTION_FAILED", "real error preserved");
+        const wss = await failSvc.engine.byIndex<WorkspaceRecord>("workspaces", "byExecution", execId);
+        assert(wss.length === 1 && wss[0].status === "DESTROYED", "workspace cleaned after exception");
+      },
+    },
+    {
+      name: "P3 exec: an expired workspace cannot be activated for execution",
+      category: "p3-exec",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_exec_exp" });
+        created.workspaces.push(ws.id);
+        const stored = await services.engine.get<WorkspaceRecord>("workspaces", ws.id);
+        assert(stored, "workspace must exist");
+        stored.expires_at = Date.now() - 1000;
+        await services.engine.put("workspaces", ws.id, stored);
+        await expectThrow(() => services.workspaces.activate(ownerUser, ws.id), "expired");
+      },
+    },
+
+    /* -------------------------------- Security ------------------------------ */
+    {
+      name: "P3 audit: denied path access is audited with classification",
+      category: "p3-audit",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_aud_path" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        await services.workspaces.writeFile(ownerUser, ws.id, "../leak.txt", "x").catch(() => undefined);
+        const audit = await services.audit.list(100);
+        const rec = audit.find((a) => a.action === "workspace.path.blocked" && a.resource_id === ws.id);
+        assert(rec, "path denial audited");
+        assert((rec.metadata as Record<string, unknown>).classification === "traversal", "classification recorded");
+      },
+    },
+    {
+      name: "P3 audit: workspace creation is audited",
+      category: "p3-audit",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_aud_create" });
+        created.workspaces.push(ws.id);
+        const audit = await services.audit.list(100);
+        assert(audit.some((a) => a.action === "workspace.created" && a.resource_id === ws.id), "creation audited");
+      },
+    },
+    {
+      name: "P3 audit: workspace cleanup is audited (started + completed)",
+      category: "p3-audit",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_aud_clean" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.cleanup(ownerUser, ws.id);
+        const audit = await services.audit.list(100);
+        assert(audit.some((a) => a.action === "workspace.cleanup.started" && a.resource_id === ws.id), "cleanup.started audited");
+        assert(audit.some((a) => a.action === "workspace.cleanup.completed" && a.resource_id === ws.id), "cleanup.completed audited");
+      },
+    },
+    {
+      name: "P3 audit: security preview agrees with the actual execution decision",
+      category: "p3-audit",
+      fn: async () => {
+        const projectId = await p3Project();
+        const execId = "aex_p3_aud_prev";
+        created.agentExecs.push(execId);
+        const preview = services.agentExec.preview({ actor: ownerUser, agentId: "nexus.inspector", operation: "PROJECT_INSPECT" as OperationType, projectId, executionId: execId });
+        const rec = await services.agentExec.run({ actor: ownerUser, agentId: "nexus.inspector", operation: "PROJECT_INSPECT" as OperationType, projectId, executionId: execId, requestText: "preview" });
+        assert(preview.verdict === rec.decision, `preview ${preview.verdict} must equal run decision ${rec.decision}`);
+      },
+    },
+    {
+      name: "P3 audit: no secret value ever reaches workspace audit records",
+      category: "p3-audit",
+      fn: async () => {
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_aud_secret" });
+        created.workspaces.push(ws.id);
+        await services.workspaces.activate(ownerUser, ws.id);
+        const marker = "SUPERSECRETVALUE_9f3c";
+        await services.workspaces.writeFile(ownerUser, ws.id, "s.txt", marker);
+        const audit = await services.audit.list(200);
+        const joined = JSON.stringify(audit);
+        assert(!joined.includes(marker), "file content must never appear in audit records");
+      },
+    },
+
+    /* ------------------------------- Regression ----------------------------- */
+    {
+      name: "P3 regression: duplicate execution request does not create a duplicate workspace",
+      category: "p3-regression",
+      fn: async () => {
+        const projectId = await p3Project();
+        const execId = "aex_p3_reg_dup";
+        created.agentExecs.push(execId);
+        const r1 = await services.agentExec.run({ actor: ownerUser, agentId: "nexus.inspector", operation: "PROJECT_INSPECT" as OperationType, projectId, executionId: execId, requestText: "dup" });
+        const r2 = await services.agentExec.run({ actor: ownerUser, agentId: "nexus.inspector", operation: "PROJECT_INSPECT" as OperationType, projectId, executionId: execId, requestText: "dup" });
+        assert(r1.id === r2.id, "idempotent: same execution record returned");
+        const wss = await services.engine.byIndex<WorkspaceRecord>("workspaces", "byExecution", execId);
+        assert(wss.length === 1, `duplicate run must not create a second workspace, got ${wss.length}`);
+      },
+    },
+    {
+      name: "P3 regression: workspace events preserve strictly-increasing sequence",
+      category: "p3-regression",
+      fn: async () => {
+        const before = await services.events.list(2000);
+        const projectId = await p3Project();
+        const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_reg_seq" });
+        created.workspaces.push(ws.id);
+        const after = await services.events.list(2000);
+        for (let i = 1; i < after.length; i++) {
+          assert(after[i].seq > after[i - 1].seq, "event sequence must be strictly increasing");
+        }
+        assert(after.length > before.length, "workspace events were emitted");
+      },
+    },
+    {
+      name: "P3 regression: Phase-1 authorization behavior is unchanged (VIEWER still denied)",
+      category: "p3-regression",
+      fn: async () => {
+        await expectThrow(() => services.projects.create(scratchUser, { name: "p3-viewer-attempt" }), "permission");
+        assert(can(scratchUser, "project:read"), "VIEWER retains read");
+        assert(!can(scratchUser, "project:create"), "VIEWER still cannot create");
+      },
+    },
   ];
 
   const results: TestResult[] = [];
@@ -488,6 +1080,26 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
   }
   for (const id of created.projects) {
     await services.engine.del("projects", id).catch(() => undefined);
+  }
+  for (const id of created.users) {
+    await services.engine.del("users", id).catch(() => undefined);
+  }
+  // Pass 3 — remove scratch workspaces and their files.
+  for (const id of created.workspaces) {
+    const files = await services.engine.byIndex<WorkspaceFileRecord>("workspace_files", "byWorkspace", id).catch(() => [] as WorkspaceFileRecord[]);
+    for (const f of files) await services.engine.del("workspace_files", f.id).catch(() => undefined);
+    await services.engine.del("workspaces", id).catch(() => undefined);
+  }
+  // Pass 3 — remove scratch agent executions and any workspaces bound to them.
+  for (const id of created.agentExecs) {
+    const runs = await services.engine.byIndex<AgentExecutionRecord>("agent_executions", "byExecution", id).catch(() => [] as AgentExecutionRecord[]);
+    for (const r of runs) await services.engine.del("agent_executions", r.id).catch(() => undefined);
+    const wss = await services.engine.byIndex<WorkspaceRecord>("workspaces", "byExecution", id).catch(() => [] as WorkspaceRecord[]);
+    for (const w of wss) {
+      const files = await services.engine.byIndex<WorkspaceFileRecord>("workspace_files", "byWorkspace", w.id).catch(() => [] as WorkspaceFileRecord[]);
+      for (const f of files) await services.engine.del("workspace_files", f.id).catch(() => undefined);
+      await services.engine.del("workspaces", w.id).catch(() => undefined);
+    }
   }
 
   return {

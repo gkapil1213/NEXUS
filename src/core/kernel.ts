@@ -27,7 +27,8 @@ import {
 } from "./security";
 import { GitHubService } from "./github";
 import { AgentPolicyEngine, ExecutionPolicyEngine, AgentExecutionService } from "./execution-policy";
-import type { BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
+import { BrowserSandbox, FileAccessPolicy, WorkspaceService, DEFAULT_WORKSPACE_LIMITS } from "./workspace";
+import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
   engine: NexusEngine;
@@ -49,6 +50,9 @@ export interface KernelServices {
   agentPolicy: AgentPolicyEngine;
   execPolicy: ExecutionPolicyEngine;
   agentExec: AgentExecutionService;
+  // Phase 2 Pass 3 — workspace isolation & sandbox.
+  workspaces: WorkspaceService;
+  sandbox: ExecutionSandbox;
 }
 
 const BOOT_ORDER = [
@@ -137,6 +141,20 @@ export class NexusKernel {
       const execPolicy = new ExecutionPolicyEngine(registry, authz, agentPolicy);
       const agentExec = new AgentExecutionService({ engine, registry, authz, agentPolicy, execPolicy, audit, events });
 
+      // Phase 2 Pass 3 — workspace isolation & sandbox (logical boundary;
+      // BrowserSandbox.isolationReport() states the true isolation level).
+      const filePolicy = new FileAccessPolicy();
+      const workspaces = new WorkspaceService({
+        engine,
+        authz,
+        audit,
+        events,
+        policy: filePolicy,
+        limits: DEFAULT_WORKSPACE_LIMITS,
+      });
+      const sandbox: ExecutionSandbox = new BrowserSandbox(workspaces);
+      agentExec.attachSandbox(workspaces);
+
       this.services = {
         engine,
         events,
@@ -154,6 +172,8 @@ export class NexusKernel {
         agentPolicy,
         execPolicy,
         agentExec,
+        workspaces,
+        sandbox,
         // Optional integration: no boot dependency, connects on demand.
         github: new GitHubService(),
       };

@@ -18,6 +18,7 @@ import type {
   AgentDefinition,
   AgentOutcome,
   EvidenceInput,
+  FileOp,
   Permission,
   Project,
   SecretReference,
@@ -82,6 +83,12 @@ export interface ContextInput {
   configuration: Record<string, unknown>;
   evidence_refs?: string[];
   secret_refs?: SecretReference[];
+  /** Pass 3 — workspace boundary. Logical references only: never a host path,
+   *  never another execution's workspace, never a secret. */
+  workspace_id?: string;
+  workspace_reference?: string;
+  allowed_root?: string;
+  authorized_file_operations?: FileOp[];
 }
 
 /** Build the controlled context an agent receives. Secret VALUES never enter. */
@@ -103,6 +110,11 @@ export function buildAgentContext(input: ContextInput): AgentContext {
     },
     evidence_refs: [...(input.evidence_refs ?? [])],
     secret_refs: [...(input.secret_refs ?? [])], // references only
+    // Pass 3 — workspace boundary (present only when granted by the execution layer).
+    workspace_id: input.workspace_id,
+    workspace_reference: input.workspace_reference,
+    allowed_root: input.allowed_root,
+    authorized_file_operations: input.authorized_file_operations ? [...input.authorized_file_operations] : undefined,
   };
 }
 
