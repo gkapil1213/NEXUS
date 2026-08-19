@@ -1393,10 +1393,10 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         assert(run.status === "QUEUED", "starts QUEUED");
         // A remote-kind provider that is not connected cannot truly start; use
         // the transition engine directly to prove the state machine.
-        await services.cicd.engine.transitionRun(run, "RUNNING", ctx, null);
-        assert(run.status === "RUNNING", "QUEUED→RUNNING legal");
-        await services.cicd.engine.transitionRun(run, "SUCCEEDED", ctx, null);
-        assert(run.status === "SUCCEEDED", "RUNNING→SUCCEEDED legal");
+        const running = await services.cicd.engine.transitionRun(run, "RUNNING", ctx, null);
+        assert(running.status === "RUNNING", "QUEUED→RUNNING legal");
+        const done = await services.cicd.engine.transitionRun(running, "SUCCEEDED", ctx, null);
+        assert(done.status === "SUCCEEDED", "RUNNING→SUCCEEDED legal");
         return "legal CI transitions";
       },
     },

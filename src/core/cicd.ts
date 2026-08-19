@@ -905,10 +905,10 @@ export class StaticGitProvider implements GitProvider {
     if (!pr) throw Err.notFound("STATIC_NOT_FOUND", `PR #${number} not in static fixture`);
     return pr;
   }
-  async getPipelineStatus(): Promise<CiRunStatus> {
+  async getPipelineStatus(_owner: string, _repo: string, _ref: string): Promise<CiRunStatus> {
     return "SUCCEEDED";
   }
-  async getCommitStatus(): Promise<string> {
+  async getCommitStatus(_owner: string, _repo: string, _sha: string): Promise<string> {
     return "success";
   }
 }

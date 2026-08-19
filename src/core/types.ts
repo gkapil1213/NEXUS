@@ -975,6 +975,156 @@ export interface ContainerRegistryProvider {
   delete(ref: ImageReference): Promise<{ ok: boolean; reason: string | null }>;
 }
 
+/* ========================= Phase 3 Pass 4 — CI execution =================== */
+
+/** The ordered CI execution stages. */
+export const CI_STAGES = [
+  "CHECKOUT",
+  "DETECT",
+  "BUILD",
+  "TEST",
+  "SECURITY",
+  "SBOM",
+  "ARTIFACT",
+  "DOCKER",
+  "STAGING",
+  "HEALTH",
+  "SMOKE",
+  "QUALITY_GATE",
+] as const;
+export type CiStageName = (typeof CI_STAGES)[number];
+
+/** Per-stage states. BLOCKED ≠ FAILED ≠ PASSED — never collapsed.
+ *  Distinct from the Pass 3 remote-pipeline `CiStageStatus`. */
+export type CiExecStageStatus = "PENDING" | "RUNNING" | "PASSED" | "FAILED" | "BLOCKED" | "SKIPPED" | "CANCELLED";
+
+/** Final pipeline states. VERIFIED only when all required stages PASSED. */
+export type CiExecutionStatus = "QUEUED" | "RUNNING" | "VERIFIED" | "FAILED" | "BLOCKED" | "CANCELLED";
+
+/** Stages that MUST pass for a pipeline to reach VERIFIED. */
+export const REQUIRED_CI_STAGES: CiStageName[] = [
+  "CHECKOUT",
+  "DETECT",
+  "BUILD",
+  "TEST",
+  "SECURITY",
+  "SBOM",
+  "ARTIFACT",
+  "DOCKER",
+  "STAGING",
+  "HEALTH",
+  "SMOKE",
+  "QUALITY_GATE",
+];
+
+/**
+ * Controlled execution context. ONLY references — never secret values.
+ * A secret must never be placed here; agents resolve them via CredentialService.
+ */
+export interface CiExecutionContext {
+  execution_id: string;
+  project_id: string;
+  pipeline_id: string | null;
+  commit_sha: string | null;
+  workspace_id: string | null;
+  environment_id: string | null;
+  artifact_ids: string[];
+}
+
+export interface CiExecution {
+  id: string;
+  idempotency_key: string; // (project, commit_sha, pipeline) — dedups submissions
+  project_id: string;
+  pipeline_id: string | null;
+  commit_sha: string | null;
+  workspace_id: string | null;
+  environment_id: string | null;
+  status: CiExecutionStatus;
+  current_stage: CiStageName | null;
+  created_at: number;
+  updated_at: number;
+  started_at: number | null;
+  completed_at: number | null;
+  error: SystemError | null;
+  blocked_reason: string | null;
+  correlation_id: string;
+}
+
+export interface CiStageRecord {
+  id: string;
+  execution_id: string;
+  stage: CiStageName;
+  attempt: number;
+  status: CiExecStageStatus;
+  started_at: number | null;
+  completed_at: number | null;
+  duration_ms: number | null;
+  exit_code: number | null;
+  command: string | null;
+  logs_ref: string | null; // evidence:// reference (stdout/stderr, redacted)
+  artifacts: string[]; // artifact ids produced by this stage
+  evidence_id: string | null;
+  error: SystemError | null;
+  blocked_reason: string | null;
+  retryable: boolean;
+}
+
+export interface CiAttempt {
+  id: string;
+  execution_id: string;
+  attempt: number;
+  status: CiExecutionStatus;
+  started_at: number;
+  completed_at: number | null;
+  retry_reason: string | null;
+}
+
+export interface StagingDeployment {
+  id: string;
+  execution_id: string;
+  provider: string;
+  container_id: string | null;
+  image_digest: string | null;
+  environment: string;
+  host: string | null;
+  port: number | null;
+  started_at: number | null;
+  status: "PENDING" | "RUNNING" | "HEALTHY" | "FAILED" | "BLOCKED" | "STOPPED";
+  blocked_reason: string | null;
+}
+
+export interface HealthCheckResult {
+  id: string;
+  execution_id: string;
+  endpoint: string;
+  status_code: number | null;
+  response_time_ms: number | null;
+  attempts: number;
+  ok: boolean;
+  error: string | null;
+  checked_at: number;
+}
+
+export interface SmokeTestResult {
+  id: string;
+  execution_id: string;
+  target: string;
+  ok: boolean;
+  status: "PASSED" | "FAILED" | "BLOCKED";
+  detail: string | null;
+  ran_at: number;
+}
+
+export interface QualityGateResult {
+  id: string;
+  execution_id: string;
+  verdict: "VERIFIED" | "FAILED" | "BLOCKED";
+  required_passed: number;
+  required_total: number;
+  blocking_stages: { stage: CiStageName; status: CiExecStageStatus; reason: string | null }[];
+  evaluated_at: number;
+}
+
 /* ===================== Phase 3 Pass 3 — CI/CD + Git provider ================= */
 
 /** Supported CI/git providers. GitHub Actions + GitLab CI initially. */
