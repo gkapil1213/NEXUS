@@ -38,6 +38,7 @@ import {
   CiPipelineEngine,
 } from "./cicd";
 import { BrowserSandbox, FileAccessPolicy, WorkspaceService, DEFAULT_WORKSPACE_LIMITS } from "./workspace";
+import { RuntimeBridge } from "./runtime";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -71,6 +72,8 @@ export interface KernelServices {
     gitlab: GitLabProvider;
     engine: CiPipelineEngine;
   };
+  // Phase 3 Pass 5 — runtime bridge (process execution + Docker/Trivy/Playwright).
+  runtime: RuntimeBridge;
 }
 
 const BOOT_ORDER = [
@@ -81,6 +84,7 @@ const BOOT_ORDER = [
   ["secrets", "initialize secret provider"],
   ["agents", "register agent framework"],
   ["orchestration", "assemble orchestration"],
+  ["runtime", "detect execution runtime"],
 ] as const;
 
 export class NexusKernel {
@@ -197,6 +201,14 @@ export class NexusKernel {
         engine: cicdEngine,
       };
 
+      // Phase 3 Pass 5 — runtime bridge. Detects process-execution capability
+      // honestly: BLOCKED in the managed browser workspace, AVAILABLE only after
+      // real probes when a host bridge is injected. Emits events + audit.
+      this.step("runtime", "running");
+      const runtime = new RuntimeBridge({ events, audit });
+      await runtime.detect().catch(() => undefined);
+      this.step("runtime", "ok", `${runtime.kind()} · docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
+
       this.services = {
         engine,
         events,
@@ -219,6 +231,7 @@ export class NexusKernel {
         // Optional integration: no boot dependency, connects on demand.
         github,
         cicd,
+        runtime,
       };
       this.status = "ready";
       await audit.record({
