@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNexus } from "../state";
 import { runPhase1Suite } from "../core/tests";
 import { CONFIG } from "../core/config";
+import { detectCapabilities } from "../core/capabilities";
+import type { CapabilityReport } from "../core/capabilities";
 import { Badge, Button, Icon, Reveal, SectionHead, Skeleton, StatusPill, cx, fmtDuration, timeAgo } from "../ui";
 import type { HealthReport, SuiteReport } from "../core/types";
 
@@ -17,6 +19,7 @@ export function ControlPlaneScreen() {
   const [suite, setSuite] = useState<SuiteReport | null>(null);
   const [running, setRunning] = useState(false);
   const [openTest, setOpenTest] = useState<string | null>(null);
+  const [caps, setCaps] = useState<CapabilityReport | null>(null);
 
   const refresh = useCallback(async () => {
     if (kernel) setHealth(await kernel.health());
@@ -27,6 +30,22 @@ export function ControlPlaneScreen() {
     const iv = window.setInterval(() => void refresh(), 6000);
     return () => window.clearInterval(iv);
   }, [refresh]);
+
+  // Real runtime capability detection — probes by attempting execution and
+  // reports AVAILABLE / UNAVAILABLE / BLOCKED / UNKNOWN. Never infers from
+  // package names. Runs once on mount and when the user re-scans.
+  const [scanning, setScanning] = useState(false);
+  const scan = useCallback(async () => {
+    setScanning(true);
+    try {
+      setCaps(await detectCapabilities());
+    } finally {
+      setScanning(false);
+    }
+  }, []);
+  useEffect(() => {
+    void scan();
+  }, [scan]);
 
   const runSuite = async () => {
     setRunning(true);
@@ -148,6 +167,54 @@ export function ControlPlaneScreen() {
           </div>
         </Reveal>
       </div>
+
+      {/* runtime capability detection */}
+      <Reveal delay={170}>
+        <div className="panel overflow-hidden">
+          <div className="flex flex-wrap items-center gap-3 border-b border-edge px-4 py-3">
+            <span className="mono-label flex items-center gap-2"><Icon name="cpu" size={11} /> runtime capability detection · execution-based</span>
+            <span className="font-mono text-[10px] text-dim">probes attempt real execution — AVAILABLE only when it genuinely works here; shell-bound tooling in this browser is reported honestly</span>
+            <span className="ml-auto flex items-center gap-2">
+              {caps ? (
+                <span className="flex gap-1.5 font-mono text-[10px]">
+                  <Badge tone="moss">{caps.summary.AVAILABLE} avail</Badge>
+                  <Badge tone="mut">{caps.summary.UNAVAILABLE} unavail</Badge>
+                  <Badge tone="gold">{caps.summary.BLOCKED} blocked</Badge>
+                </span>
+              ) : null}
+              <Button variant="outline" size="sm" icon="refresh" loading={scanning} onClick={() => void scan()}>
+                {scanning ? "scanning…" : "rescan"}
+              </Button>
+            </span>
+          </div>
+
+          {!caps ? (
+            <div className="space-y-2 p-4"><Skeleton className="h-9" /><Skeleton className="h-9" /><Skeleton className="h-9" /></div>
+          ) : (
+            <div className="grid md:grid-cols-2">
+              {caps.probes.map((p) => (
+                <div key={p.name} className="flex items-center gap-3 border-b border-edge/50 px-4 py-2.5">
+                  <span
+                    className={cx(
+                      "h-1.5 w-1.5 shrink-0 rounded-full",
+                      p.status === "AVAILABLE" ? "bg-moss" : p.status === "UNAVAILABLE" ? "bg-dim" : p.status === "BLOCKED" ? "bg-gold" : "bg-sky",
+                    )}
+                  />
+                  <span className="w-44 shrink-0 truncate font-mono text-xs text-fg">{p.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-dim" title={p.detail}>{p.detail}</span>
+                  {p.latency_ms !== null ? <span className="shrink-0 font-mono text-[10px] text-mut tabular-nums">{p.latency_ms}ms</span> : null}
+                  <StatusPill status={p.status === "AVAILABLE" ? "healthy" : p.status === "UNAVAILABLE" ? "absent" : p.status === "BLOCKED" ? "degraded" : "unknown"} />
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="border-t border-edge/60 px-4 py-2.5 font-mono text-[10px] leading-relaxed text-dim">
+            Docker build, container scanning, image SBOM, staging, health and Playwright smoke all require a real container/browser
+            runtime that this sandbox cannot spawn — they remain <span className="text-gold">BLOCKED</span> here and are never reported PASS.
+            Source SBOM and static security run in-browser from real manifests. environment <span className="text-mut">{caps?.environment ?? "…"}</span>
+          </p>
+        </div>
+      </Reveal>
 
       {/* verification suite */}
       <Reveal delay={190}>
