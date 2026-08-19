@@ -19,11 +19,11 @@
 import { CONFIG } from "./config";
 import { Err } from "./errors";
 
-/** Schema v3 (Phase 2 Pass 2): ADDITIVE migration — adds the agent_executions
- *  store for policy-gated agent execution records. IndexedDB preserves every
- *  existing object store and record across version bumps; the upgrade handler
- *  only creates stores that are missing, so Phase 1 + Pass-1 data survives. */
-export const SCHEMA_VERSION = 3;
+/** Schema v4 (Phase 3 Pass 1): ADDITIVE migration — adds pipeline_runs and
+ *  pipeline_stages stores for the DevOps build pipeline. IndexedDB preserves
+ *  every existing object store and record across version bumps; the upgrade
+ *  handler only creates stores that are missing, so all prior data survives. */
+export const SCHEMA_VERSION = 4;
 
 export const NEXUS_STORES = [
   "users",
@@ -43,6 +43,10 @@ export const NEXUS_STORES = [
   "approvals",
   // Phase 2 Pass 2
   "agent_executions",
+  // Phase 3 Pass 1 — DevOps pipeline (builds are stage records + BUILD_OUTPUT
+  // artifacts; no separate build table duplicates that state)
+  "pipeline_runs",
+  "pipeline_stages",
 ] as const;
 export type StoreName = (typeof NEXUS_STORES)[number];
 
@@ -87,6 +91,15 @@ const INDEXES: Record<string, [string, string][]> = {
   workspace_files: [["byWorkspace", "workspace_id"]],
   // Phase 2 Pass 2
   agent_executions: [["byExecution", "execution_id"]],
+  // Phase 3 Pass 1
+  pipeline_runs: [
+    ["byProject", "project_id"],
+    ["byExecution", "execution_id"],
+  ],
+  pipeline_stages: [
+    ["byRun", "run_id"],
+    ["byExecution", "execution_id"],
+  ],
 };
 
 class IdbEngine implements NexusEngine {

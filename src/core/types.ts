@@ -169,6 +169,10 @@ export const AGENT_CAPABILITIES = [
   "read_execution",
   "run_test",
   "generate_artifact",
+  // Phase 3 Pass 1 — DevOps build pipeline capabilities
+  "build",
+  "detect_project",
+  "generate_sbom",
 ] as const;
 export type AgentCapability = (typeof AGENT_CAPABILITIES)[number];
 
@@ -299,7 +303,24 @@ export type NexusEventType =
   | "workspace.expired"
   | "workspace.cleanup.started"
   | "workspace.cleanup.completed"
-  | "workspace.cleanup.failed";
+  | "workspace.cleanup.failed"
+  // Phase 3 Pass 1 — DevOps pipeline events (append-only, strictly ordered)
+  | "devops.pipeline.started"
+  | "devops.pipeline.completed"
+  | "devops.pipeline.failed"
+  | "devops.pipeline.blocked"
+  | "devops.detect.started"
+  | "devops.detect.completed"
+  | "devops.build.started"
+  | "devops.build.completed"
+  | "devops.test.started"
+  | "devops.test.completed"
+  | "devops.security.started"
+  | "devops.security.completed"
+  | "devops.sbom.started"
+  | "devops.sbom.completed"
+  | "devops.artifact.started"
+  | "devops.artifact.completed";
 
 export interface NexusEvent {
   id: Id;
@@ -638,3 +659,142 @@ export interface ExecutionSandbox {
 
 /** Minimal authenticated identity accepted by sandbox operations. */
 export type SandboxActor = { id: Id; email: string; role: Role; status: IdentityStatus };
+
+/* ============================ Phase 3 — DevOps ============================= */
+
+/* ------------------------------ Artifact kinds ----------------------------- */
+
+/** Canonical artifact types registered by the DevOps pipeline. */
+export type ArtifactKind =
+  | "BUILD_OUTPUT"
+  | "TEST_REPORT"
+  | "SECURITY_REPORT"
+  | "SBOM"
+  | "LOG"
+  | "report"; // Phase 1 legacy kind kept for backward compatibility
+
+/* ---------------------------- Project detection ---------------------------- */
+
+export type DetectedLanguage = "node" | "python" | "typescript" | "unknown";
+
+/** Result of ProjectDetector. Fields that could not be detected are null and
+ *  confidence reflects how much real evidence grounded the detection. */
+export interface DetectionResult {
+  language: DetectedLanguage;
+  framework: string | null; // "next" | "fastapi" | null
+  runtime: string | null; // "node" | "python" | null
+  package_manager: string | null; // "npm" | "pip" | null
+  build_command: string | null;
+  test_command: string | null;
+  entrypoint: string | null;
+  confidence: number; // 0..1
+  dockerfile: boolean; // detection only — Docker is NOT built in this pass
+  docker_compose: boolean;
+  evidence: string[]; // the actual files that grounded the detection
+}
+
+/* -------------------------------- Build plan ------------------------------- */
+
+/**
+ * Structured build description. Commands are validated against an allowlist —
+ * an LLM string is NEVER executed directly. working_directory is confined to
+ * the workspace by the Phase 2 FileAccessPolicy.
+ */
+export interface BuildPlan {
+  runtime: "node" | "python" | "none";
+  package_manager: string | null;
+  install_command: string | null;
+  build_command: string | null;
+  test_command: string | null;
+  working_directory: string; // workspace-relative; validated, never absolute/host
+}
+
+export type BuildStatus = "SUCCEEDED" | "FAILED" | "BLOCKED";
+
+export interface BuildResult {
+  status: BuildStatus;
+  command: string | null; // the allow-listed command actually run (null if blocked)
+  duration_ms: number;
+  artifacts: { name: string; content: string }[];
+  logs: string;
+  error: SystemError | null;
+  blocked_reason: string | null; // set only when status === "BLOCKED"
+}
+
+/* ------------------------------ Pipeline model ----------------------------- */
+
+export type PipelineStageName =
+  | "DETECTING"
+  | "BUILDING"
+  | "TESTING"
+  | "SECURITY_REVIEW"
+  | "SBOM_GENERATION"
+  | "ARTIFACT_REGISTRATION";
+
+export type PipelineStatus = PipelineStageName | "COMPLETED" | "FAILED" | "BLOCKED";
+
+export type StageStatus = "RUNNING" | "SUCCEEDED" | "FAILED" | "BLOCKED";
+
+/** One pipeline execution. attempt + correlation_id give retry identity. */
+export interface PipelineRun {
+  id: Id;
+  project_id: Id;
+  execution_id: Id;
+  attempt: number;
+  correlation_id: Id;
+  status: PipelineStatus;
+  current_stage: PipelineStageName | null;
+  created_at: number;
+  updated_at: number;
+  error: SystemError | null;
+  blocked_reason: string | null;
+  docker: { dockerfile: boolean; compose: boolean; runtime: "BLOCKED" } | null;
+}
+
+/**
+ * Exactly ONE logical stage record per (execution_id + stage + attempt).
+ * A stage is finalized in place (RUNNING → terminal), never duplicated.
+ */
+export interface PipelineStage {
+  id: Id;
+  run_id: Id;
+  execution_id: Id;
+  stage: PipelineStageName;
+  attempt: number;
+  correlation_id: Id;
+  status: StageStatus;
+  started_at: number;
+  completed_at: number | null;
+  duration_ms: number | null;
+  evidence_id: Id | null;
+  command: string | null;
+  logs_ref: string | null; // artifact reference for full logs
+  error: SystemError | null;
+  blocked_reason: string | null;
+}
+
+/* --------------------------------- SBOM ------------------------------------ */
+
+export interface SbomComponent {
+  name: string;
+  version: string;
+  ecosystem: string; // "npm" | "pypi"
+  dev: boolean;
+}
+
+export interface SbomResult {
+  status: "SUCCEEDED" | "BLOCKED";
+  format: "CycloneDX" | null;
+  components: SbomComponent[];
+  digest: string | null; // real sha256 over the generated SBOM document
+  blocked_reason: string | null;
+}
+
+/* ------------------------------- Security scan ----------------------------- */
+
+export interface SecurityScanResult {
+  status: "PASSED" | "FAILED" | "BLOCKED";
+  findings: string[]; // real static findings (secrets / unsafe config)
+  external_scanner: "BLOCKED"; // OSV / external feed is unavailable in-browser
+  blocked_reason: string | null;
+}
