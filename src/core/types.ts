@@ -67,6 +67,15 @@ export const PERMISSIONS = [
   "github:connect",
   "github:read",
   "github:push",
+  // Phase 3 Pass 3 — CI/CD + Git provider foundation. Provider-specific read/
+  // write (github:read/github:push) are reused where applicable; these are the
+  // provider-agnostic pipeline/git/change-request capabilities.
+  "pipeline:create",
+  "pipeline:read",
+  "pipeline:execute",
+  "git:read",
+  "git:write",
+  "change-request:create",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -337,7 +346,25 @@ export type NexusEventType =
   | "sbom.started"
   | "sbom.completed"
   | "artifact.register.started"
-  | "artifact.register.completed";
+  | "artifact.register.completed"
+  // Phase 3 Pass 3 — CI/CD + Git provider events (append-only, strictly ordered)
+  | "pipeline.plan.created"
+  | "pipeline.generation.started"
+  | "pipeline.generation.completed"
+  | "pipeline.validation.started"
+  | "pipeline.validation.completed"
+  | "git.provider.requested"
+  | "git.provider.completed"
+  | "git.provider.blocked"
+  | "git.branch.created"
+  | "git.commit.created"
+  | "change.request.created"
+  | "change.request.updated"
+  | "pipeline.submitted"
+  | "pipeline.started"
+  | "pipeline.completed"
+  | "pipeline.failed"
+  | "pipeline.blocked";
 
 export interface NexusEvent {
   id: Id;
@@ -696,6 +723,12 @@ export type ArtifactKind =
   | "DOCKERFILE"
   | "DOCKERFILE_SCAN"
   | "IMAGE_SCAN_REPORT"
+  // Phase 3 Pass 3 — CI/CD artifacts
+  | "PIPELINE_CONFIG"
+  | "PIPELINE_VALIDATION_REPORT"
+  | "CHANGE_REQUEST"
+  | "PIPELINE_LOG"
+  | "PIPELINE_RESULT"
   | "report"; // Phase 1 legacy kind kept for backward compatibility
 
 /* ---------------------------- Project detection ---------------------------- */
@@ -940,4 +973,168 @@ export interface ContainerRegistryProvider {
   pull(ref: ImageReference): Promise<{ ok: boolean; reason: string | null }>;
   inspect(ref: ImageReference): Promise<{ ok: boolean; reason: string | null }>;
   delete(ref: ImageReference): Promise<{ ok: boolean; reason: string | null }>;
+}
+
+/* ===================== Phase 3 Pass 3 — CI/CD + Git provider ================= */
+
+/** Supported CI/git providers. GitHub Actions + GitLab CI initially. */
+export type CiProvider = "github" | "gitlab";
+
+/** Canonical pipeline step types. Provider generators map these to YAML. */
+export type PipelineStepType =
+  | "checkout"
+  | "install"
+  | "lint"
+  | "test"
+  | "security"
+  | "build"
+  | "artifact"
+  | "docker";
+
+/**
+ * A single structured pipeline step. `command` is an allow-listed shell
+ * command; `uses`/`with` map to provider actions (e.g. actions/checkout).
+ * NEVER an arbitrary AI-authored command string.
+ */
+export interface PipelineStep {
+  type: PipelineStepType;
+  name: string;
+  command?: string | null;
+  uses?: string | null;
+  with?: Record<string, string> | null;
+  needs?: PipelineStepType[] | null;
+}
+
+/**
+ * Structured pipeline plan produced by the PipelineAgent from real project
+ * detection. Only applicable steps are included (e.g. no docker step unless
+ * Docker is genuinely configured).
+ */
+export interface PipelinePlan {
+  provider: CiProvider;
+  project_type: string; // language/framework from detection
+  install_step: PipelineStep | null;
+  lint_step: PipelineStep | null;
+  test_step: PipelineStep | null;
+  security_step: PipelineStep | null;
+  build_step: PipelineStep | null;
+  artifact_step: PipelineStep | null;
+  docker_step: PipelineStep | null;
+  steps: PipelineStep[]; // ordered, applicable-only
+  docker: boolean; // true only when Docker config is genuinely available
+  generated_at: number;
+}
+
+/** Generated provider-specific pipeline configuration. */
+export interface PipelineConfig {
+  provider: CiProvider;
+  filename: string; // ".github/workflows/nexus-ci.yml" | ".gitlab-ci.yml"
+  content: string; // the YAML
+  digest: string; // real sha256 over content
+}
+
+export type PipelineValidationVerdict = "VALID" | "INVALID" | "BLOCKED";
+
+export interface PipelineValidationFinding {
+  rule: string;
+  severity: "info" | "warn" | "error";
+  evidence: string; // the offending line/pattern
+  location: string; // line number or step name
+  recommendation: string;
+}
+
+export interface PipelineValidationResult {
+  verdict: PipelineValidationVerdict;
+  findings: PipelineValidationFinding[];
+}
+
+/** A pull/merge request. Never auto-merged; no deployment. */
+export type ChangeRequestStatus = "OPEN" | "MERGED" | "CLOSED";
+
+export interface ChangeRequest {
+  id: Id;
+  provider: CiProvider;
+  repository: string; // "owner/repo"
+  source_branch: string;
+  target_branch: string;
+  commit: string; // head commit sha
+  title: string;
+  description: string;
+  status: ChangeRequestStatus;
+  remote_id: number | null; // provider PR/MR number when created remotely
+  remote_url: string | null;
+  created_at: number;
+}
+
+/** Remote pipeline run status model (provider-agnostic). */
+export type CiRunStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "BLOCKED" | "CANCELLED";
+export type CiStageStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "BLOCKED" | "SKIPPED";
+
+export interface CiPipelineRun {
+  id: Id;
+  execution_id: Id;
+  project_id: Id;
+  provider: CiProvider;
+  repository: string;
+  ref: string; // branch
+  status: CiRunStatus;
+  attempt: number;
+  correlation_id: Id;
+  created_at: number;
+  updated_at: number;
+  error: SystemError | null;
+  blocked_reason: string | null;
+}
+
+/** An audited git operation (branch/commit/PR creation, status fetch). */
+export type GitOperationType =
+  | "get_repository"
+  | "list_branches"
+  | "get_commit"
+  | "create_branch"
+  | "create_commit"
+  | "create_pull_request"
+  | "get_pull_request"
+  | "pipeline_status"
+  | "commit_status";
+
+export interface GitOperation {
+  id: Id;
+  execution_id: Id | null;
+  provider: CiProvider;
+  operation: GitOperationType;
+  repository: string;
+  ref: string | null;
+  commit_sha: string | null;
+  status: "SUCCEEDED" | "FAILED" | "BLOCKED";
+  blocked_reason: string | null;
+  created_at: number;
+}
+
+/** Git provider primitives shared by GitHub/GitLab adapters + static fixture. */
+export interface GitRepo {
+  full_name: string; // "owner/repo"
+  default_branch: string;
+  is_private: boolean;
+}
+export interface GitBranch {
+  name: string;
+  sha: string;
+  is_protected: boolean;
+}
+export interface GitCommit {
+  sha: string;
+  message: string;
+  author: string;
+}
+export interface GitChangeRequest {
+  number: number;
+  head: string;
+  base: string;
+  state: string;
+  url: string | null;
+}
+export interface GitFileChange {
+  path: string;
+  content: string;
 }

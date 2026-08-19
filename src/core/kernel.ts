@@ -27,6 +27,16 @@ import {
 } from "./security";
 import { GitHubService } from "./github";
 import { AgentPolicyEngine, ExecutionPolicyEngine, AgentExecutionService } from "./execution-policy";
+import { ProjectDetector } from "./devops";
+import {
+  PipelineAgent,
+  PipelineValidator,
+  GitHubActionsGenerator,
+  GitLabCIGenerator,
+  GitHubProvider,
+  GitLabProvider,
+  CiPipelineEngine,
+} from "./cicd";
 import { BrowserSandbox, FileAccessPolicy, WorkspaceService, DEFAULT_WORKSPACE_LIMITS } from "./workspace";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
@@ -53,6 +63,14 @@ export interface KernelServices {
   // Phase 2 Pass 3 — workspace isolation & sandbox.
   workspaces: WorkspaceService;
   sandbox: ExecutionSandbox;
+  // Phase 3 Pass 3 — CI/CD pipeline + Git provider foundation.
+  cicd: {
+    agent: PipelineAgent;
+    validator: PipelineValidator;
+    github: GitHubProvider;
+    gitlab: GitLabProvider;
+    engine: CiPipelineEngine;
+  };
 }
 
 const BOOT_ORDER = [
@@ -155,6 +173,30 @@ export class NexusKernel {
       const sandbox: ExecutionSandbox = new BrowserSandbox(workspaces);
       agentExec.attachSandbox(workspaces);
 
+      // Phase 3 Pass 3 — CI/CD pipeline + Git provider foundation. The GitHub
+      // provider wraps the same GitHubService instance (connection on demand);
+      // remote operations stay honestly BLOCKED until a token is connected.
+      const github = new GitHubService();
+      const cicdValidator = new PipelineValidator();
+      const cicdAgent = new PipelineAgent({
+        detector: new ProjectDetector(),
+        github: new GitHubActionsGenerator(),
+        gitlab: new GitLabCIGenerator(),
+        validator: cicdValidator,
+        events,
+        audit,
+        evidence,
+        artifacts,
+      });
+      const cicdEngine = new CiPipelineEngine({ engine, events, audit, evidence, artifacts, authz });
+      const cicd = {
+        agent: cicdAgent,
+        validator: cicdValidator,
+        github: new GitHubProvider(github),
+        gitlab: new GitLabProvider(),
+        engine: cicdEngine,
+      };
+
       this.services = {
         engine,
         events,
@@ -175,7 +217,8 @@ export class NexusKernel {
         workspaces,
         sandbox,
         // Optional integration: no boot dependency, connects on demand.
-        github: new GitHubService(),
+        github,
+        cicd,
       };
       this.status = "ready";
       await audit.record({

@@ -19,11 +19,12 @@
 import { CONFIG } from "./config";
 import { Err } from "./errors";
 
-/** Schema v4 (Phase 3 Pass 1): ADDITIVE migration — adds pipeline_runs and
- *  pipeline_stages stores for the DevOps build pipeline. IndexedDB preserves
- *  every existing object store and record across version bumps; the upgrade
- *  handler only creates stores that are missing, so all prior data survives. */
-export const SCHEMA_VERSION = 4;
+/** Schema v5 (Phase 3 Pass 3): ADDITIVE migration — adds change_requests,
+ *  git_operations and ci_pipeline_runs stores for the CI/CD + Git provider
+ *  foundation. IndexedDB preserves every existing object store and record
+ *  across version bumps; the upgrade handler only creates stores that are
+ *  missing, so all prior data survives. */
+export const SCHEMA_VERSION = 5;
 
 export const NEXUS_STORES = [
   "users",
@@ -47,6 +48,10 @@ export const NEXUS_STORES = [
   // artifacts; no separate build table duplicates that state)
   "pipeline_runs",
   "pipeline_stages",
+  // Phase 3 Pass 3 — CI/CD + Git provider foundation
+  "change_requests",
+  "git_operations",
+  "ci_pipeline_runs",
 ] as const;
 export type StoreName = (typeof NEXUS_STORES)[number];
 
@@ -99,6 +104,16 @@ const INDEXES: Record<string, [string, string][]> = {
   pipeline_stages: [
     ["byRun", "run_id"],
     ["byExecution", "execution_id"],
+  ],
+  // Phase 3 Pass 3
+  change_requests: [
+    ["byExecution", "execution_id"],
+    ["byRepository", "repository"],
+  ],
+  git_operations: [["byExecution", "execution_id"]],
+  ci_pipeline_runs: [
+    ["byExecution", "execution_id"],
+    ["byProject", "project_id"],
   ],
 };
 

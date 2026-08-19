@@ -28,6 +28,9 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "event:read", "audit:read", "evidence:read",
     "config:read", "system:health", "system:configure",
     "github:connect", "github:read", "github:push",
+    // Phase 3 Pass 3 — CI/CD + Git provider foundation.
+    "pipeline:create", "pipeline:read", "pipeline:execute",
+    "git:read", "git:write", "change-request:create",
   ],
   ADMIN: [
     "project:create", "project:read", "project:update", "project:archive",
@@ -40,6 +43,9 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "event:read", "audit:read", "evidence:read",
     "config:read", "system:health",
     "github:connect", "github:read", "github:push",
+    // Phase 3 Pass 3 — CI/CD + Git provider foundation.
+    "pipeline:create", "pipeline:read", "pipeline:execute",
+    "git:read", "git:write", "change-request:create",
   ],
   OPERATOR: [
     "project:read",
@@ -52,6 +58,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "event:read", "audit:read", "evidence:read",
     "config:read", "system:health",
     "github:read",
+    // Phase 3 Pass 3 — operate + read CI pipelines, no write/config.
+    "pipeline:read", "pipeline:execute", "git:read",
   ],
   DEVELOPER: [
     "project:create", "project:read", "project:update",
@@ -64,6 +72,9 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "event:read", "evidence:read",
     "config:read", "system:health",
     "github:read", "github:push",
+    // Phase 3 Pass 3 — author pipelines and change requests.
+    "pipeline:create", "pipeline:read", "pipeline:execute",
+    "git:read", "git:write", "change-request:create",
   ],
   // Legacy Phase 1 role — retained unchanged so existing identities keep working.
   ENGINEER: [
@@ -73,6 +84,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "event:read", "evidence:read",
     "config:read", "system:health",
     "github:read", "github:push",
+    // Phase 3 Pass 3 — read CI pipelines and git state (no create/write).
+    "pipeline:read", "git:read",
   ],
   VIEWER: ["project:read", "execution:read", "agent:read", "event:read", "system:health"],
 };
