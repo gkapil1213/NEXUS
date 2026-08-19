@@ -8,12 +8,13 @@
  */
 
 import { createAuthApi, NexusKernel } from "./kernel";
-import { can, permissionsFor, validateEmail } from "./security";
+import { can, createUserRecord, permissionsFor, validateEmail } from "./security";
 import { redactText } from "./audit";
 import { digestOf, sha256Hex } from "./db";
 import { AgentRegistry, InspectorAgent, buildAgentContext } from "./agents";
 import { Err, NexusError, toSystemError } from "./errors";
-import type { SuiteReport, TestResult, User } from "./types";
+import { PERMISSIONS } from "./types";
+import type { Session, SuiteReport, TestResult, User } from "./types";
 
 type TestFn = () => Promise<string | void>;
 
@@ -62,7 +63,8 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
   const ownerUser: User = { ...scratchUser, id: "usr_scratch_owner", role: "OWNER", email: "scratch.owner@tests.nexus" };
   const suspendedUser: User = { ...scratchUser, id: "usr_scratch_susp", status: "suspended", email: "scratch.susp@tests.nexus" };
 
-  const created: { projects: string[]; executions: string[] } = { projects: [], executions: [] };
+  // Scratch records created by the suite — cleaned up at the end, and only these.
+  const created: { projects: string[]; executions: string[]; users: string[] } = { projects: [], executions: [], users: [] };
 
   const tests: TestDef[] = [
     /* ------------------------------- kernel -------------------------------- */

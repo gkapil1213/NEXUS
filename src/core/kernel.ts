@@ -275,7 +275,21 @@ export function createAuthApi(services: KernelServices): AuthApi {
         });
         throw Err.auth("INVALID_CREDENTIALS", "invalid email or password");
       }
-      if (user.status !== "active") throw Err.auth("ACCOUNT_SUSPENDED", "account is suspended");
+      if (user.status !== "active") {
+        // Status-aware rejection: suspended and disabled are distinct states.
+        await services.audit.record({
+          actor: user.email,
+          action: "auth.login_failed",
+          resource_type: "session",
+          resource_id: "-",
+          result: "deny",
+          metadata: { reason: `account is ${user.status}` },
+        });
+        throw Err.auth(
+          user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
+          `account is ${user.status} — authentication refused`,
+        );
+      }
       const session = await services.sessions.issue(user.id);
       await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "…", result: "allow" });
       return { user: toPublicUser(user), session };
@@ -294,7 +308,12 @@ export function createAuthApi(services: KernelServices): AuthApi {
       const session = await services.sessions.validate(token);
       const user = await services.engine.get<User>("users", session.user_id);
       if (!user) throw Err.auth("INVALID_SESSION", "session user no longer exists");
-      if (user.status !== "active") throw Err.auth("ACCOUNT_SUSPENDED", "account is suspended");
+      if (user.status !== "active") {
+        throw Err.auth(
+          user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
+          `account is ${user.status} — authentication refused`,
+        );
+      }
       return { user: toPublicUser(user), session };
     },
   };
