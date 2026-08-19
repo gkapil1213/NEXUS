@@ -11,6 +11,7 @@ import { NexusProvider, useNexus, type RouteName } from "./state";
 import { CONFIG } from "./core/config";
 import { Badge, Button, Field, Icon, TextInput, cx, type IconName } from "./ui";
 import { DashboardScreen } from "./screens/Dashboard";
+import { EngineeringWorkspaceScreen } from "./screens/EngineeringWorkspace";
 import { ProjectsScreen } from "./screens/Projects";
 import { ExecutionsScreen } from "./screens/Executions";
 import { AuditScreen } from "./screens/Audit";
@@ -18,6 +19,7 @@ import { ControlPlaneScreen } from "./screens/ControlPlane";
 
 const NAV: { name: RouteName; label: string; icon: IconName }[] = [
   { name: "dashboard", label: "Dashboard", icon: "grid" },
+  { name: "workspace", label: "Workspace", icon: "bolt" },
   { name: "projects", label: "Projects", icon: "box" },
   { name: "executions", label: "Executions", icon: "play" },
   { name: "audit", label: "Audit", icon: "scroll" },
@@ -239,6 +241,7 @@ function Shell() {
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 lg:px-8">
           <div key={route} className="anim-fade">
             {route === "dashboard" ? <DashboardScreen /> : null}
+            {route === "workspace" ? <EngineeringWorkspaceScreen /> : null}
             {route === "projects" ? <ProjectsScreen /> : null}
             {route === "executions" ? <ExecutionsScreen /> : null}
             {route === "audit" ? <AuditScreen /> : null}

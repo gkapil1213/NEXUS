@@ -30,6 +30,7 @@ import {
   type CiContext,
 } from "./cicd";
 import { ProjectDetector, type WsReader } from "./devops";
+import { parseIntent, generatePlan, executePlan } from "./engineering";
 import type { DetectionResult } from "./types";
 import type {
   AgentExecutionRecord,
@@ -1618,6 +1619,121 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         const again = await services.cicd.engine.createChangeRequest(ctx, sp, "acme/app", "nexus/devops/cr", "main", "sha1", "Add CI", "body");
         assert(!again.created && again.cr.id === cr.id, "duplicate CR is idempotent");
         return "CR audited + idempotent";
+      },
+    },
+
+    /* ==================== AI Engineering Workspace (orchestration layer) ==================== */
+    {
+      category: "eng-workspace",
+      name: "engws: intent parser is deterministic and extracts real signals (no black-box AI)",
+      fn: async () => {
+        const raw = "Build a realtime analytics dashboard with auth, a REST API and Docker deployment";
+        const a = parseIntent(raw);
+        const b = parseIntent(raw);
+        assert(a.subject === b.subject && a.scope === b.scope && a.signals.length === b.signals.length, "deterministic parsing");
+        const ids = a.signals.map((s) => s.id);
+        assert(ids.includes("auth"), "auth signal detected");
+        assert(ids.includes("api"), "api signal detected");
+        assert(ids.includes("deploy"), "deploy signal detected");
+        assert(ids.includes("realtime"), "realtime signal detected");
+        assert(a.signals.every((s) => s.matched.length > 0), "every signal cites real matched words");
+        return `subject="${a.subject}" scope=${a.scope} signals=${ids.join(",")}`;
+      },
+    },
+    {
+      category: "eng-workspace",
+      name: "engws: plan generation detects real project characteristics with honest stage availability",
+      fn: async () => {
+        const p = await services.projects.create(ownerUser, { name: "engws-plan" });
+        created.projects.push(p.id);
+        const intent = parseIntent("Build an API service with a database and Docker deployment");
+        const plan = await generatePlan(services, ownerUser, p, intent, { scaffold: true });
+        created.workspaces.push(plan.workspaceId);
+        assert(plan.detection.language === "node" || plan.detection.language === "typescript", `real detection, got ${plan.detection.language}`);
+        assert(plan.detection.package_manager === "npm", "scaffold provides npm");
+        const byId = Object.fromEntries(plan.stages.map((s) => [s.id, s]));
+        assert(byId["DETECTING"]?.availability === "ready", "detection is ready");
+        assert(byId["BUILDING"]?.availability === "blocked", "build is honestly blocked (no command runtime)");
+        assert(byId["BUILDING"]?.blockedReason, "build has a real blocked reason");
+        assert(byId["SECURITY_REVIEW"]?.availability === "ready", "static security is ready");
+        assert(byId["SBOM_GENERATION"]?.availability === "ready", "scaffold yields an SBOM-able manifest");
+        assert(plan.readyCount + plan.blockedCount === plan.stages.length, "availability accounting is complete");
+        return `lang=${plan.detection.language} ready=${plan.readyCount} blocked=${plan.blockedCount}`;
+      },
+    },
+    {
+      category: "eng-workspace",
+      name: "engws: execution runs real stages — security/SBOM pass, build/test BLOCKED, never faked PASSED",
+      fn: async () => {
+        const p = await services.projects.create(ownerUser, { name: "engws-exec" });
+        created.projects.push(p.id);
+        const intent = parseIntent("Build a REST API with auth and Postgres persistence");
+        const plan = await generatePlan(services, ownerUser, p, intent, { scaffold: true });
+        created.workspaces.push(plan.workspaceId);
+        const res = await executePlan(services, ownerUser, plan);
+        created.executions.push(res.execution.id);
+        const byId = Object.fromEntries(res.stages.map((s) => [s.stageId, s]));
+        assert(byId["DETECTING"]?.outcome === "PASSED", "detection genuinely passed");
+        assert(byId["SECURITY_REVIEW"]?.outcome === "PASSED", "static security genuinely passed");
+        assert(byId["SBOM_GENERATION"]?.outcome === "PASSED", "source SBOM genuinely passed");
+        assert(byId["BUILDING"]?.outcome === "BLOCKED", "build is BLOCKED, not PASSED");
+        assert(byId["TESTING"]?.outcome === "BLOCKED", "test is BLOCKED, not PASSED");
+        assert(res.verdict === "BLOCKED", `verdict must be BLOCKED while build/test unavailable, got ${res.verdict}`);
+        assert(res.passed >= 3 && res.blocked >= 2, "honest pass/block accounting");
+        assert(res.recovery.length > 0, "recovery guidance present");
+        return `verdict=${res.verdict} passed=${res.passed} blocked=${res.blocked}`;
+      },
+    },
+    {
+      category: "eng-workspace",
+      name: "engws: execution registers real artifacts with digests and emits ordered events",
+      fn: async () => {
+        const p = await services.projects.create(ownerUser, { name: "engws-art" });
+        created.projects.push(p.id);
+        const intent = parseIntent("Build an API with a database");
+        const plan = await generatePlan(services, ownerUser, p, intent, { scaffold: true });
+        created.workspaces.push(plan.workspaceId);
+        const res = await executePlan(services, ownerUser, plan);
+        created.executions.push(res.execution.id);
+        const arts = await services.artifacts.list(res.execution.id);
+        assert(arts.some((a) => a.kind === "SBOM"), "SBOM artifact registered");
+        assert(arts.every((a) => typeof a.digest === "string" && a.digest.startsWith("sha256:")), "every artifact has a real digest");
+        const events = await services.events.list(2000);
+        const execEvents = events.filter((e) => e.execution_id === res.execution.id);
+        assert(execEvents.length > 0, "execution events emitted");
+        for (let i = 1; i < events.length; i++) assert(events[i].seq > events[i - 1].seq, "event sequence strictly increasing");
+        return `${arts.length} artifacts · ${execEvents.length} events`;
+      },
+    },
+    {
+      category: "eng-workspace",
+      name: "engws: VIEWER is denied plan generation and execution (authorization reused, audited)",
+      fn: async () => {
+        const p = await services.projects.create(ownerUser, { name: "engws-deny" });
+        created.projects.push(p.id);
+        const intent = parseIntent("Build an API with auth");
+        await expectThrow(() => generatePlan(services, scratchUser, p, intent, { scaffold: true }), "permission");
+        // workspace create was denied + audited for the viewer
+        const audit = await services.audit.list(50);
+        assert(audit.some((a) => a.result === "deny"), "denial audited");
+        return "viewer denied + audited";
+      },
+    },
+    {
+      category: "eng-workspace",
+      name: "engws: the plan workspace is isolated and owned by the executing identity",
+      fn: async () => {
+        const p = await services.projects.create(ownerUser, { name: "engws-own" });
+        created.projects.push(p.id);
+        const intent = parseIntent("Build a dashboard with charts");
+        const plan = await generatePlan(services, ownerUser, p, intent, { scaffold: true });
+        created.workspaces.push(plan.workspaceId);
+        const ws = await services.workspaces.get(ownerUser, plan.workspaceId);
+        assert(ws.owner_identity_id === ownerUser.id, "workspace owned by the executing identity");
+        assert(ws.project_id === p.id, "workspace bound to the project");
+        // a different identity cannot read it
+        await expectThrow(() => services.workspaces.readFile(owner2User, plan.workspaceId, "package.json"), "denied");
+        return `workspace ${plan.workspaceId} isolated`;
       },
     },
   ];
