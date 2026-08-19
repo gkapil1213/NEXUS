@@ -121,6 +121,10 @@ export class InspectorAgent implements Agent {
     description: "Static analysis of engineering requests against project context. Produces digests, metrics and requirement signals.",
     version: "1.0.0",
     capabilities: ["inspect", "analyze"],
+    // Phase 2 Pass 2 — explicit contract: the invoking identity must hold
+    // agent:execute, and the agent's own operations are LOW risk.
+    required_permissions: ["agent:execute"],
+    risk_level: "LOW",
   };
 
   async execute(ctx: AgentContext): Promise<AgentOutcome> {

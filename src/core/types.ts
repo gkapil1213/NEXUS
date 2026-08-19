@@ -156,8 +156,66 @@ export interface Task {
 
 /* ---------------------------------- Agents -------------------------------- */
 
-export const AGENT_CAPABILITIES = ["inspect", "analyze", "plan"] as const;
+/**
+ * Phase 2 Pass 2 — the centralized capability model. Deliberately narrow:
+ * read/inspect/analyze/generate only. There is NO shell, command, filesystem
+ * or deployment capability — arbitrary execution is out of scope by design.
+ */
+export const AGENT_CAPABILITIES = [
+  "inspect",
+  "analyze",
+  "plan",
+  "read_project",
+  "read_execution",
+  "run_test",
+  "generate_artifact",
+] as const;
 export type AgentCapability = (typeof AGENT_CAPABILITIES)[number];
+
+/* ------------------------- Pass 2 — risk & policy -------------------------- */
+
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export type OperationType =
+  | "PROJECT_INSPECT"
+  | "PROJECT_ANALYZE"
+  | "EXECUTION_INSPECT"
+  | "TEST_RUN"
+  | "ARTIFACT_GENERATE";
+
+/** Canonical mapping for every operation. An operation with no mapping can
+ *  never execute — the policy engine fails closed on unknown operations. */
+export interface OperationSpec {
+  operation: OperationType;
+  capability: AgentCapability;
+  permission: Permission;
+  risk: RiskLevel;
+}
+
+export type AgentExecutionStatus =
+  | "QUEUED"
+  | "AUTHORIZED"
+  | "BLOCKED"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED";
+
+/** Persisted record of one policy-gated agent execution. */
+export interface AgentExecutionRecord {
+  id: Id;
+  execution_id: Id;
+  agent_id: Id;
+  operation: OperationType;
+  identity_id: Id;
+  project_id: Id;
+  risk: RiskLevel;
+  decision: PolicyVerdict;
+  status: AgentExecutionStatus;
+  started_at: number;
+  completed_at: number | null;
+  result_summary: string;
+  error: SystemError | null;
+}
 
 export interface AgentDefinition {
   id: Id;

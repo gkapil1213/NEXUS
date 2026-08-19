@@ -26,6 +26,7 @@ import {
   type SecretProvider,
 } from "./security";
 import { GitHubService } from "./github";
+import { AgentPolicyEngine, ExecutionPolicyEngine, AgentExecutionService } from "./execution-policy";
 import type { BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -44,6 +45,10 @@ export interface KernelServices {
   // Phase 2 Pass 1 — centralized authorization + identity lifecycle.
   authz: AuthorizationService;
   identity: IdentityService;
+  // Phase 2 Pass 2 — secure agent execution & execution policy.
+  agentPolicy: AgentPolicyEngine;
+  execPolicy: ExecutionPolicyEngine;
+  agentExec: AgentExecutionService;
 }
 
 const BOOT_ORDER = [
@@ -127,6 +132,11 @@ export class NexusKernel {
       const authz = new AuthorizationService(audit);
       const identity = new IdentityService(engine, authz, audit);
 
+      // Phase 2 Pass 2 — secure agent execution & execution policy.
+      const agentPolicy = new AgentPolicyEngine();
+      const execPolicy = new ExecutionPolicyEngine(registry, authz, agentPolicy);
+      const agentExec = new AgentExecutionService({ engine, registry, authz, agentPolicy, execPolicy, audit, events });
+
       this.services = {
         engine,
         events,
@@ -141,6 +151,9 @@ export class NexusKernel {
         secrets,
         authz,
         identity,
+        agentPolicy,
+        execPolicy,
+        agentExec,
         // Optional integration: no boot dependency, connects on demand.
         github: new GitHubService(),
       };

@@ -19,11 +19,11 @@
 import { CONFIG } from "./config";
 import { Err } from "./errors";
 
-/** Schema v2 (Phase 2): ADDITIVE migration — adds workspaces, workspace_files
- *  and approvals stores. IndexedDB preserves every existing object store and
- *  record across version bumps; the upgrade handler only creates stores that
- *  are missing, so Phase 1 data survives intact. */
-export const SCHEMA_VERSION = 2;
+/** Schema v3 (Phase 2 Pass 2): ADDITIVE migration — adds the agent_executions
+ *  store for policy-gated agent execution records. IndexedDB preserves every
+ *  existing object store and record across version bumps; the upgrade handler
+ *  only creates stores that are missing, so Phase 1 + Pass-1 data survives. */
+export const SCHEMA_VERSION = 3;
 
 export const NEXUS_STORES = [
   "users",
@@ -41,6 +41,8 @@ export const NEXUS_STORES = [
   "workspaces",
   "workspace_files",
   "approvals",
+  // Phase 2 Pass 2
+  "agent_executions",
 ] as const;
 export type StoreName = (typeof NEXUS_STORES)[number];
 
@@ -83,6 +85,8 @@ const INDEXES: Record<string, [string, string][]> = {
     ["byExecution", "execution_id"],
   ],
   workspace_files: [["byWorkspace", "workspace_id"]],
+  // Phase 2 Pass 2
+  agent_executions: [["byExecution", "execution_id"]],
 };
 
 class IdbEngine implements NexusEngine {
