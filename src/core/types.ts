@@ -320,7 +320,24 @@ export type NexusEventType =
   | "devops.sbom.started"
   | "devops.sbom.completed"
   | "devops.artifact.started"
-  | "devops.artifact.completed";
+  | "devops.artifact.completed"
+  // Phase 3 Pass 2 — container pipeline events (append-only, strictly ordered)
+  | "docker.detect.started"
+  | "docker.detect.completed"
+  | "dockerfile.generate.started"
+  | "dockerfile.generate.completed"
+  | "dockerfile.validation.started"
+  | "dockerfile.validation.completed"
+  | "docker.build.started"
+  | "docker.build.completed"
+  | "docker.image.inspect.started"
+  | "docker.image.inspect.completed"
+  | "docker.scan.started"
+  | "docker.scan.completed"
+  | "sbom.started"
+  | "sbom.completed"
+  | "artifact.register.started"
+  | "artifact.register.completed";
 
 export interface NexusEvent {
   id: Id;
@@ -671,6 +688,14 @@ export type ArtifactKind =
   | "SECURITY_REPORT"
   | "SBOM"
   | "LOG"
+  // Phase 3 Pass 2 — container artifacts
+  | "DOCKER_IMAGE"
+  | "IMAGE_DIGEST"
+  | "SOURCE_SBOM"
+  | "IMAGE_SBOM"
+  | "DOCKERFILE"
+  | "DOCKERFILE_SCAN"
+  | "IMAGE_SCAN_REPORT"
   | "report"; // Phase 1 legacy kind kept for backward compatibility
 
 /* ---------------------------- Project detection ---------------------------- */
@@ -728,6 +753,12 @@ export type PipelineStageName =
   | "BUILDING"
   | "TESTING"
   | "SECURITY_REVIEW"
+  // Phase 3 Pass 2 — container stages (inserted between SECURITY and SBOM)
+  | "DOCKERFILE_DETECTION"
+  | "DOCKERFILE_VALIDATION"
+  | "DOCKER_BUILD"
+  | "IMAGE_INSPECTION"
+  | "IMAGE_SECURITY_SCAN"
   | "SBOM_GENERATION"
   | "ARTIFACT_REGISTRATION";
 
@@ -797,4 +828,116 @@ export interface SecurityScanResult {
   findings: string[]; // real static findings (secrets / unsafe config)
   external_scanner: "BLOCKED"; // OSV / external feed is unavailable in-browser
   blocked_reason: string | null;
+}
+
+/* ========================= Phase 3 Pass 2 — Containers ===================== */
+
+/* ---------------------------- Docker runtime ------------------------------ */
+
+/** Honest runtime capability. This environment has no Docker daemon, so build
+ *  and inspect are BLOCKED — never faked as available. */
+export type DockerRuntimeStatus = "AVAILABLE" | "UNAVAILABLE" | "BLOCKED";
+
+export interface DockerRuntimeInfo {
+  status: DockerRuntimeStatus;
+  cli: boolean;
+  daemon: boolean;
+  api: boolean;
+  reason: string | null; // real blocker when not AVAILABLE
+}
+
+export interface DockerfileValidationFinding {
+  rule: string;
+  severity: "info" | "warn" | "fail";
+  evidence: string; // the offending line / pattern
+  location: string; // line number or instruction
+  recommendation: string;
+}
+
+export type DockerfileVerdict = "PASS" | "WARN" | "FAIL" | "BLOCKED";
+
+export interface DockerfileValidationResult {
+  verdict: DockerfileVerdict;
+  findings: DockerfileValidationFinding[];
+}
+
+export interface DockerfileSource {
+  origin: "USE_EXISTING" | "GENERATED";
+  content: string;
+  path: string;
+}
+
+export interface ImageReference {
+  repository: string; // "nexus/<project>"
+  tag: string; // "<commit-sha>" or "<execution-id>" — never "latest"
+  digest: string | null; // "sha256:..." — only set after a REAL build
+  full: string; // repository:tag
+}
+
+export interface DockerBuildResult {
+  status: "SUCCEEDED" | "FAILED" | "BLOCKED";
+  image: ImageReference | null; // null unless a real build produced an image
+  duration_ms: number;
+  logs: string;
+  error: string | null;
+  blocked_reason: string | null;
+}
+
+export interface ContainerImageInfo {
+  id: string | null;
+  repository: string | null;
+  tag: string | null;
+  digest: string | null;
+  created: string | null;
+  architecture: string | null;
+  os: string | null;
+  entrypoint: string[] | null;
+  user: string | null;
+  exposed_ports: string[] | null;
+  layers: number | null;
+  size_bytes: number | null;
+}
+
+export type VulnSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+
+export interface ContainerScanFinding {
+  severity: VulnSeverity;
+  package: string;
+  version: string;
+  vulnerability: string;
+  fixed_in: string | null;
+}
+
+export interface ContainerScanResult {
+  status: "PASS" | "FAIL" | "BLOCKED";
+  scanner: string | null; // adapter that ran, null when blocked
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  findings: ContainerScanFinding[];
+  blocked_reason: string | null;
+}
+
+/** Distinguishes a dependency SBOM (from source manifests) from an image SBOM
+ *  (from a real built image). An image SBOM is never claimed from a source SBOM. */
+export type SbomSource = "SOURCE_SBOM" | "IMAGE_SBOM";
+
+export interface SbomRecord {
+  source: SbomSource;
+  format: "CycloneDX";
+  generator: string;
+  timestamp: number;
+  digest: string; // real sha256 over the SBOM document
+  components: SbomComponent[];
+}
+
+/** Registry abstraction — foundation only. Push is NOT implemented this pass. */
+export interface ContainerRegistryProvider {
+  name: string;
+  authenticate(): Promise<{ ok: boolean; reason: string | null }>;
+  push(ref: ImageReference): Promise<{ ok: boolean; reason: string | null }>;
+  pull(ref: ImageReference): Promise<{ ok: boolean; reason: string | null }>;
+  inspect(ref: ImageReference): Promise<{ ok: boolean; reason: string | null }>;
+  delete(ref: ImageReference): Promise<{ ok: boolean; reason: string | null }>;
 }
