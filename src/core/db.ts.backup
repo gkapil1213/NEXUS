@@ -1,10 +1,10 @@
-﻿/**
- * NEXUS Phase 1 â€” persistence engine.
+/**
+ * NEXUS Phase 1 — persistence engine.
  *
  * Real, durable persistence via IndexedDB (schema-versioned). In non-browser
  * contexts (Node test harnesses) a clearly-labelled in-memory engine is used
  * instead; the engine kind is exposed so health/verification can report
- * exactly which runtime is backing the platform â€” never pretending an
+ * exactly which runtime is backing the platform — never pretending an
  * unverified persistence mode is the durable one.
  *
  * Safety properties:
@@ -19,12 +19,12 @@
 import { CONFIG } from "./config";
 import { Err } from "./errors";
 
-/** Schema v5 (Phase 3 Pass 3): ADDITIVE migration â€” adds change_requests,
+/** Schema v5 (Phase 3 Pass 3): ADDITIVE migration — adds change_requests,
  *  git_operations and ci_pipeline_runs stores for the CI/CD + Git provider
  *  foundation. IndexedDB preserves every existing object store and record
  *  across version bumps; the upgrade handler only creates stores that are
  *  missing, so all prior data survives. */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 5;
 
 export const NEXUS_STORES = [
   "users",
@@ -44,15 +44,14 @@ export const NEXUS_STORES = [
   "approvals",
   // Phase 2 Pass 2
   "agent_executions",
-  // Phase 3 Pass 1 â€” DevOps pipeline (builds are stage records + BUILD_OUTPUT
+  // Phase 3 Pass 1 — DevOps pipeline (builds are stage records + BUILD_OUTPUT
   // artifacts; no separate build table duplicates that state)
   "pipeline_runs",
   "pipeline_stages",
-  // Phase 3 Pass 3 â€” CI/CD + Git provider foundation
+  // Phase 3 Pass 3 — CI/CD + Git provider foundation
   "change_requests",
   "git_operations",
   "ci_pipeline_runs",
-  "deployments",
 ] as const;
 export type StoreName = (typeof NEXUS_STORES)[number];
 
@@ -288,7 +287,7 @@ export function openEngine(): Promise<NexusEngine> {
   return enginePromise;
 }
 
-/** Real round-trip probe: write â†’ read â†’ verify â†’ delete. Returns latency ms. */
+/** Real round-trip probe: write → read → verify → delete. Returns latency ms. */
 export async function probeEngine(engine: NexusEngine): Promise<number> {
   const t0 = performance.now();
   const probeKey = "__health_probe";
@@ -345,6 +344,3 @@ export function timingSafeEqual(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
-
-
-

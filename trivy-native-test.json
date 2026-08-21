@@ -1,0 +1,1835 @@
+{
+  "SchemaVersion": 2,
+  "Trivy": {
+    "Version": "0.74.0"
+  },
+  "ReportID": "01a024e9-0f74-7901-8588-626453eadc73",
+  "CreatedAt": "2026-08-21T20:50:48.7565901+05:30",
+  "ArtifactID": "sha256:56471b09208af17f1f7fa7c0ab61b3425030bf2e34016fa77dc8ee432c487271",
+  "ArtifactName": ".",
+  "ArtifactType": "repository",
+  "Metadata": {
+    "Branch": "master",
+    "Commit": "d2efca07a632664ff85548310158c5f659517163",
+    "CommitMsg": "task snapshot 73b451de-becf-473f-9380-e017bad21f33",
+    "Author": "qwen.ai[bot] \u003cqwenlm-intl@service.alibaba.com\u003e",
+    "Committer": "qwen.ai[bot] \u003cqwenlm-intl@service.alibaba.com\u003e"
+  },
+  "Results": [
+    {
+      "Target": "package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Packages": [
+        {
+          "ID": "@dnd-kit/core@6.3.1",
+          "Name": "@dnd-kit/core",
+          "Identifier": {
+            "PURL": "pkg:npm/%40dnd-kit/core@6.3.1",
+            "UID": "dbafff0e66b98b2d"
+          },
+          "Version": "6.3.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@dnd-kit/accessibility@3.1.1",
+            "@dnd-kit/utilities@3.2.2",
+            "react-dom@18.3.1",
+            "react@18.3.1",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 340,
+              "EndLine": 354
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@dnd-kit/sortable@8.0.0",
+          "Name": "@dnd-kit/sortable",
+          "Identifier": {
+            "PURL": "pkg:npm/%40dnd-kit/sortable@8.0.0",
+            "UID": "199008e393230925"
+          },
+          "Version": "8.0.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@dnd-kit/core@6.3.1",
+            "@dnd-kit/utilities@3.2.2",
+            "react@18.3.1",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 355,
+              "EndLine": 368
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@dnd-kit/utilities@3.2.2",
+          "Name": "@dnd-kit/utilities",
+          "Identifier": {
+            "PURL": "pkg:npm/%40dnd-kit/utilities@3.2.2",
+            "UID": "d550d751961baebc"
+          },
+          "Version": "3.2.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react@18.3.1",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 369,
+              "EndLine": 380
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@supabase/supabase-js@2.112.3",
+          "Name": "@supabase/supabase-js",
+          "Identifier": {
+            "PURL": "pkg:npm/%40supabase/supabase-js@2.112.3",
+            "UID": "de855678bb1b1158"
+          },
+          "Version": "2.112.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@supabase/auth-js@2.112.3",
+            "@supabase/functions-js@2.112.3",
+            "@supabase/postgrest-js@2.112.3",
+            "@supabase/realtime-js@2.112.3",
+            "@supabase/storage-js@2.112.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1340,
+              "EndLine": 1363
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "canvas-confetti@1.9.4",
+          "Name": "canvas-confetti",
+          "Identifier": {
+            "PURL": "pkg:npm/canvas-confetti@1.9.4",
+            "UID": "14bc2771c5b08b0"
+          },
+          "Version": "1.9.4",
+          "Licenses": [
+            "ISC"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 1882,
+              "EndLine": 1891
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "date-fns@2.30.0",
+          "Name": "date-fns",
+          "Identifier": {
+            "PURL": "pkg:npm/date-fns@2.30.0",
+            "UID": "603c8ab932da4cf0"
+          },
+          "Version": "2.30.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@babel/runtime@7.29.7"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2035,
+              "EndLine": 2050
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "framer-motion@11.18.2",
+          "Name": "framer-motion",
+          "Identifier": {
+            "PURL": "pkg:npm/framer-motion@11.18.2",
+            "UID": "46766b29cdea8aaf"
+          },
+          "Version": "11.18.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "motion-dom@11.18.1",
+            "motion-utils@11.18.1",
+            "react-dom@18.3.1",
+            "react@18.3.1",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2201,
+              "EndLine": 2227
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "lucide-react@0.294.0",
+          "Name": "lucide-react",
+          "Identifier": {
+            "PURL": "pkg:npm/lucide-react@0.294.0",
+            "UID": "3a98527a7d9ac2df"
+          },
+          "Version": "0.294.0",
+          "Licenses": [
+            "ISC"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "react@18.3.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2609,
+              "EndLine": 2617
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react@18.3.1",
+          "Name": "react",
+          "Identifier": {
+            "PURL": "pkg:npm/react@18.3.1",
+            "UID": "561c8fe817e8b3f2"
+          },
+          "Version": "18.3.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "loose-envify@1.4.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2801,
+              "EndLine": 2812
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-dom@18.3.1",
+          "Name": "react-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/react-dom@18.3.1",
+            "UID": "2b0d4c885d82b6f6"
+          },
+          "Version": "18.3.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "loose-envify@1.4.0",
+            "react@18.3.1",
+            "scheduler@0.23.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2813,
+              "EndLine": 2825
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-router-dom@6.30.4",
+          "Name": "react-router-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/react-router-dom@6.30.4",
+            "UID": "ee8dbe67dd1aa34b"
+          },
+          "Version": "6.30.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "@remix-run/router@1.23.3",
+            "react-dom@18.3.1",
+            "react-router@6.30.4",
+            "react@18.3.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2857,
+              "EndLine": 2873
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "recharts@2.15.4",
+          "Name": "recharts",
+          "Identifier": {
+            "PURL": "pkg:npm/recharts@2.15.4",
+            "UID": "102515d4fcf34ba3"
+          },
+          "Version": "2.15.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "DependsOn": [
+            "clsx@2.1.1",
+            "eventemitter3@4.0.7",
+            "lodash@4.18.1",
+            "react-dom@18.3.1",
+            "react-is@18.3.1",
+            "react-smooth@4.0.4",
+            "react@18.3.1",
+            "recharts-scale@0.4.5",
+            "tiny-invariant@1.3.3",
+            "victory-vendor@36.9.2"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2905,
+              "EndLine": 2928
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "uuid@9.0.1",
+          "Name": "uuid",
+          "Identifier": {
+            "PURL": "pkg:npm/uuid@9.0.1",
+            "UID": "6b3fbcd569dca2fa"
+          },
+          "Version": "9.0.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Relationship": "direct",
+          "Locations": [
+            {
+              "StartLine": 3108,
+              "EndLine": 3121
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@babel/runtime@7.29.7",
+          "Name": "@babel/runtime",
+          "Identifier": {
+            "PURL": "pkg:npm/%40babel/runtime@7.29.7",
+            "UID": "68461a89c87ab67c"
+          },
+          "Version": "7.29.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 271,
+              "EndLine": 279
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@dnd-kit/accessibility@3.1.1",
+          "Name": "@dnd-kit/accessibility",
+          "Identifier": {
+            "PURL": "pkg:npm/%40dnd-kit/accessibility@3.1.1",
+            "UID": "935b1a8e0c419826"
+          },
+          "Version": "3.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "react@18.3.1",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 328,
+              "EndLine": 339
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@remix-run/router@1.23.3",
+          "Name": "@remix-run/router",
+          "Identifier": {
+            "PURL": "pkg:npm/%40remix-run/router@1.23.3",
+            "UID": "fa30c804e2810695"
+          },
+          "Version": "1.23.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 906,
+              "EndLine": 914
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@supabase/auth-js@2.112.3",
+          "Name": "@supabase/auth-js",
+          "Identifier": {
+            "PURL": "pkg:npm/%40supabase/auth-js@2.112.3",
+            "UID": "c281231600b650e0"
+          },
+          "Version": "2.112.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1272,
+              "EndLine": 1283
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@supabase/functions-js@2.112.3",
+          "Name": "@supabase/functions-js",
+          "Identifier": {
+            "PURL": "pkg:npm/%40supabase/functions-js@2.112.3",
+            "UID": "755e4af618d8bfe2"
+          },
+          "Version": "2.112.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1284,
+              "EndLine": 1295
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@supabase/phoenix@0.4.5",
+          "Name": "@supabase/phoenix",
+          "Identifier": {
+            "PURL": "pkg:npm/%40supabase/phoenix@0.4.5",
+            "UID": "f545697e2ed0f7a1"
+          },
+          "Version": "0.4.5",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1296,
+              "EndLine": 1301
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@supabase/postgrest-js@2.112.3",
+          "Name": "@supabase/postgrest-js",
+          "Identifier": {
+            "PURL": "pkg:npm/%40supabase/postgrest-js@2.112.3",
+            "UID": "c205e9fd4c52b022"
+          },
+          "Version": "2.112.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1302,
+              "EndLine": 1313
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@supabase/realtime-js@2.112.3",
+          "Name": "@supabase/realtime-js",
+          "Identifier": {
+            "PURL": "pkg:npm/%40supabase/realtime-js@2.112.3",
+            "UID": "e4efe29162ee361c"
+          },
+          "Version": "2.112.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@supabase/phoenix@0.4.5",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1314,
+              "EndLine": 1326
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@supabase/storage-js@2.112.3",
+          "Name": "@supabase/storage-js",
+          "Identifier": {
+            "PURL": "pkg:npm/%40supabase/storage-js@2.112.3",
+            "UID": "b01e9a1c9eeb93bb"
+          },
+          "Version": "2.112.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "iceberg-js@0.8.1",
+            "tslib@2.8.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1327,
+              "EndLine": 1339
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/d3-array@3.2.2",
+          "Name": "@types/d3-array",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/d3-array@3.2.2",
+            "UID": "8c5b26d544274021"
+          },
+          "Version": "3.2.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1688,
+              "EndLine": 1693
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/d3-color@3.1.3",
+          "Name": "@types/d3-color",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/d3-color@3.1.3",
+            "UID": "e5cbf2a27b84d5c3"
+          },
+          "Version": "3.1.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1694,
+              "EndLine": 1699
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/d3-ease@3.0.2",
+          "Name": "@types/d3-ease",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/d3-ease@3.0.2",
+            "UID": "7f9247e84f9f812d"
+          },
+          "Version": "3.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1700,
+              "EndLine": 1705
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/d3-interpolate@3.0.4",
+          "Name": "@types/d3-interpolate",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/d3-interpolate@3.0.4",
+            "UID": "431475cd1a004c47"
+          },
+          "Version": "3.0.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/d3-color@3.1.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1706,
+              "EndLine": 1714
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/d3-path@3.1.1",
+          "Name": "@types/d3-path",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/d3-path@3.1.1",
+            "UID": "e5aa4352f4980be7"
+          },
+          "Version": "3.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1715,
+              "EndLine": 1720
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/d3-scale@4.0.9",
+          "Name": "@types/d3-scale",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/d3-scale@4.0.9",
+            "UID": "2ae7beb1ef20e428"
+          },
+          "Version": "4.0.9",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/d3-time@3.0.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1721,
+              "EndLine": 1729
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/d3-shape@3.1.8",
+          "Name": "@types/d3-shape",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/d3-shape@3.1.8",
+            "UID": "a3af0ae75b29907a"
+          },
+          "Version": "3.1.8",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/d3-path@3.1.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1730,
+              "EndLine": 1738
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/d3-time@3.0.4",
+          "Name": "@types/d3-time",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/d3-time@3.0.4",
+            "UID": "a572523cabc71682"
+          },
+          "Version": "3.0.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1739,
+              "EndLine": 1744
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "@types/d3-timer@3.0.2",
+          "Name": "@types/d3-timer",
+          "Identifier": {
+            "PURL": "pkg:npm/%40types/d3-timer@3.0.2",
+            "UID": "dc0e2d48d13ebe15"
+          },
+          "Version": "3.0.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1745,
+              "EndLine": 1750
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "clsx@2.1.1",
+          "Name": "clsx",
+          "Identifier": {
+            "PURL": "pkg:npm/clsx@2.1.1",
+            "UID": "774103da26076220"
+          },
+          "Version": "2.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1892,
+              "EndLine": 1900
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "csstype@3.2.3",
+          "Name": "csstype",
+          "Identifier": {
+            "PURL": "pkg:npm/csstype@3.2.3",
+            "UID": "7bbe18f547ff5b50"
+          },
+          "Version": "3.2.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1908,
+              "EndLine": 1913
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-array@3.2.4",
+          "Name": "d3-array",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-array@3.2.4",
+            "UID": "36ade5f0ec9f9e55"
+          },
+          "Version": "3.2.4",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "internmap@2.0.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1914,
+              "EndLine": 1925
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-color@3.1.0",
+          "Name": "d3-color",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-color@3.1.0",
+            "UID": "e56cb60567bc6ed9"
+          },
+          "Version": "3.1.0",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1926,
+              "EndLine": 1934
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-ease@3.0.1",
+          "Name": "d3-ease",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-ease@3.0.1",
+            "UID": "4cef4baf69a74ac5"
+          },
+          "Version": "3.0.1",
+          "Licenses": [
+            "BSD-3-Clause"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1935,
+              "EndLine": 1943
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-format@3.1.2",
+          "Name": "d3-format",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-format@3.1.2",
+            "UID": "3faf154922a65f08"
+          },
+          "Version": "3.1.2",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1944,
+              "EndLine": 1952
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-interpolate@3.0.1",
+          "Name": "d3-interpolate",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-interpolate@3.0.1",
+            "UID": "31d8141fa546f143"
+          },
+          "Version": "3.0.1",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "d3-color@3.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1953,
+              "EndLine": 1964
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-path@3.1.0",
+          "Name": "d3-path",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-path@3.1.0",
+            "UID": "246de13bd58a067a"
+          },
+          "Version": "3.1.0",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 1965,
+              "EndLine": 1973
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-scale@4.0.2",
+          "Name": "d3-scale",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-scale@4.0.2",
+            "UID": "5210f26a0e6187de"
+          },
+          "Version": "4.0.2",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "d3-array@3.2.4",
+            "d3-format@3.1.2",
+            "d3-interpolate@3.0.1",
+            "d3-time-format@4.1.0",
+            "d3-time@3.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1974,
+              "EndLine": 1989
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-shape@3.2.0",
+          "Name": "d3-shape",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-shape@3.2.0",
+            "UID": "76937b7ca872a5e8"
+          },
+          "Version": "3.2.0",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "d3-path@3.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 1990,
+              "EndLine": 2001
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-time@3.1.0",
+          "Name": "d3-time",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-time@3.1.0",
+            "UID": "f55c1a559a612627"
+          },
+          "Version": "3.1.0",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "d3-array@3.2.4"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2002,
+              "EndLine": 2013
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-time-format@4.1.0",
+          "Name": "d3-time-format",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-time-format@4.1.0",
+            "UID": "4831ff0c32d1e53"
+          },
+          "Version": "4.1.0",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "d3-time@3.1.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2014,
+              "EndLine": 2025
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "d3-timer@3.0.1",
+          "Name": "d3-timer",
+          "Identifier": {
+            "PURL": "pkg:npm/d3-timer@3.0.1",
+            "UID": "9b0e014505caf2e4"
+          },
+          "Version": "3.0.1",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2026,
+              "EndLine": 2034
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "decimal.js-light@2.5.1",
+          "Name": "decimal.js-light",
+          "Identifier": {
+            "PURL": "pkg:npm/decimal.js-light@2.5.1",
+            "UID": "d2a0daa6f03c8b03"
+          },
+          "Version": "2.5.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2069,
+              "EndLine": 2074
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "dom-helpers@5.2.1",
+          "Name": "dom-helpers",
+          "Identifier": {
+            "PURL": "pkg:npm/dom-helpers@5.2.1",
+            "UID": "c33c9f266a14a893"
+          },
+          "Version": "5.2.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@babel/runtime@7.29.7",
+            "csstype@3.2.3"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2085,
+              "EndLine": 2094
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "eventemitter3@4.0.7",
+          "Name": "eventemitter3",
+          "Identifier": {
+            "PURL": "pkg:npm/eventemitter3@4.0.7",
+            "UID": "8cc6642254cb7788"
+          },
+          "Version": "4.0.7",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2168,
+              "EndLine": 2173
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "fast-equals@5.4.1",
+          "Name": "fast-equals",
+          "Identifier": {
+            "PURL": "pkg:npm/fast-equals@5.4.1",
+            "UID": "66f9dcb643902cc6"
+          },
+          "Version": "5.4.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2174,
+              "EndLine": 2182
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "iceberg-js@0.8.1",
+          "Name": "iceberg-js",
+          "Identifier": {
+            "PURL": "pkg:npm/iceberg-js@0.8.1",
+            "UID": "c0705f8bff379063"
+          },
+          "Version": "0.8.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2260,
+              "EndLine": 2268
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "internmap@2.0.3",
+          "Name": "internmap",
+          "Identifier": {
+            "PURL": "pkg:npm/internmap@2.0.3",
+            "UID": "9a7da60c7c0ea1ae"
+          },
+          "Version": "2.0.3",
+          "Licenses": [
+            "ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2269,
+              "EndLine": 2277
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "js-tokens@4.0.0",
+          "Name": "js-tokens",
+          "Identifier": {
+            "PURL": "pkg:npm/js-tokens@4.0.0",
+            "UID": "44d81162d8e9768d"
+          },
+          "Version": "4.0.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2288,
+              "EndLine": 2293
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "lodash@4.18.1",
+          "Name": "lodash",
+          "Identifier": {
+            "PURL": "pkg:npm/lodash@4.18.1",
+            "UID": "f3415f0238126b6b"
+          },
+          "Version": "4.18.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2581,
+              "EndLine": 2586
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "loose-envify@1.4.0",
+          "Name": "loose-envify",
+          "Identifier": {
+            "PURL": "pkg:npm/loose-envify@1.4.0",
+            "UID": "d9f5479c63f63420"
+          },
+          "Version": "1.4.0",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "js-tokens@4.0.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2587,
+              "EndLine": 2598
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "motion-dom@11.18.1",
+          "Name": "motion-dom",
+          "Identifier": {
+            "PURL": "pkg:npm/motion-dom@11.18.1",
+            "UID": "2cf98f94c3fe7a18"
+          },
+          "Version": "11.18.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "motion-utils@11.18.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2628,
+              "EndLine": 2636
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "motion-utils@11.18.1",
+          "Name": "motion-utils",
+          "Identifier": {
+            "PURL": "pkg:npm/motion-utils@11.18.1",
+            "UID": "5d617fa53936f4ab"
+          },
+          "Version": "11.18.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2637,
+              "EndLine": 2642
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "object-assign@4.1.1",
+          "Name": "object-assign",
+          "Identifier": {
+            "PURL": "pkg:npm/object-assign@4.1.1",
+            "UID": "1c53ffbd3450a501"
+          },
+          "Version": "4.1.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2679,
+              "EndLine": 2687
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "prop-types@15.8.1",
+          "Name": "prop-types",
+          "Identifier": {
+            "PURL": "pkg:npm/prop-types@15.8.1",
+            "UID": "39d89797480581e6"
+          },
+          "Version": "15.8.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "loose-envify@1.4.0",
+            "object-assign@4.1.1",
+            "react-is@16.13.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2784,
+              "EndLine": 2794
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-is@16.13.1",
+          "Name": "react-is",
+          "Identifier": {
+            "PURL": "pkg:npm/react-is@16.13.1",
+            "UID": "a070f04a537a7eff"
+          },
+          "Version": "16.13.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2795,
+              "EndLine": 2800
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-is@18.3.1",
+          "Name": "react-is",
+          "Identifier": {
+            "PURL": "pkg:npm/react-is@18.3.1",
+            "UID": "574ab128c7b9e66a"
+          },
+          "Version": "18.3.1",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 2826,
+              "EndLine": 2831
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-router@6.30.4",
+          "Name": "react-router",
+          "Identifier": {
+            "PURL": "pkg:npm/react-router@6.30.4",
+            "UID": "3b1ba99e14789cb5"
+          },
+          "Version": "6.30.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@remix-run/router@1.23.3",
+            "react@18.3.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2842,
+              "EndLine": 2856
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-smooth@4.0.4",
+          "Name": "react-smooth",
+          "Identifier": {
+            "PURL": "pkg:npm/react-smooth@4.0.4",
+            "UID": "6d59517b603da30"
+          },
+          "Version": "4.0.4",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "fast-equals@5.4.1",
+            "prop-types@15.8.1",
+            "react-dom@18.3.1",
+            "react-transition-group@4.4.5",
+            "react@18.3.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2874,
+              "EndLine": 2888
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "react-transition-group@4.4.5",
+          "Name": "react-transition-group",
+          "Identifier": {
+            "PURL": "pkg:npm/react-transition-group@4.4.5",
+            "UID": "62600766c95741e"
+          },
+          "Version": "4.4.5",
+          "Licenses": [
+            "BSD-3-Clause"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@babel/runtime@7.29.7",
+            "dom-helpers@5.2.1",
+            "loose-envify@1.4.0",
+            "prop-types@15.8.1",
+            "react-dom@18.3.1",
+            "react@18.3.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2889,
+              "EndLine": 2904
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "recharts-scale@0.4.5",
+          "Name": "recharts-scale",
+          "Identifier": {
+            "PURL": "pkg:npm/recharts-scale@0.4.5",
+            "UID": "b265e10f669c50d2"
+          },
+          "Version": "0.4.5",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "decimal.js-light@2.5.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2929,
+              "EndLine": 2937
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "scheduler@0.23.2",
+          "Name": "scheduler",
+          "Identifier": {
+            "PURL": "pkg:npm/scheduler@0.23.2",
+            "UID": "c6932ee9ad3f6a89"
+          },
+          "Version": "0.23.2",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "loose-envify@1.4.0"
+          ],
+          "Locations": [
+            {
+              "StartLine": 2984,
+              "EndLine": 2992
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tiny-invariant@1.3.3",
+          "Name": "tiny-invariant",
+          "Identifier": {
+            "PURL": "pkg:npm/tiny-invariant@1.3.3",
+            "UID": "8906eecc73a8b8e1"
+          },
+          "Version": "1.3.3",
+          "Licenses": [
+            "MIT"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3034,
+              "EndLine": 3039
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "tslib@2.8.1",
+          "Name": "tslib",
+          "Identifier": {
+            "PURL": "pkg:npm/tslib@2.8.1",
+            "UID": "eb5a71a52db92d03"
+          },
+          "Version": "2.8.1",
+          "Licenses": [
+            "0BSD"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "Locations": [
+            {
+              "StartLine": 3057,
+              "EndLine": 3062
+            }
+          ],
+          "AnalyzedBy": "npm"
+        },
+        {
+          "ID": "victory-vendor@36.9.2",
+          "Name": "victory-vendor",
+          "Identifier": {
+            "PURL": "pkg:npm/victory-vendor@36.9.2",
+            "UID": "f49fbfba66f9bbd6"
+          },
+          "Version": "36.9.2",
+          "Licenses": [
+            "MIT AND ISC"
+          ],
+          "Indirect": true,
+          "Relationship": "indirect",
+          "DependsOn": [
+            "@types/d3-array@3.2.2",
+            "@types/d3-ease@3.0.2",
+            "@types/d3-interpolate@3.0.4",
+            "@types/d3-scale@4.0.9",
+            "@types/d3-shape@3.1.8",
+            "@types/d3-time@3.0.4",
+            "@types/d3-timer@3.0.2",
+            "d3-array@3.2.4",
+            "d3-ease@3.0.1",
+            "d3-interpolate@3.0.1",
+            "d3-scale@4.0.2",
+            "d3-shape@3.2.0",
+            "d3-time@3.1.0",
+            "d3-timer@3.0.1"
+          ],
+          "Locations": [
+            {
+              "StartLine": 3122,
+              "EndLine": 3143
+            }
+          ],
+          "AnalyzedBy": "npm"
+        }
+      ],
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2026-53666",
+          "VendorIDs": [
+            "GHSA-337j-9hxr-rhxg"
+          ],
+          "PkgID": "react-router@6.30.4",
+          "PkgName": "react-router",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/react-router@6.30.4",
+            "UID": "3b1ba99e14789cb5"
+          },
+          "InstalledVersion": "6.30.4",
+          "FixedVersion": "7.18.0",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-53666",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Fingerprint": "sha256:c5367d61728a6dd0e9fcb593b2dd0fbcd2fb46262ace916e79092b98897502f5",
+          "Title": "react-router: React Router: Information disclosure via client-side constructor execution",
+          "Description": "React Router is a router for React. In versions 6.4.0 through 7.17.0, if application code was written in a way that allows attacker-supplied input to overwrite certain aspects of errors caught by the SSR process, then it was possible for an attacker to trigger unexpected constructor execution on the client, which would in turn trigger an outbound network request. This is only possible with very specific (and unlikely) application-layer code. Note that this does not impact an application if it is using Declarative Mode. It only impacts Framework Mode and Data Mode applications that perform manual SSR/hydration. This issue has been fixed in version 7.18.0.",
+          "Severity": "MEDIUM",
+          "CweIDs": [
+            "CWE-470"
+          ],
+          "VendorSeverity": {
+            "ghsa": 2,
+            "redhat": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+              "V3Score": 6.1
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+              "V3Score": 6.1
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-53666",
+            "https://github.com/remix-run/react-router",
+            "https://github.com/remix-run/react-router/blob/main/CHANGELOG.md#v7180",
+            "https://github.com/remix-run/react-router/commit/9d22943fd46c8ae4b08236425fa3549e10e9ad1a",
+            "https://github.com/remix-run/react-router/pull/15175",
+            "https://github.com/remix-run/react-router/releases/tag/react-router@7.18.0",
+            "https://github.com/remix-run/react-router/security/advisories/GHSA-337j-9hxr-rhxg",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-53666",
+            "https://www.cve.org/CVERecord?id=CVE-2026-53666"
+          ],
+          "PublishedDate": "2026-07-27T22:17:30.937Z",
+          "LastModifiedDate": "2026-08-03T14:04:25.027Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-53669",
+          "VendorIDs": [
+            "GHSA-wrjc-x8rr-h8h6"
+          ],
+          "PkgID": "react-router@6.30.4",
+          "PkgName": "react-router",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/react-router@6.30.4",
+            "UID": "3b1ba99e14789cb5"
+          },
+          "InstalledVersion": "6.30.4",
+          "FixedVersion": "7.18.0",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-53669",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Fingerprint": "sha256:dadd3b3ec5bb6781a7bfc94c240b48f091932cedec9a7b5b46ffb9cc9478c162",
+          "Title": "react-router: React Router: Open Redirect vulnerability via backslashes in navigation components",
+          "Description": "React Router is a router for React. Versions 6.0.0 through 7.17.0 are vulnerable to Open Redirtect through use of backslashes in \u003cLink\u003e and useNavigate. This issue is a follow up to CVE-2025-68470 and has been fixed in version 7.18.0.",
+          "Severity": "MEDIUM",
+          "CweIDs": [
+            "CWE-601"
+          ],
+          "VendorSeverity": {
+            "ghsa": 2,
+            "nvd": 2,
+            "redhat": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:N/VI:L/VA:N/SC:L/SI:L/SA:N",
+              "V40Score": 5.1
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+              "V3Score": 6.1
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+              "V3Score": 5.4
+            }
+          },
+          "References": [
+            "http://github.com/remix-run/react-router/pull/15176",
+            "https://access.redhat.com/security/cve/CVE-2026-53669",
+            "https://github.com/remix-run/react-router",
+            "https://github.com/remix-run/react-router/blob/main/CHANGELOG.md#v7180",
+            "https://github.com/remix-run/react-router/pull/15176",
+            "https://github.com/remix-run/react-router/releases/tag/react-router@7.18.0",
+            "https://github.com/remix-run/react-router/security/advisories/GHSA-wrjc-x8rr-h8h6",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-53669",
+            "https://www.cve.org/CVERecord?id=CVE-2026-53669"
+          ],
+          "PublishedDate": "2026-07-27T22:17:31.377Z",
+          "LastModifiedDate": "2026-08-03T13:56:59.517Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-53668",
+          "VendorIDs": [
+            "GHSA-jjmj-jmhj-qwj2"
+          ],
+          "PkgID": "react-router-dom@6.30.4",
+          "PkgName": "react-router-dom",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/react-router-dom@6.30.4",
+            "UID": "ee8dbe67dd1aa34b"
+          },
+          "InstalledVersion": "6.30.4",
+          "Status": "affected",
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-53668",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Fingerprint": "sha256:1f039bb690110f46294c683ed15ecb8bdcba0064e43eee007363432b1170a43c",
+          "Title": "react-router: react-router-dom: React Router: Cross-Site Scripting (XSS) via open redirects",
+          "Description": "React Router is a router for React. In versions 6.30.2 through 6.30.4 and 7.9.6 through 7.12.0, applications that allow open redirects are vulnerable to XSS. An attacker could craft a malicious link that redirects users to an unexpected external site or that exploits an XSS vector.This issue has been fixed in version 7.13.0.",
+          "Severity": "MEDIUM",
+          "CweIDs": [
+            "CWE-79",
+            "CWE-601"
+          ],
+          "VendorSeverity": {
+            "ghsa": 2,
+            "redhat": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:L/A:N",
+              "V3Score": 6.9
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:L/A:N",
+              "V3Score": 6.9
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-53668",
+            "https://github.com/remix-run/react-router",
+            "https://github.com/remix-run/react-router/blob/main/CHANGELOG.md#v7180",
+            "https://github.com/remix-run/react-router/commit/3a5b5ad0e5cf9918c646509563f5c41a89226ff3",
+            "https://github.com/remix-run/react-router/pull/14718",
+            "https://github.com/remix-run/react-router/releases/tag/react-router@7.18.0",
+            "https://github.com/remix-run/react-router/security/advisories/GHSA-jjmj-jmhj-qwj2",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-53668",
+            "https://www.cve.org/CVERecord?id=CVE-2026-53668"
+          ],
+          "PublishedDate": "2026-07-27T22:17:31.237Z",
+          "LastModifiedDate": "2026-08-03T14:13:34.623Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2026-41907",
+          "VendorIDs": [
+            "GHSA-w5hq-g745-h8pq"
+          ],
+          "PkgID": "uuid@9.0.1",
+          "PkgName": "uuid",
+          "PkgIdentifier": {
+            "PURL": "pkg:npm/uuid@9.0.1",
+            "UID": "6b3fbcd569dca2fa"
+          },
+          "InstalledVersion": "9.0.1",
+          "FixedVersion": "11.1.1, 12.0.1, 13.0.1",
+          "Status": "fixed",
+          "SeveritySource": "ghsa",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2026-41907",
+          "DataSource": {
+            "ID": "ghsa",
+            "Name": "GitHub Security Advisory npm",
+            "URL": "https://github.com/advisories?query=type%3Areviewed+ecosystem%3Anpm"
+          },
+          "Fingerprint": "sha256:81576dacf7e56d3524833c2fca0d63a223ca69a764e64fd506ec5d1090dd2157",
+          "Title": "uuid: uuid: Out-of-bounds write vulnerability impacts data integrity and confidentiality",
+          "Description": "uuid is for the creation of RFC9562 (formerly RFC4122) UUIDs. Prior to 14.0.0, v3, v5, and v6 accept external output buffers but do not reject out-of-range writes (small buf or large offset). This allows silent partial writes into caller-provided buffers. This vulnerability is fixed in 14.0.0.",
+          "Severity": "MEDIUM",
+          "CweIDs": [
+            "CWE-787",
+            "CWE-823"
+          ],
+          "VendorSeverity": {
+            "ghsa": 2,
+            "nvd": 3,
+            "redhat": 2
+          },
+          "CVSS": {
+            "ghsa": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+              "V40Vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N",
+              "V3Score": 7.5,
+              "V40Score": 6.3
+            },
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+              "V3Score": 7.5
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:L",
+              "V3Score": 4.8
+            }
+          },
+          "References": [
+            "https://access.redhat.com/security/cve/CVE-2026-41907",
+            "https://github.com/uuidjs/uuid",
+            "https://github.com/uuidjs/uuid/commit/32389c887c9e75f90442ee4cc95bbab0c4e8346e",
+            "https://github.com/uuidjs/uuid/commit/3d2c5b0342f0fcb52a5ac681c3d47c13e7444b34",
+            "https://github.com/uuidjs/uuid/commit/3d61d6ac1f782cf6b1dd8661c60f11722cd49a0d",
+            "https://github.com/uuidjs/uuid/commit/9d27ddf7046ce496ef39569ff84d948eeff9cb2a",
+            "https://github.com/uuidjs/uuid/releases/tag/v11.1.1",
+            "https://github.com/uuidjs/uuid/releases/tag/v12.0.1",
+            "https://github.com/uuidjs/uuid/releases/tag/v13.0.1",
+            "https://github.com/uuidjs/uuid/releases/tag/v14.0.0",
+            "https://github.com/uuidjs/uuid/security/advisories/GHSA-w5hq-g745-h8pq",
+            "https://nvd.nist.gov/vuln/detail/CVE-2026-41907",
+            "https://www.cve.org/CVERecord?id=CVE-2026-41907"
+          ],
+          "PublishedDate": "2026-04-24T19:17:14.49Z",
+          "LastModifiedDate": "2026-06-17T10:47:10.473Z"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,157 @@
+{
+  "timestamp": "2026-08-21T10:27:50.497Z",
+  "platform": "win32",
+  "capabilities": {
+    "node": "v26.4.0",
+    "npm": null,
+    "git": "git version 2.55.0.windows.4",
+    "docker": true,
+    "docker_daemon": true,
+    "trivy": true,
+    "trivyNative": false,
+    "trivyDocker": true,
+    "playwright": false,
+    "chromium": false,
+    "smokeSpec": false
+  },
+  "build": {
+    "status": "FAIL",
+    "typecheck": {
+      "success": false,
+      "exitCode": null,
+      "signal": null,
+      "error": "spawnSync npm.cmd EINVAL",
+      "stdout": "",
+      "stderr": "",
+      "duration_ms": 1
+    },
+    "build": {
+      "success": false,
+      "exitCode": null,
+      "signal": null,
+      "error": "spawnSync npm.cmd EINVAL",
+      "stdout": "",
+      "stderr": "",
+      "duration_ms": 1
+    }
+  },
+  "sbom": {
+    "status": "FAIL",
+    "file": "C:\\Users\\pc\\NEXUS\\pass5-fixed\\.nexus-pass5-sbom-1787308080512.json",
+    "format": "CycloneDX",
+    "components": 0,
+    "command": {
+      "success": true,
+      "exitCode": 0,
+      "signal": null,
+      "error": null,
+      "stdout": "",
+      "stderr": "2026-08-21T10:28:01Z\tINFO\t\"--format cyclonedx\" disables security scanning. Specify \"--scanners vuln\" explicitly if you want to include vulnerabilities in the \"cyclonedx\" report.\n2026-08-21T10:28:01Z\tINFO\tNumber of language-specific files\tnum=0\n",
+      "duration_ms": 1459
+    }
+  },
+  "docker": {
+    "status": "FAIL",
+    "command": {
+      "success": false,
+      "exitCode": 1,
+      "signal": null,
+      "error": null,
+      "stdout": "",
+      "stderr": "#0 building with \"desktop-linux\" instance using docker driver\n\n#1 [internal] load build definition from Dockerfile\n#1 transferring dockerfile: 2B 0.0s done\n#1 DONE 0.1s\nERROR: failed to build: failed to solve: failed to read dockerfile: open Dockerfile: no such file or directory\n",
+      "duration_ms": 1496
+    }
+  },
+  "image": {
+    "status": "BLOCKED",
+    "reason": "Docker build failed."
+  },
+  "container_security": {
+    "status": "BLOCKED",
+    "reason": "No real image exists."
+  },
+  "image_sbom": {
+    "status": "BLOCKED",
+    "reason": "No real image exists."
+  },
+  "staging": {
+    "status": "BLOCKED",
+    "reason": "No built image."
+  },
+  "health": {
+    "status": "BLOCKED",
+    "reason": "No staging deployment."
+  },
+  "smoke": {
+    "status": "BLOCKED",
+    "reason": "Real staging/health did not pass."
+  },
+  "quality_gate": {
+    "status": "BLOCKED",
+    "checks": [
+      "FAIL",
+      "FAIL",
+      "FAIL",
+      "BLOCKED",
+      "BLOCKED",
+      "BLOCKED",
+      "BLOCKED",
+      "BLOCKED",
+      "BLOCKED"
+    ]
+  },
+  "rollback": {
+    "status": "BLOCKED",
+    "reason": "No safe real two-version rollback fixture was executed."
+  },
+  "rollback_verification": {
+    "status": "BLOCKED",
+    "reason": "Rollback was not executed; no simulation is allowed."
+  },
+  "regression": {
+    "status": "FAIL",
+    "typecheck": {
+      "success": false,
+      "exitCode": null,
+      "signal": null,
+      "error": "spawnSync npm.cmd EINVAL",
+      "stdout": "",
+      "stderr": "",
+      "duration_ms": 0
+    },
+    "build": {
+      "success": false,
+      "exitCode": null,
+      "signal": null,
+      "error": "spawnSync npm.cmd EINVAL",
+      "stdout": "",
+      "stderr": "",
+      "duration_ms": 1
+    },
+    "verifyPhase1": null,
+    "verifyPhase3Rollback": null
+  },
+  "typescript_build": {
+    "typecheck": {
+      "success": false,
+      "exitCode": null,
+      "signal": null,
+      "error": "spawnSync npm.cmd EINVAL",
+      "stdout": "",
+      "stderr": "",
+      "duration_ms": 1
+    },
+    "build": {
+      "success": false,
+      "exitCode": null,
+      "signal": null,
+      "error": "spawnSync npm.cmd EINVAL",
+      "stdout": "",
+      "stderr": "",
+      "duration_ms": 1
+    }
+  },
+  "files_changed": [],
+  "final_status": "FAIL",
+  "finished_at": "2026-08-21T10:28:03.477Z"
+}
