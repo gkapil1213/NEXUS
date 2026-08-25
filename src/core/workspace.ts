@@ -262,6 +262,12 @@ export class WorkspaceService {
   async readFile(actor: WorkspaceActor, id: string, path: string): Promise<WorkspaceFileRecord> {
     await this.svc.authz.authorize(actor, "workspace:read", { type: "workspace", id });
     const ws = await this.requireActive(actor, id, "read");
+    if (ws.owner_identity_id !== actor.id) {
+      await this.auditWs(actor, "workspace.access.denied", ws, "deny", { op: "read", reason: "not the workspace owner" });
+      throw Err.denied("WORKSPACE_FOREIGN", "denied");
+    }
+
+    await this.svc.authz.authorize(actor, "project:read", { type: "project", id: ws.project_id });
     const decision = await this.authorizePath(actor, ws, path, "read");
     const rec = await this.svc.engine.byIndex<WorkspaceFileRecord>("workspace_files", "byWorkspace", id);
     const file = rec.find((f) => f.path === decision.normalized);
@@ -476,3 +482,4 @@ export class BrowserSandbox implements ExecutionSandbox {
     return this.workspaces.destroy(actor, id);
   }
 }
+

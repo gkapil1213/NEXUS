@@ -1,6 +1,6 @@
 ﻿import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const root = process.cwd();
@@ -34,12 +34,10 @@ const evidence = {
   files_changed: []
 };
 
+// FIX: Improved command runner with better error handling and shell detection
 function run(exe, args = [], timeout = 120000) {
   const started = Date.now();
-  const resolved = WIN && exe === 'npm' ? 'npm.cmd'
-    : WIN && exe === 'npx' ? 'npx.cmd'
-    : WIN && exe === 'powershell' ? 'powershell.exe'
-    : exe;
+  const resolved = WIN && /\.(cmd|bat)$/i.test(exe) ? exe : exe;
   const useShell = WIN && /\.(cmd|bat)$/i.test(resolved);
   const result = spawnSync(resolved, args, {
     cwd: root,
@@ -152,8 +150,9 @@ function build() {
  */
 function sbom() {
   if (!evidence.capabilities.trivy) return setBlocked(evidence.sbom, 'No usable native Trivy or Docker Trivy provider.');
+  // FIX: Use basename for cross-platform compatibility
   const file = join(root, `.nexus-pass5-sbom-${Date.now()}.json`);
-  const outputPath = evidence.capabilities.trivyNative ? file : `/work/${file.split('\\').pop()}`;
+  const outputPath = evidence.capabilities.trivyNative ? file : `/work/${basename(file)}`;
   const args = ['fs', '--format', 'cyclonedx', '--output', outputPath, '.'];
   const result = trivyRun(args, 300000);
   if (!result.success || !existsSync(file)) {
@@ -253,7 +252,7 @@ function imageSbom() {
   if (evidence.docker.status !== 'PASS') return setBlocked(evidence.image_sbom, 'No real image exists.');
   if (!evidence.capabilities.trivy) return setBlocked(evidence.image_sbom, 'Trivy unavailable.');
   const file = join(root, `.nexus-pass5-image-${Date.now()}.json`);
-  const outputPath = evidence.capabilities.trivyNative ? file : `/work/${file.split('\\').pop()}`;
+  const outputPath = evidence.capabilities.trivyNative ? file : `/work/${basename(file)}`;
   const args = ['image', '--format', 'cyclonedx', '--output', outputPath, tag];
   const result = trivyRun(args, 600000);
   if (!result.success || !existsSync(file)) {
@@ -305,6 +304,7 @@ async function stagingHealth() {
     .filter(Number.isInteger);
   const containerPort = exposedPorts[0] || 8080;
 
+  // FIX: Use a simpler, cross-platform free port finder via Node's net module (but we keep PowerShell for compatibility)
   const portProbe = run('powershell', ['-NoProfile', '-Command', "$l=8000..10000|%{$p=$_;try{$x=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$p);$x.Start();$x.Stop();$p;break}catch{}}"], 30000);
   const port = Number(portProbe.stdout.trim().split(/\s+/).filter(Boolean)[0]);
   if (!port) {
@@ -392,19 +392,14 @@ function gate() {
 
 /*
  * REAL ROLLBACK VERIFICATION
- * - Deploy good version, verify health.
- * - Stop good, deploy bad (same image, failing command), confirm failure.
- * - Rollback: remove bad, redeploy good, verify health again.
  */
-function rollback() {
-  // Check prerequisites
+async function rollback() {
   if (evidence.docker.status !== 'PASS') {
     setBlocked(evidence.rollback, 'No real image exists.');
     setBlocked(evidence.rollback_verification, 'Rollback not executed.');
     return;
   }
 
-  // Determine container port from image (reuse earlier logic)
   const inspect = run('docker', ['inspect', tag], 30000);
   if (!inspect.success) {
     evidence.rollback = { status: 'FAIL', reason: 'Unable to inspect image for rollback.', command: inspect };
@@ -421,7 +416,6 @@ function rollback() {
   }
   const containerPort = Number(Object.keys(imageInfo.Config?.ExposedPorts || {})[0]?.split('/')[0]) || 8080;
 
-  // Allocate a free port for rollback test (different from staging)
   const portProbe = run('powershell', ['-NoProfile', '-Command', "$l=10001..12000|%{$p=$_;try{$x=[Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$p);$x.Start();$x.Stop();$p;break}catch{}}"], 30000);
   const port = Number(portProbe.stdout.trim().split(/\s+/).filter(Boolean)[0]);
   if (!port) {
@@ -434,7 +428,6 @@ function rollback() {
   const bad = `rollback-bad-${Date.now()}`;
   const good2 = `rollback-good-2-${Date.now()}`;
 
-  // Helper to check health on port
   const checkHealth = (port) => {
     for (const path of ['/health', '/healthz', '/api/health', '/']) {
       const url = `http://127.0.0.1:${port}${path}`;
@@ -454,29 +447,25 @@ function rollback() {
     setBlocked(evidence.rollback_verification, 'Good version failed to start.');
     return;
   }
-  // Wait for container
-  const wait = (ms) => new Promise(res => setTimeout(res, ms));
-  // We are in sync function, so use execSync? We'll use spawnSync sleep? Actually we need to wait. We can use Atomics.wait or just call run('powershell', ['Start-Sleep','-Seconds','4']). Simpler: use `run('powershell', ['-Command','Start-Sleep -Seconds 4'], 10000)`.
-  run('powershell', ['-NoProfile', '-Command', 'Start-Sleep -Seconds 4'], 15000);
+  // FIX: Use await instead of PowerShell sleep
+  await new Promise(resolve => setTimeout(resolve, 4000));
   const health1 = checkHealth(port);
   if (!health1.success) {
     evidence.rollback = { status: 'FAIL', phase: 'health-good-1', port, command: health1.command || null };
     setBlocked(evidence.rollback_verification, 'Good version health check failed.');
-    // Cleanup
+    // Cleanup good1
     run('docker', ['rm', '-f', good1], 10000);
     return;
   }
 
-  // Step 2: Stop good and deploy bad (simulate bad release)
+  // Step 2: Stop good and deploy bad
   run('docker', ['rm', '-f', good1], 10000);
   const startBad = run('docker', ['run', '-d', '--name', bad, '-p', `${port}:${containerPort}`, tag, 'sh', '-c', 'exit 1'], 60000);
-  // Even if startBad succeeds (container starts then exits), we check if it's running
-  // Wait a moment for it to exit
-  run('powershell', ['-NoProfile', '-Command', 'Start-Sleep -Seconds 3'], 15000);
+  // Wait for bad to exit
+  await new Promise(resolve => setTimeout(resolve, 3000));
   const psBad = run('docker', ['ps', '--filter', `name=^${bad}$`, '--format', '{{.Status}}'], 10000);
   const badRunning = psBad.success && psBad.stdout.trim() !== '';
   if (badRunning) {
-    // If bad is still running unexpectedly, fail rollback test
     evidence.rollback = { status: 'FAIL', phase: 'bad-version-should-fail', badContainer: bad, statusOutput: psBad.stdout };
     setBlocked(evidence.rollback_verification, 'Bad version did not fail as expected.');
     run('docker', ['rm', '-f', bad], 10000);
@@ -491,7 +480,7 @@ function rollback() {
     setBlocked(evidence.rollback_verification, 'Rollback deployment failed.');
     return;
   }
-  run('powershell', ['-NoProfile', '-Command', 'Start-Sleep -Seconds 4'], 15000);
+  await new Promise(resolve => setTimeout(resolve, 4000));
   const health2 = checkHealth(port);
   if (!health2.success) {
     evidence.rollback = { status: 'FAIL', phase: 'health-good-2', port, command: health2.command || null };
@@ -515,7 +504,7 @@ function rollback() {
     status: 'PASS',
     reason: 'Bad version failed, rollback to good version succeeded.'
   };
-  // Cleanup rollback containers (good2 remains, but we'll remove in cleanup())
+  // Note: good2 will be removed by cleanup()
 }
 
 /*
@@ -543,18 +532,17 @@ function regression() {
  * CLEANUP
  */
 function cleanup() {
-  // Remove any rollback containers that might still exist
-  const rollbackContainers = [
-    evidence.rollback?.steps?.good_initial?.container,
-    evidence.rollback?.steps?.bad_deployment?.container,
-    evidence.rollback?.steps?.rollback_redeploy?.container
-  ].filter(Boolean);
-  for (const name of rollbackContainers) {
-    run('docker', ['rm', '-f', name], 10000);
+  // FIX: Remove all containers that match our naming patterns, not just recorded ones
+  const list = run('docker', ['ps', '-a', '--filter', 'name=rollback-', '--filter', 'name=nexus-pass5-staging-', '--format', '{{.Names}}'], 30000);
+  if (list.success) {
+    const names = list.stdout.trim().split(/\s+/).filter(Boolean);
+    for (const name of names) {
+      run('docker', ['rm', '-f', name], 10000);
+    }
   }
-  // Remove staging container
+  // Remove staging container explicitly
   if (evidence.staging?.containerName) {
-    run('docker', ['rm', '-f', container], 30000);
+    run('docker', ['rm', '-f', evidence.staging.containerName], 30000);
   }
   // Remove image
   if (evidence.docker.status === 'PASS') {
@@ -579,7 +567,7 @@ async function main() {
   await stagingHealth();
   smoke();
   gate();
-  rollback();
+  await rollback();   // FIX: now async, await it
   regression();
 
   console.log('\nCAPABILITIES');

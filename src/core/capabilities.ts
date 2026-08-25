@@ -65,7 +65,7 @@ function probe(
 async function fetchProbe(url: string, timeoutMs: number): Promise<{ ok: boolean; latency_ms: number | null; status?: number }> {
   const t0 = performance.now();
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { method: "GET", signal: controller.signal, cache: "no-store" });
     const latency_ms = Math.round((performance.now() - t0) * 10) / 10;
@@ -73,7 +73,7 @@ async function fetchProbe(url: string, timeoutMs: number): Promise<{ ok: boolean
   } catch {
     return { ok: false, latency_ms: null };
   } finally {
-    window.clearTimeout(timer);
+    globalThis.clearTimeout(timer);
   }
 }
 

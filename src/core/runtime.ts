@@ -167,6 +167,11 @@ export function sanitizeArgs(args: string[]): string[] {
     if (a.length > MAX_ARG_LEN) throw Err.validation("ARG_TOO_LONG", `argument exceeds ${MAX_ARG_LEN} characters`);
     if (SHELL_META.test(a)) throw Err.security("ARG_REJECTED", `argument contains shell metacharacters and was rejected`);
     if (a.includes("..")) throw Err.security("TRAVERSAL_REJECTED", "path traversal ('..') is not allowed in arguments");
+    if (/[\x00-\x1f\x7f]/.test(a)) throw Err.security("CONTROL_CHAR_REJECTED", "argument contains control characters");
+    if (a.includes("\\")) throw Err.security("BACKSLASH_REJECTED", "backslashes are not allowed in arguments");
+    if (/\s/.test(a) && /^(rm|curl|wget|sh|bash|zsh|dash|sudo|chmod|dd|mkfs|killall)\b/.test(a.trim())) {
+      throw Err.security("ARG_REJECTED", "argument contains shell metacharacters or unsafe command");
+    }
     return a;
   });
 }
@@ -300,7 +305,10 @@ export class HostProcessExecutor implements ProcessExecutor {
     const raw: string[] = [];
     for (const r of cmd.rawArgs ?? []) {
       if (!TRUSTED_SCRIPTS.has(r)) {
-        throw Err.security("UNTRUSTED_SCRIPT_REJECTED", "raw argument is not a registered trusted script — rejected");
+        throw Err.security(
+  "UNTRUSTED_SCRIPT_REJECTED",
+  "raw argument is not a registered trusted script; trusted scripts may only be used with 'node -e'"
+);
       }
       raw.push(r);
     }
@@ -314,8 +322,8 @@ export class HostProcessExecutor implements ProcessExecutor {
     const timeout = cmd.timeout_ms ?? 120_000;
 
     const execP = this.bridge.exec(exe, args, { timeout_ms: timeout, cwd: cmd.cwd });
-    const timerP = new Promise<never>((_, reject) =>
-      window.setTimeout(() => {
+        const timerP = new Promise<never>((_, reject) =>
+      globalThis.setTimeout(() => {
         timedOut = true;
         reject(Err.runtime("EXEC_TIMEOUT", `command timed out after ${timeout}ms`));
       }, timeout),

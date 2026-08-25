@@ -1065,7 +1065,16 @@ export class CiPipelineEngine {
     // Idempotency: one open CR per (execution, source branch).
     const existing = await this.svc.engine.byIndex<ChangeRequest>("change_requests", "byExecution", ctx.execution_id);
     const match = existing.find((c) => c.source_branch === sourceBranch && c.status === "OPEN");
-    if (match) return { cr: match, created: false };
+    if (match) {
+  await this.audit(ctx, "change_request.duplicate", "info", {
+    cr_id: match.id,
+    repository,
+    source_branch: sourceBranch,
+    target_branch: targetBranch,
+    reason: "duplicate request detected",
+  });
+  return { cr: match, created: false };
+}
 
     let remoteId: number | null = null;
     let remoteUrl: string | null = null;
@@ -1090,6 +1099,7 @@ export class CiPipelineEngine {
 
     const cr: ChangeRequest = {
       id: nid("cr"),
+      execution_id: ctx.execution_id,
       provider: provider.name,
       repository,
       source_branch: sourceBranch,
@@ -1131,3 +1141,4 @@ export class CiPipelineEngine {
 }
 
 export { maskToken };
+

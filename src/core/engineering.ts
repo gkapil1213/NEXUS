@@ -330,7 +330,7 @@ export async function generatePlan(
   const buildValidation = validateBuildPlan(buildPlan);
   const capabilities = await detectCapabilities();
   const exec = executableHere(capabilities);
-  const hasExecutor = capabilities.probes.find((p) => p.name === "Node.js (spawnable)")?.status === "AVAILABLE";
+  const hasExecutor = false; // command runtime is not connected in this pass
 
   const stages = buildStages(detection, buildValidation, exec, intent, hasExecutor);
   const readyCount = stages.filter((s) => s.availability === "ready").length;
