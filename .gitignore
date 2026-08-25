@@ -1,27 +1,16 @@
-# dependencies
-node_modules/
+﻿# Generated SBOM and security artifacts
+.nexus-pass5-*.json
+nexus-security/
+verify-output.txt
+pass5-run.txt
+semgrep-*.txt
 
-# build output
-dist/
-dist-ssr/
-*.local
+# Backup files
+*.backup
+*.backup-*
+*.before-*
 
-# environment + secrets — NEVER commit real values
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-
-# logs
-logs/
-*.log
-npm-debug.log*
-
-# editors / os
-.DS_Store
-.idea/
-.vscode/*
-!.vscode/extensions.json
-.next/
-build/
+# Broken test fixtures (if not needed in repo)
+Dockerfile.broken
+nginx-broken.conf
+server.js
