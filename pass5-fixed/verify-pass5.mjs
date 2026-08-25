@@ -1,1562 +1,404 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-
-const root = process.cwd();
-const WIN = process.platform === 'win32';
-const NODE = process.execPath;
-const NPM = 'npm';
-const NPX = 'npx';
-
-const tag = `nexus-pass5-${Date.now()}`;
-const container = `nexus-pass5-staging-${Date.now()}`;
-
-const evidence = {
-  timestamp: new Date().toISOString(),
-  platform: process.platform,
-
-  capabilities: {},
-
-  build: {},
-  sbom: {},
-  docker: {},
-  image: {},
-  container_security: {},
-  image_sbom: {},
-  staging: {},
-  health: {},
-  smoke: {},
-  quality_gate: {},
-  rollback: {},
-  rollback_verification: {},
-  regression: {},
-  typescript_build: {},
-
-  files_changed: []
-};
-
-function run(exe, args = [], timeout = 120000) {
-  const started = Date.now();
-
-  let command = exe;
-  let commandArgs = args;
-
-  /*
-   * Windows cannot reliably spawn npm.cmd/npx.cmd directly through
-   * spawnSync(..., shell:false).
-   *
-   * Use cmd.exe explicitly.
-   */
-  if (WIN && (exe === 'npm' || exe === 'npm.cmd')) {
-    command = 'cmd.exe';
-    commandArgs = ['/d', '/s', '/c', 'npm.cmd', ...args];
-  } else if (WIN && (exe === 'npx' || exe === 'npx.cmd')) {
-    command = 'cmd.exe';
-    commandArgs = ['/d', '/s', '/c', 'npx.cmd', ...args];
-  } else if (WIN && exe === 'powershell') {
-    command = 'powershell.exe';
-  }
-
-  const result = spawnSync(command, commandArgs, {
-    cwd: root,
-    encoding: 'utf8',
-    timeout,
-    windowsHide: true,
-    shell: false
-  });
-
-  return {
-    success: result.status === 0,
-    exitCode: result.status,
-    signal: result.signal || null,
-    error: result.error
-      ? String(result.error.message || result.error)
-      : null,
-    stdout: result.stdout || '',
-    stderr: result.stderr || '',
-    duration_ms: Date.now() - started
-  };
-}
-
-// ----- START ADDED HELPERS -----
-function findFilesRecursive(dir, filename) {
-  const results = [];
-  try {
-    const entries = readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        results.push(...findFilesRecursive(fullPath, filename));
-      } else if (entry.isFile() && entry.name.toLowerCase() === filename.toLowerCase()) {
-        results.push(fullPath);
-      }
-    }
-  } catch (_) { /* ignore */ }
-  return results;
-}
-
-function resolveNativeTrivy() {
-  const candidates = [];
-  // 1. PATH
-  candidates.push('trivy', 'trivy.exe');
-  // 2. WinGet Links
-  const localAppData = process.env.LOCALAPPDATA || '';
-  if (localAppData) {
-    candidates.push(join(localAppData, 'Microsoft', 'WinGet', 'Links', 'trivy.exe'));
-    // 3. WinGet Packages recursive
-    const packagesDir = join(localAppData, 'Microsoft', 'WinGet', 'Packages');
-    if (existsSync(packagesDir)) {
-      const found = findFilesRecursive(packagesDir, 'trivy.exe');
-      candidates.push(...found);
-    }
-  }
-  // 4. Program Files
-  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
-  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-  candidates.push(
-    join(programFiles, 'Trivy', 'trivy.exe'),
-    join(programFiles, 'Aqua Security', 'Trivy', 'trivy.exe'),
-    join(programFilesX86, 'Trivy', 'trivy.exe'),
-    join(programFilesX86, 'Aqua Security', 'Trivy', 'trivy.exe')
-  );
-
-  const seen = new Set();
-  for (const candidate of candidates) {
-    const resolved = candidate;
-    if (seen.has(resolved)) continue;
-    seen.add(resolved);
-    if (resolved.includes('\\') && !existsSync(resolved)) continue;
-
-    const result = spawnSync(resolved, ['--version'], {
-      encoding: 'utf8',
-      shell: false,
-      timeout: 15000,
-    });
-    if (result.status === 0 && result.stdout) {
-      const versionMatch = result.stdout.match(/Version:\s*(\d+\.\d+\.\d+)/);
-      if (versionMatch) {
-        return {
-          success: true,
-          path: resolved,
-          version: versionMatch[1],
-          exitCode: 0,
-          via: resolved.includes('\\') ? 'absolute-path' : 'path-env',
-        };
-      }
-    }
-  }
-  return { success: false, error: 'No working native Trivy found' };
-}
-
-function runExecutable(exePath, args = [], timeout = 120000) {
-  const started = Date.now();
-  try {
-    const result = spawnSync(exePath, args, {
-      cwd: root,
-      encoding: 'utf8',
-      timeout,
-      windowsHide: true,
-      shell: false
-    });
-    return {
-      success: result.status === 0,
-      exitCode: result.status,
-      signal: result.signal || null,
-      error: result.error ? String(result.error.message || result.error) : null,
-      stdout: result.stdout || '',
-      stderr: result.stderr || '',
-      duration_ms: Date.now() - started
-    };
-  } catch (e) {
-    return {
-      success: false,
-      error: e.message,
-      stdout: '',
-      stderr: '',
-      duration_ms: Date.now() - started
-    };
-  }
-}
-// ----- END ADDED HELPERS -----
-
-function setBlocked(target, reason) {
-  target.status = 'BLOCKED';
-  target.reason = reason;
-  return target;
-}
-
-/*
- * Execute Trivy natively when available.
- *
- * If native Trivy is unavailable, use the real Docker Trivy image.
- *
- * This is NOT a simulated scanner.
- */
-function trivyRun(args, timeout = 600000) {
-  // Use native Trivy if available and resolved
-  if (evidence.capabilities.trivyNative && evidence.trivyNative?.path) {
-    return runExecutable(evidence.trivyNative.path, args, timeout);
-  }
-
-  // Fallback to Docker Trivy
-  if (evidence.capabilities.trivyDocker) {
-    return run(
-      'docker',
-      [
-        'run',
-        '--rm',
-
-        '--mount',
-        `type=bind,source=${root},target=/work`,
-
-        '-w',
-        '/work',
-
-        'aquasec/trivy:0.74.0',
-
-        ...args
-      ],
-      timeout
-    );
-  }
-
+function scannerBlocked(scanner, reason, extra = {}) {
   return {
     success: false,
-    exitCode: null,
-    signal: null,
-    error: 'No usable Trivy provider',
-    stdout: '',
-    stderr: '',
-    duration_ms: 0
+    status: 'BLOCKED',
+    scanner,
+    error: reason,
+    findings: [],
+    ...extra
   };
 }
 
-/*
- * Probe the actual environment.
- *
- * Chromium is NOT detected through:
- *   - package.json
- *   - Playwright metadata
- *   - --dry-run
- *
- * It is detected through a REAL chromium.launch().
- */
-function probe() {
-  // --- Node check (was missing) ---
-  const nodeCheck = run(
-    NODE,
-    ['--version'],
-    15000
-  );
-
-  // --- Resolve native Trivy ---
-  const trivyResolution = resolveNativeTrivy();
-  evidence.trivyNative = trivyResolution.success ? trivyResolution : null;
-
-  const trivyNativeCheck = trivyResolution.success
-    ? runExecutable(trivyResolution.path, ['--version'], 15000)
-    : { success: false, status: null, error: 'Native Trivy executable not found' };
-
-  // --- Other checks ---
-  const npmCheck = run(
-    NPM,
-    ['--version'],
-    15000
-  );
-
-  const gitCheck = run(
-    'git',
-    ['--version'],
-    15000
-  );
-
-  const dockerCheck = run(
-    'docker',
-    ['version', '--format', '{{.Client.Version}}'],
-    15000
-  );
-
-  const dockerDaemonCheck = dockerCheck.success
-    ? run(
-        'docker',
-        ['info'],
-        30000
-      )
-    : null;
-
-  // ========== FIXED: Probe Docker Trivy independently ==========
-  const trivyDockerCheck =
-    dockerDaemonCheck?.success
-      ? run(
-          'docker',
-          [
-            'run',
-            '--rm',
-            'aquasec/trivy:0.74.0',
-            '--version'
-          ],
-          120000
-        )
-      : null;
-
-  const playwrightCheck = run(
-    NPX,
-    ['playwright', '--version'],
-    30000
-  );
-
-  const smokeSpec = existsSync(
-    join(
-      root,
-      'tests',
-      'smoke',
-      'nexus-staging.spec.ts'
-    )
-  )
-    ? 'tests/smoke/nexus-staging.spec.ts'
-    : null;
-
-  /*
-   * REAL Chromium launch.
-   *
-   * This is the authoritative browser capability check.
-   */
-  let chromiumCheck = null;
-  let chromiumAvailable = false;
-
-  if (playwrightCheck.success) {
-    chromiumCheck = run(
-      NODE,
-      [
-        '-e',
-        `
-const { chromium } = require('playwright');
-
-(async () => {
-  const browser = await chromium.launch({
-    headless: true
-  });
-
-  await browser.close();
-
-  process.exit(0);
-})().catch(error => {
-  console.error(error?.stack || error);
-  process.exit(1);
-});
-`
-      ],
-      120000
-    );
-
-    chromiumAvailable = chromiumCheck.success;
-  }
-
-  evidence.capabilities = {
-    node: nodeCheck.success
-      ? nodeCheck.stdout.trim()
-      : null,
-
-    npm: npmCheck.success
-      ? npmCheck.stdout.trim()
-      : null,
-
-    git: gitCheck.success
-      ? gitCheck.stdout.trim()
-      : null,
-
-    docker: dockerCheck.success,
-
-    docker_daemon: !!dockerDaemonCheck?.success,
-
-    trivy:
-      trivyNativeCheck.success ||
-      !!trivyDockerCheck?.success,
-
-    trivyNative:
-      trivyNativeCheck.success,
-
-    trivyDocker:
-      !!trivyDockerCheck?.success,
-
-    playwright:
-      playwrightCheck.success,
-
-    chromium:
-      chromiumAvailable,
-
-    chromiumCheck,
-
-    smokeSpec:
-      !!smokeSpec
-  };
-}
-
-function build() {
-  const typecheck = run(
-    NPM,
-    ['run', 'typecheck'],
-    300000
-  );
-
-  const buildResult = run(
-    NPM,
-    ['run', 'build'],
-    300000
-  );
-
-  evidence.typescript_build = {
-    typecheck,
-    build: buildResult
-  };
-
-  evidence.build = {
-    status:
-      typecheck.success &&
-      buildResult.success
-        ? 'PASS'
-        : 'FAIL',
-
-    typecheck,
-    build: buildResult
-  };
-}
-
-function sbom() {
-  if (!evidence.capabilities.trivy) {
-    return setBlocked(
-      evidence.sbom,
-      'No usable native Trivy or Docker Trivy provider.'
-    );
-  }
-
-  const filename =
-    `.nexus-pass5-sbom-${Date.now()}.json`;
-
-  const file = join(
-    root,
-    filename
-  );
-
-  /*
-   * Native Trivy writes directly to the host.
-   *
-   * Docker Trivy writes to /work, which is mapped to root.
-   */
-  const outputPath =
-    evidence.capabilities.trivyNative
-      ? file
-      : `/work/${filename}`;
-
-  const args = [
-    'fs',
-    '--format',
-    'cyclonedx',
-    '--output',
-    outputPath,
-    '.'
-  ];
-
-  const result = trivyRun(
-    args,
-    300000
-  );
-
-  if (
-    !result.success ||
-    !existsSync(file)
-  ) {
-    evidence.sbom = {
-      status: 'FAIL',
-      command: result
-    };
-
-    return;
-  }
-
-  try {
-    const document = JSON.parse(
-      readFileSync(file, 'utf8')
-    );
-
-    const components =
-      Array.isArray(document.components)
-        ? document.components.length
-        : 0;
-
-    evidence.sbom = {
-      status:
-        document.bomFormat === 'CycloneDX' &&
-        components > 0
-          ? 'PASS'
-          : 'FAIL',
-
-      file,
-      format:
-        document.bomFormat || null,
-
-      components,
-
-      command: result
-    };
-  } catch (error) {
-    evidence.sbom = {
-      status: 'FAIL',
-      reason: error.message,
-      command: result
-    };
-  }
-}
-
-function dockerBuild() {
-  if (!evidence.capabilities.docker_daemon) {
-    setBlocked(
-      evidence.docker,
-      'Docker daemon unavailable.'
-    );
-
-    return;
-  }
-
-  const buildResult = run(
-    'docker',
-    [
-      'build',
-      '-t',
-      tag,
-      '.'
-    ],
-    600000
-  );
-
-  if (!buildResult.success) {
-    evidence.docker = {
-      status: 'FAIL',
-      command: buildResult
-    };
-
-    setBlocked(
-      evidence.image,
-      'Docker build failed.'
-    );
-
-    return;
-  }
-
-  const inspectResult = run(
-    'docker',
-    [
-      'inspect',
-      tag
-    ],
-    30000
-  );
-
-  if (!inspectResult.success) {
-    evidence.docker = {
-      status: 'FAIL',
-      build: buildResult,
-      inspect: inspectResult
-    };
-
-    return;
-  }
-
-  try {
-    const inspected =
-      JSON.parse(
-        inspectResult.stdout
-      )[0];
-
-    evidence.docker = {
-      status: 'PASS',
-
-      tag,
-
-      imageId:
-        inspected.Id,
-
-      digest:
-        inspected.RepoDigests?.[0] ||
-        null,
-
-      build:
-        buildResult
-    };
-
-    evidence.image = {
-      status: 'PASS',
-
-      imageId:
-        inspected.Id,
-
-      repoTags:
-        inspected.RepoTags || [],
-
-      architecture:
-        inspected.Architecture,
-
-      created:
-        inspected.Created,
-
-      config:
-        inspected.Config || {},
-
-      digest:
-        inspected.RepoDigests?.[0] ||
-        null
-    };
-  } catch (error) {
-    evidence.docker = {
-      status: 'FAIL',
-      reason:
-        `Invalid docker inspect JSON: ${error.message}`,
-      build: buildResult,
-      inspect: inspectResult
-    };
-  }
-}
-
-function containerSecurity() {
-  if (evidence.docker.status !== 'PASS') {
-    return setBlocked(
-      evidence.container_security,
-      'No real image exists.'
-    );
-  }
-
-  if (!evidence.capabilities.trivy) {
-    return setBlocked(
-      evidence.container_security,
-      'Trivy unavailable.'
-    );
-  }
-
-  const result = trivyRun(
-    [
-      'image',
-      '--format',
-      'json',
-      tag
-    ],
-    600000
-  );
-
-  if (!result.success) {
-    evidence.container_security = {
-      status: 'FAIL',
-      command: result
-    };
-
-    return;
-  }
-
-  try {
-    const document =
-      JSON.parse(result.stdout);
-
-    const counts = {
-      CRITICAL: 0,
-      HIGH: 0,
-      MEDIUM: 0,
-      LOW: 0,
-      UNKNOWN: 0
-    };
-
-    for (
-      const target of
-      document.Results || []
-    ) {
-      for (
-        const vulnerability of
-        target.Vulnerabilities || []
-      ) {
-        if (
-          counts[
-            vulnerability.Severity
-          ] !== undefined
-        ) {
-          counts[
-            vulnerability.Severity
-          ]++;
-        }
-      }
-    }
-
-    evidence.container_security = {
-      status: 'PASS',
-
-      scanner:
-        evidence.capabilities.trivyNative
-          ? 'trivy-native'
-          : 'trivy-docker',
-
-      image:
-        tag,
-
-      critical:
-        counts.CRITICAL,
-
-      high:
-        counts.HIGH,
-
-      medium:
-        counts.MEDIUM,
-
-      low:
-        counts.LOW,
-
-      unknown:
-        counts.UNKNOWN,
-
-      command:
-        result
-    };
-  } catch (error) {
-    evidence.container_security = {
-      status: 'FAIL',
-      reason: error.message,
-      command: result
-    };
-  }
-}
-
-function imageSbom() {
-  if (evidence.docker.status !== 'PASS') {
-    return setBlocked(
-      evidence.image_sbom,
-      'No real image exists.'
-    );
-  }
-
-  if (!evidence.capabilities.trivy) {
-    return setBlocked(
-      evidence.image_sbom,
-      'Trivy unavailable.'
-    );
-  }
-
-  const filename =
-    `.nexus-pass5-image-${Date.now()}.json`;
-
-  const file = join(
-    root,
-    filename
-  );
-
-  const outputPath =
-    evidence.capabilities.trivyNative
-      ? file
-      : `/work/${filename}`;
-
-  const result = trivyRun(
-    [
-      'image',
-      '--format',
-      'cyclonedx',
-      '--output',
-      outputPath,
-      tag
-    ],
-    600000
-  );
-
-  if (
-    !result.success ||
-    !existsSync(file)
-  ) {
-    evidence.image_sbom = {
-      status: 'FAIL',
-      command: result
-    };
-
-    return;
-  }
-
-  try {
-    const document =
-      JSON.parse(
-        readFileSync(file, 'utf8')
-      );
-
-    const components =
-      Array.isArray(document.components)
-        ? document.components.length
-        : 0;
-
-    evidence.image_sbom = {
-      status:
-        document.bomFormat === 'CycloneDX' &&
-        components > 0
-          ? 'PASS'
-          : 'FAIL',
-
-      image:
-        tag,
-
-      file,
-
-      components,
-
-      format:
-        document.bomFormat || null,
-
-      command:
-        result
-    };
-  } catch (error) {
-    evidence.image_sbom = {
-      status: 'FAIL',
-      reason: error.message,
-      command: result
-    };
-  }
-}
-
-async function stagingHealth() {
-  if (evidence.docker.status !== 'PASS') {
-    setBlocked(
-      evidence.staging,
-      'No built image.'
-    );
-
-    setBlocked(
-      evidence.health,
-      'No staging deployment.'
-    );
-
-    return;
-  }
-
-  const inspectResult = run(
-    'docker',
-    [
-      'inspect',
-      tag
-    ],
-    30000
-  );
-
-  if (!inspectResult.success) {
-    evidence.staging = {
-      status: 'FAIL',
-      reason:
-        'Unable to inspect built image.',
-      command:
-        inspectResult
-    };
-
-    setBlocked(
-      evidence.health,
-      'Image inspection failed.'
-    );
-
-    return;
-  }
-
-  let imageInfo;
-
-  try {
-    imageInfo =
-      JSON.parse(
-        inspectResult.stdout
-      )[0];
-  } catch (error) {
-    evidence.staging = {
-      status: 'FAIL',
-      reason:
-        `Invalid docker inspect JSON: ${error.message}`,
-      command:
-        inspectResult
-    };
-
-    setBlocked(
-      evidence.health,
-      'Invalid image inspection.'
-    );
-
-    return;
-  }
-
-  const exposedPorts =
-    Object.keys(
-      imageInfo.Config?.ExposedPorts || {}
-    )
-      .map(
-        value =>
-          Number(
-            String(value)
-              .split('/')[0]
-          )
-      )
-      .filter(
-        Number.isInteger
-      );
-
-  const containerPort =
-    exposedPorts[0] || 8080;
-
-  /*
-   * Find a free host port.
-   */
-  const portProbe =
-    WIN
-      ? run(
-          'powershell',
-          [
-            '-NoProfile',
-            '-Command',
-            `
-$found = $null
-foreach ($p in 8000..10000) {
-  try {
-    $listener = [Net.Sockets.TcpListener]::new(
-      [Net.IPAddress]::Loopback,
-      $p
-    )
-    $listener.Start()
-    $listener.Stop()
-    $found = $p
-    break
-  }
-  catch {}
-}
-
-if ($null -ne $found) {
-  Write-Output $found
-}
-`
-          ],
-          30000
-        )
-      : null;
-
-  const port =
-    Number(
-      portProbe?.stdout
-        ?.trim()
-        ?.split(/\s+/)
-        ?.filter(Boolean)
-        ?.at(0)
-    );
-
-  if (!port) {
-    setBlocked(
-      evidence.staging,
-      'Could not allocate a host port.'
-    );
-
-    setBlocked(
-      evidence.health,
-      'Staging was not started.'
-    );
-
-    return;
-  }
-
-  const runResult = run(
-    'docker',
-    [
-      'run',
-      '-d',
-
-      '--name',
-      container,
-
-      '-p',
-      `${port}:${containerPort}`,
-
-      tag
-    ],
-    120000
-  );
-
-  if (!runResult.success) {
-    evidence.staging = {
-      status: 'FAIL',
-
-      containerName:
-        container,
-
-      hostPort:
-        port,
-
-      containerPort,
-
-      image:
-        tag,
-
-      command:
-        runResult
-    };
-
-    setBlocked(
-      evidence.health,
-      'Staging container failed to start.'
-    );
-
-    return;
-  }
-
-  await new Promise(
-    resolve =>
-      setTimeout(
-        resolve,
-        4000
-      )
-  );
-
-  const processCheck = run(
-    'docker',
-    [
-      'ps',
-
-      '--filter',
-      `name=^${container}$`,
-
-      '--format',
-      '{{.Status}}'
-    ],
-    30000
-  );
-
-  const running =
-    processCheck.success &&
-    !!processCheck.stdout.trim();
-
-  evidence.staging = {
-    status:
-      running
-        ? 'PASS'
-        : 'FAIL',
-
-    containerName:
-      container,
-
-    hostPort:
-      port,
-
-    containerPort,
-
-    image:
-      tag,
-
-    command:
-      runResult,
-
-    statusOutput:
-      processCheck.stdout.trim()
-  };
-
-  if (!running) {
-    const logs = run(
-      'docker',
-      [
-        'logs',
-        container
-      ],
-      30000
-    );
-
-    evidence.staging.logs =
-      logs;
-
-    setBlocked(
-      evidence.health,
-      'Container is not running.'
-    );
-
-    return;
-  }
-
-  /*
-   * Try configured and conventional health endpoints.
-   */
-  const candidates = [
-    process.env.NEXUS_HEALTH_PATH,
-    '/health',
-    '/healthz',
-    '/api/health',
-    '/'
-  ].filter(Boolean);
-
-  for (
-    const path of
-    [...new Set(candidates)]
-  ) {
-    const url =
-      `http://127.0.0.1:${port}${path}`;
-
-    const healthResult =
-      WIN
-        ? run(
-            'curl.exe',
-            [
-              '-sS',
-              '-o',
-              join(
-                tmpdir(),
-                'nexus-pass5-health.txt'
-              ),
-              '-w',
-              '%{http_code}',
-              url
-            ],
-            20000
-          )
-        : run(
-            'curl',
-            [
-              '-sS',
-              '-o',
-              join(
-                tmpdir(),
-                'nexus-pass5-health.txt'
-              ),
-              '-w',
-              '%{http_code}',
-              url
-            ],
-            20000
-          );
-
-    const statusCode =
-      Number(
-        healthResult.stdout.trim()
-      );
-
-    if (
-      healthResult.success &&
-      statusCode >= 200 &&
-      statusCode < 400
-    ) {
-      evidence.health = {
-        status: 'PASS',
-
-        url,
-
-        endpoint:
-          path,
-
-        http_status:
-          statusCode,
-
-        command:
-          healthResult
-      };
-
-      return;
-    }
-  }
-
-  const logs = run(
-    'docker',
-    [
-      'logs',
-      container
-    ],
-    30000
-  );
-
-  evidence.health = {
+function scannerFailed(scanner, reason, result = null, extra = {}) {
+  return {
+    success: false,
     status: 'FAIL',
-
-    reason:
-      'No health endpoint returned HTTP 2xx/3xx.',
-
-    container,
-
-    command:
-      logs,
-
-    logs
+    scanner,
+    error: reason,
+    findings: [],
+    command: result,
+    ...extra
   };
 }
 
-function smoke() {
-  if (
-    evidence.staging.status !== 'PASS' ||
-    evidence.health.status !== 'PASS'
-  ) {
-    return setBlocked(
-      evidence.smoke,
-      'Real staging/health did not pass.'
-    );
-  }
-
-  const spec =
-    existsSync(
-      join(
-        root,
-        'tests',
-        'smoke',
-        'nexus-staging.spec.ts'
-      )
-    )
-      ? 'tests/smoke/nexus-staging.spec.ts'
-      : null;
-
-  if (!spec) {
-    return setBlocked(
-      evidence.smoke,
-      'Existing staging smoke spec not found.'
-    );
-  }
-
-  if (!evidence.capabilities.playwright) {
-    return setBlocked(
-      evidence.smoke,
-      'Playwright CLI is unavailable.'
-    );
-  }
-
-  if (!evidence.capabilities.chromium) {
-    return setBlocked(
-      evidence.smoke,
-      'Real Chromium launch failed.'
-    );
-  }
-
-  const result = run(
-    NPX,
-    [
-      'playwright',
-      'test',
-      spec
-    ],
-    600000
-  );
-
-  evidence.smoke = {
-    status:
-      result.success
-        ? 'PASS'
-        : 'FAIL',
-
-    browser_proof:
-      result.success
-        ? 'Real Playwright browser execution succeeded.'
-        : 'Real Playwright browser execution failed.',
-
-    command:
-      result
+function scannerPassed(scanner, findings, result = null, extra = {}) {
+  return {
+    success: true,
+    status: 'PASS',
+    scanner,
+    findings,
+    command: result,
+    ...extra
   };
 }
+
+// CORRECTED: strips leading non-JSON output (npm deprecation warnings etc.)
+// before attempting to parse, instead of parsing the raw trimmed string directly.
+function parseJsonOutput(stdout, stderr = '') {
+  const text = String(stdout || '').trim();
+
+  if (!text) {
+    return {
+      success: false,
+      error: String(stderr || 'Scanner returned no JSON output.')
+    };
+  }
+
+  const start = text.indexOf('{');
+  const jsonSlice = start >= 0 ? text.slice(start) : text;
+
+  try {
+    return {
+      success: true,
+      data: JSON.parse(jsonSlice)
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Invalid JSON scanner output: ${error.message}`,
+      raw: text.slice(0, 10000)
+    };
+  }
+}
+
+
+// ============================================================
+// NPM AUDIT  (unchanged from your document)
+// ============================================================
+
+function runNpmAudit() {
+  if (!evidence.capabilities.npmAudit) {
+    return scannerBlocked('npm-audit', 'npm audit executable is unavailable.');
+  }
+
+  const result = run(NPM, ['audit', '--json'], 300000);
+  const parsed = parseJsonOutput(result.stdout, result.stderr);
+
+  if (!parsed.success) {
+    return scannerFailed('npm-audit', parsed.error, result);
+  }
+
+  const findings = [];
+
+  if (parsed.data.vulnerabilities) {
+    for (const [packageName, vulnerability] of Object.entries(parsed.data.vulnerabilities)) {
+      const severityMap = { critical: 'CRITICAL', high: 'HIGH', moderate: 'MEDIUM', low: 'LOW', info: 'INFO' };
+      const severity = severityMap[String(vulnerability.severity || 'unknown').toLowerCase()] || 'UNKNOWN';
+
+      findings.push({
+        id: `npm-audit-${packageName}-${Date.now()}`,
+        scanner: 'npm-audit',
+        category: 'DEPENDENCY',
+        severity,
+        title: `Dependency vulnerability: ${packageName}`,
+        package: packageName,
+        version: vulnerability.range || '',
+        fixed_version: Array.isArray(vulnerability.fixAvailable) ? '' : vulnerability.fixAvailable?.version || '',
+        evidence: { via: 'npm audit', raw: vulnerability }
+      });
+    }
+  }
+
+  if (parsed.data.advisories) {
+    for (const [id, advisory] of Object.entries(parsed.data.advisories)) {
+      const severityMap = { critical: 'CRITICAL', high: 'HIGH', moderate: 'MEDIUM', low: 'LOW' };
+      const severity = severityMap[String(advisory.severity || '').toLowerCase()] || 'UNKNOWN';
+
+      findings.push({
+        id: `npm-audit-${id}`,
+        scanner: 'npm-audit',
+        category: 'DEPENDENCY',
+        severity,
+        title: advisory.title || advisory.name || id,
+        package: advisory.module_name || '',
+        version: advisory.findings?.[0]?.version || '',
+        fixed_version: advisory.patches?.[0]?.version || '',
+        cve: Array.isArray(advisory.cves) ? advisory.cves.join(', ') : '',
+        evidence: advisory
+      });
+    }
+  }
+
+  return scannerPassed('npm-audit', findings, result);
+}
+
+
+// ============================================================
+// GITLEAKS  (unchanged from your document)
+// ============================================================
+
+function runGitleaks() {
+  if (!evidence.capabilities.gitleaks) {
+    return scannerBlocked('gitleaks', 'Gitleaks executable is unavailable.');
+  }
+
+  const reportFile = join(root, `.nexus-gitleaks-${Date.now()}.json`);
+
+  const result = run('gitleaks', [
+    'detect', '--source', root, '--report-format', 'json', '--report-path', reportFile, '--no-banner'
+  ], 300000);
+
+  if (result.exitCode !== 0 && result.exitCode !== 1) {
+    return scannerFailed('gitleaks', result.error || `Gitleaks execution failed with exit code ${result.exitCode}.`, result);
+  }
+
+  if (!existsSync(reportFile)) {
+    return scannerFailed('gitleaks', 'Gitleaks completed but did not produce the expected JSON report.', result);
+  }
+
+  let data;
+  try {
+    const raw = readFileSync(reportFile, 'utf8');
+    data = raw.trim() ? JSON.parse(raw) : [];
+  } catch (error) {
+    return scannerFailed('gitleaks', `Unable to parse Gitleaks report: ${error.message}`, result);
+  }
+
+  const leaks = Array.isArray(data) ? data : Array.isArray(data.leaks) ? data.leaks : [];
+
+  const findings = leaks.map((leak, index) => ({
+    id: `gitleaks-${Date.now()}-${index}`,
+    scanner: 'gitleaks',
+    category: 'SECRET',
+    severity: String(leak.Severity || 'HIGH').toUpperCase(),
+    title: `Secret detected: ${leak.RuleID || 'unknown-rule'}`,
+    description: leak.Description || leak.RuleID || 'Potential secret detected.',
+    file: leak.File || '',
+    line: leak.StartLine || leak.Line || null,
+    rule_id: leak.RuleID || '',
+    evidence: {
+      file: leak.File || '',
+      line: leak.StartLine || leak.Line || null,
+      secret_type: leak.RuleID || '',
+      fingerprint: leak.Fingerprint || null
+    }
+  }));
+
+  return scannerPassed('gitleaks', findings, result, { reportFile, exitCode: result.exitCode });
+}
+
+
+// ============================================================
+// SEMGREP  (unchanged from your document)
+// ============================================================
+
+function runSemgrep() {
+  if (!evidence.capabilities.semgrep) {
+    return scannerBlocked('semgrep', 'Semgrep executable is unavailable.');
+  }
+
+  const result = run('semgrep', [
+    'scan', '--json', '--config=p/security-audit', '--no-ignore',
+    '--exclude', 'node_modules', '--exclude', '.git', '--exclude', 'test-results', '--exclude', 'trivy-*.json', '.'
+  ], 600000);
+
+  const parsed = parseJsonOutput(result.stdout, result.stderr);
+  if (!parsed.success) {
+    return scannerFailed('semgrep', parsed.error, result);
+  }
+
+  const findings = [];
+  for (const [index, res] of (parsed.data.results || []).entries()) {
+    const rawSeverity = String(res.extra?.severity || 'MEDIUM').toUpperCase();
+    const severity = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'].includes(rawSeverity) ? rawSeverity : 'UNKNOWN';
+
+    findings.push({
+      id: `semgrep-${Date.now()}-${index}`,
+      scanner: 'semgrep',
+      category: 'SAST',
+      severity,
+      title: res.extra?.message || res.check_id || res.rule_id || 'Semgrep finding',
+      description: res.extra?.message || '',
+      file: res.path || '',
+      line: res.start?.line || null,
+      rule_id: res.check_id || res.rule_id || '',
+      cwe: Array.isArray(res.extra?.metadata?.cwe) ? res.extra.metadata.cwe.join(', ') : '',
+      evidence: { raw: res }
+    });
+  }
+
+  return scannerPassed('semgrep', findings, result);
+}
+
+
+// ============================================================
+// CHECKOV  (unchanged from your document)
+// ============================================================
+
+function runCheckov() {
+  if (!evidence.capabilities.checkov) {
+    return scannerBlocked('checkov', 'Checkov executable is unavailable.');
+  }
+
+  const executable = evidence.checkov?.path;
+  if (!executable) {
+    return scannerBlocked('checkov', 'Checkov was detected but no resolved executable path exists.');
+  }
+
+  const result = run(executable, ['-d', root, '--output', 'json', '--quiet'], 600000);
+  const parsed = parseJsonOutput(result.stdout, result.stderr);
+
+  if (!parsed.success) {
+    return scannerFailed('checkov', parsed.error, result);
+  }
+
+  const findings = [];
+  const failedChecks = parsed.data.results?.failed_checks || [];
+
+  for (const [index, check] of failedChecks.entries()) {
+    const rawSeverity = String(check.severity || 'MEDIUM').toUpperCase();
+    const severity = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'].includes(rawSeverity) ? rawSeverity : 'UNKNOWN';
+
+    findings.push({
+      id: `checkov-${Date.now()}-${index}`,
+      scanner: 'checkov',
+      category: 'IAC',
+      severity,
+      title: check.check_name || check.check_id || 'Checkov finding',
+      description: check.check_name || '',
+      file: check.file_path || '',
+      line: check.file_line_range?.[0] || null,
+      rule_id: check.check_id || '',
+      evidence: { raw: check }
+    });
+  }
+
+  return scannerPassed('checkov', findings, result, {
+    checkovVersion: evidence.checkov?.version || null,
+    checkovPath: evidence.checkov?.path || null
+  });
+}
+
+
+// ============================================================
+// ZAP — REAL DAST
+// CORRECTED: falls back to evidence.staging.hostPort when
+// NEXUS_DAST_URL isn't set, instead of BLOCKING every run
+// that forgot to export the env var manually.
+// ============================================================
+
+function runZap() {
+  if (!evidence.capabilities.zap) {
+    return scannerBlocked('zap', 'OWASP ZAP executable is unavailable.');
+  }
+
+  const zapJar = evidence.zap?.path;
+  if (!zapJar || !existsSync(zapJar)) {
+    return scannerBlocked('zap', 'Resolved ZAP JAR does not exist.');
+  }
+
+  let target = process.env.NEXUS_DAST_URL?.trim() || null;
+  if (!target && evidence.staging?.hostPort && evidence.staging?.status === 'PASS') {
+    target = `http://127.0.0.1:${evidence.staging.hostPort}`;
+  }
+
+  if (!target) {
+    return scannerBlocked('zap', 'No DAST target configured. Set NEXUS_DAST_URL or ensure staging is running.');
+  }
+
+  let parsedTarget;
+  try {
+    parsedTarget = new URL(target);
+  } catch {
+    return scannerFailed('zap', `Invalid NEXUS_DAST_URL: ${target}`);
+  }
+
+  const hostname = parsedTarget.hostname;
+  const loopback = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
+
+  if (!loopback) {
+    return scannerBlocked('zap', `DAST target is outside the loopback-only Pass 1 boundary: ${hostname}`);
+  }
+
+  const outputFile = join(root, `.nexus-zap-${Date.now()}.json`);
+
+  const healthProbe = WIN
+    ? run('curl.exe', ['-sS', '-o', join(tmpdir(), 'nexus-zap-target.txt'), '-w', '%{http_code}', target], 30000)
+    : run('curl', ['-sS', '-o', join(tmpdir(), 'nexus-zap-target.txt'), '-w', '%{http_code}', target], 30000);
+
+  const statusCode = Number(healthProbe.stdout.trim());
+
+  if (!healthProbe.success || statusCode < 200 || statusCode >= 500) {
+    return scannerBlocked('zap', `DAST target is not reachable: HTTP ${statusCode || 'unavailable'}.`, { target, healthProbe });
+  }
+
+  const result = run('java', [
+    '-jar', zapJar, '-cmd', '-quickurl', target, '-quickout', outputFile, '-quickprogress'
+  ], 900000, dirname(zapJar));
+
+  if (!existsSync(outputFile)) {
+    return scannerFailed('zap', 'ZAP executed but did not produce the expected report.', result, {
+      target, zapVersion: evidence.zap?.version || null
+    });
+  }
+
+  let report;
+  try {
+    report = JSON.parse(readFileSync(outputFile, 'utf8'));
+  } catch (error) {
+    return scannerFailed('zap', `Unable to parse ZAP JSON report: ${error.message}`, result, { target, outputFile });
+  }
+
+  const findings = [];
+  const sites = Array.isArray(report.site) ? report.site : [];
+
+  for (const site of sites) {
+    const alerts = Array.isArray(site.alerts) ? site.alerts : [];
+    for (const [index, alert] of alerts.entries()) {
+      const risk = String(alert.riskdesc || alert.risk || 'Informational').toUpperCase();
+      let severity = 'INFO';
+      if (risk.includes('CRITICAL')) severity = 'CRITICAL';
+      else if (risk.includes('HIGH')) severity = 'HIGH';
+      else if (risk.includes('MEDIUM')) severity = 'MEDIUM';
+      else if (risk.includes('LOW')) severity = 'LOW';
+
+      findings.push({
+        id: `zap-${Date.now()}-${index}`,
+        scanner: 'zap',
+        category: 'DAST',
+        severity,
+        title: alert.name || alert.alert || 'ZAP alert',
+        description: alert.desc || alert.description || '',
+        url: alert.url || site.name || target,
+        rule_id: alert.pluginid || alert.pluginId || '',
+        evidence: {
+          solution: alert.solution || '',
+          reference: alert.reference || '',
+          confidence: alert.confidence || '',
+          raw: alert
+        }
+      });
+    }
+  }
+
+  return scannerPassed('zap', findings, result, {
+    target, outputFile, zapVersion: evidence.zap?.version || null, targetStatusCode: statusCode
+  });
+}
+
+
+// ============================================================
+// SECURITY GATE
+// CORRECTED: fallback status is 'UNKNOWN' instead of 'BLOCKED'
+// so a buggy scanner function can't hide as "tool missing".
+// ============================================================
 
 function gate() {
-  const stages = [
-    'build',
-    'sbom',
-    'docker',
-    'image',
-    'container_security',
-    'image_sbom',
-    'staging',
-    'health',
-    'smoke'
-  ];
-
-  const statuses =
-    stages.map(
-      key =>
-        evidence[key]?.status
-    );
-
-  evidence.quality_gate = {
-    status:
-      statuses.includes('FAIL')
-        ? 'FAIL'
-        : statuses.includes('BLOCKED')
-          ? 'BLOCKED'
-          : 'PASS',
-
-    checks:
-      Object.fromEntries(
-        stages.map(
-          key => [
-            key,
-            evidence[key]?.status ||
-              'UNKNOWN'
-          ]
-        )
-      )
+  const scanners = {
+    dependency: evidence.security?.dependency,
+    secrets: evidence.security?.secrets,
+    sast: evidence.security?.sast,
+    iac: evidence.security?.iac,
+    dast: evidence.security?.dast
   };
-}
 
-/*
- * Rollback is deliberately NOT simulated.
- *
- * A real two-version rollback fixture must exist before
- * this can become PASS.
- */
-function rollback() {
-  setBlocked(
-    evidence.rollback,
-    'No safe real two-version rollback fixture was executed.'
+  const scannerStatuses = Object.fromEntries(
+    Object.entries(scanners).map(([key, value]) => [key, value?.status || 'UNKNOWN'])
   );
 
-  setBlocked(
-    evidence.rollback_verification,
-    'Rollback was not executed; no simulation is allowed.'
-  );
-}
-
-function regression() {
-  const typecheck = run(
-    NPM,
-    ['run', 'typecheck'],
-    300000
-  );
-
-  const buildResult = run(
-    NPM,
-    ['run', 'build'],
-    300000
-  );
-
-  const phase1 =
-    existsSync(
-      join(
-        root,
-        'scripts',
-        'verify-phase1.mjs'
-      )
-    )
-      ? run(
-          NODE,
-          ['scripts/verify-phase1.mjs'],
-          300000
-        )
-      : null;
-
-  const phase3Rollback =
-    existsSync(
-      join(
-        root,
-        'scripts',
-        'verify-phase3-rollback.ps1'
-      )
-    )
-      ? run(
-          WIN
-            ? 'powershell.exe'
-            : 'powershell',
-          [
-            '-ExecutionPolicy',
-            'Bypass',
-            '-File',
-            'scripts/verify-phase3-rollback.ps1'
-          ],
-          300000
-        )
-      : null;
-
-  evidence.regression = {
-    status:
-      typecheck.success &&
-      buildResult.success
-        ? 'PASS'
-        : 'FAIL',
-
-    typecheck,
-
-    build:
-      buildResult,
-
-    verifyPhase1:
-      phase1,
-
-    verifyPhase3Rollback:
-      phase3Rollback
-  };
-}
-
-function cleanup() {
-  if (
-    evidence.staging?.containerName
-  ) {
-    run(
-      'docker',
-      [
-        'rm',
-        '-f',
-        container
-      ],
-      30000
-    );
+  const allFindings = [];
+  for (const scanner of Object.values(scanners)) {
+    if (Array.isArray(scanner?.findings)) allFindings.push(...scanner.findings);
   }
 
-  if (
-    evidence.docker.status === 'PASS'
-  ) {
-    run(
-      'docker',
-      [
-        'rmi',
-        tag
-      ],
-      30000
-    );
-  }
-}
-
-async function main() {
-  console.log(
-    '========================================\n' +
-    'NEXUS PHASE 3 — PASS 5 REAL VERIFICATION\n' +
-    '========================================'
-  );
-
-  probe();
-
-  console.log('\nCAPABILITIES');
-
-  for (
-    const [key, value]
-    of Object.entries(
-      evidence.capabilities
-    )
-  ) {
-    console.log(
-      `${key}: ${value ? 'PASS' : 'FAIL'}`
-    );
-  }
-
-  build();
-
-  sbom();
-
-  dockerBuild();
-
-  containerSecurity();
-
-  imageSbom();
-
-  await stagingHealth();
-
-  smoke();
-
-  gate();
-
-  rollback();
-
-  regression();
-
-  console.log('\nRUNTIME');
-
-  for (
-    const key of [
-      'sbom',
-      'docker',
-      'image',
-      'container_security',
-      'image_sbom',
-      'staging',
-      'health',
-      'smoke',
-      'quality_gate',
-      'rollback',
-      'rollback_verification'
-    ]
-  ) {
-    console.log(
-      `${key}: ${evidence[key].status}`
-    );
-  }
-
-  console.log(
-    `REGRESSION: ${evidence.regression.status}`
-  );
-
-  const required = [
-    'build',
-    'sbom',
-    'docker',
-    'image',
-    'container_security',
-    'image_sbom',
-    'staging',
-    'health',
-    'smoke',
-    'quality_gate',
-    'rollback',
-    'rollback_verification',
-    'regression'
-  ];
-
-  const statuses =
-    required.map(
-      key =>
-        evidence[key]?.status
-    );
-
-  const final =
-    statuses.includes('FAIL')
-      ? 'FAIL'
-      : statuses.includes('BLOCKED')
-        ? 'BLOCKED'
-        : 'PASS';
-
-  evidence.final_status =
-    final;
-
-  evidence.finished_at =
-    new Date().toISOString();
-
-  writeFileSync(
-    join(
-      root,
-      'pass5-evidence.json'
-    ),
-    JSON.stringify(
-      evidence,
-      null,
-      2
-    )
-  );
-
-  console.log(
-    '\n========================================\n' +
-    `FINAL STATUS: ${final}\n` +
-    '========================================\n' +
-    'Evidence: pass5-evidence.json'
-  );
-
-  cleanup();
-
-  process.exitCode =
-    final === 'PASS'
-      ? 0
-      : 1;
-}
-
-main().catch(error => {
-  evidence.final_status =
-    'FAIL';
-
-  evidence.fatal_error =
-    String(
-      error.stack ||
-      error
-    );
-
-  evidence.finished_at =
-    new Date().toISOString();
-
-  writeFileSync(
-    join(
-      root,
-      'pass5-evidence.json'
-    ),
-    JSON.stringify(
-      evidence,
-      null,
-      2
-    )
-  );
-
-  console.error(error);
-
-  process.exitCode = 1;
-});
+  const blocked = Object.entries(scannerStatuses).filter((

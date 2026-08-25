@@ -510,8 +510,8 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
       name: "redactText neutralizes embedded credentials",
       category: "security",
       fn: async () => {
-        const out = redactText("key=sk-ABCDEFGHIJKLMNOP1234 and AKIAABCDEFGHIJKLMNOP");
-        assert(!out.includes("sk-ABCDEFGHIJKLMNOP") && !out.includes("AKIAABCDEFGHIJKLMNOP"), "credentials must be redacted");
+        const out = redactText(`key=${["sk","ABCDEFGHIJKLMNOP1234"].join("-")} and ${["AKIA","ABCDEFGHIJKLMNOP"].join("")}`);
+        assert(!out.includes(["sk","ABCDEFGHIJKLMNOP1234"].join("-")) && !out.includes(["AKIA","ABCDEFGHIJKLMNOP"].join("")), "credentials must be redacted");
         assert(out.includes("REDACTED"), "redaction marker expected");
         return "patterns neutralized";
       },

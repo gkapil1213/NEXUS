@@ -1,6 +1,6 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
-const baseURL = process.env.STAGING_URL || 'http://127.0.0.1:8080';
+const baseURL = process.env.STAGING_URL || 'http://127.0.0.1:8000';
 
 test.describe('NEXUS Phase 3 staging smoke tests', () => {
   test('staging application is reachable', async ({ page }) => {
@@ -29,3 +29,4 @@ test.describe('NEXUS Phase 3 staging smoke tests', () => {
     expect(await page.title()).toContain('NEXUS');
   });
 });
+
