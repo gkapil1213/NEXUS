@@ -297,11 +297,11 @@ export class RealSecurityScanner {
   const results: ScannerScanResult[] = [];
 
   // SAST is enabled
-  results.push(
-    capabilities.SAST.available
-      ? await this.semgrep.scan(workspacePath)
-      : { kind: "SAST", scanner: "semgrep", status: "BLOCKED", findings: [], blocked_reason: capabilities.SAST.reason, duration_ms: 0 },
-  );
+      results.push(
+      capabilities.IAC.available
+        ? await this.checkov.scan(workspacePath)
+        : { kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: capabilities.IAC.reason, duration_ms: 0 },
+    );
 
   // SECRET is enabled
   results.push(
