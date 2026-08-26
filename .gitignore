@@ -45,3 +45,4 @@ semgrep-*.txt
 Dockerfile.broken
 nginx-broken.conf
 server.js
+rollback-state.json
