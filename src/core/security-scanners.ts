@@ -1,7 +1,8 @@
+import { NpmAuditAdapter } from "./sca-scanner";
 import { nid, digestOf } from "./db";
 import type { ProcessExecutor } from "./runtime";
 
-export type ScannerKind = "SAST" | "SECRET" | "IAC" | "CONTAINER";
+export type ScannerKind = "SAST" | "SECRET" | "IAC" | "CONTAINER" | "SCA";
 
 export interface SecurityFinding {
   id: string;
@@ -274,42 +275,94 @@ export class CheckovAdapter {
   }
 }
 
+export class ScaAdapter {
+  readonly kind: ScannerKind = "SCA";
+  readonly scanner = "npm-audit";
+  private adapter: NpmAuditAdapter;
+
+  constructor(private exec: ProcessExecutor) {
+    this.adapter = new NpmAuditAdapter(exec);
+  }
+
+  async detect(): Promise<ScannerCapability> {
+    const cap = this.exec.capability();
+    return cap.available
+      ? { available: true, mode: "local", reason: null }
+      : { available: false, mode: null, reason: cap.reason ?? "process execution unavailable" };
+  }
+
+  async scan(workspacePath: string): Promise<ScannerScanResult> {
+    const res = await this.adapter.scan(workspacePath);
+    return {
+      kind: "SCA",
+      scanner: "npm-audit",
+      status: res.status,
+      findings: res.findings.map((v) => ({
+        id: v.id,
+        fingerprint: v.fingerprint,
+        scanner: "npm-audit",
+        category: "SCA",
+        severity: v.severity,
+        title: v.title,
+        description: v.description,
+        file: null,
+        line: null,
+        resource: v.package_name,
+        evidence: null,
+        remediation: v.fixed_version ? `Upgrade to ${v.fixed_version}` : null,
+        status: "OPEN",
+        created_at: Date.now(),
+      })),
+      blocked_reason: res.blocked_reason,
+      duration_ms: res.duration_ms,
+    };
+  }
+}
+
 export class RealSecurityScanner {
   private semgrep: SemgrepAdapter;
   private gitleaks: GitleaksAdapter;
   private checkov: CheckovAdapter;
+  private sca: ScaAdapter;
 
   constructor(exec: ProcessExecutor) {
     this.semgrep = new SemgrepAdapter(exec);
     this.gitleaks = new GitleaksAdapter(exec);
     this.checkov = new CheckovAdapter(exec);
+    this.sca = new ScaAdapter(exec);
   }
 
   async runAll(workspacePath: string) {
-  const capabilities = {
-    SAST: await this.semgrep.detect(),
-    SECRET: await this.gitleaks.detect(),
-    IAC: await this.checkov.detect(),
-    CONTAINER: { available: false, mode: null, reason: "Container scanner handled separately by Trivy adapter" },
-  };
+    const capabilities = {
+      SAST: await this.semgrep.detect(),
+      SECRET: await this.gitleaks.detect(),
+      IAC: await this.checkov.detect(),
+      SCA: await this.sca.detect(),
+      CONTAINER: { available: false, mode: null, reason: "Container scanner handled separately by Trivy adapter" },
+    };
 
-  const results: ScannerScanResult[] = [];
-  results.push(
-    capabilities.SAST.available
-      ? await this.semgrep.scan(workspacePath)
-      : { kind: "SAST", scanner: "semgrep", status: "BLOCKED", findings: [], blocked_reason: capabilities.SAST.reason, duration_ms: 0 },
-  );
-  results.push(
-    capabilities.SECRET.available
-      ? await this.gitleaks.scan(workspacePath)
-      : { kind: "SECRET", scanner: "gitleaks", status: "BLOCKED", findings: [], blocked_reason: capabilities.SECRET.reason, duration_ms: 0 },
-  );
-  results.push(
-    capabilities.IAC.available
-      ? await this.checkov.scan(workspacePath)
-      : { kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: capabilities.IAC.reason, duration_ms: 0 },
-  );
+    const results: ScannerScanResult[] = [];
+    results.push(
+      capabilities.SAST.available
+        ? await this.semgrep.scan(workspacePath)
+        : { kind: "SAST", scanner: "semgrep", status: "BLOCKED", findings: [], blocked_reason: capabilities.SAST.reason, duration_ms: 0 },
+    );
+    results.push(
+      capabilities.SECRET.available
+        ? await this.gitleaks.scan(workspacePath)
+        : { kind: "SECRET", scanner: "gitleaks", status: "BLOCKED", findings: [], blocked_reason: capabilities.SECRET.reason, duration_ms: 0 },
+    );
+    results.push(
+      capabilities.IAC.available
+        ? await this.checkov.scan(workspacePath)
+        : { kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: capabilities.IAC.reason, duration_ms: 0 },
+    );
+    results.push(
+      capabilities.SCA.available
+        ? await this.sca.scan(workspacePath)
+        : { kind: "SCA", scanner: "npm-audit", status: "BLOCKED", findings: [], blocked_reason: capabilities.SCA.reason, duration_ms: 0 },
+    );
 
-  return { capabilities, results };
-}
+    return { capabilities, results };
+  }
 }

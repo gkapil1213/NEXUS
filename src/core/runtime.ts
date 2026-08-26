@@ -186,7 +186,7 @@ const TOOL_OPERATIONS: Record<AllowedTool, readonly string[]> = {
   git: ["--version", "status", "log", "rev-parse"],
   // `-e` is permitted ONLY with a registered trusted script (see TRUSTED_SCRIPTS).
   node: ["--version", "-e"],
-  npm: ["--version", "ls"],
+  npm: ["--version", "ls","audit"],
   npx: ["--version", "playwright"],
   playwright: ["--version"],
   semgrep: ["--version", "scan"],
