@@ -52,7 +52,7 @@ async function runSecurityScanInProcess(): Promise<void> {
   const bridge: HostBridge = {
     platform() { return process.platform; },
     async exec(command, args, opts) {
-      return runCmd(command, args, opts?.timeout_ms ?? 180000);
+      return runCmd(command, args, opts?.timeout_ms ?? 300000);
     },
   };
   const exec = new HostProcessExecutor(bridge);
