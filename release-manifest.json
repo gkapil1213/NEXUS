@@ -1,0 +1,25 @@
+{
+  "release_id": "audit-1787749851853",
+  "image_ref": "localhost:5000/nexus/nexus-app:audit-1787749851853",
+  "image_digest": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+  "sbom_digest": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+  "scan_digest": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+  "signature_digest": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+  "verification_digest": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+  "deployment_digest": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+  "running_digest": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+  "approval": null,
+  "dast": "PASS",
+  "timestamp": "2026-08-26T13:10:51.853Z",
+  "digests": {
+    "build": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+    "push": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+    "sbom": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+    "scan": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+    "sign": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+    "verify": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+    "deploy": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad",
+    "running": "sha256:e2492563fbb670f84774dad68758fd739ffee936537d10d74e0b0ab0196909ad"
+  },
+  "all_match": true
+}

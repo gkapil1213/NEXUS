@@ -37,13 +37,13 @@ class CosignService {
     });
   }
 
-  async sign(imageRef: string): Promise<SigningResult> {
+    async sign(imageRef: string): Promise<SigningResult> {
     process.env.COSIGN_PASSWORD = process.env.COSIGN_PASSWORD ?? "test123";
 
     const keyPath = path.join(process.cwd(), "cosign.key");
     const exists = await fs.access(keyPath).then(() => true).catch(() => false);
     if (!exists) {
-      return { status: "BLOCKED", image_ref: imageRef, digest: null, signature: null, identity: null, issuer: null, reason: "cosign.key not found. Run `cosign generate-key-pair` first." };
+      return { status: "BLOCKED", image_ref: imageRef, digest: null, signature: null, identity: null, issuer: null, reason: "cosign.key not found." };
     }
 
     const res = await this.runCmd(this.cosignBin, [
@@ -56,10 +56,11 @@ class CosignService {
     ]);
 
     if (res.exit_code !== 0) {
-      return { status: "FAILED", image_ref: imageRef, digest: null, signature: null, identity: null, issuer: null, reason: res.stderr.slice(0, 400) };
+      return { status: "FAILED", image_ref: imageRef, digest: null, signature: null, identity: "NOT_APPLICABLE", issuer: "NOT_APPLICABLE", reason: res.stderr.slice(0, 400) };
     }
 
-    return { status: "SIGNED", image_ref: imageRef, digest: null, signature: "cosign signature recorded", identity: null, issuer: null, reason: null };
+    // For key-based signing, identity/issuer are not applicable.
+    return { status: "SIGNED", image_ref: imageRef, digest: imageRef.split("@")[1] ?? null, signature: "cosign signature recorded", identity: "NOT_APPLICABLE", issuer: "NOT_APPLICABLE", reason: null };
   }
 
   async verify(imageRef: string): Promise<SigningResult> {
@@ -78,13 +79,13 @@ class CosignService {
     ]);
 
     if (res.exit_code !== 0) {
-      return { status: "FAILED", image_ref: imageRef, digest: null, signature: null, identity: null, issuer: null, reason: res.stderr.slice(0, 400) };
+      return { status: "FAILED", image_ref: imageRef, digest: null, signature: null, identity: "NOT_APPLICABLE", issuer: "NOT_APPLICABLE", reason: res.stderr.slice(0, 400) };
     }
 
     const match = res.stdout.match(/digest:\s*(sha256:[a-f0-9]+)/i);
-    const digest = match ? match[1] : null;
+    const digest = match ? match[1] : imageRef.split("@")[1] ?? null;
 
-    return { status: "VERIFIED", image_ref: imageRef, digest, signature: "cosign signature verified", identity: null, issuer: null, reason: null };
+    return { status: "VERIFIED", image_ref: imageRef, digest, signature: "cosign signature verified", identity: "NOT_APPLICABLE", issuer: "NOT_APPLICABLE", reason: null };
   }
 }
 
