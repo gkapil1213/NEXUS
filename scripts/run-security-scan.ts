@@ -1,13 +1,15 @@
-﻿import { RealSecurityScanner } from "../src/core/security-scanners.ts";
+﻿import { SecurityPolicyEngine } from "../src/core/security-policy.ts";
+import { RealSecurityScanner } from "../src/core/security-scanners.ts";
 import { HostProcessExecutor } from "../src/core/runtime.ts";
 import type { HostBridge } from "../src/core/runtime.ts";
 import { spawn } from "node:child_process";
+
 function runCommand(
   command: string,
   args: string[],
   opts: { timeout_ms?: number; cwd?: string },
 ): Promise<{ exit_code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const isCmd = command.toLowerCase().endsWith(".cmd") || command.toLowerCase().endsWith(".ps1");
     const child = spawn(command, args, {
       cwd: opts.cwd,
@@ -75,8 +77,30 @@ const nodeHostBridge: HostBridge = {
     }
   }
 
-  // Exit with error if any scanner reports FAILED
+  // Build policy context from all findings
+  const allFindings = result.results.flatMap((r) =>
+    r.findings.map((f) => ({
+      severity: f.severity,
+      category: f.category,
+      scanner: f.scanner,
+      title: f.title,
+    }))
+  );
+
+  const policyEngine = new SecurityPolicyEngine();
+  const evaluations = policyEngine.evaluate({ findings: allFindings });
+
+  if (evaluations.length > 0) {
+    console.log("\nPolicy Evaluations:");
+    for (const e of evaluations) {
+      console.log(`  • ${e.decision}: ${e.rule_name} — ${e.reason}`);
+    }
+    const verdict = policyEngine.verdict(evaluations);
+    console.log(`Policy verdict: ${verdict}`);
+    if (verdict === "FAIL") process.exit(1);
+  }
+
+  // Also fail if any scanner reported FAILED
   const hasFailed = result.results.some((r) => r.status === "FAILED");
   if (hasFailed) process.exit(1);
 })();
-
