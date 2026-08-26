@@ -141,7 +141,7 @@ export class GitleaksAdapter {
     const res = await this.exec.run({
       tool: "gitleaks",
       operation: "detect",
-      args: ["--source", workspacePath, "--report-format", "json", "--report-path", "-"],
+      args: ["--source", workspacePath,"--report-format", "json","--report-path", "-","--config", ".gitleaks.toml",],
       timeout_ms: 180000,
     });
 

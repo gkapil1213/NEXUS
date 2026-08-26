@@ -1,0 +1,6 @@
+[allowlist]
+  description = "Known test fixtures containing intentional dummy secrets"
+  paths = [
+    '''test-fixture/secret\.env''',
+    '''src/core/tests\.ts''',
+  ]
