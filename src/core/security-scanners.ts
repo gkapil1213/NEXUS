@@ -289,30 +289,27 @@ export class RealSecurityScanner {
   const capabilities = {
     SAST: await this.semgrep.detect(),
     SECRET: await this.gitleaks.detect(),
-    // IAC detection is skipped entirely to avoid Docker hang.
-    IAC: { available: false, mode: null, reason: "skipped for debug" },
+    IAC: await this.checkov.detect(),
     CONTAINER: { available: false, mode: null, reason: "Container scanner handled separately by Trivy adapter" },
   };
 
   const results: ScannerScanResult[] = [];
-
-  // SAST is enabled
-      results.push(
-      capabilities.IAC.available
-        ? await this.checkov.scan(workspacePath)
-        : { kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: capabilities.IAC.reason, duration_ms: 0 },
-    );
-
-  // SECRET is enabled
+  results.push(
+    capabilities.SAST.available
+      ? await this.semgrep.scan(workspacePath)
+      : { kind: "SAST", scanner: "semgrep", status: "BLOCKED", findings: [], blocked_reason: capabilities.SAST.reason, duration_ms: 0 },
+  );
   results.push(
     capabilities.SECRET.available
       ? await this.gitleaks.scan(workspacePath)
       : { kind: "SECRET", scanner: "gitleaks", status: "BLOCKED", findings: [], blocked_reason: capabilities.SECRET.reason, duration_ms: 0 },
   );
-
-  // IAC: just return BLOCKED dummy result
-  results.push({ kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: "skipped for debug", duration_ms: 0 });
+  results.push(
+    capabilities.IAC.available
+      ? await this.checkov.scan(workspacePath)
+      : { kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: capabilities.IAC.reason, duration_ms: 0 },
+  );
 
   return { capabilities, results };
-  }
+}
 }
