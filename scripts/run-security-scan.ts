@@ -76,4 +76,8 @@ const nodeHostBridge: HostBridge = {
       }
     }
   }
+
+  // Exit with error if any scanner reports FAILED
+  const hasFailed = result.results.some((r) => r.status === "FAILED");
+  if (hasFailed) process.exit(1);
 })();
