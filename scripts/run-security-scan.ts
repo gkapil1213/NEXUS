@@ -11,11 +11,21 @@ function runCommand(
 ): Promise<{ exit_code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const isCmd = command.toLowerCase().endsWith(".cmd") || command.toLowerCase().endsWith(".ps1");
-    const child = spawn(command, args, {
-      cwd: opts.cwd,
-      shell: isCmd ? true : false,
-      windowsHide: true,
-    });
+    let child;
+    if (isCmd) {
+      // Use cmd.exe /c for Windows wrappers; shell:false avoids DEP0190
+      child = spawn(process.env.ComSpec || "cmd.exe", ["/c", command, ...args], {
+        cwd: opts.cwd,
+        shell: false,
+        windowsHide: true,
+      });
+    } else {
+      child = spawn(command, args, {
+        cwd: opts.cwd,
+        shell: false,
+        windowsHide: true,
+      });
+    }
 
     let stdout = "";
     let stderr = "";
