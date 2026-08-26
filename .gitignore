@@ -46,3 +46,5 @@ Dockerfile.broken
 nginx-broken.conf
 server.js
 rollback-state.json
+approval-state.json
+release-state.json
