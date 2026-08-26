@@ -1,6 +1,7 @@
 import { RealSecurityScanner, type SecurityFinding, type ScannerScanResult } from "./security-scanners";
 import type { EventService } from "./events";
 import type { AuditService } from "./audit";
+import type { ProcessExecutor } from "./runtime";
 import { nid } from "./db";
 
 export interface SecurityPipelineReport {
@@ -15,11 +16,15 @@ export interface SecurityPipelineReport {
 }
 
 export class SecurityPipeline {
+  private scanner: RealSecurityScanner;
+
   constructor(
     private events: EventService,
     private audit: AuditService,
-    private scanner = new RealSecurityScanner(),
-  ) {}
+    executor: ProcessExecutor,
+  ) {
+    this.scanner = new RealSecurityScanner(executor);
+  }
 
   async run(workspacePath: string, actor = "system"): Promise<SecurityPipelineReport> {
     const execution_id = nid("secrun");

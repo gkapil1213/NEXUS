@@ -1,6 +1,5 @@
-import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
 import { nid, digestOf } from "./db";
+import type { ProcessExecutor } from "./runtime";
 
 export type ScannerKind = "SAST" | "SECRET" | "IAC" | "CONTAINER";
 
@@ -36,51 +35,49 @@ export interface ScannerScanResult {
   duration_ms: number;
 }
 
-function runLocal(exe: string, args: string[], cwd: string, timeout = 180_000) {
-  const t0 = Date.now();
-  const res = spawnSync(exe, args, { cwd, encoding: "utf8", timeout, windowsHide: true, shell: false });
-  return {
-    ok: res.status === 0,
-    stdout: res.stdout || "",
-    stderr: res.stderr || "",
-    duration_ms: Date.now() - t0,
-  };
+function detectViaExecutor(exec: ProcessExecutor, tool: "semgrep" | "gitleaks" | "checkov", versionArgs: string[]): Promise<ScannerCapability> {
+  return exec
+    .run({ tool, operation: versionArgs[0], args: versionArgs.slice(1), timeout_ms: 15000 })
+    .then((res) => ({
+      available: res.exit_code === 0,
+      mode: (res.exit_code === 0 ? "local" : null) as "local" | null,
+      reason: res.exit_code === 0 ? null : `${tool} not available (${res.stderr.slice(0, 120)})`,
+    }))
+    .catch((e): ScannerCapability => ({
+      available: false,
+      mode: null,
+      reason: `${tool} not available (${(e as Error).message})`,
+    }));
 }
 
-function firstSuccess(commands: string[][]): { ok: boolean; stdout: string; stderr: string } | null {
-  for (const [exe, ...args] of commands) {
-    const res = spawnSync(exe, args, { encoding: "utf8", windowsHide: true });
-    if (res.status === 0) return { ok: true, stdout: res.stdout || "", stderr: res.stderr || "" };
-  }
-  return null;
-}
-
-function detectLocal(variants: string[][]): ScannerCapability {
-  const res = firstSuccess(variants);
-  return {
-    available: !!res,
-    mode: res ? "local" : null,
-    reason: res ? null : `command not found or failed`,
-  };
-}
-
-/* ---------------- Semgrep ---------------- */
 export class SemgrepAdapter {
   readonly kind: ScannerKind = "SAST";
   readonly scanner = "semgrep";
 
-  detect(): ScannerCapability {
-    return detectLocal([["semgrep", "--version"], ["semgrep.cmd", "--version"]]);
+  constructor(private exec: ProcessExecutor) {}
+
+  async detect(): Promise<ScannerCapability> {
+    const cap = this.exec.capability();
+    if (!cap.available) return { available: false, mode: null, reason: cap.reason };
+    return detectViaExecutor(this.exec, "semgrep", ["--version"]);
   }
 
   async scan(workspacePath: string): Promise<ScannerScanResult> {
-    const cap = this.detect();
-    if (!cap.available) return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
-    const target = resolve(workspacePath);
-    const res = runLocal("semgrep", ["--json", "--quiet", "."], target);
-    if (!res.ok && res.stdout.trim() === "") {
+    const cap = await this.detect();
+    if (!cap.available)
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
+
+    const res = await this.exec.run({
+      tool: "semgrep",
+      operation: "scan",
+      args: ["--json", "--quiet", workspacePath],
+      timeout_ms: 180000,
+    });
+
+    if (res.exit_code !== 0 && res.stdout.trim() === "") {
       return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: res.stderr.slice(0, 300), duration_ms: res.duration_ms };
     }
+
     const findings: SecurityFinding[] = [];
     try {
       const parsed = JSON.parse(res.stdout);
@@ -112,6 +109,7 @@ export class SemgrepAdapter {
         });
       }
     } catch {}
+
     return {
       kind: this.kind,
       scanner: this.scanner,
@@ -123,23 +121,34 @@ export class SemgrepAdapter {
   }
 }
 
-/* ---------------- Gitleaks ---------------- */
 export class GitleaksAdapter {
   readonly kind: ScannerKind = "SECRET";
   readonly scanner = "gitleaks";
 
-  detect(): ScannerCapability {
-    return detectLocal([["gitleaks", "version"], ["gitleaks.exe", "version"]]);
+  constructor(private exec: ProcessExecutor) {}
+
+  async detect(): Promise<ScannerCapability> {
+    const cap = this.exec.capability();
+    if (!cap.available) return { available: false, mode: null, reason: cap.reason };
+    return detectViaExecutor(this.exec, "gitleaks", ["version"]);
   }
 
   async scan(workspacePath: string): Promise<ScannerScanResult> {
-    const cap = this.detect();
-    if (!cap.available) return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
-    const target = resolve(workspacePath);
-    const res = runLocal("gitleaks", ["detect", "--source", ".", "--report-format", "json", "--report-path", "-"], target);
-    if (!res.ok && res.stdout.trim() === "") {
+    const cap = await this.detect();
+    if (!cap.available)
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
+
+    const res = await this.exec.run({
+      tool: "gitleaks",
+      operation: "detect",
+      args: ["--source", workspacePath, "--report-format", "json", "--report-path", "-"],
+      timeout_ms: 180000,
+    });
+
+    if (res.exit_code !== 0 && res.stdout.trim() === "") {
       return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: res.stderr.slice(0, 300), duration_ms: res.duration_ms };
     }
+
     const findings: SecurityFinding[] = [];
     try {
       const parsed = JSON.parse(res.stdout);
@@ -148,9 +157,9 @@ export class GitleaksAdapter {
         const file = item.File || item.filename || item.file || null;
         const line = item.StartLine || item.start_line || item.line || null;
         const rule = item.RuleId || item.rule_id || item.rule || "secret";
-        const description = item.description || "Secret detected";
-        const evidence = item.match ? "[REDACTED]" : "[REDACTED]";
-        const fingerprint = await digestOf(`${this.scanner}:${rule}:${file}:${line}:${item.rule_id || item.rule || ""}`);
+        const description = item.Description || item.description || "Secret detected";
+        const evidence = item.Match || item.match ? "[REDACTED]" : "[REDACTED]";
+        const fingerprint = await digestOf(`${this.scanner}:${rule}:${file}:${line}:${item.RuleId || item.rule_id || ""}`);
         findings.push({
           id: nid("sec"),
           fingerprint,
@@ -169,6 +178,7 @@ export class GitleaksAdapter {
         });
       }
     } catch {}
+
     return {
       kind: this.kind,
       scanner: this.scanner,
@@ -180,41 +190,52 @@ export class GitleaksAdapter {
   }
 }
 
-/* ---------------- Checkov ---------------- */
 export class CheckovAdapter {
   readonly kind: ScannerKind = "IAC";
   readonly scanner = "checkov";
 
-  detect(): ScannerCapability {
-    const local = detectLocal([
-      ["checkov", "--version"],
-      ["checkov.cmd", "--version"],
-      ["python", "-m", "checkov", "--version"],
-      ["python3", "-m", "checkov", "--version"],
-    ]);
+  constructor(private exec: ProcessExecutor) {}
+
+  async detect(): Promise<ScannerCapability> {
+    const cap = this.exec.capability();
+    if (!cap.available) return { available: false, mode: null, reason: cap.reason };
+
+    const local = await detectViaExecutor(this.exec, "checkov", ["--version"]);
     if (local.available) return local;
 
     // Docker fallback
-    const docker = firstSuccess([["docker", "run", "--rm", "bridgecrew/checkov", "--version"]]);
-    return {
-      available: !!docker,
-      mode: docker ? "docker" : null,
-      reason: docker ? null : "checkov not installed locally and Docker image unavailable",
-    };
+    const dres = await this.exec
+      .run({ tool: "docker", operation: "run", args: ["--rm", "bridgecrew/checkov", "--version"], timeout_ms: 30000 })
+      .catch(() => null);
+    return dres && dres.exit_code === 0
+      ? { available: true, mode: "docker", reason: null }
+      : { available: false, mode: null, reason: "checkov Docker image unavailable" };
   }
 
   async scan(workspacePath: string): Promise<ScannerScanResult> {
-    const cap = this.detect();
-    if (!cap.available) return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
+    const cap = await this.detect();
+    if (!cap.available)
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
 
-    const target = resolve(workspacePath);
-    const res = cap.mode === "local"
-      ? runLocal("python", ["-m", "checkov", "--directory", ".", "--output", "json", "--quiet"], target)
-      : runLocal("docker", ["run", "--rm", "-v", `${target}:/src`, "bridgecrew/checkov", "--directory", "/src", "--output", "json", "--quiet"], target);
+    const res =
+      cap.mode === "local"
+        ? await this.exec.run({
+            tool: "checkov",
+            operation: "--directory",
+            args: [workspacePath, "--output", "json", "--quiet"],
+            timeout_ms: 180000,
+          })
+        : await this.exec.run({
+            tool: "docker",
+            operation: "run",
+            args: ["--rm", "-v", `${workspacePath}:/src`, "bridgecrew/checkov", "--directory", "/src", "--output", "json", "--quiet"],
+            timeout_ms: 180000,
+          });
 
-    if (!res.ok && res.stdout.trim() === "") {
+    if (res.exit_code !== 0 && res.stdout.trim() === "") {
       return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: res.stderr.slice(0, 300), duration_ms: res.duration_ms };
     }
+
     const findings: SecurityFinding[] = [];
     try {
       const parsed = JSON.parse(res.stdout);
@@ -241,6 +262,7 @@ export class CheckovAdapter {
         });
       }
     } catch {}
+
     return {
       kind: this.kind,
       scanner: this.scanner,
@@ -252,26 +274,42 @@ export class CheckovAdapter {
   }
 }
 
-/* ---------------- Unified scanner ---------------- */
 export class RealSecurityScanner {
-  private semgrep = new SemgrepAdapter();
-  private gitleaks = new GitleaksAdapter();
-  private checkov = new CheckovAdapter();
+  private semgrep: SemgrepAdapter;
+  private gitleaks: GitleaksAdapter;
+  private checkov: CheckovAdapter;
+
+  constructor(exec: ProcessExecutor) {
+    this.semgrep = new SemgrepAdapter(exec);
+    this.gitleaks = new GitleaksAdapter(exec);
+    this.checkov = new CheckovAdapter(exec);
+  }
 
   async runAll(workspacePath: string) {
     const capabilities = {
-      SAST: this.semgrep.detect(),
-      SECRET: this.gitleaks.detect(),
-      IAC: this.checkov.detect(),
+      SAST: await this.semgrep.detect(),
+      SECRET: await this.gitleaks.detect(),
+      IAC: await this.checkov.detect(),
       CONTAINER: { available: false, mode: null, reason: "Container scanner handled separately by Trivy adapter" },
     };
 
     const results: ScannerScanResult[] = [];
-    results.push(capabilities.SAST.available ? await this.semgrep.scan(workspacePath) : { kind: "SAST", scanner: "semgrep", status: "BLOCKED", findings: [], blocked_reason: capabilities.SAST.reason, duration_ms: 0 });
-    results.push(capabilities.SECRET.available ? await this.gitleaks.scan(workspacePath) : { kind: "SECRET", scanner: "gitleaks", status: "BLOCKED", findings: [], blocked_reason: capabilities.SECRET.reason, duration_ms: 0 });
-    results.push(capabilities.IAC.available ? await this.checkov.scan(workspacePath) : { kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: capabilities.IAC.reason, duration_ms: 0 });
+    results.push(
+      capabilities.SAST.available
+        ? await this.semgrep.scan(workspacePath)
+        : { kind: "SAST", scanner: "semgrep", status: "BLOCKED", findings: [], blocked_reason: capabilities.SAST.reason, duration_ms: 0 },
+    );
+    results.push(
+      capabilities.SECRET.available
+        ? await this.gitleaks.scan(workspacePath)
+        : { kind: "SECRET", scanner: "gitleaks", status: "BLOCKED", findings: [], blocked_reason: capabilities.SECRET.reason, duration_ms: 0 },
+    );
+    results.push(
+      capabilities.IAC.available
+        ? await this.checkov.scan(workspacePath)
+        : { kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: capabilities.IAC.reason, duration_ms: 0 },
+    );
 
     return { capabilities, results };
   }
 }
-

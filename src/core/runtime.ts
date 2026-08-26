@@ -105,7 +105,7 @@ function hostBridge(): HostBridge | null {
 
 /* ----------------------- Windows-aware executable map ---------------------- */
 
-export type AllowedTool = "docker" | "trivy" | "git" | "node" | "npm" | "npx" | "playwright";
+export type AllowedTool = "docker" | "trivy" | "git" | "node" | "npm" | "npx" | "playwright" | "semgrep" | "gitleaks" | "checkov";
 
 const EXECUTABLES: Record<AllowedTool, { win: string; posix: string }> = {
   docker: { win: "docker.exe", posix: "docker" },
@@ -115,6 +115,9 @@ const EXECUTABLES: Record<AllowedTool, { win: string; posix: string }> = {
   npm: { win: "npm.cmd", posix: "npm" },
   npx: { win: "npx.cmd", posix: "npx" },
   playwright: { win: "playwright.cmd", posix: "playwright" },
+  semgrep: { win: "semgrep.cmd", posix: "semgrep" },
+  gitleaks: { win: "gitleaks.exe", posix: "gitleaks" },
+  checkov: { win: "checkov.cmd", posix: "checkov" },
 };
 
 /** Platform-aware resolution. Pure + deterministic — unit-testable. */
@@ -186,6 +189,9 @@ const TOOL_OPERATIONS: Record<AllowedTool, readonly string[]> = {
   npm: ["--version", "ls"],
   npx: ["--version", "playwright"],
   playwright: ["--version"],
+  semgrep: ["--version", "scan"],
+  gitleaks: ["version", "detect"],
+  checkov: ["--version", "--directory"],
 };
 
 /* ------------------------- Trusted inline scripts -------------------------- */

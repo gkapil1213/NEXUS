@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useNexus } from "../state";
+import { SecurityPipeline, type SecurityPipelineReport } from "../core/security-pipeline";
 import { runPhase1Suite } from "../core/tests";
 import { CONFIG } from "../core/config";
 import { detectCapabilities } from "../core/capabilities";
@@ -74,6 +75,21 @@ export function ControlPlaneScreen() {
   const [smokeResult, setSmokeResult] = useState<SmokeRunResult | null>(null);
   const [gate, setGate] = useState<Partial<Record<GateStage, GateEvidence>>>({});
   const [gateResult, setGateResult] = useState<QualityGateResult | null>(null);
+
+  const [securityReport, setSecurityReport] = useState<SecurityPipelineReport | null>(null);
+  const [securityScanning, setSecurityScanning] = useState(false);
+
+  const runSecurityScan = useCallback(async () => {
+    if (!services) return;
+    setSecurityScanning(true);
+    try {
+      const pipeline = new SecurityPipeline(services.events, services.audit, services.runtime.executor);
+      const report = await pipeline.run(".");
+      setSecurityReport(report);
+    } finally {
+      setSecurityScanning(false);
+    }
+  }, [services]);
 
   const detectRuntime = useCallback(async () => {
     if (!services) return;
@@ -284,6 +300,49 @@ export function ControlPlaneScreen() {
         </div>
       </Reveal>
 
+      {/* real external security scanners */}
+      <Reveal delay={180}>
+        <div className="panel overflow-hidden">
+          <div className="flex flex-wrap items-center gap-3 border-b border-edge px-4 py-3">
+            <span className="mono-label flex items-center gap-2"><Icon name="shield" size={11} /> real security scanners · local + docker</span>
+            <span className="font-mono text-[10px] text-dim">runs Semgrep, Gitleaks, Checkov — actual process execution, never simulated</span>
+            <span className="ml-auto">
+              <Button variant="outline" size="sm" icon="refresh" loading={securityScanning} onClick={() => void runSecurityScan()}>
+                {securityScanning ? "scanning…" : "scan now"}
+              </Button>
+            </span>
+          </div>
+
+          {securityReport ? (
+            <div className="p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Badge tone={securityReport.verdict === "PASS" ? "moss" : securityReport.verdict === "FAIL" ? "flame" : "gold"}>
+                  {securityReport.verdict}
+                </Badge>
+                <span className="font-mono text-[10px] text-dim">{securityReport.findings.length} findings</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {Object.entries(securityReport.capabilities).map(([key, value]) => (
+                  <div key={key} className="rounded-md border border-edge bg-ink-850 px-2.5 py-1.5">
+                    <div className="font-mono text-[10px] text-mut">{key}</div>
+                    <div className="font-mono text-xs text-fg">{value.available ? value.mode ?? "available" : "blocked"}</div>
+                  </div>
+                ))}
+              </div>
+              {securityReport.blocked_reason && (
+                <p className="text-[10px] text-gold">{securityReport.blocked_reason}</p>
+              )}
+              <pre className="max-h-48 overflow-y-auto rounded-md bg-ink-900 p-2 text-[10px] text-dim">
+                {JSON.stringify(securityReport.findings.slice(0, 5), null, 2)}
+              </pre>
+            </div>
+          ) : (
+            <p className="px-4 py-3 text-xs text-dim">no scan yet — click “scan now” to run Semgrep, Gitleaks and Checkov against the workspace</p>
+          )}
+        </div>
+      </Reveal>
+
+      {/* verification suite */}
       {/* verification suite */}
       <Reveal delay={190}>
         <div className="panel overflow-hidden">
