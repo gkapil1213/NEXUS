@@ -55,7 +55,7 @@ const nodeHostBridge: HostBridge = {
 (async () => {
   const exec = new HostProcessExecutor(nodeHostBridge);
   const playwright = new PlaywrightAdapter(exec);
-  const result = await playwright.smoke("http://localhost:8082");
+  const result = await playwright.smoke("https://nexus-staging-fwqk.onrender.com");
   console.log("Browser smoke result:", result.status);
   console.log("Details:", result.detail);
   if (result.status !== "PASSED") process.exit(1);

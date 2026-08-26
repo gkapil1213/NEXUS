@@ -2,8 +2,6 @@
 import { HostProcessExecutor } from "../src/core/runtime.ts";
 import type { HostBridge } from "../src/core/runtime.ts";
 import { spawn } from "node:child_process";
-
-
 function runCommand(
   command: string,
   args: string[],
@@ -81,3 +79,4 @@ const nodeHostBridge: HostBridge = {
   const hasFailed = result.results.some((r) => r.status === "FAILED");
   if (hasFailed) process.exit(1);
 })();
+
