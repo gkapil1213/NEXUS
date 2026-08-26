@@ -51,17 +51,14 @@ export class SecurityPolicyEngine {
   private rules: SecurityPolicyRule[] = [];
 
   constructor() {
-    // Default rules
     this.rules = [
-      
-              {
-        id: "MEDIUM_FINDING_REVIEW",
-        name: "Medium severity finding requires review",
-        description: "Medium findings do not block but require human awareness",
-        condition: (ctx) => ctx.findings.some((f) => f.severity === "medium"),
-        decision: "REVIEW",
+      {
+        id: "CRITICAL_VULN_BLOCK",
+        name: "Critical vulnerability blocks",
+        description: "Any critical finding blocks the release",
+        condition: (ctx) => ctx.findings.some((f) => f.severity === "critical"),
+        decision: "BLOCK",
       },
-    
       {
         id: "HIGH_VULN_BLOCK",
         name: "High vulnerability blocks",
@@ -103,6 +100,13 @@ export class SecurityPolicyEngine {
         description: "Critical DAST finding blocks the release",
         condition: (ctx) => ctx.dast !== undefined && ctx.dast.critical > 0,
         decision: "BLOCK",
+      },
+      {
+        id: "MEDIUM_FINDING_REVIEW",
+        name: "Medium severity finding requires review",
+        description: "Medium findings do not block but require human awareness",
+        condition: (ctx) => ctx.findings.some((f) => f.severity === "medium"),
+        decision: "REVIEW",
       },
     ];
   }
