@@ -7,3 +7,6 @@ scripts/run-real-scan-fixture.ts
 index.html
 scripts/nexus-host-bridge.mjs
 src/core/tests.ts
+src/core/execution-policy.ts
+src/core/types.ts
+src/core/workspace.ts
