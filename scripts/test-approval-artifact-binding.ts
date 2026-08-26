@@ -29,7 +29,7 @@ import { ApprovalService } from "../src/core/approval-service.ts";
   console.log("Approval A");
   console.log("     │");
   console.log(`     ├── Artifact A → ${isAAllowed ? "ALLOWED" : "BLOCKED"}`);
-  console.log(`     └── Artifact B → ${isBAllowed ? "BLOCKED" : "ALLOWED"}`);
+  console.log(`     └── Artifact B → ${isBAllowed ? "ALLOWED" : "BLOCKED"}`);
 
   if (isAAllowed && !isBAllowed) {
     console.log("\nApproval artifact binding test PASSED");
