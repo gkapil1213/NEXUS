@@ -2,7 +2,7 @@
 import { HostProcessExecutor } from "../src/core/runtime.ts";
 import type { HostBridge } from "../src/core/runtime.ts";
 import { spawn } from "node:child_process";
-import { promisify } from "node:util";
+
 
 function runCommand(
   command: string,
