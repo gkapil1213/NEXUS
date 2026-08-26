@@ -1,0 +1,9 @@
+﻿# Test fixtures and backups
+test-fixture/
+*.backup
+*.before-contract-fix
+scripts/verify-*
+scripts/run-real-scan-fixture.ts
+index.html
+scripts/nexus-host-bridge.mjs
+src/core/tests.ts

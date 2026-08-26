@@ -115,7 +115,7 @@ const EXECUTABLES: Record<AllowedTool, { win: string; posix: string }> = {
   npm: { win: "npm.cmd", posix: "npm" },
   npx: { win: "npx.cmd", posix: "npx" },
   playwright: { win: "playwright.cmd", posix: "playwright" },
-  semgrep: { win: "semgrep.cmd", posix: "semgrep" },
+  semgrep: { win: "semgrep.exe", posix: "semgrep" },
   gitleaks: { win: "gitleaks.exe", posix: "gitleaks" },
   checkov: { win: "checkov.cmd", posix: "checkov" },
 };

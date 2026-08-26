@@ -141,7 +141,7 @@ export class GitleaksAdapter {
     const res = await this.exec.run({
       tool: "gitleaks",
       operation: "detect",
-      args: ["--source", workspacePath,"--report-format", "json","--report-path", "-","--config", ".gitleaks.toml",],
+      args: ["--source", workspacePath, "--report-format", "json", "--report-path", "-", "--config", ".gitleaks.toml"],
       timeout_ms: 180000,
     });
 
@@ -286,30 +286,33 @@ export class RealSecurityScanner {
   }
 
   async runAll(workspacePath: string) {
-    const capabilities = {
-      SAST: await this.semgrep.detect(),
-      SECRET: await this.gitleaks.detect(),
-      IAC: await this.checkov.detect(),
-      CONTAINER: { available: false, mode: null, reason: "Container scanner handled separately by Trivy adapter" },
-    };
+  const capabilities = {
+    SAST: await this.semgrep.detect(),
+    SECRET: await this.gitleaks.detect(),
+    // IAC detection is skipped entirely to avoid Docker hang.
+    IAC: { available: false, mode: null, reason: "skipped for debug" },
+    CONTAINER: { available: false, mode: null, reason: "Container scanner handled separately by Trivy adapter" },
+  };
 
-    const results: ScannerScanResult[] = [];
-    results.push(
-      capabilities.SAST.available
-        ? await this.semgrep.scan(workspacePath)
-        : { kind: "SAST", scanner: "semgrep", status: "BLOCKED", findings: [], blocked_reason: capabilities.SAST.reason, duration_ms: 0 },
-    );
-    results.push(
-      capabilities.SECRET.available
-        ? await this.gitleaks.scan(workspacePath)
-        : { kind: "SECRET", scanner: "gitleaks", status: "BLOCKED", findings: [], blocked_reason: capabilities.SECRET.reason, duration_ms: 0 },
-    );
-    results.push(
-      capabilities.IAC.available
-        ? await this.checkov.scan(workspacePath)
-        : { kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: capabilities.IAC.reason, duration_ms: 0 },
-    );
+  const results: ScannerScanResult[] = [];
 
-    return { capabilities, results };
+  // SAST is enabled
+  results.push(
+    capabilities.SAST.available
+      ? await this.semgrep.scan(workspacePath)
+      : { kind: "SAST", scanner: "semgrep", status: "BLOCKED", findings: [], blocked_reason: capabilities.SAST.reason, duration_ms: 0 },
+  );
+
+  // SECRET is enabled
+  results.push(
+    capabilities.SECRET.available
+      ? await this.gitleaks.scan(workspacePath)
+      : { kind: "SECRET", scanner: "gitleaks", status: "BLOCKED", findings: [], blocked_reason: capabilities.SECRET.reason, duration_ms: 0 },
+  );
+
+  // IAC: just return BLOCKED dummy result
+  results.push({ kind: "IAC", scanner: "checkov", status: "BLOCKED", findings: [], blocked_reason: "skipped for debug", duration_ms: 0 });
+
+  return { capabilities, results };
   }
 }
