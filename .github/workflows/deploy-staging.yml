@@ -1,0 +1,9 @@
+      - name: Browser smoke test
+        env:
+          STAGING_URL: https://nexus-staging-fwqk.onrender.com
+        run: npx tsx scripts/run-browser-smoke.ts
+
+      - name: DAST scan
+        env:
+          STAGING_URL: https://nexus-staging-fwqk.onrender.com
+        run: npx tsx scripts/run-dast.ts
