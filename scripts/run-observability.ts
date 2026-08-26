@@ -1,7 +1,7 @@
 import { ObservabilityService } from "../src/core/observability.ts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-
+import { AlertService } from "../src/core/alerting.ts";
 (async () => {
   const obs = new ObservabilityService();
   const stagingUrl = process.env.STAGING_URL ?? "https://nexus-staging-fwqk.onrender.com";
