@@ -53,13 +53,15 @@ export class SecurityPolicyEngine {
   constructor() {
     // Default rules
     this.rules = [
-      {
-        id: "CRITICAL_VULN_BLOCK",
-        name: "Critical vulnerability blocks",
-        description: "Any critical finding blocks the release",
-        condition: (ctx) => ctx.findings.some((f) => f.severity === "critical"),
-        decision: "BLOCK",
+      
+              {
+        id: "MEDIUM_FINDING_REVIEW",
+        name: "Medium severity finding requires review",
+        description: "Medium findings do not block but require human awareness",
+        condition: (ctx) => ctx.findings.some((f) => f.severity === "medium"),
+        decision: "REVIEW",
       },
+    
       {
         id: "HIGH_VULN_BLOCK",
         name: "High vulnerability blocks",

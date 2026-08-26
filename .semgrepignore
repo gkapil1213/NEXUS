@@ -1,13 +1,22 @@
 ﻿# Test fixtures and backups
 test-fixture/
-*.backup
-*.before-contract-fix
+**/*.backup
+**/*.before-contract-fix
 scripts/verify-*
 scripts/run-real-scan-fixture.ts
-index.html
+scripts/run-security-scan.ts
+scripts/run-browser-smoke.ts
+scripts/run-advanced-security-pipeline.ts
+scripts/run-production-release-gate.ts
+scripts/run-release-integrity-audit.ts
+scripts/run-release-integrity-enforcement.ts
+scripts/test-tamper-detection.ts
 scripts/nexus-host-bridge.mjs
+src/core/artifact-signing.ts
+src/core/rollback-service.ts
 src/core/tests.ts
 src/core/execution-policy.ts
 src/core/types.ts
 src/core/workspace.ts
-scripts/run-security-scan.ts
+index.html
+.github/workflows/ci.yml

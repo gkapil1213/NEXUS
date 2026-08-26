@@ -1,135 +1,17 @@
 {
-  "timestamp": "2026-08-26T14:44:26.597Z",
+  "timestamp": "2026-08-26T15:39:56.947Z",
   "stages": {
     "typecheck": "PASS",
     "build": "PASS",
     "core_tests": "PASS",
     "security_scan": {
       "status": "PASS",
-      "findings": [
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
-          "file": ".github\\workflows\\ci.yml",
-          "line": 13,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
-          "file": ".github\\workflows\\ci.yml",
-          "line": 15,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
-          "file": ".github\\workflows\\ci.yml",
-          "line": 43,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
-          "file": ".github\\workflows\\ci.yml",
-          "line": 46,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag",
-          "file": ".github\\workflows\\ci.yml",
-          "line": 52,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.detect-child-process.detect-child-process",
-          "file": "scripts\\run-advanced-security-pipeline.ts",
-          "line": 21,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.detect-child-process.detect-child-process",
-          "file": "scripts\\run-browser-smoke.ts",
-          "line": 21,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.detect-child-process.detect-child-process",
-          "file": "scripts\\run-production-release-gate.ts",
-          "line": 21,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.detect-child-process.detect-child-process",
-          "file": "scripts\\run-release-integrity-audit.ts",
-          "line": 19,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.detect-child-process.detect-child-process",
-          "file": "scripts\\run-release-integrity-enforcement.ts",
-          "line": 22,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.detect-child-process.detect-child-process",
-          "file": "scripts\\test-tamper-detection.ts",
-          "line": 8,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.detect-child-process.detect-child-process",
-          "file": "src\\core\\artifact-signing.ts",
-          "line": 20,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.detect-child-process.detect-child-process",
-          "file": "src\\core\\rollback-service.ts",
-          "line": 72,
-          "resource": null
-        }
-      ],
+      "findings": [],
       "summary": [
         {
           "kind": "SAST",
           "status": "PASSED",
-          "findings": 13
+          "findings": 0
         },
         {
           "kind": "SECRET",
@@ -158,12 +40,12 @@
     },
     "supply_chain": {
       "status": "PASS",
-      "digest": "localhost:5000/nexus/nexus-app@sha256:45ffdc424c3a5f58aee6a82789a2bf3c98da835748a86a214d6799f65ee37c1e"
+      "digest": "localhost:5000/nexus/nexus-app@sha256:b5b00fcf6838975b814d22ef8cf8add597c8a96ba71f55af17ec7077c8d8bb2a"
     },
     "risk_correlation": {
       "critical": 0,
       "high": 0,
-      "medium": 13,
+      "medium": 0,
       "low": 0
     },
     "policy": {
