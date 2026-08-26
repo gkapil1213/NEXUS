@@ -1,0 +1,1 @@
+![CI](https://github.com/gkapil1213/NEXUS/actions/workflows/ci.yml/badge.svg)
