@@ -302,7 +302,7 @@ export class ScaAdapter {
         fingerprint: v.fingerprint,
         scanner: "npm-audit",
         category: "SCA",
-        severity: v.severity,
+        severity: v.severity === "unknown" ? "medium" : v.severity,
         title: v.title,
         description: v.description,
         file: null,

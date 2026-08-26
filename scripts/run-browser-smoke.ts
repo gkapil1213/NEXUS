@@ -10,15 +10,26 @@ function runCommand(
 ): Promise<{ exit_code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const isCmd = command.toLowerCase().endsWith(".cmd") || command.toLowerCase().endsWith(".ps1");
-    const child = spawn(command, args, {
-      cwd: opts.cwd,
-      shell: isCmd ? true : false,
-      windowsHide: true,
-    });
+    let child;
+    if (isCmd) {
+      child = spawn(process.env.ComSpec || "cmd.exe", ["/c", command, ...args], {
+        cwd: opts.cwd,
+        shell: false,
+        windowsHide: true,
+      });
+    } else {
+      child = spawn(command, args, {
+        cwd: opts.cwd,
+        shell: false,
+        windowsHide: true,
+      });
+    }
+
     let stdout = "";
     let stderr = "";
     let settled = false;
     const timeout = opts.timeout_ms ?? 180_000;
+
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true;
@@ -26,6 +37,7 @@ function runCommand(
         resolve({ exit_code: 124, stdout, stderr: stderr + "\n[timeout]" });
       }
     }, timeout);
+
     child.stdout.on("data", (d) => (stdout += d.toString()));
     child.stderr.on("data", (d) => (stderr += d.toString()));
     child.on("error", (err) => {
@@ -46,16 +58,19 @@ function runCommand(
 }
 
 const nodeHostBridge: HostBridge = {
-  platform() { return process.platform; },
+  platform() {
+    return process.platform;
+  },
   async exec(command: string, args: string[], opts: { timeout_ms?: number; cwd?: string }) {
     return runCommand(command, args, opts);
   },
 };
 
 (async () => {
+  const targetUrl = process.env.STAGING_URL ?? "http://localhost:8082";
   const exec = new HostProcessExecutor(nodeHostBridge);
   const playwright = new PlaywrightAdapter(exec);
-  const result = await playwright.smoke("https://nexus-staging-fwqk.onrender.com");
+  const result = await playwright.smoke(targetUrl);
   console.log("Browser smoke result:", result.status);
   console.log("Details:", result.detail);
   if (result.status !== "PASSED") process.exit(1);
