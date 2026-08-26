@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:9c41dbb6-1192-40b2-ac6d-41ebc9bdd46c",
+  "serialNumber": "urn:uuid:22ac07d0-f358-46e8-a4ad-1cc8af6d0ac0",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-08-26T12:28:42+00:00",
+    "timestamp": "2026-08-26T14:34:21+00:00",
     "tools": {
       "components": [
         {
@@ -20,10 +20,10 @@
       ]
     },
     "component": {
-      "bom-ref": "pkg:oci/nexus-app@sha256:7e2397e1687aeb334be2ff3a244f705d1be3dba4a8822e4c6357160f2e59771d?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-app",
+      "bom-ref": "pkg:oci/nexus-app@sha256:0acdb354191832a9169369de9ac19134af90d2889e8dad0b74f79a940d731e3d?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-app",
       "type": "container",
-      "name": "nexus-app:version-a",
-      "purl": "pkg:oci/nexus-app@sha256:7e2397e1687aeb334be2ff3a244f705d1be3dba4a8822e4c6357160f2e59771d?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-app",
+      "name": "localhost:5000/nexus/nexus-app@sha256:0acdb354191832a9169369de9ac19134af90d2889e8dad0b74f79a940d731e3d",
+      "purl": "pkg:oci/nexus-app@sha256:0acdb354191832a9169369de9ac19134af90d2889e8dad0b74f79a940d731e3d?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-app",
       "properties": [
         {
           "name": "aquasecurity:trivy:DiffID",
@@ -71,7 +71,7 @@
         },
         {
           "name": "aquasecurity:trivy:ImageID",
-          "value": "sha256:7e2397e1687aeb334be2ff3a244f705d1be3dba4a8822e4c6357160f2e59771d"
+          "value": "sha256:0acdb354191832a9169369de9ac19134af90d2889e8dad0b74f79a940d731e3d"
         },
         {
           "name": "aquasecurity:trivy:Labels:maintainer",
@@ -111,23 +111,23 @@
         },
         {
           "name": "aquasecurity:trivy:Reference",
-          "value": "nexus-app:version-a"
+          "value": "localhost:5000/nexus/nexus-app@sha256:0acdb354191832a9169369de9ac19134af90d2889e8dad0b74f79a940d731e3d"
         },
         {
           "name": "aquasecurity:trivy:RepoDigest",
-          "value": "localhost:5000/nexus/nexus-app@sha256:7e2397e1687aeb334be2ff3a244f705d1be3dba4a8822e4c6357160f2e59771d"
+          "value": "localhost:5000/nexus/nexus-app@sha256:0acdb354191832a9169369de9ac19134af90d2889e8dad0b74f79a940d731e3d"
         },
         {
           "name": "aquasecurity:trivy:RepoDigest",
-          "value": "nexus-app@sha256:7e2397e1687aeb334be2ff3a244f705d1be3dba4a8822e4c6357160f2e59771d"
+          "value": "nexus-app@sha256:0acdb354191832a9169369de9ac19134af90d2889e8dad0b74f79a940d731e3d"
         },
         {
           "name": "aquasecurity:trivy:RepoTag",
-          "value": "localhost:5000/nexus/nexus-app:version-a"
+          "value": "localhost:5000/nexus/nexus-app:audit-1787754838471"
         },
         {
           "name": "aquasecurity:trivy:RepoTag",
-          "value": "nexus-app:version-a"
+          "value": "nexus-app:audit-1787754838471"
         },
         {
           "name": "aquasecurity:trivy:SchemaVersion",
@@ -142,7 +142,7 @@
   },
   "components": [
     {
-      "bom-ref": "de42c131-73c6-4b6c-990a-9d7d51ce9464",
+      "bom-ref": "80103540-97ae-4f3f-b8d5-2392057ac2d9",
       "type": "operating-system",
       "name": "alpine",
       "version": "3.21.3",
@@ -3657,7 +3657,7 @@
   ],
   "dependencies": [
     {
-      "ref": "de42c131-73c6-4b6c-990a-9d7d51ce9464",
+      "ref": "80103540-97ae-4f3f-b8d5-2392057ac2d9",
       "dependsOn": [
         "pkg:apk/alpine/alpine-baselayout@3.6.8-r1?arch=x86_64&distro=3.21.3",
         "pkg:apk/alpine/alpine-release@3.21.3-r0?arch=x86_64&distro=3.21.3",
@@ -4165,9 +4165,9 @@
       ]
     },
     {
-      "ref": "pkg:oci/nexus-app@sha256:7e2397e1687aeb334be2ff3a244f705d1be3dba4a8822e4c6357160f2e59771d?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-app",
+      "ref": "pkg:oci/nexus-app@sha256:0acdb354191832a9169369de9ac19134af90d2889e8dad0b74f79a940d731e3d?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-app",
       "dependsOn": [
-        "de42c131-73c6-4b6c-990a-9d7d51ce9464"
+        "80103540-97ae-4f3f-b8d5-2392057ac2d9"
       ]
     }
   ],
