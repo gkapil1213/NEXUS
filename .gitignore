@@ -48,3 +48,8 @@ server.js
 rollback-state.json
 approval-state.json
 release-state.json
+cosign.key
+cosign.key
+cosign.key
+cosign.key-*
+tamper-fixture/

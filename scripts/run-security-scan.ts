@@ -13,7 +13,6 @@ function runCommand(
     const isCmd = command.toLowerCase().endsWith(".cmd") || command.toLowerCase().endsWith(".ps1");
     let child;
     if (isCmd) {
-      // Use cmd.exe /c for Windows wrappers; shell:false avoids DEP0190
       child = spawn(process.env.ComSpec || "cmd.exe", ["/c", command, ...args], {
         cwd: opts.cwd,
         shell: false,
@@ -30,7 +29,7 @@ function runCommand(
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const timeout = opts.timeout_ms ?? 180_000;
+    const timeout = opts.timeout_ms ?? 120_000;
 
     const timer = setTimeout(() => {
       if (!settled) {
@@ -71,8 +70,18 @@ const nodeHostBridge: HostBridge = {
 (async () => {
   const exec = new HostProcessExecutor(nodeHostBridge);
   const scanner = new RealSecurityScanner(exec);
-  const result = await scanner.runAll(".");
 
+  console.log("Security scan starting...");
+
+  // Wrap with global timeout (2 minutes)
+  const result: any = await Promise.race([
+    scanner.runAll("."),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Security scan timed out after 120 seconds")), 120000)
+    ),
+  ]);
+
+  console.log("Security scan completed.");
   console.log("Security Scan Results");
   console.log("=====================");
   for (const r of result.results) {
@@ -87,19 +96,16 @@ const nodeHostBridge: HostBridge = {
     }
   }
 
-  // Build policy context from all findings
-  const allFindings = result.results.flatMap((r) =>
-    r.findings.map((f) => ({
+  const allFindings = result.results.flatMap((r: any) =>
+    r.findings.map((f: any) => ({
       severity: f.severity,
       category: f.category,
       scanner: f.scanner,
       title: f.title,
     }))
   );
-
   const policyEngine = new SecurityPolicyEngine();
   const evaluations = policyEngine.evaluate({ findings: allFindings });
-
   if (evaluations.length > 0) {
     console.log("\nPolicy Evaluations:");
     for (const e of evaluations) {
@@ -110,7 +116,6 @@ const nodeHostBridge: HostBridge = {
     if (verdict === "FAIL") process.exit(1);
   }
 
-  // Also fail if any scanner reported FAILED
-  const hasFailed = result.results.some((r) => r.status === "FAILED");
+  const hasFailed = result.results.some((r: any) => r.status === "FAILED");
   if (hasFailed) process.exit(1);
 })();

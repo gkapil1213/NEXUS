@@ -51,6 +51,7 @@ function detectViaExecutor(exec: ProcessExecutor, tool: "semgrep" | "gitleaks" |
     }));
 }
 
+/* ------------------------------ SAST ------------------------------ */
 export class SemgrepAdapter {
   readonly kind: ScannerKind = "SAST";
   readonly scanner = "semgrep";
@@ -122,6 +123,7 @@ export class SemgrepAdapter {
   }
 }
 
+/* ------------------------------ SECRET ------------------------------ */
 export class GitleaksAdapter {
   readonly kind: ScannerKind = "SECRET";
   readonly scanner = "gitleaks";
@@ -191,6 +193,7 @@ export class GitleaksAdapter {
   }
 }
 
+/* ------------------------------ IAC (Checkov) ------------------------------ */
 export class CheckovAdapter {
   readonly kind: ScannerKind = "IAC";
   readonly scanner = "checkov";
@@ -201,16 +204,11 @@ export class CheckovAdapter {
     const cap = this.exec.capability();
     if (!cap.available) return { available: false, mode: null, reason: cap.reason };
 
+    // Only local Checkov; no Docker fallback to avoid hangs.
     const local = await detectViaExecutor(this.exec, "checkov", ["--version"]);
     if (local.available) return local;
 
-    // Docker fallback
-    const dres = await this.exec
-      .run({ tool: "docker", operation: "run", args: ["--rm", "bridgecrew/checkov", "--version"], timeout_ms: 30000 })
-      .catch(() => null);
-    return dres && dres.exit_code === 0
-      ? { available: true, mode: "docker", reason: null }
-      : { available: false, mode: null, reason: "checkov Docker image unavailable" };
+    return { available: false, mode: null, reason: "checkov not available locally" };
   }
 
   async scan(workspacePath: string): Promise<ScannerScanResult> {
@@ -218,20 +216,13 @@ export class CheckovAdapter {
     if (!cap.available)
       return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
 
-    const res =
-      cap.mode === "local"
-        ? await this.exec.run({
-            tool: "checkov",
-            operation: "--directory",
-            args: [workspacePath, "--output", "json", "--quiet"],
-            timeout_ms: 180000,
-          })
-        : await this.exec.run({
-            tool: "docker",
-            operation: "run",
-            args: ["--rm", "-v", `${workspacePath}:/src`, "bridgecrew/checkov", "--directory", "/src", "--output", "json", "--quiet"],
-            timeout_ms: 180000,
-          });
+    // Local only
+    const res = await this.exec.run({
+      tool: "checkov",
+      operation: "--directory",
+      args: [workspacePath, "--output", "json", "--quiet"],
+      timeout_ms: 180000,
+    });
 
     if (res.exit_code !== 0 && res.stdout.trim() === "") {
       return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: res.stderr.slice(0, 300), duration_ms: res.duration_ms };
@@ -275,6 +266,7 @@ export class CheckovAdapter {
   }
 }
 
+/* ------------------------------ SCA ------------------------------ */
 export class ScaAdapter {
   readonly kind: ScannerKind = "SCA";
   readonly scanner = "npm-audit";
@@ -319,6 +311,7 @@ export class ScaAdapter {
   }
 }
 
+/* ------------------------------ Unified Scanner ------------------------------ */
 export class RealSecurityScanner {
   private semgrep: SemgrepAdapter;
   private gitleaks: GitleaksAdapter;
