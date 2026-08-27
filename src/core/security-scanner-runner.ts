@@ -42,6 +42,7 @@ interface ScannerDefinition {
   args: string[];
   adapter: ScannerAdapter;
   timeoutMs: number;
+  strategy: "LOCAL_EXECUTABLE" | "NPM" | "DOCKER" | "BLOCKED";
 }
 
 function isWindows(): boolean {
@@ -67,6 +68,7 @@ const SCANNERS: ScannerDefinition[] = [
     args: ["--config=auto", ".", "--json"],
     adapter: sastAdapter,
     timeoutMs: 120000,
+    strategy: "LOCAL_EXECUTABLE",
   },
   {
     scanner: "gitleaks",
@@ -75,6 +77,7 @@ const SCANNERS: ScannerDefinition[] = [
     args: ["detect", "--source", ".", "--report-format", "json"],
     adapter: secretAdapter,
     timeoutMs: 120000,
+    strategy: "LOCAL_EXECUTABLE",
   },
   {
     scanner: "npm-audit",
@@ -83,46 +86,52 @@ const SCANNERS: ScannerDefinition[] = [
     args: ["audit", "--json"],
     adapter: scaAdapter,
     timeoutMs: 120000,
-  },
-  {
-    scanner: "tfsec",
-    category: "IAC",
-    command: "npx",
-    args: ["tfsec", ".", "--format", "json"],
-    adapter: iacAdapter,
-    timeoutMs: 120000,
+    strategy: "NPM",
   },
   {
     scanner: "trivy",
     category: "CONTAINER",
     command: "trivy",
-    args: ["fs", ".", "--format", "json", "--skip-db-update", "--scanners", "secret,misconfig", "--no-progress"],
+    args: ["fs", ".", "--format", "json", "--skip-db-update", "--scanners", "vuln,secret,misconfig", "--no-progress"],
     adapter: trivyAdapter,
     timeoutMs: 60000,
+    strategy: "LOCAL_EXECUTABLE",
   },
   {
-    scanner: "syft",
+    scanner: "trivy-sbom",
     category: "SBOM",
-    command: "npx",
-    args: ["syft", ".", "-o", "json"],
+    command: "trivy",
+    args: ["fs", ".", "--format", "cyclonedx", "--skip-db-update", "--no-progress"],
     adapter: sbomAdapter,
     timeoutMs: 120000,
+    strategy: "LOCAL_EXECUTABLE",
+  },
+  {
+    scanner: "trivy-config",
+    category: "IAC",
+    command: "trivy",
+    args: ["config", ".", "--format", "json", "--skip-db-update", "--no-progress"],
+    adapter: iacAdapter,
+    timeoutMs: 120000,
+    strategy: "LOCAL_EXECUTABLE",
   },
   {
     scanner: "dast",
     category: "DAST",
-    command: "npx",
-    args: ["dast-scanner", "--url", "http://localhost:3000", "--json"],
+    command: "dast-scanner",
+    args: ["--url", "http://localhost:3000", "--json"],
     adapter: dastAdapter,
     timeoutMs: 120000,
+    strategy: "LOCAL_EXECUTABLE",
   },
   {
     scanner: "supply-chain",
     category: "SUPPLY_CHAIN",
-    command: "npx",
-    args: ["supply-chain-check", "."],
+    command: "supply-chain-check",
+    args: ["."],
     adapter: supplyChainAdapter,
     timeoutMs: 120000,
+    strategy: "LOCAL_EXECUTABLE",
   },
 ];
 
