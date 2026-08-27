@@ -1,4 +1,5 @@
 import { NexusEngine } from "./db";
+import http from "http";
 import { SecurityApi } from "./security-api";
 import {
   SecurityEvidence,
@@ -149,31 +150,44 @@ function safeJsonParse(text: string): unknown {
 }
 
 async function runInternalDastScan(): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  try {
-    const res = await fetch("http://localhost:3000", { method: "HEAD" });
-    const requiredHeaders = [
-      "content-security-policy",
-      "x-content-type-options",
-      "strict-transport-security",
-      "x-frame-options",
-    ];
-    const missing = requiredHeaders.filter((h) => !res.headers.get(h));
-    const findings = missing.map((h) => ({
-      title: `Missing security header: ${h}`,
-      severity: "MEDIUM",
-    }));
-    return {
-      stdout: JSON.stringify({ blocked: false, findings }),
-      stderr: "",
-      exitCode: findings.length > 0 ? 1 : 0,
-    };
-  } catch (e: any) {
-    return {
-      stdout: JSON.stringify({ blocked: true, findings: [] }),
-      stderr: e?.message || "DAST target unreachable",
-      exitCode: 1,
-    };
-  }
+  return new Promise((resolve) => {
+    const req = http.get(
+      "http://localhost:3000",
+      { method: "HEAD", agent: false, timeout: 2000 },
+      (res) => {
+        const requiredHeaders = [
+          "content-security-policy",
+          "x-content-type-options",
+          "strict-transport-security",
+          "x-frame-options",
+        ];
+        const missing = requiredHeaders.filter((h) => !res.headers[h]);
+        const findings = missing.map((h) => ({
+          title: `Missing security header: ${h}`,
+          severity: "MEDIUM",
+        }));
+        // Drain and close the socket
+        res.resume();
+        resolve({
+          stdout: JSON.stringify({ blocked: false, findings }),
+          stderr: "",
+          exitCode: findings.length > 0 ? 1 : 0,
+        });
+      },
+    );
+
+    req.on("timeout", () => {
+      req.destroy(new Error("DAST scan timeout"));
+    });
+
+    req.on("error", (e: any) => {
+      resolve({
+        stdout: JSON.stringify({ blocked: true, findings: [] }),
+        stderr: e?.message || "DAST target unreachable",
+        exitCode: 1,
+      });
+    });
+  });
 }
 
 async function runInternalSupplyChainCheck(): Promise<{ stdout: string; stderr: string; exitCode: number }> {

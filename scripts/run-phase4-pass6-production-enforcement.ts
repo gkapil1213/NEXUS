@@ -119,9 +119,8 @@ async function main() {
 
     // Scenario 4: Deployment provider unavailable -> BLOCKED
     console.log("Scenario 4: Deployment provider unavailable");
-    // Obtain a fresh authorization for deployment attempt
     const freshAuthResult = await enforcement.requestRelease({
-      releaseId: "rel-p6-1", // same release, but new token
+      releaseId: "rel-p6-1",
       executionId: "exec-p6-1",
       artifactId: "artifact-p6-1",
       artifactDigest: digest1,
@@ -152,16 +151,18 @@ async function main() {
 
     console.log("✅ All critical Pass 6 scenarios passed.");
   } finally {
-    // Cleanup engine/database to avoid UV_HANDLE_CLOSING assertion
-    if (typeof (engine as any).close === "function") {
-      await (engine as any).close();
-    } else if (typeof (engine as any).stop === "function") {
-      await (engine as any).stop();
+    // Diagnostic: show active handles/requests before exit (remove later if desired)
+    console.log("Active handles:", (process as any)._getActiveHandles().length);
+    console.log("Active requests:", (process as any)._getActiveRequests().length);
+
+    // Cleanup engine if it has a close/stop method
+    const engineAny = engine as any;
+    if (typeof engineAny.close === "function") {
+      await engineAny.close();
+    } else if (typeof engineAny.stop === "function") {
+      await engineAny.stop();
     }
-    // Delay process exit slightly to allow cleanup callbacks to complete
-    setTimeout(() => {
-      process.exit(process.exitCode || 0);
-    }, 50);
+    // Do NOT call process.exit here. Node exits when event loop is empty.
   }
 }
 
