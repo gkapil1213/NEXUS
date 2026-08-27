@@ -13,6 +13,7 @@
     "@dnd-kit/sortable": "^8.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/supabase-js": "^2.98.0",
+    "better-sqlite3": "^13.0.3",
     "canvas-confetti": "^1.9.3",
     "cross-spawn": "^7.0.6",
     "date-fns": "^2.30.0",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.1.7",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/canvas-confetti": "^1.6.4",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^26.3.0",

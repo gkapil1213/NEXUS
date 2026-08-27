@@ -1,6 +1,6 @@
 ﻿import { CONFIG } from "./config";
 import { Err } from "./errors";
-
+import { SQLiteEngine } from "./sqlite-engine";
 /**
  * NEXUS Phase 1 — persistence engine.
  *
@@ -310,16 +310,29 @@ let enginePromise: Promise<NexusEngine> | null = null;
 export function openEngine(): Promise<NexusEngine> {
   if (enginePromise) return enginePromise;
   enginePromise = (async () => {
+    const persistenceEngine = process.env.NEXUS_PERSISTENCE_ENGINE || "memory";
+    if (persistenceEngine === "sqlite") {
+      const dbPath = process.env.NEXUS_DB_PATH || "./nexus.sqlite";
+      try {
+        return await SQLiteEngine.open(dbPath);
+      } catch (e) {
+        throw Err.persistence("SQLITE_OPEN_FAILED", `could not open SQLite database at ${dbPath}`);
+      }
+    }
+    // existing memory path
     if (typeof indexedDB !== "undefined") {
       try {
         return await IdbEngine.open(CONFIG.dbName);
       } catch {
-        return new MemEngine(); // degraded: health reports this honestly
+        return new MemEngine();
       }
     }
     return new MemEngine();
   })();
   return enginePromise;
+}
+export function resetEngineForTesting(): void {
+  enginePromise = null;
 }
 
 /** Real round-trip probe: write → read → verify → delete. Returns latency ms. */

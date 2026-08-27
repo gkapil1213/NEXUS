@@ -1,5 +1,6 @@
 import { NexusEngine } from "./db";
 import http from "http";
+import { readFileSync } from "fs";
 import { SecurityApi } from "./security-api";
 import {
   SecurityEvidence,
@@ -151,6 +152,15 @@ function safeJsonParse(text: string): unknown {
 
 async function runInternalDastScan(): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
+    let result: { stdout: string; stderr: string; exitCode: number } | null = null;
+    let settled = false;
+    const finish = () => {
+      if (!settled && result) {
+        settled = true;
+        resolve(result);
+      }
+    };
+
     const req = http.get(
       "http://localhost:3000",
       { method: "HEAD", agent: false, timeout: 2000 },
@@ -166,13 +176,12 @@ async function runInternalDastScan(): Promise<{ stdout: string; stderr: string; 
           title: `Missing security header: ${h}`,
           severity: "MEDIUM",
         }));
-        // Drain and close the socket
-        res.resume();
-        resolve({
+        result = {
           stdout: JSON.stringify({ blocked: false, findings }),
           stderr: "",
           exitCode: findings.length > 0 ? 1 : 0,
-        });
+        };
+        res.resume();
       },
     );
 
@@ -180,20 +189,24 @@ async function runInternalDastScan(): Promise<{ stdout: string; stderr: string; 
       req.destroy(new Error("DAST scan timeout"));
     });
 
+    req.on("close", finish);
+
     req.on("error", (e: any) => {
-      resolve({
-        stdout: JSON.stringify({ blocked: true, findings: [] }),
-        stderr: e?.message || "DAST target unreachable",
-        exitCode: 1,
-      });
+      if (!settled) {
+        settled = true;
+        resolve({
+          stdout: JSON.stringify({ blocked: true, findings: [] }),
+          stderr: e?.message || "DAST target unreachable",
+          exitCode: 1,
+        });
+      }
     });
   });
 }
 
 async function runInternalSupplyChainCheck(): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   try {
-    const fs = await import("fs/promises");
-    const content = await fs.readFile("package-lock.json", "utf8");
+    const content = readFileSync("package-lock.json", "utf8");
     const parsed = JSON.parse(content);
     if (parsed && parsed.lockfileVersion) {
       return { stdout: JSON.stringify({ status: "PASS" }), stderr: "", exitCode: 0 };

@@ -25,7 +25,7 @@ async function main() {
   }
 
   try {
-    // Scenario 1: Valid signed artifact + approval -> AUTHORIZED
+    // Scenario 1
     console.log("Scenario 1: Valid signed artifact + approval");
     const digest1 = "a".repeat(64);
     const exec1 = await runScan("exec-p6-1", "proj-p6", "commit1", digest1);
@@ -56,7 +56,7 @@ async function main() {
     }
     console.log("PASS\n");
 
-    // Scenario 2: Unsigned artifact -> BLOCKED
+    // Scenario 2
     console.log("Scenario 2: Unsigned artifact");
     const exec2 = await runScan("exec-p6-2", "proj-p6", "commit2", undefined);
     const approval2: ProductionApproval = {
@@ -117,7 +117,7 @@ async function main() {
     }
     console.log("PASS\n");
 
-    // Scenario 4: Deployment provider unavailable -> BLOCKED
+    // Scenario 4: Deployment provider unavailable
     console.log("Scenario 4: Deployment provider unavailable");
     const freshAuthResult = await enforcement.requestRelease({
       releaseId: "rel-p6-1",
@@ -151,18 +151,26 @@ async function main() {
 
     console.log("✅ All critical Pass 6 scenarios passed.");
   } finally {
-    // Diagnostic: show active handles/requests before exit (remove later if desired)
-    console.log("Active handles:", (process as any)._getActiveHandles().length);
-    console.log("Active requests:", (process as any)._getActiveRequests().length);
+    // Diagnostic logging
+    const handles = (process as any)._getActiveHandles();
+    const requests = (process as any)._getActiveRequests();
+    console.log("\nActive handles:");
+    for (const h of handles) {
+      console.log("  -", h?.constructor?.name, h?.type || "", h?.remoteAddress || "", h?.remotePort || "");
+    }
+    console.log("Active requests:");
+    for (const r of requests) {
+      console.log("  -", r?.constructor?.name, r?.type || "", r?.remoteAddress || "", r?.remotePort || "");
+    }
 
-    // Cleanup engine if it has a close/stop method
+    // Cleanup engine
     const engineAny = engine as any;
     if (typeof engineAny.close === "function") {
       await engineAny.close();
     } else if (typeof engineAny.stop === "function") {
       await engineAny.stop();
     }
-    // Do NOT call process.exit here. Node exits when event loop is empty.
+    // no process.exit here; let Node exit naturally
   }
 }
 
