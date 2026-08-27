@@ -5,7 +5,7 @@
  * unknown external data enters only through validators (see security.ts).
  */
 
-/* ------------------------------- Identifiers ------------------------------ */
+
 
 export type Id = string;
 
@@ -65,6 +65,9 @@ export const PERMISSIONS = [
   "system:health",
   "system:configure",
   "github:connect",
+  "evidence:read",
+  "security:manage",
+  "config:read",
   "github:read",
   "github:push",
   // Phase 3 Pass 3 — CI/CD + Git provider foundation. Provider-specific read/
@@ -1405,7 +1408,142 @@ export interface RollbackTestReport {
 
   reason: string | null;
 }
+/* ===================== Phase 4 Pass 1 — Security Control Plane ===================== */
 
+export type SecurityExecutionStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "BLOCKED"
+  | "CANCELLED";
+
+export interface SecurityExecution {
+  id: Id;
+  project_id: Id;
+  execution_id: Id;
+  commit_sha: string;
+  artifact_digest?: string;
+  release_id?: Id;
+  status: SecurityExecutionStatus;
+  started_at: string;
+  completed_at?: string;
+  verdict?: "PASS" | "FAIL" | "BLOCKED";
+}
+
+export type SecurityEvidenceStatus = "PASS" | "FAIL" | "BLOCKED" | "NOT_RUN" | "UNKNOWN";
+export type SecurityScannerCategory =
+  | "SAST"
+  | "SCA"
+  | "SECRET"
+  | "IAC"
+  | "CONTAINER"
+  | "SBOM"
+  | "DAST"
+  | "SUPPLY_CHAIN"
+  | "SIGNATURE"
+  | "AUTHENTICATION"
+  | "CONFIGURATION"
+  | "DEPENDENCY";
+
+export interface SecurityEvidence {
+  id: Id;
+  project_id: Id;
+  execution_id: Id;
+  release_id?: Id;
+  commit_sha: string;
+  artifact_id?: Id;
+  artifact_digest?: string;
+  environment: string;
+  scanner: string;
+  category: SecurityScannerCategory;
+  status: SecurityEvidenceStatus;
+  started_at: string;
+  completed_at?: string;
+  duration_ms?: number;
+  raw_reference?: string;
+  normalized_reference?: string;
+  created_at: string;
+}
+
+export type FindingSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO" | "UNKNOWN";
+
+export type FindingStatus =
+  | "NEW"
+  | "CONFIRMED"
+  | "REOPENED"
+  | "FALSE_POSITIVE"
+  | "ACCEPTED_RISK"
+  | "RESOLVED";
+
+export interface SecurityFinding {
+  finding_id: Id;
+  evidence_id: Id;
+  project_id: Id;
+  execution_id: Id;
+  release_id?: Id;
+  artifact_digest?: string;
+  scanner: string;
+  category: SecurityScannerCategory;
+  severity: FindingSeverity;
+  title: string;
+  description?: string;
+  fingerprint: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  package?: string;
+  dependency?: string;
+  version?: string;
+  fixed_version?: string;
+  cve?: string;
+  cwe?: string;
+  resource?: string;
+  location?: string;
+  target?: string; // optional field added for Trivy target
+  evidence_reference?: string;
+  first_seen: string;
+  last_seen: string;
+  status: FindingStatus;
+    // False positive / accepted risk metadata
+  false_positive_reason?: string;
+  false_positive_actor?: string;
+  false_positive_at?: string;
+  false_positive_evidence?: string;
+  accepted_risk_reason?: string;
+  approved_by?: string;
+  approved_at?: string;
+  expires_at?: string;   // ISO timestamp
+  scope?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SecurityDecision {
+  id: Id;
+  project_id: Id;
+  execution_id: Id;
+  release_id?: Id;
+  artifact_digest?: string;
+  policy_id: string;
+  policy_version: string;
+  verdict: "PASS" | "FAIL" | "BLOCKED";
+  reasons: string[];
+  created_at: string;
+}
+
+export interface RiskAssessment {
+  id: Id;
+  project_id: Id;
+  execution_id: Id;
+  release_id?: Id;
+  artifact_digest?: string;
+  severity_counts: Record<FindingSeverity, number>;
+  correlated_findings: number;
+  risk_score: number;
+  explanation: string[];
+  created_at: string;
+}
 
 
 

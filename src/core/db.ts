@@ -1,10 +1,13 @@
-﻿/**
- * NEXUS Phase 1 â€” persistence engine.
+﻿import { CONFIG } from "./config";
+import { Err } from "./errors";
+
+/**
+ * NEXUS Phase 1 — persistence engine.
  *
  * Real, durable persistence via IndexedDB (schema-versioned). In non-browser
  * contexts (Node test harnesses) a clearly-labelled in-memory engine is used
  * instead; the engine kind is exposed so health/verification can report
- * exactly which runtime is backing the platform â€” never pretending an
+ * exactly which runtime is backing the platform — never pretending an
  * unverified persistence mode is the durable one.
  *
  * Safety properties:
@@ -16,15 +19,15 @@
  *  - no plaintext secrets ever stored (see security.ts)
  */
 
-import { CONFIG } from "./config";
-import { Err } from "./errors";
-
-/** Schema v5 (Phase 3 Pass 3): ADDITIVE migration â€” adds change_requests,
- *  git_operations and ci_pipeline_runs stores for the CI/CD + Git provider
- *  foundation. IndexedDB preserves every existing object store and record
- *  across version bumps; the upgrade handler only creates stores that are
- *  missing, so all prior data survives. */
-export const SCHEMA_VERSION = 7;
+/**
+ * Schema v8 (Phase 4 Pass 1): ADDITIVE migration — adds security_executions,
+ * security_evidence, security_findings, security_decisions,
+ * security_risk_assessments and finding_audit_log stores for the Security
+ * Control Plane. IndexedDB preserves every existing object store and record
+ * across version bumps; the upgrade handler only creates stores that are
+ * missing, so all prior data survives.
+ */
+export const SCHEMA_VERSION = 8;
 
 export const NEXUS_STORES = [
   "users",
@@ -44,15 +47,22 @@ export const NEXUS_STORES = [
   "approvals",
   // Phase 2 Pass 2
   "agent_executions",
-  // Phase 3 Pass 1 â€” DevOps pipeline (builds are stage records + BUILD_OUTPUT
+  // Phase 3 Pass 1 — DevOps pipeline (builds are stage records + BUILD_OUTPUT
   // artifacts; no separate build table duplicates that state)
   "pipeline_runs",
   "pipeline_stages",
-  // Phase 3 Pass 3 â€” CI/CD + Git provider foundation
+  // Phase 3 Pass 3 — CI/CD + Git provider foundation
   "change_requests",
   "git_operations",
   "ci_pipeline_runs",
   "deployments",
+  // Phase 4 Pass 1 — Security Control Plane
+  "security_executions",
+  "security_evidence",
+  "security_findings",
+  "security_decisions",
+  "security_risk_assessments",
+  "finding_audit_log",
 ] as const;
 export type StoreName = (typeof NEXUS_STORES)[number];
 
@@ -89,6 +99,30 @@ const INDEXES: Record<string, [string, string][]> = {
   audit: [["byResource", "resource_id"]],
   evidence: [["byExecution", "execution_id"]],
   artifacts: [["byExecution", "execution_id"]],
+  // Phase 4 Pass 1 — Security Control Plane indexes
+  security_executions: [
+    ["byProject", "project_id"],
+    ["byExecution", "execution_id"],
+    ["byRelease", "release_id"],
+  ],
+  security_evidence: [
+    ["byExecution", "execution_id"],
+    ["byArtifact", "artifact_digest"],
+  ],
+  security_findings: [
+    ["byEvidence", "evidence_id"],
+    ["byFingerprint", "fingerprint"],
+    ["byStatus", "status"],
+    ["byProject", "project_id"],
+    ["byExecution", "execution_id"],
+
+  ],
+  security_decisions: [
+    ["byExecution", "execution_id"],
+    ["byRelease", "release_id"],
+  ],
+  security_risk_assessments: [["byExecution", "execution_id"]],
+  finding_audit_log: [["byFinding", "finding_id"]],
   // Phase 2
   workspaces: [
     ["byProject", "project_id"],
@@ -288,7 +322,7 @@ export function openEngine(): Promise<NexusEngine> {
   return enginePromise;
 }
 
-/** Real round-trip probe: write â†’ read â†’ verify â†’ delete. Returns latency ms. */
+/** Real round-trip probe: write → read → verify → delete. Returns latency ms. */
 export async function probeEngine(engine: NexusEngine): Promise<number> {
   const t0 = performance.now();
   const probeKey = "__health_probe";
@@ -345,6 +379,3 @@ export function timingSafeEqual(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
-
-
-
