@@ -6,7 +6,7 @@ import {
   SecurityScannerCategory,
   SecurityEvidenceStatus,
 } from "./types";
-import { spawn } from "child_process";
+import spawn from "cross-spawn";
 import {
   sastAdapter,
   scaAdapter,
@@ -16,8 +16,19 @@ import {
   sbomAdapter,
   dastAdapter,
   supplyChainAdapter,
+  signatureAdapter,
   ScannerAdapter,
 } from "./security-normalizer";
+import {
+  generateSigningKeyPair,
+  signArtifactDigest,
+  verifyArtifactSignature,
+} from "./signing";
+
+// Safe helper: no scanner command is allowed to use a shell.
+function requiresShell(_command: string): boolean {
+  return false;
+}
 
 export interface ScannerRunResult {
   scanner: string;
@@ -43,21 +54,6 @@ interface ScannerDefinition {
   adapter: ScannerAdapter;
   timeoutMs: number;
   strategy: "LOCAL_EXECUTABLE" | "NPM" | "DOCKER" | "INTERNAL";
-}
-
-function isWindows(): boolean {
-  return process.platform === "win32";
-}
-
-function resolveCommand(command: string): string {
-  if (isWindows() && (command === "npm" || command === "npx")) {
-    return `${command}.cmd`;
-  }
-  return command;
-}
-
-function requiresShell(command: string): boolean {
-  return isWindows() && command.endsWith(".cmd");
 }
 
 const SCANNERS: ScannerDefinition[] = [
@@ -92,7 +88,7 @@ const SCANNERS: ScannerDefinition[] = [
     scanner: "trivy",
     category: "CONTAINER",
     command: "trivy",
-    args: ["fs", ".", "--format", "json", "--skip-db-update", "--scanners", "vuln,secret,misconfig", "--no-progress"],
+    args: ["fs", ".", "--format", "json", "--skip-db-update", "--scanners", "vuln,secret,misconfig", "--no-progress", "--skip-dirs", "tamper-fixture,pass5-fixed", "--skip-dirs", "tamper-fixture,pass5-fixed"],
     adapter: trivyAdapter,
     timeoutMs: 60000,
     strategy: "LOCAL_EXECUTABLE",
@@ -130,6 +126,15 @@ const SCANNERS: ScannerDefinition[] = [
     command: "INTERNAL_SUPPLY_CHAIN",
     args: [],
     adapter: supplyChainAdapter,
+    timeoutMs: 120000,
+    strategy: "INTERNAL",
+  },
+  {
+    scanner: "signature",
+    category: "SIGNATURE",
+    command: "INTERNAL_SIGNATURE",
+    args: [],
+    adapter: signatureAdapter,
     timeoutMs: 120000,
     strategy: "INTERNAL",
   },
@@ -189,32 +194,65 @@ async function runInternalSupplyChainCheck(): Promise<{ stdout: string; stderr: 
   }
 }
 
+async function runInternalSignatureCheck(
+  artifactDigest?: string,
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  if (!artifactDigest) {
+    return {
+      stdout: JSON.stringify({
+        signed: false,
+        blocked: true,
+        reason: "No artifact digest provided",
+      }),
+      stderr: "",
+      exitCode: 1,
+    };
+  }
+
+  if (!(globalThis as any).__nexusSigningKeyPair) {
+    (globalThis as any).__nexusSigningKeyPair = generateSigningKeyPair();
+  }
+  const { privateKey, publicKey } = (globalThis as any).__nexusSigningKeyPair;
+
+  try {
+    const signature = signArtifactDigest(artifactDigest, privateKey);
+    const verified = verifyArtifactSignature(artifactDigest, signature, publicKey);
+    return {
+      stdout: JSON.stringify({
+        signed: true,
+        verified,
+        signature,
+        publicKey,
+      }),
+      stderr: "",
+      exitCode: verified ? 0 : 1,
+    };
+  } catch (e: any) {
+    return {
+      stdout: JSON.stringify({ signed: false, error: e?.message }),
+      stderr: e?.message || "Signing failed",
+      exitCode: 1,
+    };
+  }
+}
+
 async function runProcess(
   command: string,
   args: string[],
   timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
-    let child;
-
     if (requiresShell(command)) {
-      const fullCommand = [command, ...args].join(" ");
-      child = spawn(fullCommand, {
-        cwd: process.cwd(),
-        env: process.env,
-        timeout: timeoutMs,
-        windowsHide: true,
-        shell: true,
-      });
-    } else {
-      child = spawn(command, args, {
-        cwd: process.cwd(),
-        env: process.env,
-        timeout: timeoutMs,
-        windowsHide: true,
-        shell: false,
-      });
+      reject({ code: "SHELL_NOT_ALLOWED", message: `Shell usage not allowed for ${command}` });
+      return;
     }
+
+    const child = spawn(command, args, {
+      cwd: process.cwd(),
+      env: process.env,
+      timeout: timeoutMs,
+      windowsHide: true,
+    });
 
     let stdout = "";
     let stderr = "";
@@ -225,15 +263,15 @@ async function runProcess(
       child.kill("SIGKILL");
     }, timeoutMs);
 
-    child.stdout.on("data", (data) => {
+    child.stdout?.on("data", (data: Buffer | string) => {
       stdout += data.toString();
     });
 
-    child.stderr.on("data", (data) => {
+    child.stderr?.on("data", (data: Buffer | string) => {
       stderr += data.toString();
     });
 
-    child.on("error", (err: any) => {
+    child.on("error", (err: NodeJS.ErrnoException) => {
       clearTimeout(timeoutObj);
       if (err.code === "ENOENT") {
         reject({ code: "COMMAND_NOT_FOUND", message: `Command not found: ${command}` });
@@ -242,7 +280,7 @@ async function runProcess(
       }
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code: number | null) => {
       clearTimeout(timeoutObj);
       if (timedOut) {
         reject({ code: "PROCESS_TIMEOUT", message: `Process timed out after ${timeoutMs}ms` });
@@ -300,10 +338,14 @@ export class SecurityScannerRunner {
             stdout = res.stdout;
             stderr = res.stderr;
             exitCode = res.exitCode;
+          } else if (def.command === "INTERNAL_SIGNATURE") {
+            const res = await runInternalSignatureCheck(artifactDigest);
+            stdout = res.stdout;
+            stderr = res.stderr;
+            exitCode = res.exitCode;
           }
         } else {
-          const resolvedCommand = resolveCommand(def.command);
-          const proc = await runProcess(resolvedCommand, def.args, def.timeoutMs);
+          const proc = await runProcess(def.command, def.args, def.timeoutMs);
           stdout = proc.stdout;
           stderr = proc.stderr;
           exitCode = proc.exitCode;

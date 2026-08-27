@@ -11,5 +11,12 @@ export default defineConfig({
     hmr: {
       port: 3000,
     },
+    headers: {
+      "Content-Security-Policy":
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self';",
+      "X-Content-Type-Options": "nosniff",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "X-Frame-Options": "DENY",
+    },
   },
 });

@@ -228,7 +228,26 @@ export const dastAdapter: ScannerAdapter = {
     }));
   },
 };
-
+export const signatureAdapter: ScannerAdapter = {
+  normalize(raw, _context) {
+    if (typeof raw === "string") {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        return "BLOCKED";
+      }
+    }
+    if (!raw || typeof raw !== "object") return "BLOCKED";
+    const obj = raw as any;
+    if (obj.blocked === true) return "BLOCKED";
+    if (obj.signed === true && obj.verified === true) return "PASS";
+    if (obj.signed === false) return "FAIL";
+    return "BLOCKED";
+  },
+  extractFindings(_raw) {
+    return [];
+  },
+};
 // ---------- Supply Chain ----------
 export const supplyChainAdapter: ScannerAdapter = {
   normalize(raw: any) {
