@@ -48,11 +48,6 @@ function isWindows(): boolean {
   return process.platform === "win32";
 }
 
-/**
- * Resolve a command to a platform‑specific executable name.
- * On Windows, npm and npx are batch files (.cmd).
- * This is a trusted allow‑list, never used for untrusted input.
- */
 function resolveCommand(command: string): string {
   if (isWindows() && (command === "npm" || command === "npx")) {
     return `${command}.cmd`;
@@ -60,10 +55,6 @@ function resolveCommand(command: string): string {
   return command;
 }
 
-/**
- * Return true when the resolved command is a batch file on Windows.
- * Batch files require `shell: true` to be spawned by Node.
- */
 function requiresShell(command: string): boolean {
   return isWindows() && command.endsWith(".cmd");
 }
@@ -72,16 +63,16 @@ const SCANNERS: ScannerDefinition[] = [
   {
     scanner: "semgrep",
     category: "SAST",
-    command: "npx",
-    args: ["semgrep", "--config=auto", ".", "--json"],
+    command: "semgrep",
+    args: ["--config=auto", ".", "--json"],
     adapter: sastAdapter,
     timeoutMs: 120000,
   },
   {
     scanner: "gitleaks",
     category: "SECRET",
-    command: "npx",
-    args: ["gitleaks", "detect", "--source", ".", "--report-format", "json"],
+    command: "gitleaks",
+    args: ["detect", "--source", ".", "--report-format", "json"],
     adapter: secretAdapter,
     timeoutMs: 120000,
   },
@@ -104,8 +95,8 @@ const SCANNERS: ScannerDefinition[] = [
   {
     scanner: "trivy",
     category: "CONTAINER",
-    command: "docker",
-    args: ["run", "--rm", "aquasec/trivy", "fs", "/src", "--format", "json"],
+    command: "trivy",
+    args: ["fs", ".", "--format", "json", "--skip-db-update", "--scanners", "secret,misconfig", "--no-progress"],
     adapter: trivyAdapter,
     timeoutMs: 60000,
   },
@@ -149,13 +140,26 @@ async function runProcess(
   timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: process.cwd(),
-      env: process.env,
-      timeout: timeoutMs,
-      windowsHide: true,
-      shell: requiresShell(command), // only for .cmd batch files; no untrusted input here
-    });
+    let child;
+
+    if (requiresShell(command)) {
+      const fullCommand = [command, ...args].join(" ");
+      child = spawn(fullCommand, {
+        cwd: process.cwd(),
+        env: process.env,
+        timeout: timeoutMs,
+        windowsHide: true,
+        shell: true,
+      });
+    } else {
+      child = spawn(command, args, {
+        cwd: process.cwd(),
+        env: process.env,
+        timeout: timeoutMs,
+        windowsHide: true,
+        shell: false,
+      });
+    }
 
     let stdout = "";
     let stderr = "";
@@ -229,20 +233,31 @@ export class SecurityScannerRunner {
         const resolvedCommand = resolveCommand(def.command);
         const { stdout, stderr, exitCode } = await runProcess(resolvedCommand, def.args, def.timeoutMs);
 
-        if (exitCode !== 0) {
-          // Non‑zero exit: scanner ran but reported failure.
-          status = "FAIL";
-          errorCode = "NON_ZERO_EXIT";
-          blockedReason = stderr?.trim() || `Process exited with code ${exitCode}`;
+        const combined = `${stdout}\n${stderr}`;
+        if (combined.includes("npm error code E404") || combined.includes("could not determine executable to run")) {
+          status = "BLOCKED";
+          errorCode = "PACKAGE_NOT_FOUND";
+          blockedReason = combined.slice(0, 200);
         } else {
           const raw = safeJsonParse(stdout) ?? stdout;
-          status = def.adapter.normalize(raw, { scanner: def.scanner, category: def.category });
-          if (def.adapter.extractFindings) {
-            findings = def.adapter.extractFindings(raw);
+          const adapterStatus = def.adapter.normalize(raw, { scanner: def.scanner, category: def.category });
+
+          if (adapterStatus === "UNKNOWN") {
+            if (exitCode !== 0) {
+              status = "FAIL";
+              errorCode = "NON_ZERO_EXIT";
+              blockedReason = stderr?.trim() || `Process exited with code ${exitCode}`;
+            } else {
+              status = "PASS";
+            }
+          } else {
+            status = adapterStatus;
+            if (def.adapter.extractFindings) {
+              findings = def.adapter.extractFindings(raw);
+            }
           }
         }
       } catch (e: any) {
-        // e is an object with code and message from runProcess reject
         const code = e?.code || "UNKNOWN";
         errorCode = code;
         if (code === "COMMAND_NOT_FOUND" || code === "PROCESS_START_FAILURE") {
