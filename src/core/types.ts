@@ -5,8 +5,6 @@
  * unknown external data enters only through validators (see security.ts).
  */
 
-
-
 export type Id = string;
 
 /* --------------------------------- Errors --------------------------------- */
@@ -187,6 +185,8 @@ export const AGENT_CAPABILITIES = [
   "generate_sbom",
 ] as const;
 export type AgentCapability = (typeof AGENT_CAPABILITIES)[number];
+
+export type EngineKind = "memory" | "idb" | "sqlite";
 
 /* ------------------------- Pass 2 — risk & policy -------------------------- */
 
@@ -1505,7 +1505,7 @@ export interface SecurityFinding {
   first_seen: string;
   last_seen: string;
   status: FindingStatus;
-    // False positive / accepted risk metadata
+  // False positive / accepted risk metadata
   false_positive_reason?: string;
   false_positive_actor?: string;
   false_positive_at?: string;
@@ -1544,16 +1544,3 @@ export interface RiskAssessment {
   explanation: string[];
   created_at: string;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

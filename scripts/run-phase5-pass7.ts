@@ -1,5 +1,6 @@
 import { spawnSync } from "child_process";
 import { openEngine, resetEngineForTesting } from "../src/core/db";
+import { CONFIG } from "../src/core/config";
 import { ObservabilityService } from "../src/core/observability-service";
 import { MetricsAgent } from "../src/core/metrics-agent";
 import { HealthAgent } from "../src/core/health-agent";
@@ -18,8 +19,14 @@ async function main() {
   const fs = await import("fs/promises");
   await fs.rm(dbPath, { force: true });
 
+  // Set environment (kept for compatibility with child process)
   process.env.NEXUS_PERSISTENCE_ENGINE = "sqlite";
   process.env.NEXUS_DB_PATH = dbPath;
+
+  // Directly configure the runtime (this is what openEngine actually reads)
+  CONFIG.persistence.engine = "sqlite";
+  CONFIG.persistence.dbName = dbPath;
+  resetEngineForTesting(); // ensure any cached engine is discarded
 
   const engine = await openEngine();
   console.log(`Persistence engine: ${engine.kind}`);
