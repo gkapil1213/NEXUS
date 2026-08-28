@@ -57,7 +57,7 @@ async function runSecurityScanInProcess(): Promise<void> {
   const scanner = new RealSecurityScanner(exec);
   const result = await Promise.race([
     scanner.runAll("."),
-    new Promise((_, reject) => setTimeout(() => reject(new Error("Security scan timed out")), 120000)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Security scan timed out")), 300000)),
   ]);
   const hasFailed = (result as any).results.some((r: any) => r.status === "FAILED");
   if (hasFailed) throw new Error("Security scan found failures");

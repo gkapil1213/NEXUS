@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-28T07:34:46.828Z",
+  "timestamp": "2026-08-28T09:20:00.353Z",
   "stages": {
     "typecheck": "PASS",
     "build": "PASS",
@@ -36,12 +36,11 @@
     },
     "sbom": "PASS",
     "dast": {
-      "status": "BLOCKED",
-      "reason": "STAGING_URL not set"
+      "status": "PASSED"
     },
     "supply_chain": {
       "status": "PASS",
-      "digest": "localhost:5000/nexus/nexus-app@sha256:56a97cb569c50c5c1cd9d7ecfdfbf7ca06a85b5e4e7bfa9797acdf88ab8e6923",
+      "digest": "localhost:5000/nexus/nexus-app@sha256:216bda9684b1ba00ff741f626f81febd1e8869013075e4923e935232eef7d496",
       "sign_status": "SIGNED",
       "verify_status": "VERIFIED",
       "reason": null

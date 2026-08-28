@@ -48,6 +48,7 @@ class CosignService {
     return [
       "run", "--rm",
       "-e", `COSIGN_PASSWORD=${password}`,
+      "-e", "SIGSTORE_NO_TUF=1",
       "-v", "/var/run/docker.sock:/var/run/docker.sock",
       "-v", `${cwd}:/workspace`,
       "-w", "/workspace",
@@ -68,7 +69,6 @@ class CosignService {
     const args = [
       ...this.dockerCosignArgs(),
       "sign",
-      "--yes",
       "--key", "/workspace/cosign.key",
       "--allow-insecure-registry",
       "--allow-http-registry",
