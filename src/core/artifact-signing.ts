@@ -13,8 +13,6 @@ export interface SigningResult {
 }
 
 class CosignService {
-  private cosignBin = process.env.COSIGN_BIN ?? "cosign-windows-amd64";
-
   private runCmd(command: string, args: string[], timeoutMs = 180000): Promise<{ exit_code: number; stdout: string; stderr: string }> {
     return new Promise((resolve) => {
       const child = spawn(command, args, { shell: false, windowsHide: true });
@@ -37,7 +35,27 @@ class CosignService {
     });
   }
 
-    async sign(imageRef: string): Promise<SigningResult> {
+  // Translate host-accessible registry refs to Docker-internal refs.
+  private toDockerRegistryRef(imageRef: string): string {
+    return imageRef
+      .replace(/^localhost:/, "host.docker.internal:")
+      .replace(/^127\.0\.0\.1:/, "host.docker.internal:");
+  }
+
+  private dockerCosignArgs(): string[] {
+    const cwd = process.cwd();
+    const password = process.env.COSIGN_PASSWORD ?? "test123";
+    return [
+      "run", "--rm",
+      "-e", `COSIGN_PASSWORD=${password}`,
+      "-v", "/var/run/docker.sock:/var/run/docker.sock",
+      "-v", `${cwd}:/workspace`,
+      "-w", "/workspace",
+      "bitnami/cosign",
+    ];
+  }
+
+  async sign(imageRef: string): Promise<SigningResult> {
     process.env.COSIGN_PASSWORD = process.env.COSIGN_PASSWORD ?? "test123";
 
     const keyPath = path.join(process.cwd(), "cosign.key");
@@ -46,21 +64,32 @@ class CosignService {
       return { status: "BLOCKED", image_ref: imageRef, digest: null, signature: null, identity: null, issuer: null, reason: "cosign.key not found." };
     }
 
-    const res = await this.runCmd(this.cosignBin, [
+    const dockerImageRef = this.toDockerRegistryRef(imageRef);
+    const args = [
+      ...this.dockerCosignArgs(),
       "sign",
       "--yes",
-      "--key", keyPath,
+      "--key", "/workspace/cosign.key",
       "--allow-insecure-registry",
       "--allow-http-registry",
-      imageRef,
-    ]);
+      dockerImageRef,
+    ];
+
+    const res = await this.runCmd("docker", args);
 
     if (res.exit_code !== 0) {
       return { status: "FAILED", image_ref: imageRef, digest: null, signature: null, identity: "NOT_APPLICABLE", issuer: "NOT_APPLICABLE", reason: res.stderr.slice(0, 400) };
     }
 
-    // For key-based signing, identity/issuer are not applicable.
-    return { status: "SIGNED", image_ref: imageRef, digest: imageRef.split("@")[1] ?? null, signature: "cosign signature recorded", identity: "NOT_APPLICABLE", issuer: "NOT_APPLICABLE", reason: null };
+    return {
+      status: "SIGNED",
+      image_ref: imageRef,
+      digest: imageRef.split("@")[1] ?? null,
+      signature: "cosign signature recorded",
+      identity: "NOT_APPLICABLE",
+      issuer: "NOT_APPLICABLE",
+      reason: null,
+    };
   }
 
   async verify(imageRef: string): Promise<SigningResult> {
@@ -70,13 +99,17 @@ class CosignService {
       return { status: "BLOCKED", image_ref: imageRef, digest: null, signature: null, identity: null, issuer: null, reason: "cosign.pub not found." };
     }
 
-    const res = await this.runCmd(this.cosignBin, [
+    const dockerImageRef = this.toDockerRegistryRef(imageRef);
+    const args = [
+      ...this.dockerCosignArgs(),
       "verify",
-      "--key", pubPath,
+      "--key", "/workspace/cosign.pub",
       "--allow-insecure-registry",
       "--allow-http-registry",
-      imageRef,
-    ]);
+      dockerImageRef,
+    ];
+
+    const res = await this.runCmd("docker", args);
 
     if (res.exit_code !== 0) {
       return { status: "FAILED", image_ref: imageRef, digest: null, signature: null, identity: "NOT_APPLICABLE", issuer: "NOT_APPLICABLE", reason: res.stderr.slice(0, 400) };
@@ -85,7 +118,15 @@ class CosignService {
     const match = res.stdout.match(/digest:\s*(sha256:[a-f0-9]+)/i);
     const digest = match ? match[1] : imageRef.split("@")[1] ?? null;
 
-    return { status: "VERIFIED", image_ref: imageRef, digest, signature: "cosign signature verified", identity: "NOT_APPLICABLE", issuer: "NOT_APPLICABLE", reason: null };
+    return {
+      status: "VERIFIED",
+      image_ref: imageRef,
+      digest,
+      signature: "cosign signature verified",
+      identity: "NOT_APPLICABLE",
+      issuer: "NOT_APPLICABLE",
+      reason: null,
+    };
   }
 }
 
