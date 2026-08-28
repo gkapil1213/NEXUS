@@ -427,7 +427,7 @@ export class SecurityScannerRunner {
         duration_ms: durationMs,
       });
 
-      if (findings.length > 0 && status === "FAIL") {
+      if (findings.length > 0) {
         await this.api.ingestFindings(evidence, findings);
       }
 

@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { nid } from "./db";
 
@@ -52,15 +52,17 @@ export class ReleaseService {
     this.loadState();
   }
 
-  private async loadState() {
+  private loadState() {
     try {
-      const data = await fs.readFile(this.statePath, "utf-8");
+      const data = readFileSync(this.statePath, "utf-8");
       this.releases = JSON.parse(data);
-    } catch {}
+    } catch {
+      this.releases = [];
+    }
   }
 
-  private async saveState() {
-    await fs.writeFile(this.statePath, JSON.stringify(this.releases, null, 2));
+  private saveState() {
+    writeFileSync(this.statePath, JSON.stringify(this.releases, null, 2));
   }
 
   async createDraft(version: string, commitSha: string, environment: string, metadata: Record<string, string> = {}): Promise<ReleaseRecord> {
@@ -77,7 +79,7 @@ export class ReleaseService {
       metadata,
     };
     this.releases.push(release);
-    await this.saveState();
+    this.saveState();
     return release;
   }
 
@@ -94,7 +96,7 @@ export class ReleaseService {
 
     release.status = to;
     release.updated_at = Date.now();
-    await this.saveState();
+    this.saveState();
     return release;
   }
 

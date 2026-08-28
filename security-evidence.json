@@ -1,17 +1,36 @@
 {
-  "timestamp": "2026-08-28T10:07:08.878Z",
+  "timestamp": "2026-08-28T12:38:25.589Z",
   "stages": {
     "typecheck": "PASS",
     "build": "PASS",
     "core_tests": "PASS",
     "security_scan": {
       "status": "PASS",
-      "findings": [],
+      "findings": [
+        {
+          "scanner": "SAST",
+          "category": "SAST",
+          "severity": "medium",
+          "title": "javascript.lang.security.detect-child-process.detect-child-process",
+          "file": "scripts\\test-fail-safe.ts",
+          "line": 20,
+          "resource": null
+        },
+        {
+          "scanner": "SAST",
+          "category": "SAST",
+          "severity": "medium",
+          "title": "javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring",
+          "file": "scripts\\test-fail-safe.ts",
+          "line": 68,
+          "resource": null
+        }
+      ],
       "summary": [
         {
           "kind": "SAST",
           "status": "PASSED",
-          "findings": 0
+          "findings": 2
         },
         {
           "kind": "SECRET",
@@ -40,7 +59,7 @@
     },
     "supply_chain": {
       "status": "PASS",
-      "digest": "localhost:5000/nexus/nexus-app@sha256:6458ff7ca49d053dd4b6b37141fd05f529b46650c0bd3e09eb2e69bd68bc79b5",
+      "digest": "localhost:5000/nexus/nexus-app@sha256:1f0ab0aa1bf39f7547aa6bb45a2d6391275997edcfac01f9b08d56efedbee869",
       "sign_status": "SIGNED",
       "verify_status": "VERIFIED",
       "reason": null
@@ -48,12 +67,21 @@
     "risk_correlation": {
       "critical": 0,
       "high": 0,
-      "medium": 0,
+      "medium": 2,
       "low": 0
     },
     "policy": {
       "verdict": "PASS",
-      "evaluations": []
+      "evaluations": [
+        {
+          "id": "pol_dae180b1-b5cd-4a0e-af1e-902cfa4fb4d9",
+          "rule_id": "MEDIUM_FINDING_REVIEW",
+          "rule_name": "Medium severity finding requires review",
+          "decision": "REVIEW",
+          "reason": "Medium findings do not block but require human awareness",
+          "timestamp": 1787920940977
+        }
+      ]
     },
     "release_decision": "RELEASE"
   }

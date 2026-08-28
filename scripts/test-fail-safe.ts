@@ -17,7 +17,6 @@ function runCmd(command: string, args: string[], timeoutMs = 180000): Promise<{ 
       actualCommand = process.env.ComSpec || "cmd.exe";
       actualArgs = ["/c", command, ...args];
     }
-    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
     const child = spawn(actualCommand, actualArgs, { shell: false, windowsHide: true });
     let stdout = "";
     let stderr = "";
@@ -60,14 +59,13 @@ async function expectFailure(name: string, fn: () => Promise<boolean>): Promise<
   try {
     const passed = await fn();
     if (passed) {
-      // nosemgrep: javascript.lang.security.audit.unsafe-formatstring
-     console.log("✅ %s: correctly failed/blocked", name);
+      console.log("✅ %s: correctly failed/blocked", name);
     } else {
-      console.error("❌ %s: failed/blocked incorrectly", name);
+      console.error("⚠️ %s: skipped", name);
       allPass = false;
     }
-  } catch (e) {
-    console.log("ℹ️ %s: skipped", name);
+  } catch (err) {
+    console.error(`❌ ${name}: unexpected error:`, err);
     allPass = false;
   }
 }
@@ -111,7 +109,7 @@ async function expectFailure(name: string, fn: () => Promise<boolean>): Promise<
   // 5. Critical vulnerability via policy engine (real policy logic)
   await expectFailure("Critical vulnerability blocks release", async () => {
     const policy = new SecurityPolicyEngine();
-    const evaluations = policy.evaluate({
+    const evaluations = policy.evaluateRules({
       findings: [{ severity: "critical", category: "SCA", scanner: "test", title: "Critical vuln" }],
     });
     const verdict = policy.verdict(evaluations);

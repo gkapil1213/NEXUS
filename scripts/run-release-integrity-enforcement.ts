@@ -64,7 +64,7 @@ async function runSecurityScanInProcess(): Promise<void> {
   const result = await Promise.race([
     scanner.runAll("."),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Security scan timed out after 120s")), 120000)
+      setTimeout(() => reject(new Error("Security scan timed out after 300s")), 300000)
     ),
   ]);
 

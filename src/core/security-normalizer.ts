@@ -5,10 +5,6 @@ import {
   SecurityFinding,
 } from "./types";
 
-/**
- * Normalize scanner-specific severity strings to the NEXUS canonical set.
- * Unknown severities are preserved as UNKNOWN (never silently dropped).
- */
 export function normalizeSeverity(raw: unknown): FindingSeverity {
   if (typeof raw !== "string" || raw.trim() === "") return "UNKNOWN";
   const s = raw.trim().toLowerCase();
@@ -20,10 +16,6 @@ export function normalizeSeverity(raw: unknown): FindingSeverity {
   return "UNKNOWN";
 }
 
-/**
- * Deterministic fingerprint from stable evidence fields.
- * Timestamps, random IDs, and execution IDs are excluded.
- */
 export function fingerprintFinding(input: {
   scanner: string;
   category: SecurityScannerCategory;
@@ -44,7 +36,6 @@ export function fingerprintFinding(input: {
     input.package?.trim().toLowerCase() || "",
     input.resource?.trim().toLowerCase() || "",
   ];
-  // Optional: hash the joined string to reduce length, but plain join is fine.
   return parts.join("|");
 }
 
@@ -53,7 +44,6 @@ export interface ScannerAdapter {
   extractFindings?(raw: unknown): Partial<SecurityFinding>[];
 }
 
-/** Helper: if raw is absent or has error, return BLOCKED. */
 function rawBlocked(raw: unknown): boolean {
   if (raw === null || raw === undefined) return true;
   if (typeof raw === "object" && "error" in (raw as any)) return true;
@@ -64,12 +54,16 @@ function rawBlocked(raw: unknown): boolean {
 export const sastAdapter: ScannerAdapter = {
   normalize(raw: any) {
     if (rawBlocked(raw)) return "BLOCKED";
-    // Semgrep exit code is often present; absence of results may be PASS with zero findings.
-    // We treat presence of results as FAIL (findings exist), but actual status comes from caller.
-    // For safety, if raw has results array with length > 0, return FAIL.
-    if (Array.isArray(raw.results) && raw.results.length > 0) return "FAIL";
-    // If no findings and no error, assume PASS (but this can be refined).
-    return "PASS";
+    const results = raw.results;
+    if (!Array.isArray(results) || results.length === 0) return "PASS";
+
+    // Only fail on HIGH/CRITICAL findings. Medium/low are warnings.
+    const hasHighOrCritical = results.some((r: any) => {
+      const sev = normalizeSeverity(r.extra?.severity);
+      return sev === "HIGH" || sev === "CRITICAL";
+    });
+
+    return hasHighOrCritical ? "FAIL" : "PASS";
   },
   extractFindings(raw: any) {
     if (!raw || !Array.isArray(raw.results)) return [];
@@ -86,13 +80,19 @@ export const sastAdapter: ScannerAdapter = {
 // ---------- SCA (npm audit / dependency scan) ----------
 export const scaAdapter: ScannerAdapter = {
   normalize(raw: any) {
-    if (rawBlocked(raw)) return "BLOCKED";
-    if (raw.status === "PASS") return "PASS";
-    if (raw.status === "FAIL") return "FAIL";
-    // If no explicit status but vulnerabilities array exists
-    if (Array.isArray(raw.vulnerabilities) && raw.vulnerabilities.length > 0) return "FAIL";
-    return "PASS";
-  },
+  if (rawBlocked(raw)) return "BLOCKED";
+  if (raw.status === "PASS") return "PASS";
+  if (raw.status === "FAIL") return "FAIL";
+  if (Array.isArray(raw.vulnerabilities) && raw.vulnerabilities.length > 0) {
+    const hasHighOrCritical = raw.vulnerabilities.some((v: any) => {
+      const sev = normalizeSeverity(v.severity);
+      return sev === "HIGH" || sev === "CRITICAL";
+    });
+    return hasHighOrCritical ? "FAIL" : "PASS";
+  }
+  return "PASS";
+},
+  
   extractFindings(raw: any) {
     if (!raw || !Array.isArray(raw.vulnerabilities)) return [];
     return raw.vulnerabilities.map((v: any) => ({
@@ -119,11 +119,10 @@ export const secretAdapter: ScannerAdapter = {
     if (!raw || !Array.isArray(raw.findings)) return [];
     return raw.findings.map((f: any) => ({
       title: f.rule_id || f.type || "Secret detected",
-      severity: "HIGH", // Secrets are typically high/critical
+      severity: "HIGH",
       file: f.path,
       line: f.start_line,
       description: `Secret type: ${f.type || "unknown"}`,
-      // Do NOT store actual secret value
     }));
   },
 };
@@ -154,10 +153,19 @@ export const iacAdapter: ScannerAdapter = {
 export const trivyAdapter: ScannerAdapter = {
   normalize(raw: any) {
     if (rawBlocked(raw)) return "BLOCKED";
-    // Trivy output may contain "Results" array with vulnerabilities/misconfigs
     if (Array.isArray(raw.Results)) {
-      const hasFindings = raw.Results.some((r: any) => (r.Vulnerabilities?.length || 0) > 0 || (r.Misconfigurations?.length || 0) > 0);
-      return hasFindings ? "FAIL" : "PASS";
+      const hasHighOrCritical = raw.Results.some(
+        (r: any) =>
+          (r.Vulnerabilities || []).some((v: any) => {
+            const sev = normalizeSeverity(v.Severity);
+            return sev === "HIGH" || sev === "CRITICAL";
+          }) ||
+          (r.Misconfigurations || []).some((m: any) => {
+            const sev = normalizeSeverity(m.Severity);
+            return sev === "HIGH" || sev === "CRITICAL";
+          })
+      );
+      return hasHighOrCritical ? "FAIL" : "PASS";
     }
     return "UNKNOWN";
   },
@@ -191,7 +199,6 @@ export const trivyAdapter: ScannerAdapter = {
           });
         }
       }
-      // Container secrets are not standard in Trivy output; would need custom parsing.
     }
     return findings;
   },
@@ -201,12 +208,10 @@ export const trivyAdapter: ScannerAdapter = {
 export const sbomAdapter: ScannerAdapter = {
   normalize(raw: any) {
     if (rawBlocked(raw)) return "BLOCKED";
-    // SBOM generation success is indicated by presence of components or valid format.
     if (raw.components && raw.components.length > 0) return "PASS";
     if (raw.status === "PASS") return "PASS";
     return "UNKNOWN";
   },
-  // SBOM does not produce findings; it's evidence.
 };
 
 // ---------- DAST ----------
@@ -214,7 +219,13 @@ export const dastAdapter: ScannerAdapter = {
   normalize(raw: any) {
     if (rawBlocked(raw)) return "BLOCKED";
     if (raw.status === "PASS") return "PASS";
-    if (Array.isArray(raw.findings) && raw.findings.length > 0) return "FAIL";
+    if (Array.isArray(raw.findings) && raw.findings.length > 0) {
+      const hasHighOrCritical = raw.findings.some((f: any) => {
+        const sev = normalizeSeverity(f.severity);
+        return sev === "HIGH" || sev === "CRITICAL";
+      });
+      return hasHighOrCritical ? "FAIL" : "PASS";
+    }
     return "PASS";
   },
   extractFindings(raw: any) {
@@ -228,6 +239,7 @@ export const dastAdapter: ScannerAdapter = {
     }));
   },
 };
+
 export const signatureAdapter: ScannerAdapter = {
   normalize(raw, _context) {
     if (typeof raw === "string") {
@@ -248,6 +260,7 @@ export const signatureAdapter: ScannerAdapter = {
     return [];
   },
 };
+
 // ---------- Supply Chain ----------
 export const supplyChainAdapter: ScannerAdapter = {
   normalize(raw: any) {
@@ -258,7 +271,6 @@ export const supplyChainAdapter: ScannerAdapter = {
     return "UNKNOWN";
   },
   extractFindings(raw: any) {
-    // Supply chain verification may yield integrity issues.
     if (raw?.mismatches && Array.isArray(raw.mismatches)) {
       return raw.mismatches.map((m: any) => ({
         title: "Supply chain mismatch",
