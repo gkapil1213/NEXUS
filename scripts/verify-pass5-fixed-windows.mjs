@@ -37,15 +37,24 @@ const evidence = {
 // FIX: Improved command runner with better error handling and shell detection
 function run(exe, args = [], timeout = 120000) {
   const started = Date.now();
-  const resolved = WIN && /\.(cmd|bat)$/i.test(exe) ? exe : exe;
-  const useShell = WIN && /\.(cmd|bat)$/i.test(resolved);
-  const result = spawnSync(resolved, args, {
+  const isCmd = WIN && /\.(cmd|bat)$/i.test(exe);
+  let resolved = exe;
+  let finalArgs = args;
+
+  if (isCmd) {
+    // Run .cmd/.bat via cmd.exe without shell:true to avoid DEP0190
+    resolved = process.env.ComSpec || 'cmd.exe';
+    finalArgs = ['/c', exe, ...args];
+  }
+
+  const result = spawnSync(resolved, finalArgs, {
     cwd: root,
     encoding: 'utf8',
     timeout,
     windowsHide: true,
-    shell: useShell
+    shell: false
   });
+
   return {
     success: result.status === 0,
     exitCode: result.status,
@@ -55,7 +64,7 @@ function run(exe, args = [], timeout = 120000) {
     stderr: result.stderr || '',
     duration_ms: Date.now() - started,
     executable: resolved,
-    args
+    args: finalArgs
   };
 }
 

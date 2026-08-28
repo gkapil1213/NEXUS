@@ -1,6 +1,6 @@
 ﻿import { CONFIG } from "./config";
 import { Err } from "./errors";
-import { SQLiteEngine } from "./sqlite-engine";
+
 
 export const SCHEMA_VERSION = 8;
 
@@ -282,13 +282,12 @@ export function openEngine(): Promise<NexusEngine> {
 
       if (kind === "memory") {
         return new MemEngine();
-      } else if (kind === "idb") {
-        // IndexedDB is browser-only; use static open method
-        return await IdbEngine.open("nexus");
-      } else if (kind === "sqlite") {
-        // SQLite: use static open and provide a path
+      }  else if (kind === "sqlite") {
+        // Dynamically load Node-only SQLite engine only when used, keeping
+        // better-sqlite3 and Node core modules out of the browser bundle.
+        const { SQLiteEngine } = await import("./sqlite-engine");
         return await SQLiteEngine.open(dbName);
-      } else {
+      } else  {
         throw new Error(`Unsupported engine: ${kind}`);
       }
     })();
