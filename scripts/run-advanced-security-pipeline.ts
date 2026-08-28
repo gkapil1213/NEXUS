@@ -171,10 +171,14 @@ async function runDast(): Promise<any> {
     const digestRef = "localhost:5000/nexus/nexus-app@" + digestOut.stdout.trim().split("@")[1];
     const signRes = await artifactSigningService.sign(digestRef);
     const verifyRes = await artifactSigningService.verify(digestRef);
-    if (signRes.status !== "SIGNED" || verifyRes.status !== "VERIFIED") {
-      throw new Error("Supply-chain verification failed");
-    }
-    evidence.stages.supply_chain = { status: "PASS", digest: digestRef };
+    const supplyChainStatus = (signRes.status === "SIGNED" && verifyRes.status === "VERIFIED") ? "PASS" : (signRes.status === "BLOCKED" || verifyRes.status === "BLOCKED") ? "BLOCKED" : "FAIL";
+    evidence.stages.supply_chain = {
+      status: supplyChainStatus,
+      digest: digestRef,
+      sign_status: signRes.status,
+      verify_status: verifyRes.status,
+      reason: signRes.reason ?? verifyRes.reason,
+    };
 
     // 9. Risk correlation
     console.log("[9] Risk correlation...");
@@ -193,18 +197,22 @@ async function runDast(): Promise<any> {
     console.log("[10] Security policy...");
     const policyContext = {
       findings: allSecurityFindings,
-      artifact: { signed: true, verified: true, digest: digestRef },
+      artifact: {
+        signed: signRes.status === "SIGNED",
+        verified: verifyRes.status === "VERIFIED",
+        digest: digestRef,
+      },
       sbom: { valid: true, digest: null },
       dast: { critical: dastResult.status === "FAILED" ? 1 : 0, high: 0, medium: 0, low: 0 },
     };
-    const policyEngine = new SecurityPolicyEngine();
-    const evaluations = policyEngine.evaluate(policyContext);
+        const policyEngine = new SecurityPolicyEngine();
+    const evaluations = policyEngine.evaluateRules(policyContext);
     const policyVerdict = policyEngine.verdict(evaluations);
     evidence.stages.policy = { verdict: policyVerdict, evaluations };
 
     // 11. Release decision
     console.log("[11] Release decision...");
-    const releaseDecision = policyVerdict === "PASS" && highCritical.length === 0 ? "RELEASE" : "BLOCK";
+    const releaseDecision = policyVerdict === "PASS" && highCritical.length === 0 && supplyChainStatus === "PASS" ? "RELEASE" : "BLOCK";
     evidence.stages.release_decision = releaseDecision;
 
     // Write evidence

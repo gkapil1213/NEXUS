@@ -1,6 +1,4 @@
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { rollbackService } from "../src/core/rollback-service.ts";
 import { artifactSigningService } from "../src/core/artifact-signing.ts";
 import { ReleaseService } from "../src/core/release-service.ts";
@@ -76,8 +74,6 @@ async function runSecurityScanInProcess(): Promise<void> {
   const imageTag = "nexus-app:prod-candidate";
   const repo = "localhost:5000/nexus/nexus-app";
   const fullTag = `${repo}:prod-candidate`;
-  const containerName = "nexus-production";
-  const port = 18085;
   const commitSha = process.env.GITHUB_SHA ?? `local-${Date.now()}`;
 
   try {
@@ -100,7 +96,7 @@ async function runSecurityScanInProcess(): Promise<void> {
     console.log("[4] Security scan...");
     await runSecurityScanInProcess();
 
-    // 5. DAST (optional; uses staging URL if available)
+    // 5. DAST (optional)
     if (process.env.STAGING_URL) {
       console.log("[5] DAST...");
       const dast = await runCmd("npx", ["tsx", "scripts/run-dast.ts"]);
@@ -109,7 +105,7 @@ async function runSecurityScanInProcess(): Promise<void> {
       console.log("[5] DAST skipped (STAGING_URL not set)");
     }
 
-    // 6. Determine digest reference
+    // 6. Build & push image
     let digestRef: string;
     if (process.env.EXISTING_DIGEST_REF) {
       console.log("[6] Using existing immutable digest reference...");
@@ -136,18 +132,26 @@ async function runSecurityScanInProcess(): Promise<void> {
     ]);
     console.log("SBOM OK");
 
-    // 8. Sign
+    // 8. Sign & verify
     console.log("[8] Signing...");
     const signRes = await artifactSigningService.sign(digestRef);
-    if (signRes.status !== "SIGNED") throw new Error("Signing failed");
-
-    // 9. Verify signature
-    console.log("[9] Verifying signature...");
     const verifyRes = await artifactSigningService.verify(digestRef);
-    if (verifyRes.status !== "VERIFIED") throw new Error("Signature verification failed");
+    const signingStatus =
+      signRes.status === "SIGNED" && verifyRes.status === "VERIFIED"
+        ? "PASS"
+        : signRes.status === "BLOCKED" || verifyRes.status === "BLOCKED"
+          ? "BLOCKED"
+          : "FAIL";
 
-    // 10. Approval check
-    console.log("[10] Checking approval...");
+    if (signingStatus !== "PASS") {
+      console.log(`   Signing status: ${signingStatus} (${signRes.reason ?? verifyRes.reason})`);
+      console.error("❌ Production Release Gate BLOCKED: signing not available");
+      process.exit(1);
+    }
+    console.log("[9] Signature verification passed");
+
+    // 9. Approval check
+    console.log("[9] Checking approval...");
     let releaseId = process.env.RELEASE_ID;
     if (!releaseId) {
       const release = await releaseService.createDraft(`prod-${commitSha.slice(0, 8)}`, commitSha, environment, {
@@ -168,20 +172,11 @@ async function runSecurityScanInProcess(): Promise<void> {
     );
 
     if (!isApproved) {
-      console.error(`❌ Production release BLOCKED: no valid approval for release ${releaseId} and digest ${digestRef.split("@")[1]}.`);
+      console.error("❌ Production Release Gate BLOCKED: release not approved");
       process.exit(1);
     }
-    console.log("Approval verified");
 
-    // 11. Deploy to production
-    console.log("[11] Deploying to production...");
-    await rollbackService.dockerRun(containerName, digestRef, port);
-    const healthy = await rollbackService.healthCheck(port);
-    if (!healthy) throw new Error("Production health check failed");
-    console.log("Production deployment healthy");
-
-    // 12. Final gate result
-    console.log("\n✅ Production Release Gate PASSED. Artifact is approved and verified.");
+    console.log("✅ Production Release Gate PASSED");
     process.exit(0);
   } catch (err) {
     console.error("❌ Production Release Gate FAILED:", err);

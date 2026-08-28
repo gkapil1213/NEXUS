@@ -1,11 +1,11 @@
 # ---------- Stage 1: Build the NEXUS UI ----------
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 
 WORKDIR /app
 
 # Copy package files first for better layer caching
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 # Copy the rest of the source and build
 COPY . .
