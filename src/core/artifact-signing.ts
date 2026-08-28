@@ -44,7 +44,10 @@ class CosignService {
 
   private dockerCosignArgs(): string[] {
     const cwd = process.cwd();
-    const password = process.env.COSIGN_PASSWORD ?? "test123";
+    const password = process.env.COSIGN_PASSWORD;
+if (!password) {
+  throw new Error("COSIGN_PASSWORD environment variable is required for signing");
+}
     return [
       "run", "--rm",
       "-e", `COSIGN_PASSWORD=${password}`,

@@ -6,7 +6,11 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test:core": "tsx scripts/run-core-tests.ts"
+    "test:core": "tsx scripts/run-core-tests.ts",
+    "test:security": "tsx scripts/run-security-regression.ts",
+    "test:operations": "tsx scripts/run-operations-regression.ts",
+    "test:backup-restore": "tsx scripts/test-backup-restore.ts",
+    "test:graceful-shutdown": "tsx scripts/test-graceful-shutdown.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
