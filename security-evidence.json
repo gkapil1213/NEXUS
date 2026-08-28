@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-28T09:20:00.353Z",
+  "timestamp": "2026-08-28T10:07:08.878Z",
   "stages": {
     "typecheck": "PASS",
     "build": "PASS",
@@ -40,7 +40,7 @@
     },
     "supply_chain": {
       "status": "PASS",
-      "digest": "localhost:5000/nexus/nexus-app@sha256:216bda9684b1ba00ff741f626f81febd1e8869013075e4923e935232eef7d496",
+      "digest": "localhost:5000/nexus/nexus-app@sha256:6458ff7ca49d053dd4b6b37141fd05f529b46650c0bd3e09eb2e69bd68bc79b5",
       "sign_status": "SIGNED",
       "verify_status": "VERIFIED",
       "reason": null
