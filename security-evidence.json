@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-28T17:41:28.559Z",
+  "timestamp": "2026-08-29T04:11:26.114Z",
   "stages": {
     "typecheck": "PASS",
     "build": "PASS",
@@ -55,11 +55,12 @@
     },
     "sbom": "PASS",
     "dast": {
-      "status": "PASSED"
+      "status": "BLOCKED",
+      "reason": "STAGING_URL not set"
     },
     "supply_chain": {
       "status": "PASS",
-      "digest": "localhost:5000/nexus/nexus-app@sha256:540e21272978ea3d9837af9b1052a714d95693e9ab6fbec79f0b871600ec380e",
+      "digest": "localhost:5000/nexus/nexus-app@sha256:6a8c59e1fb91c1b7d27f114f7bcfe1fa9eebaa86121401fe2c12229cf6d8ca21",
       "sign_status": "SIGNED",
       "verify_status": "VERIFIED",
       "reason": null
@@ -74,12 +75,12 @@
       "verdict": "PASS",
       "evaluations": [
         {
-          "id": "pol_63952106-94fa-4a88-a9a0-8ba2ff51168a",
+          "id": "pol_5448e326-79cc-4e5f-958c-3662e2c03758",
           "rule_id": "MEDIUM_FINDING_REVIEW",
           "rule_name": "Medium severity finding requires review",
           "decision": "REVIEW",
           "reason": "Medium findings do not block but require human awareness",
-          "timestamp": 1787939130332
+          "timestamp": 1787976986322
         }
       ]
     },

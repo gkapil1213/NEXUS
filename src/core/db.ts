@@ -1,7 +1,32 @@
-ï»¿import { CONFIG } from "./config";
+import { CONFIG } from "./config";
 import { Err } from "./errors";
 
+/**
+ * NEXUS Phase 1 — persistence engine.
+ *
+ * Real, durable persistence via IndexedDB (schema-versioned). In non-browser
+ * contexts (Node test harnesses) a clearly-labelled in-memory engine is used
+ * instead; the engine kind is exposed so health/verification can report
+ * exactly which runtime is backing the platform — never pretending an
+ * unverified persistence mode is the durable one.
+ *
+ * Safety properties:
+ *  - schema validation at every write boundary (validators in security.ts)
+ *  - indexed lookup fields for executions/projects/events/audit
+ *  - deterministic unique ids (RFC-4122 v4 via WebCrypto)
+ *  - timestamps on all records
+ *  - transactions per operation (IndexedDB atomicity)
+ *  - no plaintext secrets ever stored (see security.ts)
+ */
 
+/**
+ * Schema v8 (Phase 4 Pass 1): ADDITIVE migration — adds security_executions,
+ * security_evidence, security_findings, security_decisions,
+ * security_risk_assessments and finding_audit_log stores for the Security
+ * Control Plane. IndexedDB preserves every existing object store and record
+ * across version bumps; the upgrade handler only creates stores that are
+ * missing, so all prior data survives.
+ */
 export const SCHEMA_VERSION = 8;
 
 export const NEXUS_STORES = [
@@ -16,16 +41,22 @@ export const NEXUS_STORES = [
   "artifacts",
   "secrets",
   "kv",
+  // Phase 2
   "workspaces",
   "workspace_files",
   "approvals",
+  // Phase 2 Pass 2
   "agent_executions",
+  // Phase 3 Pass 1 — DevOps pipeline (builds are stage records + BUILD_OUTPUT
+  // artifacts; no separate build table duplicates that state)
   "pipeline_runs",
   "pipeline_stages",
+  // Phase 3 Pass 3 — CI/CD + Git provider foundation
   "change_requests",
   "git_operations",
   "ci_pipeline_runs",
   "deployments",
+  // Phase 4 Pass 1 — Security Control Plane
   "security_executions",
   "security_evidence",
   "security_findings",
@@ -35,7 +66,7 @@ export const NEXUS_STORES = [
 ] as const;
 export type StoreName = (typeof NEXUS_STORES)[number];
 
-export type EngineKind = "memory" | "idb" | "sqlite";
+export type EngineKind = "indexeddb" | "memory" | "sqlite";
 
 export interface NexusEngine {
   readonly kind: EngineKind;
@@ -48,6 +79,8 @@ export interface NexusEngine {
   maxSeq(store: StoreName): Promise<number>;
   stores(): string[];
 }
+
+/* ------------------------------ identifiers ------------------------------- */
 
 export function nid(prefix: string): string {
   const uuid =
@@ -66,6 +99,7 @@ const INDEXES: Record<string, [string, string][]> = {
   audit: [["byResource", "resource_id"]],
   evidence: [["byExecution", "execution_id"]],
   artifacts: [["byExecution", "execution_id"]],
+  // Phase 4 Pass 1 — Security Control Plane indexes
   security_executions: [
     ["byProject", "project_id"],
     ["byExecution", "execution_id"],
@@ -81,6 +115,7 @@ const INDEXES: Record<string, [string, string][]> = {
     ["byStatus", "status"],
     ["byProject", "project_id"],
     ["byExecution", "execution_id"],
+
   ],
   security_decisions: [
     ["byExecution", "execution_id"],
@@ -88,12 +123,15 @@ const INDEXES: Record<string, [string, string][]> = {
   ],
   security_risk_assessments: [["byExecution", "execution_id"]],
   finding_audit_log: [["byFinding", "finding_id"]],
+  // Phase 2
   workspaces: [
     ["byProject", "project_id"],
     ["byExecution", "execution_id"],
   ],
   workspace_files: [["byWorkspace", "workspace_id"]],
+  // Phase 2 Pass 2
   agent_executions: [["byExecution", "execution_id"]],
+  // Phase 3 Pass 1
   pipeline_runs: [
     ["byProject", "project_id"],
     ["byExecution", "execution_id"],
@@ -102,6 +140,7 @@ const INDEXES: Record<string, [string, string][]> = {
     ["byRun", "run_id"],
     ["byExecution", "execution_id"],
   ],
+  // Phase 3 Pass 3
   change_requests: [
     ["byExecution", "execution_id"],
     ["byRepository", "repository"],
@@ -114,7 +153,7 @@ const INDEXES: Record<string, [string, string][]> = {
 };
 
 class IdbEngine implements NexusEngine {
-  readonly kind = "idb" as const;
+  readonly kind = "indexeddb" as const;
   private db: IDBDatabase;
   private constructor(db: IDBDatabase) {
     this.db = db;
@@ -269,40 +308,21 @@ class MemEngine implements NexusEngine {
 let enginePromise: Promise<NexusEngine> | null = null;
 
 export function openEngine(): Promise<NexusEngine> {
-  if (!enginePromise) {
-    const p = (async () => {
-      // Environment variable overrides (used by test scripts, e.g., Phase 5 Pass 7)
-      const envEngine =
-        typeof process !== "undefined" && process.env?.NEXUS_PERSISTENCE_ENGINE
-          ? (process.env.NEXUS_PERSISTENCE_ENGINE as EngineKind)
-          : undefined;
-      const kind = envEngine ?? CONFIG.persistence.engine;
-      const dbName =
-        (typeof process !== "undefined" && process.env?.NEXUS_DB_PATH) || CONFIG.persistence.dbName;
-
-      if (kind === "memory") {
-        return new MemEngine();
-      }  else if (kind === "sqlite") {
-        // Dynamically load Node-only SQLite engine only when used, keeping
-        // better-sqlite3 and Node core modules out of the browser bundle.
-        const { SQLiteEngine } = await import("./sqlite-engine");
-        return await SQLiteEngine.open(dbName);
-      } else  {
-        throw new Error(`Unsupported engine: ${kind}`);
+  if (enginePromise) return enginePromise;
+  enginePromise = (async () => {
+    if (typeof indexedDB !== "undefined") {
+      try {
+        return await IdbEngine.open(CONFIG.persistence.dbName);
+      } catch {
+        return new MemEngine(); // degraded: health reports this honestly
       }
-    })();
-    enginePromise = p;
-    return p;
-  }
+    }
+    return new MemEngine();
+  })();
   return enginePromise;
 }
 
-/** Resets the cached engine promise so a new engine can be created with a different config. */
-export function resetEngineForTesting(): void {
-  enginePromise = null;
-}
-
-/** Real round-trip probe: write â†’ read â†’ verify â†’ delete. Returns latency ms. */
+/** Real round-trip probe: write ? read ? verify ? delete. Returns latency ms. */
 export async function probeEngine(engine: NexusEngine): Promise<number> {
   const t0 = performance.now();
   const probeKey = "__health_probe";
@@ -327,6 +347,7 @@ export async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
+/** Real content digest: "sha256:<hex>". */
 export async function digestOf(input: string): Promise<string> {
   return `sha256:${await sha256Hex(input)}`;
 }

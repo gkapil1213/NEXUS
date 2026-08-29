@@ -211,7 +211,7 @@ export class SecurityPolicyEngine {
     };
   }
 
-  public evaluateRules(context: PolicyContext): PolicyEvaluation[] {
+  private evaluateRules(context: PolicyContext): PolicyEvaluation[] {
     const evaluations: PolicyEvaluation[] = [];
     for (const rule of this.rules) {
       if (rule.condition(context)) {
