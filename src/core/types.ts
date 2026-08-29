@@ -1464,6 +1464,8 @@ export interface SecurityEvidence {
   raw_reference?: string;
   normalized_reference?: string;
   created_at: string;
+  sha256?: string;
+  expires_at?: string;
 }
 
 export type FindingSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO" | "UNKNOWN";
@@ -1474,7 +1476,12 @@ export type FindingStatus =
   | "REOPENED"
   | "FALSE_POSITIVE"
   | "ACCEPTED_RISK"
-  | "RESOLVED";
+  | "RESOLVED"
+  | "OPEN"
+  | "ACKNOWLEDGED"
+  | "IN_PROGRESS"
+  | "MITIGATED"
+  | "EXPIRED";
 
 export interface SecurityFinding {
   finding_id: Id;
@@ -1543,6 +1550,109 @@ export interface RiskAssessment {
   risk_score: number;
   explanation: string[];
   created_at: string;
+}
+/* ===================== Phase 4 Pass 7 — Continuous Security Operations ===================== */
+
+export type SecurityFindingLifecycleStatus =
+  | "OPEN"
+  | "ACKNOWLEDGED"
+  | "IN_PROGRESS"
+  | "MITIGATED"
+  | "RESOLVED"
+  | "REOPENED"
+  | "FALSE_POSITIVE"
+  | "ACCEPTED_RISK"
+  | "EXPIRED";
+
+export interface SecurityFindingObservation {
+  id: Id;
+  finding_id: Id;
+  execution_id: Id;
+  observed_at: string;
+  severity: FindingSeverity;
+  raw_data?: string;
+}
+
+export interface SecurityRiskSnapshot {
+  id: Id;
+  project_id: Id;
+  execution_id?: Id;
+  timestamp: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  unknown: number;
+  risk_score: number;
+}
+
+export type ScannerHealthStatus = "HEALTHY" | "DEGRADED" | "FAILED" | "UNAVAILABLE" | "STALE";
+
+export interface SecurityScannerHealth {
+  id: Id;
+  scanner: string;
+  version?: string;
+  available: boolean;
+  last_execution?: string;
+  last_success?: string;
+  last_failure?: string;
+  duration_ms?: number;
+  timeout_count: number;
+  failure_count: number;
+  findings_count: number;
+  health: ScannerHealthStatus;
+  updated_at: string;
+}
+
+export interface SecurityPolicyEvaluationRecord {
+  id: Id;
+  policy_version: string;
+  execution_id: Id;
+  release_id?: Id;
+  artifact_digest?: string;
+  decision: "PASS" | "FAIL" | "BLOCKED";
+  reasons: string[];
+  rules_evaluated: unknown;
+  timestamp: string;
+}
+
+export interface SecurityOverride {
+  id: Id;
+  actor: string;
+  reason: string;
+  scope: string;
+  expiration?: string;
+  affected_release_id?: string;
+  affected_artifact_digest?: string;
+  created_at: string;
+}
+
+export interface SecurityRiskAcceptance {
+  id: Id;
+  finding_id: Id;
+  actor: string;
+  reason: string;
+  scope: string;
+  expiration: string;
+  created_at: string;
+}
+
+export type DriftEventType =
+  | "artifact_changed"
+  | "image_digest_changed"
+  | "sbom_changed"
+  | "policy_changed"
+  | "deployment_mismatch"
+  | "evidence_mismatch";
+
+export interface SecurityDriftEvent {
+  id: Id;
+  project_id?: Id;
+  artifact_digest_expected?: string;
+  artifact_digest_actual?: string;
+  type: DriftEventType;
+  details?: string;
+  detected_at: string;
 }
 
 

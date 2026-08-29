@@ -27,8 +27,7 @@ import { Err } from "./errors";
  * across version bumps; the upgrade handler only creates stores that are
  * missing, so all prior data survives.
  */
-export const SCHEMA_VERSION = 8;
-
+export const SCHEMA_VERSION = 9;
 export const NEXUS_STORES = [
   "users",
   "sessions",
@@ -47,23 +46,31 @@ export const NEXUS_STORES = [
   "approvals",
   // Phase 2 Pass 2
   "agent_executions",
-  // Phase 3 Pass 1 � DevOps pipeline (builds are stage records + BUILD_OUTPUT
-  // artifacts; no separate build table duplicates that state)
+  // Phase 3 Pass 1
   "pipeline_runs",
   "pipeline_stages",
-  // Phase 3 Pass 3 � CI/CD + Git provider foundation
+  // Phase 3 Pass 3
   "change_requests",
   "git_operations",
   "ci_pipeline_runs",
   "deployments",
-  // Phase 4 Pass 1 � Security Control Plane
+  // Phase 4 Pass 1
   "security_executions",
   "security_evidence",
   "security_findings",
   "security_decisions",
   "security_risk_assessments",
   "finding_audit_log",
-] as const;
+  // Phase 4 Pass 7 – Continuous Security Operations
+  "security_finding_observations",
+  "security_risk_snapshots",
+  "security_scanner_health",
+  "security_policy_evaluations",
+  "security_overrides",
+  "security_risk_acceptances",
+  "security_drift_events",
+] 
+ 
 export type StoreName = (typeof NEXUS_STORES)[number];
 
 export type EngineKind = "indexeddb" | "memory" | "sqlite";
@@ -108,6 +115,27 @@ const INDEXES: Record<string, [string, string][]> = {
   security_evidence: [
     ["byExecution", "execution_id"],
     ["byArtifact", "artifact_digest"],
+  ],  security_finding_observations: [
+    ["byFinding", "finding_id"],
+    ["byExecution", "execution_id"],
+  ],
+  security_risk_snapshots: [
+    ["byProject", "project_id"],
+    ["byExecution", "execution_id"],
+  ],
+  security_scanner_health: [
+    ["byScanner", "scanner"],
+  ],
+  security_policy_evaluations: [
+    ["byExecution", "execution_id"],
+    ["byRelease", "release_id"],
+    ["byArtifact", "artifact_digest"],
+  ],
+  security_risk_acceptances: [
+    ["byFinding", "finding_id"],
+  ],
+  security_drift_events: [
+    ["byProject", "project_id"],
   ],
   security_findings: [
     ["byEvidence", "evidence_id"],

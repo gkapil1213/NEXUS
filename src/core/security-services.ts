@@ -7,6 +7,7 @@ import {
   RiskAssessment,
   SecurityExecution,
   FindingSeverity,
+  SecurityFindingObservation,
 } from "./types";
 import { fingerprintFinding } from "./security-normalizer";
 import { EventService } from "./events";
@@ -159,11 +160,29 @@ export class SecurityFindingService {
     this.audit = new AuditService(engine);
   }
 
+  private async recordObservation(
+    findingId: string,
+    evidence: SecurityEvidence,
+    severity: FindingSeverity,
+    raw: Partial<SecurityFinding>
+  ): Promise<void> {
+    const obs: SecurityFindingObservation = {
+      id: nid("secobs"),
+      finding_id: findingId,
+      execution_id: evidence.execution_id,
+      observed_at: new Date().toISOString(),
+      severity,
+      raw_data: JSON.stringify(raw),
+    };
+    await this.engine.put("security_finding_observations", obs.id, obs);
+  }
+
   async ingestFindings(
     evidence: SecurityEvidence,
     rawFindings: Partial<SecurityFinding>[]
   ): Promise<SecurityFinding[]> {
     const result: SecurityFinding[] = [];
+
     for (const raw of rawFindings) {
       const fingerprint = fingerprintFinding({
         scanner: evidence.scanner,
@@ -180,7 +199,12 @@ export class SecurityFindingService {
 
       if (existing) {
         if (existing.status === "RESOLVED") {
-          await this.transition(existing.finding_id, "REOPENED", "system", "Fingerprint reappeared after resolution");
+          await this.transition(
+            existing.finding_id,
+            "REOPENED",
+            "system",
+            "Fingerprint reappeared after resolution"
+          );
         } else {
           const updated: SecurityFinding = {
             ...existing,
@@ -196,6 +220,12 @@ export class SecurityFindingService {
           await this.engine.put("security_findings", existing.finding_id, updated);
           await this.events.emit({ type: "security.finding.updated", finding_id: existing.finding_id } as any);
           result.push(updated);
+          await this.recordObservation(
+            existing.finding_id,
+            evidence,
+            raw.severity || existing.severity,
+            raw
+          );
         }
         continue;
       }
@@ -233,10 +263,13 @@ export class SecurityFindingService {
         created_at: now,
         updated_at: now,
       };
+
       await this.engine.put("security_findings", finding.finding_id, finding);
       await this.events.emit({ type: "security.finding.created", finding_id: finding.finding_id, fingerprint } as any);
       result.push(finding);
+      await this.recordObservation(finding.finding_id, evidence, finding.severity, raw);
     }
+
     return result;
   }
 
@@ -257,12 +290,17 @@ export class SecurityFindingService {
     if (!existing) throw new Error("Finding not found");
 
     const legalTransitions: Record<FindingStatus, FindingStatus[]> = {
-      NEW: ["CONFIRMED", "FALSE_POSITIVE", "ACCEPTED_RISK"],
-      CONFIRMED: ["RESOLVED", "FALSE_POSITIVE", "ACCEPTED_RISK"],
-      REOPENED: ["CONFIRMED", "FALSE_POSITIVE", "ACCEPTED_RISK"],
+      NEW: ["CONFIRMED", "FALSE_POSITIVE", "ACCEPTED_RISK", "OPEN", "ACKNOWLEDGED"],
+      CONFIRMED: ["RESOLVED", "FALSE_POSITIVE", "ACCEPTED_RISK", "IN_PROGRESS"],
+      REOPENED: ["CONFIRMED", "FALSE_POSITIVE", "ACCEPTED_RISK", "IN_PROGRESS"],
       RESOLVED: ["REOPENED"],
-      FALSE_POSITIVE: ["NEW"],
-      ACCEPTED_RISK: ["NEW"],
+      FALSE_POSITIVE: ["NEW", "OPEN"],
+      ACCEPTED_RISK: ["NEW", "EXPIRED"],
+      OPEN: ["ACKNOWLEDGED", "IN_PROGRESS"],
+      ACKNOWLEDGED: ["IN_PROGRESS", "RESOLVED"],
+      IN_PROGRESS: ["MITIGATED", "RESOLVED"],
+      MITIGATED: ["RESOLVED"],
+      EXPIRED: ["OPEN", "ACKNOWLEDGED"],
     };
 
     if (!legalTransitions[existing.status]?.includes(newStatus)) {
@@ -323,7 +361,7 @@ export class SecurityFindingService {
     const now = new Date().toISOString();
     for (const f of all) {
       if (f.status === "ACCEPTED_RISK" && f.expires_at && f.expires_at < now) {
-        await this.transition(f.finding_id, "NEW", "system", "Accepted risk expired");
+        await this.transition(f.finding_id, "EXPIRED", "system", "Accepted risk expired");
       }
     }
   }

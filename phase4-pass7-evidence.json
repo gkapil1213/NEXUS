@@ -1,0 +1,205 @@
+{
+  "phase": "4",
+  "pass": "7",
+  "execution_id": "verify_b83a14fc-3965-47d2-bdec-fe85c3f25896",
+  "timestamp": "2026-08-29T09:41:13.530Z",
+  "tests": [
+    {
+      "name": "Create security execution",
+      "status": "PASS",
+      "detail": "secexec_da27d3f7-44a4-4d43-8a04-89e6fe836a25",
+      "timestamp": "2026-08-29T09:41:13.533Z"
+    },
+    {
+      "name": "Evidence record with hash",
+      "status": "PASS",
+      "detail": "secevid_de1a42b3-b81c-45c3-af16-fe7e40c680ba",
+      "timestamp": "2026-08-29T09:41:13.543Z"
+    },
+    {
+      "name": "Evidence integrity valid",
+      "status": "PASS",
+      "timestamp": "2026-08-29T09:41:13.548Z"
+    },
+    {
+      "name": "Evidence tamper detection",
+      "status": "PASS",
+      "timestamp": "2026-08-29T09:41:13.550Z"
+    },
+    {
+      "name": "Finding ingestion",
+      "status": "PASS",
+      "detail": "secfind_b6c057ac-833b-436f-81b4-96a24612345e",
+      "timestamp": "2026-08-29T09:41:13.551Z"
+    },
+    {
+      "name": "Finding deduplication",
+      "status": "PASS",
+      "timestamp": "2026-08-29T09:41:13.552Z"
+    },
+    {
+      "name": "Finding resolution",
+      "status": "PASS",
+      "detail": "RESOLVED",
+      "timestamp": "2026-08-29T09:41:13.554Z"
+    },
+    {
+      "name": "Finding reopen",
+      "status": "PASS",
+      "detail": "REOPENED",
+      "timestamp": "2026-08-29T09:41:13.554Z"
+    },
+    {
+      "name": "Risk assessment",
+      "status": "PASS",
+      "detail": "score=20",
+      "timestamp": "2026-08-29T09:41:13.556Z"
+    },
+    {
+      "name": "Risk history",
+      "status": "PASS",
+      "timestamp": "2026-08-29T09:41:13.557Z"
+    },
+    {
+      "name": "Scanner health",
+      "status": "PASS",
+      "detail": "2 scanners",
+      "timestamp": "2026-08-29T09:41:13.558Z"
+    },
+    {
+      "name": "Security posture",
+      "status": "PASS",
+      "detail": "BLOCKED",
+      "timestamp": "2026-08-29T09:41:13.559Z"
+    },
+    {
+      "name": "Commit binding current",
+      "status": "PASS",
+      "detail": "CURRENT",
+      "timestamp": "2026-08-29T09:41:13.565Z"
+    },
+    {
+      "name": "Commit mismatch",
+      "status": "PASS",
+      "detail": "SECURITY_RESCAN_REQUIRED",
+      "timestamp": "2026-08-29T09:41:13.565Z"
+    },
+    {
+      "name": "Drift detection",
+      "status": "PASS",
+      "detail": "drift event created",
+      "timestamp": "2026-08-29T09:41:13.566Z"
+    },
+    {
+      "name": "Policy history",
+      "status": "PASS",
+      "timestamp": "2026-08-29T09:41:13.567Z"
+    },
+    {
+      "name": "Security heartbeat",
+      "status": "PASS",
+      "detail": "HEALTHY",
+      "timestamp": "2026-08-29T09:41:13.568Z"
+    },
+    {
+      "name": "Fail‑safe: required scanner unavailable",
+      "status": "PASS",
+      "detail": "BLOCKED",
+      "timestamp": "2026-08-29T09:41:13.569Z"
+    },
+    {
+      "name": "Evidence expiration recorded",
+      "status": "PASS",
+      "detail": "expiry set in past",
+      "timestamp": "2026-08-29T09:41:13.571Z"
+    }
+  ],
+  "scanner_health": [
+    {
+      "id": "scanhealth_35fa51bd-8f6b-4738-b592-f8fb1f525ab1",
+      "scanner": "semgrep",
+      "version": "1.2.3",
+      "available": true,
+      "timeout_count": 0,
+      "failure_count": 0,
+      "findings_count": 0,
+      "health": "HEALTHY",
+      "updated_at": "2026-08-29T09:41:13.557Z"
+    },
+    {
+      "id": "scanhealth_8fe1c54e-0a83-4db8-9d76-98d0f002e875",
+      "scanner": "syft",
+      "available": false,
+      "timeout_count": 0,
+      "failure_count": 0,
+      "findings_count": 0,
+      "health": "UNAVAILABLE",
+      "updated_at": "2026-08-29T09:41:13.558Z"
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "secfind_b6c057ac-833b-436f-81b4-96a24612345e",
+      "evidence_id": "secevid_de1a42b3-b81c-45c3-af16-fe7e40c680ba",
+      "project_id": "proj_f6d4389a-eb31-41ed-9c84-6da928ea3f38",
+      "execution_id": "exec_755d86ca-2841-4e89-a3b4-7a1ed21b02aa",
+      "artifact_digest": "sha256:artifactA",
+      "scanner": "semgrep",
+      "category": "SAST",
+      "severity": "HIGH",
+      "title": "Hardcoded secret in config",
+      "fingerprint": "semgrep|SAST|hardcoded secret in config|src/config.ts|42|||",
+      "file": "src/config.ts",
+      "line": 42,
+      "first_seen": "2026-08-29T09:41:13.551Z",
+      "last_seen": "2026-08-29T09:41:13.551Z",
+      "status": "CONFIRMED",
+      "created_at": "2026-08-29T09:41:13.551Z",
+      "updated_at": "2026-08-29T09:41:13.555Z"
+    }
+  ],
+  "posture": {
+    "project_id": "proj_f6d4389a-eb31-41ed-9c84-6da928ea3f38",
+    "status": "BLOCKED",
+    "risk_score": 20,
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "unknown": 0,
+    "open_findings": 1,
+    "verified_artifacts": 1,
+    "last_scan": "2026-08-29T09:41:13.534Z",
+    "last_release": null,
+    "last_verified_deployment": null
+  },
+  "evidence": [],
+  "policy": {
+    "policy_version": "v1",
+    "execution_id": "exec_755d86ca-2841-4e89-a3b4-7a1ed21b02aa",
+    "artifact_digest": "sha256:artifactA",
+    "decision": "PASS",
+    "reasons": [
+      "no findings"
+    ],
+    "rules_evaluated": [
+      "rule1",
+      "rule2"
+    ],
+    "id": "poleval_95366a6e-979c-4cff-8b5e-57964af1baa0",
+    "timestamp": "2026-08-29T09:41:13.567Z"
+  },
+  "drift": [
+    {
+      "id": "drift_1fdc4e4f-be20-4ac0-a142-01aa9c66d73b",
+      "project_id": "proj_f6d4389a-eb31-41ed-9c84-6da928ea3f38",
+      "artifact_digest_expected": "sha256:expected",
+      "artifact_digest_actual": "sha256:actual",
+      "type": "artifact_changed",
+      "details": "{\"expected\":\"sha256:expected\",\"actual\":\"sha256:actual\"}",
+      "detected_at": "2026-08-29T09:41:13.566Z"
+    }
+  ],
+  "failures": [],
+  "blocked": []
+}
