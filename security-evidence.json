@@ -1,36 +1,17 @@
 {
-  "timestamp": "2026-08-29T04:11:26.114Z",
+  "timestamp": "2026-08-29T07:43:00.532Z",
   "stages": {
     "typecheck": "PASS",
     "build": "PASS",
     "core_tests": "PASS",
     "security_scan": {
       "status": "PASS",
-      "findings": [
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.detect-child-process.detect-child-process",
-          "file": "scripts\\test-fail-safe.ts",
-          "line": 20,
-          "resource": null
-        },
-        {
-          "scanner": "SAST",
-          "category": "SAST",
-          "severity": "medium",
-          "title": "javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring",
-          "file": "scripts\\test-fail-safe.ts",
-          "line": 68,
-          "resource": null
-        }
-      ],
+      "findings": [],
       "summary": [
         {
           "kind": "SAST",
           "status": "PASSED",
-          "findings": 2
+          "findings": 0
         },
         {
           "kind": "SECRET",
@@ -59,31 +40,31 @@
       "reason": "STAGING_URL not set"
     },
     "supply_chain": {
-      "status": "PASS",
-      "digest": "localhost:5000/nexus/nexus-app@sha256:6a8c59e1fb91c1b7d27f114f7bcfe1fa9eebaa86121401fe2c12229cf6d8ca21",
-      "sign_status": "SIGNED",
-      "verify_status": "VERIFIED",
-      "reason": null
+      "status": "FAIL",
+      "digest": "localhost:5000/nexus/nexus-app@sha256:7f8a502ed7748a410a2b7bc577d2d428222b37559bec572eefa05903b478a77c",
+      "sign_status": "FAILED",
+      "verify_status": "FAILED",
+      "reason": "WARNING: Could not fetch trusted_root.json from the TUF repository. Continuing with individual targets. Error from TUF: error getting live trusted root: failed to create TUF client failed to load metadata: tuf refresh failed: Get \"https://tuf-repo-cdn.sigstore.dev/15.root.json\": dial tcp: lookup tuf-repo-cdn.sigstore.dev on 192.168.65.7:53: no such host\nError: error getting signing config from TUF"
     },
     "risk_correlation": {
       "critical": 0,
       "high": 0,
-      "medium": 2,
+      "medium": 0,
       "low": 0
     },
     "policy": {
-      "verdict": "PASS",
+      "verdict": "FAIL",
       "evaluations": [
         {
-          "id": "pol_5448e326-79cc-4e5f-958c-3662e2c03758",
-          "rule_id": "MEDIUM_FINDING_REVIEW",
-          "rule_name": "Medium severity finding requires review",
-          "decision": "REVIEW",
-          "reason": "Medium findings do not block but require human awareness",
-          "timestamp": 1787976986322
+          "id": "pol_f450e7e2-f0b3-4677-9dd8-e92d5ce50aef",
+          "rule_id": "UNSIGNED_ARTIFACT_BLOCK",
+          "rule_name": "Unsigned artifact blocks production",
+          "decision": "BLOCK",
+          "reason": "Production requires a signed artifact",
+          "timestamp": 1787989738344
         }
       ]
     },
-    "release_decision": "RELEASE"
+    "release_decision": "BLOCK"
   }
 }

@@ -1,0 +1,158 @@
+{
+  "timestamp": "2026-08-29T07:56:40.471Z",
+  "project_id": "proj_phase4_pass2",
+  "execution_id": "exec_pass2_1787990143431",
+  "commit_sha": "deadbeef",
+  "artifact_digest": "sha256:pass2-1787990143431",
+  "release_id": "rel_pass2_1787990143431",
+  "capabilities": {
+    "node": {
+      "available": true,
+      "version": "v26.4.0"
+    },
+    "npm": {
+      "available": true,
+      "version": "11.18.0"
+    },
+    "semgrep": {
+      "available": true,
+      "version": "1.174.0"
+    },
+    "gitleaks": {
+      "available": true,
+      "version": "8.30.1"
+    },
+    "trivy": {
+      "available": true,
+      "version": "Version: 0.74.0"
+    },
+    "checkov": {
+      "available": true,
+      "version": "3.3.13"
+    },
+    "syft": {
+      "available": false,
+      "reason": "executable not found"
+    },
+    "grype": {
+      "available": false,
+      "reason": "executable not found"
+    },
+    "playwright": {
+      "available": true,
+      "version": "Version 1.62.1"
+    },
+    "chromium": {
+      "available": false,
+      "reason": "executable not found"
+    },
+    "docker": {
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6"
+    },
+    "docker_daemon": {
+      "available": true,
+      "version": "29.7.2"
+    }
+  },
+  "scanners": [
+    {
+      "scanner": "semgrep",
+      "category": "SAST",
+      "status": "PASS",
+      "duration_ms": 33147,
+      "evidence_id": "secevid_8d45090a-0284-4676-9b2c-4cb0a764829b",
+      "findings_count": 0
+    },
+    {
+      "scanner": "gitleaks",
+      "category": "SECRET",
+      "status": "PASS",
+      "duration_ms": 2888,
+      "evidence_id": "secevid_28f7b126-d434-4f5f-bcc4-7b5ed4bea1e2",
+      "findings_count": 0
+    },
+    {
+      "scanner": "npm-audit",
+      "category": "SCA",
+      "status": "PASS",
+      "duration_ms": 2958,
+      "evidence_id": "secevid_5217a504-2e1f-4fb6-b4b9-ee8d94034799",
+      "findings_count": 0
+    },
+    {
+      "scanner": "trivy",
+      "category": "CONTAINER",
+      "status": "PASS",
+      "duration_ms": 13790,
+      "evidence_id": "secevid_b6568c1b-d63e-4190-84e7-749a179874ff",
+      "findings_count": 0
+    },
+    {
+      "scanner": "trivy-sbom",
+      "category": "SBOM",
+      "status": "PASS",
+      "duration_ms": 3957,
+      "evidence_id": "secevid_9b4a15af-ded4-4302-9c09-f1a78047d013",
+      "findings_count": 0
+    },
+    {
+      "scanner": "trivy-config",
+      "category": "IAC",
+      "status": "PASS",
+      "duration_ms": 233,
+      "evidence_id": "secevid_e10a8e4c-d0ee-464f-9a8e-9a4573de70a0",
+      "findings_count": 0
+    },
+    {
+      "scanner": "dast",
+      "category": "DAST",
+      "status": "PASS",
+      "duration_ms": 35,
+      "evidence_id": "secevid_34890cc4-1a47-4b1c-a625-5d94c3896019",
+      "findings_count": 0
+    },
+    {
+      "scanner": "supply-chain",
+      "category": "SUPPLY_CHAIN",
+      "status": "PASS",
+      "duration_ms": 2,
+      "evidence_id": "secevid_e78d5964-d4fe-49d8-b5b9-822b8e3aa009",
+      "findings_count": 0
+    },
+    {
+      "scanner": "signature",
+      "category": "SIGNATURE",
+      "status": "PASS",
+      "duration_ms": 13,
+      "evidence_id": "secevid_8486c862-e383-4a27-8a68-71f3a4941fcc",
+      "findings_count": 0
+    }
+  ],
+  "risk": {
+    "severity_counts": {
+      "CRITICAL": 0,
+      "HIGH": 0,
+      "MEDIUM": 0,
+      "LOW": 0,
+      "INFO": 0,
+      "UNKNOWN": 0
+    },
+    "risk_score": 0
+  },
+  "policy_decision": {
+    "id": "secdec_651e37bf-fd44-45c4-9288-b6345f3c9ea0",
+    "project_id": "proj_phase4_pass2",
+    "execution_id": "exec_pass2_1787990143431",
+    "release_id": "rel_pass2_1787990143431",
+    "artifact_digest": "sha256:pass2-1787990143431",
+    "policy_id": "nexus-security-policy",
+    "policy_version": "1.0",
+    "verdict": "PASS",
+    "reasons": [],
+    "created_at": "2026-08-29T07:56:40.469Z"
+  },
+  "release_decision": "RELEASE",
+  "findings_count": 0,
+  "evidence_count": 9
+}

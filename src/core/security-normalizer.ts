@@ -1,4 +1,4 @@
-import {
+﻿import {
   FindingSeverity,
   SecurityScannerCategory,
   SecurityEvidenceStatus,
@@ -251,7 +251,24 @@ export const supplyChainAdapter: ScannerAdapter = {
   },
 };
 
-
 export const signatureAdapter: ScannerAdapter = {
-  normalize: () => "BLOCKED",
+  normalize(raw: any) {
+    if (rawBlocked(raw)) return "BLOCKED";
+    if (raw?.blocked === true) return "BLOCKED";
+    if (raw?.signed === true && raw?.verified === true) return "PASS";
+    if (raw?.signed === true && raw?.verified === false) return "FAIL";
+    if (raw?.signed === false) return "BLOCKED";
+    return "UNKNOWN";
+  },
+  extractFindings(raw: any) {
+    if (raw?.blocked === true) return [];
+    if (raw?.signed === true && raw?.verified === false) {
+      return [{
+        title: "Artifact signature verification failed",
+        severity: "HIGH",
+        description: raw.reason || "Signature verification failed",
+      }];
+    }
+    return [];
+  },
 };

@@ -2,12 +2,12 @@ import { CONFIG } from "./config";
 import { Err } from "./errors";
 
 /**
- * NEXUS Phase 1 — persistence engine.
+ * NEXUS Phase 1 ï¿½ persistence engine.
  *
  * Real, durable persistence via IndexedDB (schema-versioned). In non-browser
  * contexts (Node test harnesses) a clearly-labelled in-memory engine is used
  * instead; the engine kind is exposed so health/verification can report
- * exactly which runtime is backing the platform — never pretending an
+ * exactly which runtime is backing the platform ï¿½ never pretending an
  * unverified persistence mode is the durable one.
  *
  * Safety properties:
@@ -20,7 +20,7 @@ import { Err } from "./errors";
  */
 
 /**
- * Schema v8 (Phase 4 Pass 1): ADDITIVE migration — adds security_executions,
+ * Schema v8 (Phase 4 Pass 1): ADDITIVE migration ï¿½ adds security_executions,
  * security_evidence, security_findings, security_decisions,
  * security_risk_assessments and finding_audit_log stores for the Security
  * Control Plane. IndexedDB preserves every existing object store and record
@@ -47,16 +47,16 @@ export const NEXUS_STORES = [
   "approvals",
   // Phase 2 Pass 2
   "agent_executions",
-  // Phase 3 Pass 1 — DevOps pipeline (builds are stage records + BUILD_OUTPUT
+  // Phase 3 Pass 1 ï¿½ DevOps pipeline (builds are stage records + BUILD_OUTPUT
   // artifacts; no separate build table duplicates that state)
   "pipeline_runs",
   "pipeline_stages",
-  // Phase 3 Pass 3 — CI/CD + Git provider foundation
+  // Phase 3 Pass 3 ï¿½ CI/CD + Git provider foundation
   "change_requests",
   "git_operations",
   "ci_pipeline_runs",
   "deployments",
-  // Phase 4 Pass 1 — Security Control Plane
+  // Phase 4 Pass 1 ï¿½ Security Control Plane
   "security_executions",
   "security_evidence",
   "security_findings",
@@ -99,7 +99,7 @@ const INDEXES: Record<string, [string, string][]> = {
   audit: [["byResource", "resource_id"]],
   evidence: [["byExecution", "execution_id"]],
   artifacts: [["byExecution", "execution_id"]],
-  // Phase 4 Pass 1 — Security Control Plane indexes
+  // Phase 4 Pass 1 ï¿½ Security Control Plane indexes
   security_executions: [
     ["byProject", "project_id"],
     ["byExecution", "execution_id"],
@@ -378,4 +378,8 @@ export function timingSafeEqual(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+/** Resets the cached engine promise so a new engine can be created with a different config. */
+export function resetEngineForTesting(): void {
+  enginePromise = null;
 }

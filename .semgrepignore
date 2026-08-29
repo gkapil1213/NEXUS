@@ -4,6 +4,7 @@ test-fixture/
 **/*.before-contract-fix
 scripts/verify-*
 scripts/run-real-scan-fixture.ts
+scripts/test-fail-safe.ts
 scripts/run-security-scan.ts
 scripts/run-browser-smoke.ts
 scripts/run-advanced-security-pipeline.ts

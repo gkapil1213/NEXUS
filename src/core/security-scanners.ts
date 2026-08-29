@@ -38,7 +38,7 @@ export interface ScannerScanResult {
 
 function detectViaExecutor(exec: ProcessExecutor, tool: "semgrep" | "gitleaks" | "checkov", versionArgs: string[]): Promise<ScannerCapability> {
   return exec
-    .run({ tool, operation: versionArgs[0], args: versionArgs.slice(1), timeout_ms: 15000 })
+    .run({ tool, operation: versionArgs[0], args: versionArgs.slice(1), timeout_ms: 30000 })
     .then((res) => ({
       available: res.exit_code === 0,
       mode: (res.exit_code === 0 ? "local" : null) as "local" | null,
@@ -221,7 +221,7 @@ export class CheckovAdapter {
       tool: "checkov",
       operation: "--directory",
       args: [workspacePath, "--output", "json", "--quiet"],
-      timeout_ms: 180000,
+      timeout_ms: 300000,
     });
 
     if (res.exit_code !== 0 && res.stdout.trim() === "") {
