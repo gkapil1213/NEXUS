@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-08-30T06:35:24.351Z",
+  "timestamp": "2026-08-30T07:58:37.010Z",
   "project_id": "proj_phase4_pass2",
-  "execution_id": "exec_pass2_1788071669361",
+  "execution_id": "exec_pass2_1788076667342",
   "commit_sha": "deadbeef",
-  "artifact_digest": "sha256:pass2-1788071669361",
-  "release_id": "rel_pass2_1788071669361",
+  "artifact_digest": "sha256:pass2-1788076667342",
+  "release_id": "rel_pass2_1788076667342",
   "capabilities": {
     "node": {
       "available": true,
@@ -60,72 +60,72 @@
       "scanner": "semgrep",
       "category": "SAST",
       "status": "PASS",
-      "duration_ms": 31737,
-      "evidence_id": "secevid_11e85faa-6bc7-46a3-aa5b-5a7323aa938c",
+      "duration_ms": 27522,
+      "evidence_id": "secevid_982c7407-db89-4ab4-9255-486ebfbfb541",
       "findings_count": 0
     },
     {
       "scanner": "gitleaks",
       "category": "SECRET",
       "status": "PASS",
-      "duration_ms": 3496,
-      "evidence_id": "secevid_ce57de34-810b-4746-98f9-41c272a63c32",
+      "duration_ms": 3935,
+      "evidence_id": "secevid_e5c99da2-7a14-4ff6-81c8-6d8357c0a0e8",
       "findings_count": 0
     },
     {
       "scanner": "npm-audit",
       "category": "SCA",
       "status": "PASS",
-      "duration_ms": 2564,
-      "evidence_id": "secevid_835daf66-aafa-4a43-8884-2337aea8009c",
+      "duration_ms": 4032,
+      "evidence_id": "secevid_fa43da05-ae0c-4e66-8ab4-5940af09c6a2",
       "findings_count": 0
     },
     {
       "scanner": "trivy",
       "category": "CONTAINER",
       "status": "PASS",
-      "duration_ms": 13388,
-      "evidence_id": "secevid_d9c300c3-4cbd-46bd-8978-e51fb8186960",
+      "duration_ms": 10562,
+      "evidence_id": "secevid_df7fc16a-2655-4e01-9b92-f61ebae48814",
       "findings_count": 0
     },
     {
       "scanner": "trivy-sbom",
       "category": "SBOM",
       "status": "PASS",
-      "duration_ms": 3418,
-      "evidence_id": "secevid_90bba3b0-f34a-4a55-85bb-19a3abd2140c",
+      "duration_ms": 3282,
+      "evidence_id": "secevid_ca587821-e172-4a5c-ac5c-ece72b3ae216",
       "findings_count": 0
     },
     {
       "scanner": "trivy-config",
       "category": "IAC",
       "status": "PASS",
-      "duration_ms": 216,
-      "evidence_id": "secevid_1afc18cb-6292-45d4-a7bd-8a433972ee8f",
+      "duration_ms": 211,
+      "evidence_id": "secevid_a8d6c2a6-d6ab-44f8-9012-4b9ee66b9369",
       "findings_count": 0
     },
     {
       "scanner": "dast",
       "category": "DAST",
       "status": "PASS",
-      "duration_ms": 49,
-      "evidence_id": "secevid_c56228e6-9080-4e6e-a54a-b06793952046",
+      "duration_ms": 34,
+      "evidence_id": "secevid_54dc5691-b10e-48aa-8382-65a6ca3d437f",
       "findings_count": 0
     },
     {
       "scanner": "supply-chain",
       "category": "SUPPLY_CHAIN",
       "status": "PASS",
-      "duration_ms": 4,
-      "evidence_id": "secevid_b69cd01a-4c72-44c9-b945-80a3e238b846",
+      "duration_ms": 2,
+      "evidence_id": "secevid_bb57b27e-478f-45da-b796-29571cc2d497",
       "findings_count": 0
     },
     {
       "scanner": "signature",
       "category": "SIGNATURE",
       "status": "PASS",
-      "duration_ms": 18,
-      "evidence_id": "secevid_1e3f9cf3-46d7-4877-834a-f37877bfb273",
+      "duration_ms": 6,
+      "evidence_id": "secevid_f8374688-8921-49d2-9c99-7059b1fe0929",
       "findings_count": 0
     }
   ],
@@ -141,16 +141,16 @@
     "risk_score": 0
   },
   "policy_decision": {
-    "id": "secdec_5e451457-c7f2-4ed4-9039-d3abec9623a9",
+    "id": "secdec_5787d698-3335-47b6-9e6c-78ad4b25ece6",
     "project_id": "proj_phase4_pass2",
-    "execution_id": "exec_pass2_1788071669361",
-    "release_id": "rel_pass2_1788071669361",
-    "artifact_digest": "sha256:pass2-1788071669361",
+    "execution_id": "exec_pass2_1788076667342",
+    "release_id": "rel_pass2_1788076667342",
+    "artifact_digest": "sha256:pass2-1788076667342",
     "policy_id": "nexus-security-policy",
     "policy_version": "1.0",
     "verdict": "PASS",
     "reasons": [],
-    "created_at": "2026-08-30T06:35:24.305Z"
+    "created_at": "2026-08-30T07:58:36.980Z"
   },
   "release_decision": "RELEASE",
   "findings_count": 0,
