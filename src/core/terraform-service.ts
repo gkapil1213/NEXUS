@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
-import path from "node:path";
-import type { TerraformPlanSummary, TerraformPlanChange, CloudOperationResult } from "./cloud-types";
+import type {
+  TerraformPlanSummary,
+  TerraformPlanChange,
+  CloudOperationResult,
+} from "./cloud-types";
 
 export class TerraformService {
   private async runTerraform(
@@ -35,31 +38,32 @@ export class TerraformService {
   }
 
   async format(dir: string): Promise<CloudOperationResult> {
-    const res = await this.runTerraform(["fmt"], dir);
+    const res = await this.runTerraform(["fmt", "-check", "-diff"], dir);
     return {
       status: res.exitCode === 0 ? "PASS" : "FAIL",
       operation: "fmt",
-      provider: "terraform",
+      provider: "aws",
+      reason: res.exitCode === 0 ? null : res.stderr,
+    };
+  }
+
+  async init(dir: string): Promise<CloudOperationResult> {
+    const res = await this.runTerraform(["init", "-backend=false"], dir, 120000);
+    return {
+      status: res.exitCode === 0 ? "PASS" : "FAIL",
+      operation: "init",
+      provider: "aws",
       reason: res.exitCode === 0 ? null : res.stderr,
     };
   }
 
   async validate(dir: string): Promise<CloudOperationResult> {
-    const initRes = await this.runTerraform(["init", "-backend=false"], dir, 120000);
-    if (initRes.exitCode !== 0) {
-      return {
-        status: "FAIL",
-        operation: "validate",
-        provider: "terraform",
-        reason: initRes.stderr,
-      };
-    }
-    const valRes = await this.runTerraform(["validate"], dir);
+    const res = await this.runTerraform(["validate"], dir);
     return {
-      status: valRes.exitCode === 0 ? "PASS" : "FAIL",
+      status: res.exitCode === 0 ? "PASS" : "FAIL",
       operation: "validate",
-      provider: "terraform",
-      reason: valRes.exitCode === 0 ? null : valRes.stderr,
+      provider: "aws",
+      reason: res.exitCode === 0 ? null : res.stderr,
     };
   }
 
@@ -88,7 +92,9 @@ export class TerraformService {
     }
     const showRes = await this.runTerraform(["show", "-json", "plan.tfplan"], dir);
     const changes = this.parsePlanChanges(showRes.stdout);
-    const destructive = changes.filter((c) => c.action === "DESTROY" || c.action === "REPLACE");
+    const destructive = changes.filter(
+      (c) => c.action === "DESTROY" || c.action === "REPLACE"
+    );
     const risk = this.classifyRisk(changes);
     return {
       status: "PASS",
@@ -99,12 +105,18 @@ export class TerraformService {
       output: showRes.stdout,
     };
   }
-      async planDigest(planJson: string): Promise<string> {
-    const { createHash } = await import("node:crypto");
-    return `sha256:${createHash("sha256").update(planJson).digest("hex")}`;
+
+  async apply(dir: string, planFile: string): Promise<CloudOperationResult> {
+    const res = await this.runTerraform(["apply", planFile], dir, 300000);
+    return {
+      status: res.exitCode === 0 ? "PASS" : "FAIL",
+      operation: "apply",
+      provider: "aws",
+      reason: res.exitCode === 0 ? null : res.stderr,
+    };
   }
+
   private parsePlanChanges(planJson: string): TerraformPlanChange[] {
-    // Simplified parser for Terraform JSON plan
     try {
       const plan = JSON.parse(planJson);
       const resources = plan.resource_changes ?? [];
@@ -125,8 +137,16 @@ export class TerraformService {
   }
 
   private classifyRisk(changes: TerraformPlanChange[]): TerraformPlanSummary["risk"] {
-    if (changes.some((c) => c.action === "DESTROY" && c.resource.includes("aws_vpc"))) return "CRITICAL";
-    if (changes.some((c) => c.action === "DESTROY" || c.action === "REPLACE")) return "HIGH";
+    if (
+      changes.some(
+        (c) =>
+          (c.action === "DESTROY" || c.action === "REPLACE") &&
+          c.resource.includes("aws_vpc")
+      )
+    )
+      return "CRITICAL";
+    if (changes.some((c) => c.action === "DESTROY" || c.action === "REPLACE"))
+      return "HIGH";
     if (changes.some((c) => c.action === "CREATE")) return "MEDIUM";
     return "LOW";
   }

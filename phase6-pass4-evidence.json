@@ -1,0 +1,73 @@
+{
+  "phase": "6",
+  "pass": "4",
+  "capabilities": {
+    "node": true,
+    "npm": true,
+    "docker": true,
+    "terraform": false,
+    "aws": false,
+    "git": true,
+    "curl": true
+  },
+  "aws": {
+    "identity": {
+      "status": "BLOCKED",
+      "operation": "getIdentity",
+      "provider": "aws",
+      "reason": "Error: spawn aws ENOENT"
+    },
+    "region": {
+      "status": "BLOCKED",
+      "operation": "getRegion",
+      "provider": "aws",
+      "reason": "Error: spawn aws ENOENT"
+    }
+  },
+  "terraform": {
+    "available": false,
+    "format": "BLOCKED",
+    "init": "BLOCKED",
+    "validate": "BLOCKED",
+    "plan": "BLOCKED",
+    "apply": "BLOCKED"
+  },
+  "plan": {
+    "create_detection": "PASS",
+    "delete_detection": "PASS",
+    "replace_detection": "PASS",
+    "digest_binding": "PASS",
+    "approval_binding": "PASS"
+  },
+  "policy": {
+    "non_destructive": "PASS",
+    "destructive": "FAIL"
+  },
+  "safe_apply": {
+    "status": "BLOCKED",
+    "reason": "Terraform not available"
+  },
+  "drift": "BLOCKED",
+  "cost_safety": "UNAVAILABLE",
+  "events": "PASS",
+  "audit": "PASS",
+  "blocked": [
+    {
+      "capability": "Terraform",
+      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file."
+    },
+    {
+      "capability": "AWS CLI",
+      "reason": "'aws' is not recognized as an internal or external command,\r\noperable program or batch file."
+    },
+    {
+      "capability": "AWS Identity",
+      "reason": "Error: spawn aws ENOENT"
+    },
+    {
+      "capability": "Terraform Plan/Apply",
+      "reason": "requires Terraform + AWS"
+    }
+  ],
+  "failures": []
+}
