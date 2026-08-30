@@ -1,110 +1,110 @@
 {
-  "generated_at": "2026-08-30T11:46:41.849Z",
+  "generated_at": "2026-08-30T14:49:54.106Z",
   "capabilities": [
     {
       "name": "node",
       "available": true,
       "version": "v26.4.0",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:32.049Z"
+      "checked_at": "2026-08-30T14:49:44.347Z"
     },
     {
       "name": "npm",
       "available": true,
       "version": "11.18.0",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:34.257Z"
+      "checked_at": "2026-08-30T14:49:46.439Z"
     },
     {
       "name": "docker",
       "available": true,
       "version": "Docker version 29.7.2, build a7dcaa6",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:32.399Z"
+      "checked_at": "2026-08-30T14:49:44.591Z"
     },
     {
       "name": "docker",
       "available": true,
       "version": "Client:",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:34.956Z"
+      "checked_at": "2026-08-30T14:49:47.864Z"
     },
     {
       "name": "cosign",
       "available": false,
       "version": null,
       "reason": "'cosign' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T11:46:32.049Z"
+      "checked_at": "2026-08-30T14:49:44.346Z"
     },
     {
       "name": "semgrep",
       "available": true,
       "version": "1.174.0",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:40.198Z"
+      "checked_at": "2026-08-30T14:49:53.002Z"
     },
     {
       "name": "gitleaks",
       "available": true,
       "version": "8.30.1",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:35.135Z"
+      "checked_at": "2026-08-30T14:49:46.989Z"
     },
     {
       "name": "trivy",
       "available": true,
       "version": "Version: 0.74.0",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:33.911Z"
+      "checked_at": "2026-08-30T14:49:45.926Z"
     },
     {
       "name": "checkov",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-08-30T11:46:41.844Z"
+      "checked_at": "2026-08-30T14:49:54.099Z"
     },
     {
       "name": "syft",
       "available": false,
       "version": null,
       "reason": "'syft' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T11:46:32.162Z"
+      "checked_at": "2026-08-30T14:49:44.373Z"
     },
     {
       "name": "grype",
       "available": false,
       "version": null,
       "reason": "'grype' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T11:46:32.270Z"
+      "checked_at": "2026-08-30T14:49:44.373Z"
     },
     {
       "name": "playwright",
       "available": true,
       "version": "Version 1.62.1",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:34.548Z"
+      "checked_at": "2026-08-30T14:49:47.524Z"
     },
     {
       "name": "chromium",
       "available": false,
       "version": null,
       "reason": "'chromium' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T11:46:32.300Z"
+      "checked_at": "2026-08-30T14:49:44.583Z"
     },
     {
       "name": "git",
       "available": true,
       "version": "git version 2.55.0.windows.4",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:32.633Z"
+      "checked_at": "2026-08-30T14:49:44.754Z"
     },
     {
       "name": "curl",
       "available": true,
       "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
       "reason": null,
-      "checked_at": "2026-08-30T11:46:32.493Z"
+      "checked_at": "2026-08-30T14:49:44.652Z"
     }
   ],
   "configuration_checks": [

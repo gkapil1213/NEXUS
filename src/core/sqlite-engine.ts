@@ -9,7 +9,11 @@ export class SQLiteEngine implements NexusEngine {
   private constructor(db: Database.Database) {
     this.db = db;
   }
-
+  transaction<T>(fn: () => T): T {
+  const tx = this.db.transaction(fn);
+  return tx();
+  
+}
   static async open(path: string): Promise<SQLiteEngine> {
     const db = new Database(path);
     db.pragma("journal_mode = WAL");

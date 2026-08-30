@@ -338,11 +338,25 @@ let enginePromise: Promise<NexusEngine> | null = null;
 export function openEngine(): Promise<NexusEngine> {
   if (enginePromise) return enginePromise;
   enginePromise = (async () => {
-    if (typeof indexedDB !== "undefined") {
+    // Allow environment variables to override persistence config (used by child processes)
+    const envEngine = process.env.NEXUS_PERSISTENCE_ENGINE;
+    const envDbPath = process.env.NEXUS_DB_PATH;
+    if (envEngine === "sqlite") {
+      CONFIG.persistence.engine = "sqlite";
+      if (envDbPath) CONFIG.persistence.dbName = envDbPath;
+    } else if (envEngine === "memory") {
+      CONFIG.persistence.engine = "memory";
+    }
+    const kind = CONFIG.persistence.engine;
+    if (kind === "sqlite") {
+      const { SQLiteEngine } = await import("./sqlite-engine");
+      return await SQLiteEngine.open(CONFIG.persistence.dbName);
+    }
+    if (kind === "idb" && typeof indexedDB !== "undefined") {
       try {
         return await IdbEngine.open(CONFIG.persistence.dbName);
       } catch {
-        return new MemEngine(); // degraded: health reports this honestly
+        return new MemEngine();
       }
     }
     return new MemEngine();

@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-29T07:43:00.532Z",
+  "timestamp": "2026-08-30T15:06:45.993Z",
   "stages": {
     "typecheck": "PASS",
     "build": "PASS",
@@ -40,11 +40,11 @@
       "reason": "STAGING_URL not set"
     },
     "supply_chain": {
-      "status": "FAIL",
-      "digest": "localhost:5000/nexus/nexus-app@sha256:7f8a502ed7748a410a2b7bc577d2d428222b37559bec572eefa05903b478a77c",
-      "sign_status": "FAILED",
-      "verify_status": "FAILED",
-      "reason": "WARNING: Could not fetch trusted_root.json from the TUF repository. Continuing with individual targets. Error from TUF: error getting live trusted root: failed to create TUF client failed to load metadata: tuf refresh failed: Get \"https://tuf-repo-cdn.sigstore.dev/15.root.json\": dial tcp: lookup tuf-repo-cdn.sigstore.dev on 192.168.65.7:53: no such host\nError: error getting signing config from TUF"
+      "status": "PASS",
+      "digest": "localhost:5000/nexus/nexus-app@sha256:ab67b33743c5f9008f78cddcdd07f10f23d647de9beada49abf1b5cb43d0c7c3",
+      "sign_status": "SIGNED",
+      "verify_status": "VERIFIED",
+      "reason": null
     },
     "risk_correlation": {
       "critical": 0,
@@ -53,18 +53,9 @@
       "low": 0
     },
     "policy": {
-      "verdict": "FAIL",
-      "evaluations": [
-        {
-          "id": "pol_f450e7e2-f0b3-4677-9dd8-e92d5ce50aef",
-          "rule_id": "UNSIGNED_ARTIFACT_BLOCK",
-          "rule_name": "Unsigned artifact blocks production",
-          "decision": "BLOCK",
-          "reason": "Production requires a signed artifact",
-          "timestamp": 1787989738344
-        }
-      ]
+      "verdict": "PASS",
+      "evaluations": []
     },
-    "release_decision": "BLOCK"
+    "release_decision": "RELEASE"
   }
 }
