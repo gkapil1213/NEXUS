@@ -1,0 +1,82 @@
+{
+  "phase": 6,
+  "pass": 1,
+  "title": "Production Infrastructure & AWS/Terraform Foundation",
+  "timestamp": "2026-08-30T15:38:55.635Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": null,
+      "checked_at": "2026-08-30T15:38:46.109Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": null,
+      "checked_at": "2026-08-30T15:38:47.522Z"
+    },
+    {
+      "name": "docker",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": null,
+      "checked_at": "2026-08-30T15:38:46.235Z"
+    },
+    {
+      "name": "docker",
+      "available": true,
+      "version": "Client:",
+      "reason": null,
+      "checked_at": "2026-08-30T15:38:50.948Z"
+    },
+    {
+      "name": "terraform",
+      "available": false,
+      "version": null,
+      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "checked_at": "2026-08-30T15:38:46.294Z"
+    },
+    {
+      "name": "aws",
+      "available": false,
+      "version": null,
+      "reason": "'aws' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "checked_at": "2026-08-30T15:38:46.453Z"
+    }
+  ],
+  "terraform": {
+    "available": false,
+    "format": "BLOCKED",
+    "validate": "BLOCKED",
+    "plan": "BLOCKED",
+    "reason": "terraform not installed"
+  },
+  "aws": {
+    "identity": {
+      "status": "BLOCKED",
+      "operation": "getIdentity",
+      "provider": "aws",
+      "reason": "Error: spawn aws ENOENT"
+    },
+    "region": {
+      "status": "BLOCKED",
+      "operation": "getRegion",
+      "provider": "aws",
+      "reason": "Error: spawn aws ENOENT"
+    }
+  },
+  "blocked": [
+    {
+      "capability": "Terraform",
+      "reason": "terraform not installed"
+    },
+    {
+      "capability": "AWS CLI / Identity",
+      "reason": "Error: spawn aws ENOENT"
+    }
+  ],
+  "failures": []
+}

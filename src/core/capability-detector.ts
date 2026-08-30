@@ -66,6 +66,8 @@ const child = spawn(cmd, args, { shell: true, windowsHide: true });
       this.checkCommand("chromium", ["--version"]),
       this.checkCommand("git", ["--version"]),
       this.checkCommand("curl", ["--version"]),
+      this.checkCommand("terraform", ["version"]),
+      this.checkCommand("aws", ["--version"]),
     ];
     return Promise.all(checks);
   }
