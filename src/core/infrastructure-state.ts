@@ -18,13 +18,14 @@ export interface InfrastructureResource {
 export type InfrastructureStateStatus =
   | "UNKNOWN"
   | "PLANNED"
-  | "APPROVED"
   | "APPLYING"
   | "APPLIED"
   | "VERIFYING"
   | "HEALTHY"
-  | "DRIFTED"
+  | "DEGRADED"
   | "FAILED"
+  | "RECOVERING"
+  | "ROLLED_BACK"
   | "DESTROYED";
 
 export interface InfrastructureState {
@@ -44,6 +45,20 @@ export interface InfrastructureState {
   created_at: string;
   updated_at: string;
 }
+
+const VALID_TRANSITIONS: Record<InfrastructureStateStatus, InfrastructureStateStatus[]> = {
+  UNKNOWN: ["PLANNED", "FAILED"],
+  PLANNED: ["APPLYING", "FAILED"],
+  APPLYING: ["APPLIED", "FAILED"],
+  APPLIED: ["VERIFYING", "FAILED"],
+  VERIFYING: ["HEALTHY", "DEGRADED", "FAILED"],
+  HEALTHY: ["DEGRADED", "FAILED"],
+  DEGRADED: ["HEALTHY", "FAILED", "RECOVERING"],
+  FAILED: ["RECOVERING", "ROLLED_BACK"],
+  RECOVERING: ["HEALTHY", "DEGRADED", "FAILED", "ROLLED_BACK"],
+  ROLLED_BACK: ["HEALTHY", "FAILED"],
+  DESTROYED: [],
+};
 
 export class InfrastructureStateService {
   private engine: NexusEngine;
@@ -75,6 +90,14 @@ export class InfrastructureStateService {
   async updateState(id: string, updates: Partial<InfrastructureState>): Promise<InfrastructureState | undefined> {
     const existing = await this.getState(id);
     if (!existing) return undefined;
+
+    // Validate transition if status changes
+    if (updates.status && updates.status !== existing.status) {
+      if (!VALID_TRANSITIONS[existing.status]?.includes(updates.status)) {
+        throw Err.validation("ILLEGAL_STATE_TRANSITION", `Cannot transition from ${existing.status} to ${updates.status}`);
+      }
+    }
+
     const updated: InfrastructureState = { ...existing, ...updates, updated_at: new Date().toISOString() };
     await this.engine.put("kv", this.key(id), updated);
     return updated;

@@ -1,0 +1,62 @@
+{
+  "pass": "Phase 6 Pass 6",
+  "timestamp": "2026-08-30T16:39:52.423Z",
+  "capabilities": {
+    "node": true,
+    "docker": true,
+    "terraform": false,
+    "aws": false
+  },
+  "infrastructure_states": {
+    "persistence": "PASS",
+    "transition_safety": "PASS",
+    "idempotency": "PASS"
+  },
+  "observability": {
+    "events": "PASS",
+    "health_monitoring": "BLOCKED",
+    "failure_detection": "PASS",
+    "evidence_collection": "PASS",
+    "audit_trail": "PASS"
+  },
+  "drift": {
+    "offline": "NO_DRIFT",
+    "provider": "BLOCKED"
+  },
+  "recovery": {
+    "classification": "PASS",
+    "retry": "PASS",
+    "decision": "PASS",
+    "execution": "BLOCKED",
+    "rollback": "BLOCKED"
+  },
+  "security": {
+    "approval_protection": "PASS",
+    "digest_binding": "PASS",
+    "destructive_protection": "PASS",
+    "unauthorized_protection": "PASS"
+  },
+  "terraform": {
+    "format": "BLOCKED",
+    "init": "BLOCKED",
+    "validate": "BLOCKED",
+    "plan": "BLOCKED",
+    "apply": "BLOCKED"
+  },
+  "aws": {
+    "authentication": "BLOCKED",
+    "runtime_verification": "BLOCKED",
+    "infrastructure_verification": "BLOCKED"
+  },
+  "blocked": [
+    {
+      "capability": "Terraform",
+      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file."
+    },
+    {
+      "capability": "AWS",
+      "reason": "Error: spawn aws ENOENT"
+    }
+  ],
+  "failures": []
+}
