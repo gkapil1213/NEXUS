@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
-import type { TerraformPlanSummary, TerraformPlanChange } from "./cloud-types";
+import type { TerraformPlanSummary, TerraformPlanChange, CloudOperationResult } from "./cloud-types";
 
 export class TerraformService {
   private async runTerraform(
@@ -99,7 +99,10 @@ export class TerraformService {
       output: showRes.stdout,
     };
   }
-
+      async planDigest(planJson: string): Promise<string> {
+    const { createHash } = await import("node:crypto");
+    return `sha256:${createHash("sha256").update(planJson).digest("hex")}`;
+  }
   private parsePlanChanges(planJson: string): TerraformPlanChange[] {
     // Simplified parser for Terraform JSON plan
     try {

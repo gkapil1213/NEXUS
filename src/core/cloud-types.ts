@@ -1,4 +1,4 @@
-export type CloudProviderName = "aws" | "azure" | "gcp" | "kubernetes";
+export type CloudProviderName = "aws" | "azure" | "gcp" | "kubernetes" | "terraform";
 
 export interface CloudIdentity {
   provider: CloudProviderName;

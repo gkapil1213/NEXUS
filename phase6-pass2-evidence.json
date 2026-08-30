@@ -1,0 +1,63 @@
+{
+  "pass": "Phase 6 Pass 2",
+  "timestamp": "2026-08-30T16:05:07.870Z",
+  "capabilities": {
+    "node": true,
+    "npm": true,
+    "docker": true,
+    "terraform": false,
+    "aws": false
+  },
+  "terraform": {
+    "available": false,
+    "format": "BLOCKED",
+    "init": "BLOCKED",
+    "validate": "BLOCKED",
+    "plan": "BLOCKED",
+    "apply": "BLOCKED"
+  },
+  "aws": {
+    "identity": {
+      "status": "BLOCKED",
+      "operation": "getIdentity",
+      "provider": "aws",
+      "reason": "Error: spawn aws ENOENT"
+    },
+    "region": {
+      "status": "BLOCKED",
+      "operation": "getRegion",
+      "provider": "aws",
+      "reason": "Error: spawn aws ENOENT"
+    }
+  },
+  "security": {
+    "iac_policy": "BLOCKED",
+    "credential_exposure": "PASS",
+    "plan_digest_binding": "PASS",
+    "drift_detection": "BLOCKED"
+  },
+  "approval": {
+    "plan_binding": "PASS",
+    "digest_binding": "PASS",
+    "production_gate": "BLOCKED"
+  },
+  "blocked": [
+    {
+      "capability": "Terraform",
+      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file."
+    },
+    {
+      "capability": "AWS CLI",
+      "reason": "'aws' is not recognized as an internal or external command,\r\noperable program or batch file."
+    },
+    {
+      "capability": "AWS Identity",
+      "reason": "Error: spawn aws ENOENT"
+    },
+    {
+      "capability": "Terraform Plan/Apply",
+      "reason": "requires Terraform + AWS"
+    }
+  ],
+  "failures": []
+}
