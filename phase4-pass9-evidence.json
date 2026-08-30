@@ -1,0 +1,134 @@
+{
+  "generated_at": "2026-08-30T10:05:26.537Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": null,
+      "checked_at": "2026-08-30T10:05:21.785Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": null,
+      "checked_at": "2026-08-30T10:05:24.352Z"
+    },
+    {
+      "name": "docker",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": null,
+      "checked_at": "2026-08-30T10:05:22.012Z"
+    },
+    {
+      "name": "docker",
+      "available": true,
+      "version": "Client:",
+      "reason": null,
+      "checked_at": "2026-08-30T10:05:26.095Z"
+    },
+    {
+      "name": "cosign",
+      "available": false,
+      "version": null,
+      "reason": "'cosign' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "checked_at": "2026-08-30T10:05:21.784Z"
+    },
+    {
+      "name": "semgrep",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-08-30T10:05:26.331Z"
+    },
+    {
+      "name": "gitleaks",
+      "available": true,
+      "version": "8.30.1",
+      "reason": null,
+      "checked_at": "2026-08-30T10:05:24.756Z"
+    },
+    {
+      "name": "trivy",
+      "available": true,
+      "version": "Version: 0.74.0",
+      "reason": null,
+      "checked_at": "2026-08-30T10:05:23.517Z"
+    },
+    {
+      "name": "checkov",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-08-30T10:05:26.465Z"
+    },
+    {
+      "name": "syft",
+      "available": false,
+      "version": null,
+      "reason": "'syft' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "checked_at": "2026-08-30T10:05:21.814Z"
+    },
+    {
+      "name": "grype",
+      "available": false,
+      "version": null,
+      "reason": "'grype' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "checked_at": "2026-08-30T10:05:21.843Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": null,
+      "checked_at": "2026-08-30T10:05:24.687Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "version": null,
+      "reason": "'chromium' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "checked_at": "2026-08-30T10:05:21.871Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": null,
+      "checked_at": "2026-08-30T10:05:22.376Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
+      "reason": null,
+      "checked_at": "2026-08-30T10:05:22.144Z"
+    }
+  ],
+  "configuration_checks": [
+    {
+      "name": "COSIGN_PASSWORD",
+      "required_for": "signing",
+      "present": true,
+      "message": "set"
+    },
+    {
+      "name": "STAGING_URL",
+      "required_for": "DAST",
+      "present": false,
+      "message": "not set (DAST will be BLOCKED)"
+    }
+  ],
+  "failure_injection": [
+    {
+      "test": "syft_unavailable",
+      "expected": "BLOCKED",
+      "actual": "BLOCKED",
+      "passed": true,
+      "reason": "'syft' is not recognized as an internal or external command,\r\noperable program or batch file."
+    }
+  ],
+  "scanner_executions": []
+}

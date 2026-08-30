@@ -46,7 +46,12 @@ class CosignService {
     if (operation === 'sign' && !process.env.COSIGN_PASSWORD) {
       throw new Error('COSIGN_PASSWORD environment variable is required for signing');
     }
-
+  // In sign():
+if (!process.env.COSIGN_PASSWORD) {
+  const error = new Error("COSIGN_PASSWORD environment variable is required for signing");
+  (error as any).code = "CONFIG_MISSING";
+  throw error;
+}
     const password = process.env.COSIGN_PASSWORD ?? "";
     const cwd = process.cwd();
 

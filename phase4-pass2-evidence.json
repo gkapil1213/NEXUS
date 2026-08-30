@@ -1,10 +1,10 @@
 {
-  "timestamp": "2026-08-30T07:58:37.010Z",
+  "timestamp": "2026-08-30T10:15:03.832Z",
   "project_id": "proj_phase4_pass2",
-  "execution_id": "exec_pass2_1788076667342",
+  "execution_id": "exec_pass2_1788084852110",
   "commit_sha": "deadbeef",
-  "artifact_digest": "sha256:pass2-1788076667342",
-  "release_id": "rel_pass2_1788076667342",
+  "artifact_digest": "sha256:pass2-1788084852110",
+  "release_id": "rel_pass2_1788084852110",
   "capabilities": {
     "node": {
       "available": true,
@@ -59,57 +59,57 @@
     {
       "scanner": "semgrep",
       "category": "SAST",
-      "status": "PASS",
-      "duration_ms": 27522,
-      "evidence_id": "secevid_982c7407-db89-4ab4-9255-486ebfbfb541",
-      "findings_count": 0
+      "status": "FAIL",
+      "duration_ms": 29590,
+      "evidence_id": "secevid_598d6ef9-1dd1-4d0c-99b4-e3a626f26808",
+      "findings_count": 1
     },
     {
       "scanner": "gitleaks",
       "category": "SECRET",
       "status": "PASS",
-      "duration_ms": 3935,
-      "evidence_id": "secevid_e5c99da2-7a14-4ff6-81c8-6d8357c0a0e8",
+      "duration_ms": 3286,
+      "evidence_id": "secevid_7fd6efc8-340c-41a7-9ec9-b08cbe35dc77",
       "findings_count": 0
     },
     {
       "scanner": "npm-audit",
       "category": "SCA",
       "status": "PASS",
-      "duration_ms": 4032,
-      "evidence_id": "secevid_fa43da05-ae0c-4e66-8ab4-5940af09c6a2",
+      "duration_ms": 2765,
+      "evidence_id": "secevid_f71cfd92-710f-4d62-ae00-ec0ca942e5d4",
       "findings_count": 0
     },
     {
       "scanner": "trivy",
       "category": "CONTAINER",
       "status": "PASS",
-      "duration_ms": 10562,
-      "evidence_id": "secevid_df7fc16a-2655-4e01-9b92-f61ebae48814",
+      "duration_ms": 12032,
+      "evidence_id": "secevid_4a7734ba-f15e-494f-88d4-d4a2a616631c",
       "findings_count": 0
     },
     {
       "scanner": "trivy-sbom",
       "category": "SBOM",
       "status": "PASS",
-      "duration_ms": 3282,
-      "evidence_id": "secevid_ca587821-e172-4a5c-ac5c-ece72b3ae216",
+      "duration_ms": 3704,
+      "evidence_id": "secevid_bc9249d8-d47c-4388-9ec2-5e4e2e3f00a1",
       "findings_count": 0
     },
     {
       "scanner": "trivy-config",
       "category": "IAC",
       "status": "PASS",
-      "duration_ms": 211,
-      "evidence_id": "secevid_a8d6c2a6-d6ab-44f8-9012-4b9ee66b9369",
+      "duration_ms": 264,
+      "evidence_id": "secevid_05101412-3a28-47f2-9aaa-7567bba06a16",
       "findings_count": 0
     },
     {
       "scanner": "dast",
       "category": "DAST",
       "status": "PASS",
-      "duration_ms": 34,
-      "evidence_id": "secevid_54dc5691-b10e-48aa-8382-65a6ca3d437f",
+      "duration_ms": 37,
+      "evidence_id": "secevid_eb43705a-1c43-4955-9e9d-3b517294e53b",
       "findings_count": 0
     },
     {
@@ -117,15 +117,15 @@
       "category": "SUPPLY_CHAIN",
       "status": "PASS",
       "duration_ms": 2,
-      "evidence_id": "secevid_bb57b27e-478f-45da-b796-29571cc2d497",
+      "evidence_id": "secevid_2e999723-6191-41c9-8ff1-4a8f4d2ebb7e",
       "findings_count": 0
     },
     {
       "scanner": "signature",
       "category": "SIGNATURE",
       "status": "PASS",
-      "duration_ms": 6,
-      "evidence_id": "secevid_f8374688-8921-49d2-9c99-7059b1fe0929",
+      "duration_ms": 23,
+      "evidence_id": "secevid_2419deef-76e9-41df-ab07-8593d35d6a25",
       "findings_count": 0
     }
   ],
@@ -136,23 +136,25 @@
       "MEDIUM": 0,
       "LOW": 0,
       "INFO": 0,
-      "UNKNOWN": 0
+      "UNKNOWN": 1
     },
-    "risk_score": 0
+    "risk_score": 5
   },
   "policy_decision": {
-    "id": "secdec_5787d698-3335-47b6-9e6c-78ad4b25ece6",
+    "id": "secdec_0f259966-5005-4c66-8df8-af8800f6039e",
     "project_id": "proj_phase4_pass2",
-    "execution_id": "exec_pass2_1788076667342",
-    "release_id": "rel_pass2_1788076667342",
-    "artifact_digest": "sha256:pass2-1788076667342",
+    "execution_id": "exec_pass2_1788084852110",
+    "release_id": "rel_pass2_1788084852110",
+    "artifact_digest": "sha256:pass2-1788084852110",
     "policy_id": "nexus-security-policy",
     "policy_version": "1.0",
-    "verdict": "PASS",
-    "reasons": [],
-    "created_at": "2026-08-30T07:58:36.980Z"
+    "verdict": "FAIL",
+    "reasons": [
+      "Evidence failed for SAST"
+    ],
+    "created_at": "2026-08-30T10:15:03.829Z"
   },
-  "release_decision": "RELEASE",
-  "findings_count": 0,
+  "release_decision": "REJECTED",
+  "findings_count": 1,
   "evidence_count": 9
 }
