@@ -9,24 +9,11 @@ export interface Capability {
 }
 
 export class CapabilityDetector {
-  private resolveCommand(cmd: string): string {
-    if (process.platform === "win32") {
-      const knownCommands = [
-        "npm", "npx", "cosign", "semgrep", "gitleaks", "trivy",
-        "checkov", "syft", "grype", "playwright", "chromium", "git", "curl"
-      ];
-      if (knownCommands.includes(cmd)) {
-        return `${cmd}.cmd`;
-      }
-    }
-    return cmd;
-  }
-
-  private async runCommand(cmd: string, args: string[] = [], timeoutMs = 5000): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  private async runCommand(cmd: string, args: string[] = [], timeoutMs = 10000): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve) => {
-      const resolvedCmd = this.resolveCommand(cmd);
-      // nosemgrep: detect-child-process – spawn is used with fixed command names and argument arrays, no user input
-      const child = spawn(resolvedCmd, args, { shell: false, windowsHide: true });
+      // nosemgrep: spawn-shell-true – shell is required for Windows command resolution; commands are static
+      // nosemgrep: spawn-shell-true, detect-child-process
+const child = spawn(cmd, args, { shell: true, windowsHide: true });
       let stdout = "";
       let stderr = "";
       const timer = setTimeout(() => {

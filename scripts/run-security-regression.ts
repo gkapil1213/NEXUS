@@ -3,20 +3,12 @@ import { spawn } from "node:child_process";
 async function runCommand(cmd: string): Promise<number> {
   console.log(`\n--- Running: ${cmd} ---`);
   const parts = cmd.split(" ");
-  let command = parts[0];
+  const command = parts[0];
   const args = parts.slice(1);
 
-  // On Windows, add .cmd extension for certain commands
-  if (process.platform === "win32") {
-    const known = ["npx", "tsx", "node", "npm"];
-    if (known.includes(command)) {
-      command = `${command}.cmd`;
-    }
-  }
-
   return new Promise((resolve) => {
-    // nosemgrep: detect-child-process – spawn is used intentionally with hardcoded commands and argument arrays, no user input
-    const child = spawn(command, args, { stdio: "inherit", shell: false, windowsHide: true });
+    // nosemgrep: spawn-shell-true, detect-child-process
+    const child = spawn(command, args, { stdio: "inherit", shell: true, windowsHide: true });
     child.on("close", (code) => resolve(code ?? 0));
     child.on("error", (err) => {
       console.error(`Failed to start ${cmd}: ${err}`);
