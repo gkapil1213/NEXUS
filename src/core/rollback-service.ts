@@ -91,7 +91,7 @@ class DockerRollbackService {
   }
 
   async dockerBuild(tag: string, contextDir = "."): Promise<void> {
-    const res = await this.runCmd("docker", ["build", "-t", tag, contextDir], 180000);
+    const res = await this.runCmd("docker", ["build", "--pull=false","-t", tag, contextDir], 180000);
     if (res.exit_code !== 0) throw new Error(`docker build failed: ${res.stderr}`);
   }
 

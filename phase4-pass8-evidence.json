@@ -1,0 +1,105 @@
+{
+  "phase": "4",
+  "pass": "8",
+  "timestamp": "2026-08-29T15:45:53.873Z",
+  "capabilities": {
+    "node": {
+      "available": true,
+      "version": "v26.4.0",
+      "reason": "",
+      "status": "PASS"
+    },
+    "npm": {
+      "available": true,
+      "version": "11.18.0",
+      "reason": "",
+      "status": "PASS"
+    },
+    "docker": {
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": "",
+      "status": "PASS"
+    },
+    "docker_daemon": {
+      "available": true,
+      "version": "Client:",
+      "reason": "",
+      "status": "PASS"
+    },
+    "semgrep": {
+      "available": true,
+      "version": "1.174.0",
+      "reason": "",
+      "status": "PASS"
+    },
+    "gitleaks": {
+      "available": true,
+      "version": "8.30.1",
+      "reason": "",
+      "status": "PASS"
+    },
+    "trivy": {
+      "available": true,
+      "version": "Version: 0.74.0",
+      "reason": "",
+      "status": "PASS"
+    },
+    "checkov": {
+      "available": true,
+      "version": "3.3.13",
+      "reason": "",
+      "status": "PASS"
+    },
+    "syft": {
+      "available": false,
+      "version": "'syft' is not recognized as an internal or external command,\r",
+      "reason": "'syft' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "status": "BLOCKED"
+    },
+    "grype": {
+      "available": false,
+      "version": "'grype' is not recognized as an internal or external command,\r",
+      "reason": "'grype' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "status": "BLOCKED"
+    },
+    "playwright": {
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": "",
+      "status": "PASS"
+    },
+    "chromium": {
+      "available": false,
+      "version": "'chromium' is not recognized as an internal or external command,\r",
+      "reason": "'chromium' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "status": "BLOCKED"
+    },
+    "cosign": {
+      "available": false,
+      "version": "unknown",
+      "reason": "npm error npx canceled due to missing packages and no YES option: [\"cosign@0.2.1\"]\nnpm error A complete log of this run can be found in: C:\\Users\\pc\\AppData\\Local\\npm-cache\\_logs\\2026-08-29T15_46_15_666Z-debug-0.log",
+      "status": "BLOCKED"
+    },
+    "terraform": {
+      "available": false,
+      "version": "'terraform' is not recognized as an internal or external command,\r",
+      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "status": "BLOCKED"
+    }
+  },
+  "typecheck": "PASS",
+  "build": "PASS",
+  "security_regression": "FAIL",
+  "pass7": "PASS",
+  "real_failures": [
+    "security regression failed; output tail: ning\": \"sha256:e620e3148ae549ff0c070b8687f6d8da1aafdf9909851ad20a6b68d0405081f1\"\n}\n\nAll digests match: true\n\nRelease manifest saved to release-manifest.json\n\n✅ Release Integrity Final Audit PASSED\n\n--- Running: npx tsx scripts/run-release-integrity-enforcement.ts ---\nRelease integrity enforcement starting...\n[1] Building image...\nBuild OK\n[2] Pushing to local registry...\nPush OK\nDigest: localhost:5000/nexus/nexus-app@sha256:f0af3e5859629e90dca16ba63978ab2d878a24f7b5266060ee585c17e8627571\n[3] Generating SBOM...\nSBOM OK\n[4] Running security scan...\nSecurity scan passed\n[5] Signing...\nSign OK\n[6] Verifying...\nVerify OK\n[7] Deploying...\nDeployment healthy\n\n✅ Release integrity enforcement passed.\n❌ FAILED: npx tsx scripts/run-phase4-pass5-production-decision.ts\n\nSecurity regression suite FAILED"
+  ],
+  "real_blockers": [
+    "syft: not found",
+    "grype: not found",
+    "chromium: not found",
+    "cosign: not found",
+    "terraform: not found"
+  ]
+}

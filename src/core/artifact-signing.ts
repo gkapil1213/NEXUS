@@ -42,12 +42,14 @@ class CosignService {
       .replace(/^127\.0\.0\.1:/, "host.docker.internal:");
   }
 
-  private dockerCosignArgs(): string[] {
+  private dockerCosignArgs(operation: 'sign' | 'verify' = 'verify'): string[] {
+    if (operation === 'sign' && !process.env.COSIGN_PASSWORD) {
+      throw new Error('COSIGN_PASSWORD environment variable is required for signing');
+    }
+
+    const password = process.env.COSIGN_PASSWORD ?? "";
     const cwd = process.cwd();
-    const password = process.env.COSIGN_PASSWORD;
-if (!password) {
-  throw new Error("COSIGN_PASSWORD environment variable is required for signing");
-}
+
     return [
       "run", "--rm",
       "-e", `COSIGN_PASSWORD=${password}`,
@@ -60,6 +62,7 @@ if (!password) {
   }
 
   async sign(imageRef: string): Promise<SigningResult> {
+    // Ensure a password exists for signing.
     process.env.COSIGN_PASSWORD = process.env.COSIGN_PASSWORD ?? "test123";
 
     const keyPath = path.join(process.cwd(), "cosign.key");
@@ -70,7 +73,7 @@ if (!password) {
 
     const dockerImageRef = this.toDockerRegistryRef(imageRef);
     const args = [
-      ...this.dockerCosignArgs(),
+      ...this.dockerCosignArgs('sign'),
       "sign",
       "--key", "/workspace/cosign.key",
       "--allow-insecure-registry",
@@ -104,7 +107,7 @@ if (!password) {
 
     const dockerImageRef = this.toDockerRegistryRef(imageRef);
     const args = [
-      ...this.dockerCosignArgs(),
+      ...this.dockerCosignArgs('verify'),
       "verify",
       "--key", "/workspace/cosign.pub",
       "--allow-insecure-registry",
@@ -134,3 +137,4 @@ if (!password) {
 }
 
 export const artifactSigningService = new CosignService();
+export { CosignService }; // add this line
