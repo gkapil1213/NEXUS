@@ -1,0 +1,59 @@
+{
+  "pass": "Phase 6 Pass 5",
+  "timestamp": "2026-08-30T16:32:02.337Z",
+  "capabilities": {
+    "node": true,
+    "docker": true,
+    "terraform": false,
+    "aws": false
+  },
+  "state": {
+    "model": "PASS",
+    "persistence": "PASS",
+    "hashing": "PASS",
+    "snapshots": "PASS"
+  },
+  "drift": {
+    "no_drift": "NO_DRIFT",
+    "resource_change": "DRIFTED",
+    "resource_removal": "DRIFTED",
+    "classification": "PASS"
+  },
+  "policy": {
+    "non_destructive": "PASS",
+    "approval_binding": "PASS",
+    "digest_binding": "PASS"
+  },
+  "deployment": {
+    "state_machine": "PASS",
+    "authorization": "PASS (offline)",
+    "idempotency": "PASS",
+    "retry": "PASS (offline)",
+    "failure_recovery": "PASS (offline)"
+  },
+  "runtime": {
+    "terraform_plan": "BLOCKED",
+    "terraform_apply": "BLOCKED",
+    "state_refresh": "BLOCKED",
+    "verification": "BLOCKED",
+    "health": "BLOCKED",
+    "cost": "UNAVAILABLE",
+    "drift_runtime": "BLOCKED"
+  },
+  "audit": {
+    "events": "PASS",
+    "audit_trail": "PASS",
+    "evidence": "PASS"
+  },
+  "blocked": [
+    {
+      "capability": "Terraform",
+      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file."
+    },
+    {
+      "capability": "AWS",
+      "reason": "Error: spawn aws ENOENT"
+    }
+  ],
+  "failures": []
+}
