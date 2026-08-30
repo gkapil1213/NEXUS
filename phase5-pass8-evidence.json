@@ -1,0 +1,80 @@
+{
+  "pass": "Phase 5 Pass 8",
+  "commit": "e58d451",
+  "timestamp": "2026-08-30T15:06:45.993Z",
+  "typecheck": {
+    "status": "PASS",
+    "command": "npm run typecheck",
+    "duration_ms": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "build": {
+    "status": "PASS",
+    "command": "npm run build",
+    "duration_ms": 0,
+    "errors": 0,
+    "warnings": 0
+  },
+  "persistence": {
+    "engine": "sqlite",
+    "database": "data/nexus-pass1.sqlite",
+    "status": "PASS"
+  },
+  "restart": {
+    "status": "PASS",
+    "independent_read": "PASS",
+    "restart_read": "PASS"
+  },
+  "observability": {
+    "metrics": "PASS",
+    "health": "PASS",
+    "alerts": "PASS",
+    "incidents": "PASS",
+    "audit": "PASS",
+    "events": "PASS"
+  },
+  "api": {
+    "status": "PASS",
+    "real_http_health": "PASS"
+  },
+  "operations": {
+    "status": "PASS",
+    "command": "npm run test:operations"
+  },
+  "security": {
+    "status": "PASS",
+    "command": "npm run test:security"
+  },
+  "deployment": {
+    "status": "PASS",
+    "command": "node scripts/verify-pass5-fixed-windows.mjs"
+  },
+  "rollback": {
+    "status": "PASS",
+    "command": "npx tsx scripts/run-rollback-e2e.ts"
+  },
+  "blocked": [
+    {
+      "capability": "DAST",
+      "reason": "STAGING_URL not configured"
+    },
+    {
+      "capability": "Syft",
+      "reason": "executable not found"
+    },
+    {
+      "capability": "Grype",
+      "reason": "executable not found"
+    },
+    {
+      "capability": "Cosign CLI",
+      "reason": "not in PATH (Docker-based signing works)"
+    },
+    {
+      "capability": "Chromium",
+      "reason": "not installed"
+    }
+  ],
+  "failures": []
+}
