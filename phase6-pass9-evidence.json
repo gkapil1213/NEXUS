@@ -1,0 +1,92 @@
+{
+  "phase": "6",
+  "pass": "9",
+  "timestamp": "2026-08-30T17:53:16.820Z",
+  "capabilities": {
+    "node": true,
+    "npm": true,
+    "git": true,
+    "docker": true,
+    "terraform": false,
+    "aws": false,
+    "curl": true
+  },
+  "terraform": {
+    "format": "BLOCKED",
+    "init": "BLOCKED",
+    "validate": "BLOCKED",
+    "plan": "BLOCKED",
+    "apply": "BLOCKED"
+  },
+  "aws": {
+    "identity": "BLOCKED",
+    "region": "BLOCKED"
+  },
+  "plan_safety": {
+    "create": "PASS",
+    "destructive_detection": "PASS"
+  },
+  "approval_binding": {
+    "matching": "PASS",
+    "mismatch": "PASS"
+  },
+  "digest_integrity": {
+    "matching": "PASS",
+    "mismatch": "PASS"
+  },
+  "state": {
+    "persistence": "PASS",
+    "transition": "PASS",
+    "illegal_transition_blocked": "PASS",
+    "idempotency": "PASS"
+  },
+  "snapshot": {
+    "integrity": "PASS"
+  },
+  "drift": {
+    "no_drift": "PASS",
+    "resource_change": "PASS",
+    "provider": "BLOCKED"
+  },
+  "deployment": {
+    "orchestration": "PASS (offline)",
+    "health_monitoring": "PASS",
+    "failure_detection": "PASS",
+    "recovery_decision": "PASS"
+  },
+  "security": {
+    "approval_protection": "PASS",
+    "digest_protection": "PASS",
+    "destructive_action_protection": "PASS",
+    "credential_protection": "PASS"
+  },
+  "observability": {
+    "events": "PASS",
+    "audit": "PASS"
+  },
+  "persistence": {
+    "persistent_state": "PASS",
+    "restart_persistence": "PASS"
+  },
+  "regression": {
+    "typecheck": "PASS",
+    "build": "PASS",
+    "security": "PASS",
+    "operations": "PASS",
+    "phase6": "PASS"
+  },
+  "git": {
+    "head": "b793cec"
+  },
+  "blocked": [
+    {
+      "capability": "Terraform",
+      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file."
+    },
+    {
+      "capability": "AWS",
+      "reason": "Error: spawn aws ENOENT"
+    }
+  ],
+  "failures": []
+}

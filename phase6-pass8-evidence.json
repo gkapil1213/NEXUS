@@ -1,0 +1,75 @@
+{
+  "pass": "Phase 6 Pass 8",
+  "timestamp": "2026-08-30T16:50:44.690Z",
+  "git_commit": "b793cec",
+  "capabilities": {
+    "node": true,
+    "npm": true,
+    "docker": true,
+    "terraform": false,
+    "aws": false,
+    "git": true,
+    "curl": true
+  },
+  "typecheck": "PASS",
+  "build": "PASS",
+  "infrastructure_control_plane": {
+    "plan": "PASS",
+    "plan_safety": "PASS",
+    "policy": "PASS",
+    "approval_binding": "PASS",
+    "digest_binding": "PASS",
+    "state_management": "PASS",
+    "snapshot_integrity": "PASS",
+    "idempotency": "PASS"
+  },
+  "drift": {
+    "offline": "PASS",
+    "provider": "BLOCKED"
+  },
+  "local_runtime": {
+    "deployment": "BLOCKED",
+    "health": "PASS",
+    "failure_detection": "PASS",
+    "recovery": "PASS",
+    "rollback": "BLOCKED",
+    "rollback_verification": "BLOCKED"
+  },
+  "terraform": {
+    "format": "BLOCKED",
+    "init": "BLOCKED",
+    "validate": "BLOCKED",
+    "plan": "BLOCKED",
+    "apply": "BLOCKED"
+  },
+  "aws": {
+    "authentication": "BLOCKED",
+    "runtime": "BLOCKED",
+    "infrastructure_verification": "BLOCKED"
+  },
+  "observability": {
+    "events": "PASS",
+    "event_ordering": "PASS",
+    "audit": "PASS",
+    "evidence_integrity": "PASS"
+  },
+  "security": {
+    "unauthorized_apply": "PASS",
+    "missing_approval": "PASS",
+    "digest_mismatch": "PASS",
+    "destructive_action": "PASS",
+    "illegal_state_transition": "PASS",
+    "replay_protection": "PASS"
+  },
+  "blocked": [
+    {
+      "capability": "Terraform",
+      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file."
+    },
+    {
+      "capability": "AWS",
+      "reason": "Error: spawn aws ENOENT"
+    }
+  ],
+  "failures": []
+}

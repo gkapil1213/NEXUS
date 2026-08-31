@@ -1,110 +1,124 @@
 {
-  "generated_at": "2026-08-30T14:49:54.106Z",
+  "generated_at": "2026-08-31T06:51:28.643Z",
   "capabilities": [
     {
       "name": "node",
       "available": true,
       "version": "v26.4.0",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:44.347Z"
+      "checked_at": "2026-08-31T06:51:18.974Z"
     },
     {
       "name": "npm",
       "available": true,
       "version": "11.18.0",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:46.439Z"
+      "checked_at": "2026-08-31T06:51:21.652Z"
     },
     {
       "name": "docker",
       "available": true,
       "version": "Docker version 29.7.2, build a7dcaa6",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:44.591Z"
+      "checked_at": "2026-08-31T06:51:19.217Z"
     },
     {
       "name": "docker",
       "available": true,
       "version": "Client:",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:47.864Z"
+      "checked_at": "2026-08-31T06:51:24.086Z"
     },
     {
       "name": "cosign",
       "available": false,
       "version": null,
       "reason": "'cosign' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T14:49:44.346Z"
+      "checked_at": "2026-08-31T06:51:18.976Z"
     },
     {
       "name": "semgrep",
       "available": true,
       "version": "1.174.0",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:53.002Z"
+      "checked_at": "2026-08-31T06:51:28.118Z"
     },
     {
       "name": "gitleaks",
       "available": true,
       "version": "8.30.1",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:46.989Z"
+      "checked_at": "2026-08-31T06:51:21.969Z"
     },
     {
       "name": "trivy",
       "available": true,
       "version": "Version: 0.74.0",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:45.926Z"
+      "checked_at": "2026-08-31T06:51:19.831Z"
     },
     {
       "name": "checkov",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-08-30T14:49:54.099Z"
+      "checked_at": "2026-08-31T06:51:28.640Z"
     },
     {
       "name": "syft",
       "available": false,
       "version": null,
       "reason": "'syft' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T14:49:44.373Z"
+      "checked_at": "2026-08-31T06:51:19.025Z"
     },
     {
       "name": "grype",
       "available": false,
       "version": null,
       "reason": "'grype' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T14:49:44.373Z"
+      "checked_at": "2026-08-31T06:51:19.005Z"
     },
     {
       "name": "playwright",
       "available": true,
       "version": "Version 1.62.1",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:47.524Z"
+      "checked_at": "2026-08-31T06:51:22.898Z"
     },
     {
       "name": "chromium",
       "available": false,
       "version": null,
       "reason": "'chromium' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T14:49:44.583Z"
+      "checked_at": "2026-08-31T06:51:19.065Z"
     },
     {
       "name": "git",
       "available": true,
       "version": "git version 2.55.0.windows.4",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:44.754Z"
+      "checked_at": "2026-08-31T06:51:19.233Z"
     },
     {
       "name": "curl",
       "available": true,
       "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
       "reason": null,
-      "checked_at": "2026-08-30T14:49:44.652Z"
+      "checked_at": "2026-08-31T06:51:19.262Z"
+    },
+    {
+      "name": "terraform",
+      "available": false,
+      "version": null,
+      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "checked_at": "2026-08-31T06:51:19.139Z"
+    },
+    {
+      "name": "aws",
+      "available": false,
+      "version": null,
+      "reason": "'aws' is not recognized as an internal or external command,\r\noperable program or batch file.",
+      "checked_at": "2026-08-31T06:51:19.122Z"
     }
   ],
   "configuration_checks": [

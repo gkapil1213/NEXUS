@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-08-31T06:57:39.257Z",
+  "typecheck": "PASS",
+  "security_regression": "PASS",
+  "operations_regression": "PASS",
+  "phase4_pass4": "PASS",
+  "phase4_pass5": "PASS",
+  "phase4_pass6": "PASS",
+  "phase4_pass9": "PASS",
+  "phase5": "PASS",
+  "phase6_security_pipeline": "PASS",
+  "rollback": "PASS",
+  "semgrep": "PASS (0 findings)",
+  "capabilities": {
+    "terraform": "BLOCKED",
+    "aws": "BLOCKED",
+    "dast": "BLOCKED"
+  },
+  "blocked": [
+    { "capability": "Terraform", "reason": "terraform executable not found" },
+    { "capability": "AWS", "reason": "aws executable not found" },
+    { "capability": "DAST", "reason": "STAGING_URL not set" }
+  ],
+  "failures": [],
+  "files_changed": [
+    "src/core/artifact-signing.ts",
+    "scripts/run-phase6-pass9.ts",
+    "scripts/run-phase6-pass10.ts"
+  ],
+  "note": "Pass 11 harness sequential execution caused ETIMEDOUT due to active handle leak after operations regression. Individual tests all passed when run independently, as recorded above."
+}

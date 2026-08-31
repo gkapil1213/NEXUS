@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-30T15:06:45.993Z",
+  "timestamp": "2026-08-31T07:55:19.860Z",
   "stages": {
     "typecheck": "PASS",
     "build": "PASS",
@@ -40,11 +40,11 @@
       "reason": "STAGING_URL not set"
     },
     "supply_chain": {
-      "status": "PASS",
-      "digest": "localhost:5000/nexus/nexus-app@sha256:ab67b33743c5f9008f78cddcdd07f10f23d647de9beada49abf1b5cb43d0c7c3",
-      "sign_status": "SIGNED",
-      "verify_status": "VERIFIED",
-      "reason": null
+      "status": "BLOCKED",
+      "digest": "localhost:5000/nexus/nexus-app@sha256:1d87e81523bd1e2cc5c20d4c505e324732030ce09a3e8116c9649382349084f5",
+      "sign_status": "BLOCKED",
+      "verify_status": "FAILED",
+      "reason": "COSIGN_PASSWORD environment variable is required for signing."
     },
     "risk_correlation": {
       "critical": 0,
@@ -53,9 +53,18 @@
       "low": 0
     },
     "policy": {
-      "verdict": "PASS",
-      "evaluations": []
+      "verdict": "FAIL",
+      "evaluations": [
+        {
+          "id": "pol_95f8811b-458d-4515-b9b2-ea0a86c7bba7",
+          "rule_id": "UNSIGNED_ARTIFACT_BLOCK",
+          "rule_name": "Unsigned artifact blocks production",
+          "decision": "BLOCK",
+          "reason": "Production requires a signed artifact",
+          "timestamp": 1788163240223
+        }
+      ]
     },
-    "release_decision": "RELEASE"
+    "release_decision": "BLOCK"
   }
 }
