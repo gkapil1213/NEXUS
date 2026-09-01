@@ -84,7 +84,7 @@ if (!build.ok) results.real_failures.push("build failed");
 // Security regression (use success marker to avoid exit code issues)
 console.log("Running security regression...");
 const secReg = runCmd("npm", ["run", "test:security"], 1800000); // 30 min
-const secPassed = secReg.output.includes("Security regression suite PASSED");
+const secPassed = /Security regression suite\s*PASSED/.test(secReg.output);
 results.security_regression = secPassed ? "PASS" : "FAIL";
 if (!secPassed) {
   results.real_failures.push(`security regression failed; output tail: ${secReg.output.slice(-800)}`);

@@ -1,7 +1,7 @@
 {
   "phase": "4",
   "pass": "8",
-  "timestamp": "2026-08-29T15:45:53.873Z",
+  "timestamp": "2026-09-01T12:44:51.072Z",
   "capabilities": {
     "node": {
       "available": true,
@@ -78,7 +78,7 @@
     "cosign": {
       "available": false,
       "version": "unknown",
-      "reason": "npm error npx canceled due to missing packages and no YES option: [\"cosign@0.2.1\"]\nnpm error A complete log of this run can be found in: C:\\Users\\pc\\AppData\\Local\\npm-cache\\_logs\\2026-08-29T15_46_15_666Z-debug-0.log",
+      "reason": "npm error npx canceled due to missing packages and no YES option: [\"cosign@0.2.1\"]\nnpm error A complete log of this run can be found in: C:\\Users\\pc\\AppData\\Local\\npm-cache\\_logs\\2026-09-01T12_45_52_358Z-debug-0.log",
       "status": "BLOCKED"
     },
     "terraform": {
@@ -93,7 +93,7 @@
   "security_regression": "FAIL",
   "pass7": "PASS",
   "real_failures": [
-    "security regression failed; output tail: ning\": \"sha256:e620e3148ae549ff0c070b8687f6d8da1aafdf9909851ad20a6b68d0405081f1\"\n}\n\nAll digests match: true\n\nRelease manifest saved to release-manifest.json\n\n✅ Release Integrity Final Audit PASSED\n\n--- Running: npx tsx scripts/run-release-integrity-enforcement.ts ---\nRelease integrity enforcement starting...\n[1] Building image...\nBuild OK\n[2] Pushing to local registry...\nPush OK\nDigest: localhost:5000/nexus/nexus-app@sha256:f0af3e5859629e90dca16ba63978ab2d878a24f7b5266060ee585c17e8627571\n[3] Generating SBOM...\nSBOM OK\n[4] Running security scan...\nSecurity scan passed\n[5] Signing...\nSign OK\n[6] Verifying...\nVerify OK\n[7] Deploying...\nDeployment healthy\n\n✅ Release integrity enforcement passed.\n❌ FAILED: npx tsx scripts/run-phase4-pass5-production-decision.ts\n\nSecurity regression suite FAILED"
+    "security regression failed; output tail: e120837c189\",\n  \"sign\": \"sha256:cc9cbc2fc7240baf7766f82efac7bab5c3279065d6459ab9507b6e120837c189\",\n  \"verify\": \"sha256:cc9cbc2fc7240baf7766f82efac7bab5c3279065d6459ab9507b6e120837c189\",\n  \"deploy\": \"sha256:cc9cbc2fc7240baf7766f82efac7bab5c3279065d6459ab9507b6e120837c189\",\n  \"running\": \"sha256:cc9cbc2fc7240baf7766f82efac7bab5c3279065d6459ab9507b6e120837c189\"\n}\n\nAll digests match: true\n\nRelease manifest saved to release-manifest.json\n\n✅ Release Integrity Final Audit PASSED\n(node:13248) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nℹ️ IaC misconfiguration check BLOCKED: Checkov not available"
   ],
   "real_blockers": [
     "syft: not found",

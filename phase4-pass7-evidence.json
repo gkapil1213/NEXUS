@@ -1,122 +1,122 @@
 {
   "phase": "4",
   "pass": "7",
-  "execution_id": "verify_e3b538c5-0c5b-49d2-8a94-ec534b1ef4bb",
-  "timestamp": "2026-08-29T16:11:55.454Z",
+  "execution_id": "verify_b2901f0c-a5e6-4dc1-a163-215c8d11a68c",
+  "timestamp": "2026-09-01T13:16:47.657Z",
   "tests": [
     {
       "name": "Create security execution",
       "status": "PASS",
-      "detail": "secexec_fd4bf1a7-ad3e-4ee0-8f1d-68734e954242",
-      "timestamp": "2026-08-29T16:11:55.458Z"
+      "detail": "secexec_0204916d-db1f-4d6f-93a6-93f56c781506",
+      "timestamp": "2026-09-01T13:16:47.661Z"
     },
     {
       "name": "Evidence record with hash",
       "status": "PASS",
-      "detail": "secevid_76e2fe67-387d-404e-87e1-7d00eaed6df7",
-      "timestamp": "2026-08-29T16:11:55.470Z"
+      "detail": "secevid_987f42a3-c8c7-49c3-a149-1e79f36f6dc2",
+      "timestamp": "2026-09-01T13:16:47.671Z"
     },
     {
       "name": "Evidence integrity valid",
       "status": "PASS",
-      "timestamp": "2026-08-29T16:11:55.473Z"
+      "timestamp": "2026-09-01T13:16:47.673Z"
     },
     {
       "name": "Evidence tamper detection",
       "status": "PASS",
-      "timestamp": "2026-08-29T16:11:55.474Z"
+      "timestamp": "2026-09-01T13:16:47.675Z"
     },
     {
       "name": "Finding ingestion",
       "status": "PASS",
-      "detail": "secfind_d7363d1b-9e96-4318-943d-8189cb788289",
-      "timestamp": "2026-08-29T16:11:55.475Z"
+      "detail": "secfind_25c58948-9634-4f40-a9db-4396d09a9c63",
+      "timestamp": "2026-09-01T13:16:47.677Z"
     },
     {
       "name": "Finding deduplication",
       "status": "PASS",
-      "timestamp": "2026-08-29T16:11:55.475Z"
+      "timestamp": "2026-09-01T13:16:47.677Z"
     },
     {
       "name": "Finding resolution",
       "status": "PASS",
       "detail": "RESOLVED",
-      "timestamp": "2026-08-29T16:11:55.477Z"
+      "timestamp": "2026-09-01T13:16:47.680Z"
     },
     {
       "name": "Finding reopen",
       "status": "PASS",
       "detail": "REOPENED",
-      "timestamp": "2026-08-29T16:11:55.477Z"
+      "timestamp": "2026-09-01T13:16:47.681Z"
     },
     {
       "name": "Risk assessment",
       "status": "PASS",
       "detail": "score=20",
-      "timestamp": "2026-08-29T16:11:55.478Z"
+      "timestamp": "2026-09-01T13:16:47.682Z"
     },
     {
       "name": "Risk history",
       "status": "PASS",
-      "timestamp": "2026-08-29T16:11:55.478Z"
+      "timestamp": "2026-09-01T13:16:47.683Z"
     },
     {
       "name": "Scanner health",
       "status": "PASS",
       "detail": "2 scanners",
-      "timestamp": "2026-08-29T16:11:55.479Z"
+      "timestamp": "2026-09-01T13:16:47.684Z"
     },
     {
       "name": "Security posture",
       "status": "PASS",
       "detail": "BLOCKED",
-      "timestamp": "2026-08-29T16:11:55.480Z"
+      "timestamp": "2026-09-01T13:16:47.685Z"
     },
     {
       "name": "Commit binding current",
       "status": "PASS",
       "detail": "CURRENT",
-      "timestamp": "2026-08-29T16:11:55.480Z"
+      "timestamp": "2026-09-01T13:16:47.686Z"
     },
     {
       "name": "Commit mismatch",
       "status": "PASS",
       "detail": "SECURITY_RESCAN_REQUIRED",
-      "timestamp": "2026-08-29T16:11:55.480Z"
+      "timestamp": "2026-09-01T13:16:47.686Z"
     },
     {
       "name": "Drift detection",
       "status": "PASS",
       "detail": "drift event created",
-      "timestamp": "2026-08-29T16:11:55.480Z"
+      "timestamp": "2026-09-01T13:16:47.686Z"
     },
     {
       "name": "Policy history",
       "status": "PASS",
-      "timestamp": "2026-08-29T16:11:55.481Z"
+      "timestamp": "2026-09-01T13:16:47.687Z"
     },
     {
       "name": "Security heartbeat",
       "status": "PASS",
       "detail": "HEALTHY",
-      "timestamp": "2026-08-29T16:11:55.481Z"
+      "timestamp": "2026-09-01T13:16:47.687Z"
     },
     {
       "name": "Fail‑safe: required scanner unavailable",
       "status": "PASS",
       "detail": "BLOCKED",
-      "timestamp": "2026-08-29T16:11:55.482Z"
+      "timestamp": "2026-09-01T13:16:47.688Z"
     },
     {
       "name": "Evidence expiration recorded",
       "status": "PASS",
       "detail": "expiry set in past",
-      "timestamp": "2026-08-29T16:11:55.484Z"
+      "timestamp": "2026-09-01T13:16:47.689Z"
     }
   ],
   "scanner_health": [
     {
-      "id": "scanhealth_9ff10b3a-68c2-4336-b5ef-9b51925c6430",
+      "id": "scanhealth_cc15928a-0831-4b70-8dc7-9bfc19a316bc",
       "scanner": "semgrep",
       "version": "1.2.3",
       "available": true,
@@ -124,25 +124,25 @@
       "failure_count": 0,
       "findings_count": 0,
       "health": "HEALTHY",
-      "updated_at": "2026-08-29T16:11:55.479Z"
+      "updated_at": "2026-09-01T13:16:47.683Z"
     },
     {
-      "id": "scanhealth_876c3109-5478-48cf-8ef0-d767eeaee6f1",
+      "id": "scanhealth_a8f7ca8f-6f55-45b6-8e05-1c774a14baa2",
       "scanner": "syft",
       "available": false,
       "timeout_count": 0,
       "failure_count": 0,
       "findings_count": 0,
       "health": "UNAVAILABLE",
-      "updated_at": "2026-08-29T16:11:55.479Z"
+      "updated_at": "2026-09-01T13:16:47.684Z"
     }
   ],
   "findings": [
     {
-      "finding_id": "secfind_d7363d1b-9e96-4318-943d-8189cb788289",
-      "evidence_id": "secevid_76e2fe67-387d-404e-87e1-7d00eaed6df7",
-      "project_id": "proj_1f279ed1-3457-4221-bd0a-a837d14b8d00",
-      "execution_id": "exec_417e5392-a0cd-4140-9e72-9c44a0b8fb5b",
+      "finding_id": "secfind_25c58948-9634-4f40-a9db-4396d09a9c63",
+      "evidence_id": "secevid_987f42a3-c8c7-49c3-a149-1e79f36f6dc2",
+      "project_id": "proj_dce44675-7227-4ad6-85d9-ddd406d293a2",
+      "execution_id": "exec_e5885774-3a60-4538-96ec-f227dfbe9023",
       "artifact_digest": "sha256:artifactA",
       "scanner": "semgrep",
       "category": "SAST",
@@ -151,15 +151,15 @@
       "fingerprint": "semgrep|SAST|hardcoded secret in config|src/config.ts|42|||",
       "file": "src/config.ts",
       "line": 42,
-      "first_seen": "2026-08-29T16:11:55.474Z",
-      "last_seen": "2026-08-29T16:11:55.475Z",
+      "first_seen": "2026-09-01T13:16:47.676Z",
+      "last_seen": "2026-09-01T13:16:47.677Z",
       "status": "CONFIRMED",
-      "created_at": "2026-08-29T16:11:55.474Z",
-      "updated_at": "2026-08-29T16:11:55.477Z"
+      "created_at": "2026-09-01T13:16:47.676Z",
+      "updated_at": "2026-09-01T13:16:47.681Z"
     }
   ],
   "posture": {
-    "project_id": "proj_1f279ed1-3457-4221-bd0a-a837d14b8d00",
+    "project_id": "proj_dce44675-7227-4ad6-85d9-ddd406d293a2",
     "status": "BLOCKED",
     "risk_score": 20,
     "critical": 0,
@@ -169,14 +169,14 @@
     "unknown": 0,
     "open_findings": 1,
     "verified_artifacts": 1,
-    "last_scan": "2026-08-29T16:11:55.459Z",
+    "last_scan": "2026-09-01T13:16:47.662Z",
     "last_release": null,
     "last_verified_deployment": null
   },
   "evidence": [],
   "policy": {
     "policy_version": "v1",
-    "execution_id": "exec_417e5392-a0cd-4140-9e72-9c44a0b8fb5b",
+    "execution_id": "exec_e5885774-3a60-4538-96ec-f227dfbe9023",
     "artifact_digest": "sha256:artifactA",
     "decision": "PASS",
     "reasons": [
@@ -186,18 +186,18 @@
       "rule1",
       "rule2"
     ],
-    "id": "poleval_64ffa640-e8b8-4296-a639-8133db0a7719",
-    "timestamp": "2026-08-29T16:11:55.480Z"
+    "id": "poleval_1841e857-7d78-4431-a5b5-adff6c532977",
+    "timestamp": "2026-09-01T13:16:47.687Z"
   },
   "drift": [
     {
-      "id": "drift_9c5b1d96-8830-4e00-94cf-3840c744ea77",
-      "project_id": "proj_1f279ed1-3457-4221-bd0a-a837d14b8d00",
+      "id": "drift_bbcfccc0-2f79-4769-be2b-bac0c8ad724b",
+      "project_id": "proj_dce44675-7227-4ad6-85d9-ddd406d293a2",
       "artifact_digest_expected": "sha256:expected",
       "artifact_digest_actual": "sha256:actual",
       "type": "artifact_changed",
       "details": "{\"expected\":\"sha256:expected\",\"actual\":\"sha256:actual\"}",
-      "detected_at": "2026-08-29T16:11:55.480Z"
+      "detected_at": "2026-09-01T13:16:47.686Z"
     }
   ],
   "failures": [],
