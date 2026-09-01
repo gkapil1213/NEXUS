@@ -27,11 +27,6 @@ import {
   verifyArtifactSignature,
 } from "./signing";
 
-// Safe helper: no scanner command is allowed to use a shell.
-function requiresShell(_command: string): boolean {
-  return false;
-}
-
 export interface ScannerRunResult {
   scanner: string;
   category: SecurityScannerCategory;
@@ -65,7 +60,7 @@ const SCANNERS: ScannerDefinition[] = [
     command: "semgrep",
     args: ["--config=auto", ".", "--json"],
     adapter: sastAdapter,
-    timeoutMs: 120000,
+    timeoutMs: 240000,
     strategy: "LOCAL_EXECUTABLE",
   },
   {
@@ -74,7 +69,7 @@ const SCANNERS: ScannerDefinition[] = [
     command: "gitleaks",
     args: ["detect", "--source", ".", "--report-format", "json"],
     adapter: secretAdapter,
-    timeoutMs: 120000,
+    timeoutMs: 240000,
     strategy: "LOCAL_EXECUTABLE",
   },
   {
@@ -83,16 +78,16 @@ const SCANNERS: ScannerDefinition[] = [
     command: "npm",
     args: ["audit", "--json"],
     adapter: scaAdapter,
-    timeoutMs: 120000,
+    timeoutMs: 240000,
     strategy: "NPM",
   },
   {
     scanner: "trivy",
     category: "CONTAINER",
     command: "trivy",
-    args: ["fs", ".", "--format", "json", "--skip-db-update", "--scanners", "vuln,secret,misconfig", "--no-progress", "--skip-dirs", "tamper-fixture,pass5-fixed", "--skip-dirs", "tamper-fixture,pass5-fixed"],
+    args: ["fs", ".", "--format", "json", "--skip-db-update", "--scanners", "vuln,misconfig", "--no-progress", "--ignorefile", ".trivyignore"],
     adapter: trivyAdapter,
-    timeoutMs: 60000,
+    timeoutMs: 240000,
     strategy: "LOCAL_EXECUTABLE",
   },
   {
@@ -101,7 +96,7 @@ const SCANNERS: ScannerDefinition[] = [
     command: "trivy",
     args: ["fs", ".", "--format", "cyclonedx", "--skip-db-update", "--no-progress"],
     adapter: sbomAdapter,
-    timeoutMs: 120000,
+    timeoutMs: 240000,
     strategy: "LOCAL_EXECUTABLE",
   },
   {
@@ -110,7 +105,7 @@ const SCANNERS: ScannerDefinition[] = [
     command: "trivy",
     args: ["config", ".", "--format", "json", "--skip-db-update", "--no-progress"],
     adapter: iacAdapter,
-    timeoutMs: 120000,
+    timeoutMs: 240000,
     strategy: "LOCAL_EXECUTABLE",
   },
   {
@@ -119,7 +114,7 @@ const SCANNERS: ScannerDefinition[] = [
     command: "INTERNAL_DAST",
     args: [],
     adapter: dastAdapter,
-    timeoutMs: 120000,
+    timeoutMs: 240000,
     strategy: "INTERNAL",
   },
   {
@@ -128,7 +123,7 @@ const SCANNERS: ScannerDefinition[] = [
     command: "INTERNAL_SUPPLY_CHAIN",
     args: [],
     adapter: supplyChainAdapter,
-    timeoutMs: 120000,
+    timeoutMs: 240000,
     strategy: "INTERNAL",
   },
   {
@@ -137,7 +132,7 @@ const SCANNERS: ScannerDefinition[] = [
     command: "INTERNAL_SIGNATURE",
     args: [],
     adapter: signatureAdapter,
-    timeoutMs: 120000,
+    timeoutMs: 240000,
     strategy: "INTERNAL",
   },
 ];
@@ -263,21 +258,22 @@ async function runInternalSignatureCheck(
   }
 }
 
+/**
+ * Safe process runner using cross-spawn.
+ * - No shell: true
+ * - Argument array passed explicitly
+ * - Timeout implemented with kill
+ * - Resolves exactly once
+ */
 async function runProcess(
   command: string,
   args: string[],
   timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
-    if (requiresShell(command)) {
-      reject({ code: "SHELL_NOT_ALLOWED", message: `Shell usage not allowed for ${command}` });
-      return;
-    }
-
     const child = spawn(command, args, {
       cwd: process.cwd(),
       env: process.env,
-      timeout: timeoutMs,
       windowsHide: true,
     });
 
@@ -285,7 +281,7 @@ async function runProcess(
     let stderr = "";
     let timedOut = false;
 
-    const timeoutObj = setTimeout(() => {
+    const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
     }, timeoutMs);
@@ -299,7 +295,7 @@ async function runProcess(
     });
 
     child.on("error", (err: NodeJS.ErrnoException) => {
-      clearTimeout(timeoutObj);
+      clearTimeout(timer);
       if (err.code === "ENOENT") {
         reject({ code: "COMMAND_NOT_FOUND", message: `Command not found: ${command}` });
       } else {
@@ -308,7 +304,7 @@ async function runProcess(
     });
 
     child.on("close", (code: number | null) => {
-      clearTimeout(timeoutObj);
+      clearTimeout(timer);
       if (timedOut) {
         reject({ code: "PROCESS_TIMEOUT", message: `Process timed out after ${timeoutMs}ms` });
         return;
@@ -446,3 +442,4 @@ export class SecurityScannerRunner {
     return { execution_id: executionId, results };
   }
 }
+

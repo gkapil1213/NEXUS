@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-08-31T15:21:53.674Z",
+  "typecheck": "PASS",
+  "security_regression": "FAIL",
+  "operations_regression": "TIMEOUT",
+  "capabilities": {
+    "terraform": "PASS",
+    "aws": "BLOCKED",
+    "dast": "BLOCKED"
+  },
+  "phase8": {
+    "metrics": "BLOCKED",
+    "logs": "BLOCKED",
+    "traces": "BLOCKED",
+    "health": "BLOCKED",
+    "alerts": "BLOCKED",
+    "incidents": "BLOCKED",
+    "slo": "BLOCKED",
+    "errorBudget": "BLOCKED",
+    "capacity": "BLOCKED",
+    "backup": "BLOCKED",
+    "recovery": "BLOCKED"
+  },
+  "blocked": [
+    {
+      "capability": "Terraform",
+      "reason": "executable not found"
+    },
+    {
+      "capability": "AWS",
+      "reason": "executable not found"
+    },
+    {
+      "capability": "DAST",
+      "reason": "STAGING_URL not set"
+    },
+    {
+      "capability": "Phase8 services",
+      "reason": "not yet implemented"
+    }
+  ],
+  "failures": [
+    {
+      "test": "security",
+      "output": "\n--- Running: npx tsx scripts/test-fail-safe.ts ---\n✅ Unsigned image verification: correctly failed/blocked\n✅ Tampered artifact: correctly failed/blocked\n✅ IaC misconfiguration: correctly failed/blocked\n✅ Production gate without approval: correctly failed/blocked\n✅ Critical vulnerability blocks rele"
+    },
+    {
+      "test": "operations",
+      "output": "\n--- Running: npx tsx scripts/run-phase5-pass5.ts ---\n=== Phase 5 Pass 5: Persistent Runtime Observability Verification ===\n\nPersistence engine: sqlite\nPersistent database: SQLite\n\n✅ Restart persistence verified\n\n✅ Phase 5 Pass 5 test completed.\n\n--- Running: npx tsx scripts/run-phase5-pass6.ts ---\n"
+    }
+  ]
+}

@@ -12,7 +12,10 @@ COPY . .
 RUN npm run build
 
 # ---------- Stage 2: Serve with non-root nginx ----------
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginx:stable-alpine
+RUN apk upgrade --no-cache
+RUN mkdir -p /var/cache/nginx/client_temp /var/run/nginx /var/log/nginx && chown -R 101:101 /var/cache/nginx /var/run/nginx /var/log/nginx
+RUN touch /run/nginx.pid && chown 101:101 /run/nginx.pid
 
 # Custom nginx config (health endpoint + SPA fallback)
 COPY nginx.conf /etc/nginx/conf.d/default.conf

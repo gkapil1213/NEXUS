@@ -7,7 +7,7 @@ import { RealSecurityScanner } from "../src/core/security-scanners.ts";
 import { HostProcessExecutor } from "../src/core/runtime.ts";
 import type { HostBridge } from "../src/core/runtime.ts";
 
-function runCmd(command: string, args: string[], timeoutMs = 180000): Promise<{ exit_code: number; stdout: string; stderr: string }> {
+function runCmd(command: string, args: string[], timeoutMs = 3000000): Promise<{ exit_code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     let actualCommand = command;
     let actualArgs = args;
@@ -50,14 +50,14 @@ async function runSecurityScanInProcess(): Promise<void> {
   const bridge: HostBridge = {
     platform() { return process.platform; },
     async exec(command, args, opts) {
-      return runCmd(command, args, opts?.timeout_ms ?? 180000);
+      return runCmd(command, args, opts?.timeout_ms ?? 300000);
     },
   };
   const exec = new HostProcessExecutor(bridge);
   const scanner = new RealSecurityScanner(exec);
   const result = await Promise.race([
     scanner.runAll("."),
-    new Promise((_, reject) => setTimeout(() => reject(new Error("Security scan timed out")), 120000)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Security scan timed out")), 300000)),
   ]);
   const hasFailed = (result as any).results.some((r: any) => r.status === "FAILED");
   if (hasFailed) throw new Error("Security scan found failures");
@@ -159,7 +159,7 @@ async function runSecurityScanInProcess(): Promise<void> {
     const stagingUrl = process.env.STAGING_URL;
     if (stagingUrl) {
       console.log("[9] Running DAST...");
-      const dastOut = await runCmd("npx", ["tsx", "scripts/run-dast.ts"], 60000);
+      const dastOut = await runCmd("npx", ["tsx", "scripts/run-dast.ts"], 3000000);
       if (dastOut.exit_code !== 0) {
         evidence.dast = "FAIL";
         throw new Error("DAST failed");

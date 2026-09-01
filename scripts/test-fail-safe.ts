@@ -8,16 +8,11 @@ import { SecurityPolicyEngine } from "../src/core/security-policy.ts";
 import { ReleaseService } from "../src/core/release-service.ts";
 import { ApprovalService } from "../src/core/approval-service.ts";
 
-function runCmd(command: string, args: string[], timeoutMs = 180000): Promise<{ exit_code: number; stdout: string; stderr: string }> {
+// Safe wrapper for Checkov only (the sole external command used in this test).
+function runCheckov(args: string[], timeoutMs = 180000): Promise<{ exit_code: number; stdout: string; stderr: string }> {
+  const command = process.platform === "win32" ? "checkov.cmd" : "checkov";
   return new Promise((resolve) => {
-    let actualCommand = command;
-    let actualArgs = args;
-    const lower = command.toLowerCase();
-    if (process.platform === "win32" && (lower.endsWith(".cmd") || lower.endsWith(".ps1") || ["npx", "npm", "tsx"].includes(lower))) {
-      actualCommand = process.env.ComSpec || "cmd.exe";
-      actualArgs = ["/c", command, ...args];
-    }
-    const child = spawn(actualCommand, actualArgs, { shell: false, windowsHide: true });
+    const child = spawn(command, args, { shell: false, windowsHide: true });
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -49,7 +44,7 @@ function runCmd(command: string, args: string[], timeoutMs = 180000): Promise<{ 
 
 const bridge: HostBridge = {
   platform: () => process.platform,
-  exec: (c, a, o) => runCmd(c, a, o?.timeout_ms ?? 180000),
+  exec: (_command, args, options) => runCheckov(args, options?.timeout_ms ?? 180000),
 };
 const exec = new HostProcessExecutor(bridge);
 
@@ -65,7 +60,7 @@ async function expectFailure(name: string, fn: () => Promise<boolean>): Promise<
       allPass = false;
     }
   } catch (err) {
-    console.error(`❌ ${name}: unexpected error:`, err);
+    console.error("❌ %s: unexpected error:", name, err);
     allPass = false;
   }
 }
@@ -84,9 +79,6 @@ async function expectFailure(name: string, fn: () => Promise<boolean>): Promise<
   });
 
   // 3. IaC misconfiguration (real Checkov against bad.tf)
-    // 3. IaC misconfiguration (real Checkov against bad.tf)
-   
-    // 3. IaC misconfiguration (real Checkov against bad.tf)
   await expectFailure("IaC misconfiguration", async () => {
     const dir = "tmp-iac-fixture";
     await fs.mkdir(dir, { recursive: true });
@@ -98,8 +90,7 @@ async function expectFailure(name: string, fn: () => Promise<boolean>): Promise<
     const res = await scanner.scan(dir);
     await fs.rm(dir, { recursive: true, force: true });
 
-    // If Checkov is unavailable (BLOCKED), it is an environment limitation,
-    // not a security failure. Treat it as a non-fatal warning.
+    // If Checkov is unavailable (BLOCKED), treat as environment limitation.
     if (res.status === "BLOCKED" && /not available|checkov/i.test(res.blocked_reason || "")) {
       console.warn("ℹ️ IaC misconfiguration check BLOCKED: Checkov not available");
       return true;
@@ -107,7 +98,6 @@ async function expectFailure(name: string, fn: () => Promise<boolean>): Promise<
 
     return res.status === "FAILED" || res.findings.length > 0;
   });
-    
 
   // 4. Production gate without approval
   await expectFailure("Production gate without approval", async () => {

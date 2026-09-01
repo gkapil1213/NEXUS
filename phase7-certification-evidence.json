@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-08-31T09:28:12.526Z",
+  "typecheck": "PASS",
+  "security_regression": "BLOCKED",
+  "operations_regression": "PASS",
+  "terraform": "BLOCKED",
+  "aws": "BLOCKED",
+  "aws_identity": "BLOCKED",
+  "docker": "PASS",
+  "ecr": "BLOCKED",
+  "ecs": "BLOCKED",
+  "cloudwatch": "BLOCKED",
+  "terraform_init": "BLOCKED",
+  "terraform_validate": "BLOCKED",
+  "terraform_plan": "BLOCKED",
+  "plan_inspection": "BLOCKED",
+  "plan_hash": "PASS",
+  "approval": "PASS",
+  "destructive_protection": "PASS",
+  "cost_analysis": "BLOCKED",
+  "infrastructure_apply": "BLOCKED",
+  "infrastructure_verification": "BLOCKED",
+  "cloud_deployment": "BLOCKED",
+  "health": "BLOCKED",
+  "smoke": "BLOCKED",
+  "drift_detection": "BLOCKED",
+  "rollback_protection": "BLOCKED",
+  "blocked": [
+    {
+      "capability": "Terraform",
+      "reason": "terraform executable not found"
+    },
+    {
+      "capability": "AWS",
+      "reason": "aws executable not found"
+    },
+    {
+      "capability": "DAST",
+      "reason": "STAGING_URL not set"
+    },
+    {
+      "capability": "ECR/ECS",
+      "reason": "AWS not available"
+    }
+  ],
+  "failures": [],
+  "files_changed": [
+    "scripts/run-phase7-certification.ts"
+  ]
+}

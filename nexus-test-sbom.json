@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.7.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:331abaae-95e8-43f7-ba87-6d565fe59d37",
+  "serialNumber": "urn:uuid:3fcc9351-4268-4dc6-b27a-04ac1a0ed0f2",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-09-01T10:20:58+00:00",
+    "timestamp": "2026-09-01T05:49:11+00:00",
     "tools": {
       "components": [
         {
@@ -20,14 +20,18 @@
       ]
     },
     "component": {
-      "bom-ref": "pkg:oci/nexus-app@sha256:c354858b11e0b777b54f18d4540a041ee4ac97b6eb98e34511723d88bcf1be3d?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-app",
+      "bom-ref": "pkg:oci/nexus-test@sha256:301c0b432837832bcff3bd7972e517d958a84c1524b55bed7b2af9d5cfd96269?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-test",
       "type": "container",
-      "name": "nexus-app:version-a",
-      "purl": "pkg:oci/nexus-app@sha256:c354858b11e0b777b54f18d4540a041ee4ac97b6eb98e34511723d88bcf1be3d?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-app",
+      "name": "nexus-test:latest",
+      "purl": "pkg:oci/nexus-test@sha256:301c0b432837832bcff3bd7972e517d958a84c1524b55bed7b2af9d5cfd96269?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-test",
       "properties": [
         {
           "name": "aquasecurity:trivy:DiffID",
-          "value": "sha256:0773465bad9280a37ec5872076c5df8f8ba0eb3ca58f93921e9cc7a4add026a8"
+          "value": "sha256:04e72ccde2256c08ba02a905943259b2af99e9663721527fc4374e6504977586"
+        },
+        {
+          "name": "aquasecurity:trivy:DiffID",
+          "value": "sha256:06be2d552cc35c2a56024ca4e0bc9f69fdf0431926aa6bcff21e816b5f64e77e"
         },
         {
           "name": "aquasecurity:trivy:DiffID",
@@ -43,6 +47,10 @@
         },
         {
           "name": "aquasecurity:trivy:DiffID",
+          "value": "sha256:43d8caf1319c37c387340b2b7e50dedb7403b39739037dab79a3e2e53e327d46"
+        },
+        {
+          "name": "aquasecurity:trivy:DiffID",
           "value": "sha256:55e4a31ab4310b0eeba377fb8e6c22ac9ff83ee72a768afe143d59c5539e6fd4"
         },
         {
@@ -51,7 +59,15 @@
         },
         {
           "name": "aquasecurity:trivy:DiffID",
+          "value": "sha256:b53d10ac5ea251c965b975359340eaebe39e2a55177e03e9893d3f7882cac8df"
+        },
+        {
+          "name": "aquasecurity:trivy:DiffID",
           "value": "sha256:b742fbccbf046084c360ef4418989e929cfaa0fb1fe60d41e0177537bd573142"
+        },
+        {
+          "name": "aquasecurity:trivy:DiffID",
+          "value": "sha256:bebaac9e2f5fcef5a74a922bd009f94ae47d37af63738ecb5f309100d29d3514"
         },
         {
           "name": "aquasecurity:trivy:DiffID",
@@ -59,27 +75,11 @@
         },
         {
           "name": "aquasecurity:trivy:DiffID",
-          "value": "sha256:ceac05c4782b5c75d238fe137faed89d477706373481816a1b0d076601df3536"
-        },
-        {
-          "name": "aquasecurity:trivy:DiffID",
           "value": "sha256:da0e2347c2a2178fbc5a53b599b89e48b26ace6ccff762033ef53b267c69e741"
         },
         {
-          "name": "aquasecurity:trivy:DiffID",
-          "value": "sha256:e033c40fc81f4e7a2b8cc5c215c69bb8e1720a62e4f07a2fa841db9ed227b5b7"
-        },
-        {
-          "name": "aquasecurity:trivy:DiffID",
-          "value": "sha256:e903bc7804142707c3ac3bb74bfd0a2b2b9031dc7efb2875de9fd8de67127ba9"
-        },
-        {
-          "name": "aquasecurity:trivy:DiffID",
-          "value": "sha256:f1e06fb02ef5e08c2db7784cc06fb2d52bc2432083acb665fc133d17f0855bee"
-        },
-        {
           "name": "aquasecurity:trivy:ImageID",
-          "value": "sha256:c354858b11e0b777b54f18d4540a041ee4ac97b6eb98e34511723d88bcf1be3d"
+          "value": "sha256:301c0b432837832bcff3bd7972e517d958a84c1524b55bed7b2af9d5cfd96269"
         },
         {
           "name": "aquasecurity:trivy:Labels:maintainer",
@@ -87,23 +87,15 @@
         },
         {
           "name": "aquasecurity:trivy:Reference",
-          "value": "nexus-app:version-a"
+          "value": "nexus-test:latest"
         },
         {
           "name": "aquasecurity:trivy:RepoDigest",
-          "value": "localhost:5000/nexus/nexus-app@sha256:c354858b11e0b777b54f18d4540a041ee4ac97b6eb98e34511723d88bcf1be3d"
-        },
-        {
-          "name": "aquasecurity:trivy:RepoDigest",
-          "value": "nexus-app@sha256:c354858b11e0b777b54f18d4540a041ee4ac97b6eb98e34511723d88bcf1be3d"
+          "value": "nexus-test@sha256:301c0b432837832bcff3bd7972e517d958a84c1524b55bed7b2af9d5cfd96269"
         },
         {
           "name": "aquasecurity:trivy:RepoTag",
-          "value": "localhost:5000/nexus/nexus-app:version-a"
-        },
-        {
-          "name": "aquasecurity:trivy:RepoTag",
-          "value": "nexus-app:version-a"
+          "value": "nexus-test:latest"
         },
         {
           "name": "aquasecurity:trivy:SchemaVersion",
@@ -118,7 +110,7 @@
   },
   "components": [
     {
-      "bom-ref": "85178459-5c7b-4227-924c-217a1d197ae5",
+      "bom-ref": "4ea01fd5-0691-42b0-a6ae-6d7e8204edfd",
       "type": "operating-system",
       "name": "alpine",
       "version": "3.24.1",
@@ -408,11 +400,11 @@
       "properties": [
         {
           "name": "aquasecurity:trivy:LayerDiffID",
-          "value": "sha256:ceac05c4782b5c75d238fe137faed89d477706373481816a1b0d076601df3536"
+          "value": "sha256:43d8caf1319c37c387340b2b7e50dedb7403b39739037dab79a3e2e53e327d46"
         },
         {
           "name": "aquasecurity:trivy:LayerDigest",
-          "value": "sha256:3332228f5ebc7dbd7084957c6c28293d934607c5d75dc744d0bcfd086f3d2218"
+          "value": "sha256:d6822f8e68f36cf9ac35a532fb230b1c1fcf7b6ebe7790d723ff0188fbb8ec2a"
         },
         {
           "name": "aquasecurity:trivy:PkgID",
@@ -1021,11 +1013,11 @@
       "properties": [
         {
           "name": "aquasecurity:trivy:LayerDiffID",
-          "value": "sha256:ceac05c4782b5c75d238fe137faed89d477706373481816a1b0d076601df3536"
+          "value": "sha256:43d8caf1319c37c387340b2b7e50dedb7403b39739037dab79a3e2e53e327d46"
         },
         {
           "name": "aquasecurity:trivy:LayerDigest",
-          "value": "sha256:3332228f5ebc7dbd7084957c6c28293d934607c5d75dc744d0bcfd086f3d2218"
+          "value": "sha256:d6822f8e68f36cf9ac35a532fb230b1c1fcf7b6ebe7790d723ff0188fbb8ec2a"
         },
         {
           "name": "aquasecurity:trivy:PkgID",
@@ -1217,11 +1209,11 @@
       "properties": [
         {
           "name": "aquasecurity:trivy:LayerDiffID",
-          "value": "sha256:ceac05c4782b5c75d238fe137faed89d477706373481816a1b0d076601df3536"
+          "value": "sha256:43d8caf1319c37c387340b2b7e50dedb7403b39739037dab79a3e2e53e327d46"
         },
         {
           "name": "aquasecurity:trivy:LayerDigest",
-          "value": "sha256:3332228f5ebc7dbd7084957c6c28293d934607c5d75dc744d0bcfd086f3d2218"
+          "value": "sha256:d6822f8e68f36cf9ac35a532fb230b1c1fcf7b6ebe7790d723ff0188fbb8ec2a"
         },
         {
           "name": "aquasecurity:trivy:PkgID",
@@ -1413,11 +1405,11 @@
       "properties": [
         {
           "name": "aquasecurity:trivy:LayerDiffID",
-          "value": "sha256:ceac05c4782b5c75d238fe137faed89d477706373481816a1b0d076601df3536"
+          "value": "sha256:43d8caf1319c37c387340b2b7e50dedb7403b39739037dab79a3e2e53e327d46"
         },
         {
           "name": "aquasecurity:trivy:LayerDigest",
-          "value": "sha256:3332228f5ebc7dbd7084957c6c28293d934607c5d75dc744d0bcfd086f3d2218"
+          "value": "sha256:d6822f8e68f36cf9ac35a532fb230b1c1fcf7b6ebe7790d723ff0188fbb8ec2a"
         },
         {
           "name": "aquasecurity:trivy:PkgID",
@@ -2095,11 +2087,11 @@
       "properties": [
         {
           "name": "aquasecurity:trivy:LayerDiffID",
-          "value": "sha256:ceac05c4782b5c75d238fe137faed89d477706373481816a1b0d076601df3536"
+          "value": "sha256:43d8caf1319c37c387340b2b7e50dedb7403b39739037dab79a3e2e53e327d46"
         },
         {
           "name": "aquasecurity:trivy:LayerDigest",
-          "value": "sha256:3332228f5ebc7dbd7084957c6c28293d934607c5d75dc744d0bcfd086f3d2218"
+          "value": "sha256:d6822f8e68f36cf9ac35a532fb230b1c1fcf7b6ebe7790d723ff0188fbb8ec2a"
         },
         {
           "name": "aquasecurity:trivy:PkgID",
@@ -3790,7 +3782,7 @@
   ],
   "dependencies": [
     {
-      "ref": "85178459-5c7b-4227-924c-217a1d197ae5",
+      "ref": "4ea01fd5-0691-42b0-a6ae-6d7e8204edfd",
       "dependsOn": [
         "pkg:apk/alpine/alpine-baselayout@3.7.2-r1?arch=x86_64&distro=3.24.1",
         "pkg:apk/alpine/alpine-release@3.24.1-r0?arch=x86_64&distro=3.24.1",
@@ -4326,9 +4318,9 @@
       ]
     },
     {
-      "ref": "pkg:oci/nexus-app@sha256:c354858b11e0b777b54f18d4540a041ee4ac97b6eb98e34511723d88bcf1be3d?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-app",
+      "ref": "pkg:oci/nexus-test@sha256:301c0b432837832bcff3bd7972e517d958a84c1524b55bed7b2af9d5cfd96269?arch=amd64&repository_url=index.docker.io%2Flibrary%2Fnexus-test",
       "dependsOn": [
-        "85178459-5c7b-4227-924c-217a1d197ae5"
+        "4ea01fd5-0691-42b0-a6ae-6d7e8204edfd"
       ]
     }
   ],
