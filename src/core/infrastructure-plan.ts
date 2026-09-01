@@ -21,11 +21,22 @@ export function parsePlanChanges(planJson: string): PlanChange[] {
     const resourceChanges = plan.resource_changes ?? [];
     const changes: PlanChange[] = [];
     for (const rc of resourceChanges) {
-      const action = rc.change?.actions?.[0] ?? "NO_CHANGE";
-      const resource = rc.address ?? "unknown";
+      const actions = rc.change?.actions ?? [];
+      let action: PlanAction = "NO_CHANGE";
+      if (actions.includes("delete") && actions.includes("create")) {
+        action = "REPLACE";
+      } else if (actions.includes("delete")) {
+        action = "DELETE";
+      } else if (actions.includes("update")) {
+        action = "UPDATE";
+      } else if (actions.includes("create")) {
+        action = "CREATE";
+      } else if (actions.includes("read")) {
+        action = "NO_CHANGE";
+      }
       changes.push({
-        resource,
-        action: action as PlanAction,
+        resource: rc.address ?? "unknown",
+        action,
         risk: "LOW",
         reason: rc.change?.reason ?? null,
       });
@@ -37,9 +48,30 @@ export function parsePlanChanges(planJson: string): PlanChange[] {
 }
 
 export function classifyRisk(changes: PlanChange[]): PlanInspectionResult["risk"] {
-  if (changes.some(c => (c.action === "DELETE" || c.action === "REPLACE") && c.resource.includes("aws_vpc"))) return "CRITICAL";
-  if (changes.some(c => c.action === "DELETE" || c.action === "REPLACE")) return "HIGH";
-  if (changes.some(c => c.action === "CREATE")) return "MEDIUM";
+  // Critical resources
+  const criticalResourcePatterns = [
+    "aws_vpc", "aws_subnet", "aws_route_table", "aws_iam", "aws_security_group", "aws_db_"
+  ];
+
+  const isCriticalResource = (resource: string) =>
+    criticalResourcePatterns.some(pattern => resource.includes(pattern));
+
+  if (
+    changes.some(
+      c => (c.action === "DELETE" || c.action === "REPLACE") && isCriticalResource(c.resource)
+    )
+  ) {
+    return "CRITICAL";
+  }
+
+  if (changes.some(c => c.action === "DELETE" || c.action === "REPLACE")) {
+    return "HIGH";
+  }
+
+  if (changes.some(c => c.action === "CREATE" || c.action === "UPDATE")) {
+    return "MEDIUM";
+  }
+
   return "LOW";
 }
 

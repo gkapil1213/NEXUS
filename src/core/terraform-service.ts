@@ -4,6 +4,7 @@ import type {
   TerraformPlanChange,
   CloudOperationResult,
 } from "./cloud-types";
+import { parsePlanChanges, classifyRisk } from "./infrastructure-plan";
 
 export class TerraformService {
   private async runTerraform(
@@ -39,6 +40,16 @@ export class TerraformService {
 
   async format(dir: string): Promise<CloudOperationResult> {
     const res = await this.runTerraform(["fmt", "-check"], dir);
+    return {
+      status: res.exitCode === 0 ? "PASS" : "FAIL",
+      operation: "fmt",
+      provider: "aws",
+      reason: res.exitCode === 0 ? null : res.stderr,
+    };
+  }
+
+  async formatWrite(dir: string): Promise<CloudOperationResult> {
+    const res = await this.runTerraform(["fmt"], dir);
     return {
       status: res.exitCode === 0 ? "PASS" : "FAIL",
       operation: "fmt",
@@ -91,11 +102,9 @@ export class TerraformService {
       };
     }
     const showRes = await this.runTerraform(["show", "-json", "plan.tfplan"], dir);
-    const changes = this.parsePlanChanges(showRes.stdout);
-    const destructive = changes.filter(
-      (c) => c.action === "DESTROY" || c.action === "REPLACE"
-    );
-    const risk = this.classifyRisk(changes);
+    const changes = parsePlanChanges(showRes.stdout) as TerraformPlanChange[];
+    const destructive = changes.filter(c => c.action === "DELETE" || c.action === "REPLACE");
+    const risk = classifyRisk(changes);
     return {
       status: "PASS",
       changes,
@@ -125,40 +134,5 @@ export class TerraformService {
       provider: "aws",
       reason: res.exitCode === 0 ? null : res.stderr,
     };
-  }
-
-  private parsePlanChanges(planJson: string): TerraformPlanChange[] {
-    try {
-      const plan = JSON.parse(planJson);
-      const resources = plan.resource_changes ?? [];
-      const changes: TerraformPlanChange[] = [];
-      for (const res of resources) {
-        const action = res.change?.actions?.[0] ?? "NO_CHANGE";
-        changes.push({
-          resource: res.address ?? "unknown",
-          action: action as TerraformPlanChange["action"],
-          risk: "LOW",
-          reason: res.change?.reason ?? null,
-        });
-      }
-      return changes;
-    } catch {
-      return [];
-    }
-  }
-
-  private classifyRisk(changes: TerraformPlanChange[]): TerraformPlanSummary["risk"] {
-    if (
-      changes.some(
-        (c) =>
-          (c.action === "DESTROY" || c.action === "REPLACE") &&
-          c.resource.includes("aws_vpc")
-      )
-    )
-      return "CRITICAL";
-    if (changes.some((c) => c.action === "DESTROY" || c.action === "REPLACE"))
-      return "HIGH";
-    if (changes.some((c) => c.action === "CREATE")) return "MEDIUM";
-    return "LOW";
   }
 }

@@ -82,6 +82,36 @@ export class AWSProvider extends CloudProvider {
     };
   }
 
+  async listS3Buckets(): Promise<CloudOperationResult> {
+    const res = await this.runAws(["s3api", "list-buckets"]);
+    return {
+      status: res.exitCode === 0 ? "PASS" : "BLOCKED",
+      operation: "listS3Buckets",
+      provider: this.name,
+      reason: res.exitCode === 0 ? null : res.stderr,
+    };
+  }
+
+  async listEC2Instances(): Promise<CloudOperationResult> {
+    const res = await this.runAws(["ec2", "describe-instances"]);
+    return {
+      status: res.exitCode === 0 ? "PASS" : "BLOCKED",
+      operation: "listEC2Instances",
+      provider: this.name,
+      reason: res.exitCode === 0 ? null : res.stderr,
+    };
+  }
+
+  async listVPCs(): Promise<CloudOperationResult> {
+    const res = await this.runAws(["ec2", "describe-vpcs"]);
+    return {
+      status: res.exitCode === 0 ? "PASS" : "BLOCKED",
+      operation: "listVPCs",
+      provider: this.name,
+      reason: res.exitCode === 0 ? null : res.stderr,
+    };
+  }
+
   async listRepositories(): Promise<CloudOperationResult> {
     const res = await this.runAws(["ecr", "describe-repositories"]);
     return {
