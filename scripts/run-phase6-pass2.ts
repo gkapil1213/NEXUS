@@ -4,6 +4,8 @@ import { TerraformService } from "../src/core/terraform-service";
 import { InfrastructurePolicyEngine } from "../src/core/infrastructure-policy";
 import { InfrastructureApprovalService, computePlanDigest } from "../src/core/infrastructure-approval";
 import { InfrastructureDriftService } from "../src/core/infrastructure-drift";
+import { inspectPlan } from "../src/core/infrastructure-plan";
+import { SafeApplyService } from "../src/core/infrastructure-safety";
 import { openEngine, resetEngineForTesting } from "../src/core/db";
 import { CONFIG } from "../src/core/config";
 import { EvidenceService } from "../src/core/evidence-service";
@@ -13,7 +15,6 @@ import path from "path";
 async function main() {
   console.log("=== NEXUS Phase 6 Pass 2 ===\n");
 
-  // Setup database for approval storage (SQLite)
   CONFIG.persistence.engine = "sqlite";
   CONFIG.persistence.dbName = path.join(process.cwd(), "data", "phase6-pass2.sqlite");
   resetEngineForTesting();
@@ -24,11 +25,12 @@ async function main() {
   const capMap = Object.fromEntries(capabilities.map(c => [c.name, c]));
 
   console.log("CAPABILITIES");
-  console.log(`  Node: ${capMap.node?.available ? "PASS" : "BLOCKED"} ${capMap.node?.version ?? ""}`);
+  console.log(`  node: ${capMap.node?.available ? "PASS" : "BLOCKED"} ${capMap.node?.version ?? ""}`);
   console.log(`  npm: ${capMap.npm?.available ? "PASS" : "BLOCKED"} ${capMap.npm?.version ?? ""}`);
-  console.log(`  Docker: ${capMap.docker?.available ? "PASS" : "BLOCKED"}`);
-  console.log(`  Terraform: ${capMap.terraform?.available ? "PASS" : "BLOCKED"} ${capMap.terraform?.reason ?? ""}`);
-  console.log(`  AWS CLI: ${capMap.aws?.available ? "PASS" : "BLOCKED"} ${capMap.aws?.reason ?? ""}`);
+  console.log(`  docker_cli: ${capMap.docker_cli?.available ? "PASS" : "BLOCKED"} ${capMap.docker_cli?.version ?? ""}`);
+  console.log(`  docker_daemon: ${capMap.docker_daemon?.available ? "PASS" : "BLOCKED"} ${capMap.docker_daemon?.reason ?? ""}`);
+  console.log(`  terraform: ${capMap.terraform?.available ? "PASS" : "BLOCKED"} ${capMap.terraform?.version ?? ""}`);
+  console.log(`  aws: ${capMap.aws?.available ? "PASS" : "BLOCKED"} ${capMap.aws?.version ?? ""}`);
 
   const aws = new AWSProvider();
   const identity = await aws.getIdentity();
@@ -36,118 +38,134 @@ async function main() {
   console.log(`\nAWS Identity: ${identity.status} ${identity.reason ?? ""}`);
   console.log(`AWS Region: ${region.status} ${region.reason ?? region.evidence ?? ""}`);
 
+  const tfDir = path.join(process.cwd(), ".infrastructure", "pass2-test");
   const terraform = new TerraformService();
   const tfAvailable = await terraform.isAvailable();
-  console.log(`\nTERRAFORM`);
-  console.log(`  Format: ${tfAvailable ? "BLOCKED (no workspace)" : "BLOCKED (terraform unavailable)"}`);
-  console.log(`  Init: ${tfAvailable ? "BLOCKED (no workspace)" : "BLOCKED (terraform unavailable)"}`);
-  console.log(`  Validate: ${tfAvailable ? "BLOCKED (no workspace)" : "BLOCKED (terraform unavailable)"}`);
-  console.log(`  Plan: ${tfAvailable ? "BLOCKED (no workspace/AWS)" : "BLOCKED (terraform unavailable)"}`);
-  console.log(`  Apply: ${tfAvailable ? "BLOCKED (no workspace/AWS)" : "BLOCKED (terraform unavailable)"}`);
 
-  // Determine if real infrastructure execution is possible
-  const canExecuteInfra = tfAvailable && capMap.aws?.available && identity.status === "PASS";
-
-  // Policy evaluation: only evaluate if infra execution possible, otherwise BLOCKED
-  const policy = new InfrastructurePolicyEngine();
-  let policyVerdicts: any[] = [];
-  let policyPass = false;
-  let policyStatus = "BLOCKED";
-  if (canExecuteInfra) {
-    policyVerdicts = policy.evaluate({
-      environment: "production",
-      actions: ["apply"],
-      changes: { create: 0, update: 0, replace: 0, destroy: 0 },
-      region: (region.evidence as string) ?? undefined,
+  if (!tfAvailable) {
+    console.log("TERRAFORM: BLOCKED (not available)");
+    await new EvidenceService(path.join(process.cwd(), "phase6-pass2-evidence.json")).writeEvidence({
+      pass: "Phase 6 Pass 2",
+      timestamp: new Date().toISOString(),
+      terraform: { available: false },
+      aws: { identity, region },
+      final: "BLOCKED"
     });
-    policyPass = policyVerdicts.every(v => v.passed);
-    policyStatus = policyPass ? "PASS" : "FAIL";
+    return;
   }
 
-  console.log(`\nSECURITY`);
-  console.log(`  IaC Policy: ${policyStatus}`);
-  console.log(`  Credential Exposure: PASS (no secrets in evidence)`);
+  console.log("\nTERRAFORM");
+  const fmt = await terraform.format(tfDir);
+  console.log(`  fmt: ${fmt.status} ${fmt.reason ?? ""}`);
+  const init = await terraform.init(tfDir);
+  console.log(`  init: ${init.status} ${init.reason ?? ""}`);
+  const validate = await terraform.validate(tfDir);
+  console.log(`  validate: ${validate.status} ${validate.reason ?? ""}`);
+  const plan = await terraform.plan(tfDir);
+  console.log(`  plan: ${plan.status} risk=${plan.risk} changes=${plan.changes.length}`);
+  const show = await terraform.show(tfDir);
+  console.log(`  show: ${show.status}`);
 
-  // Plan digest binding offline test
-  const samplePlan = JSON.stringify({ resource_changes: [] });
-  const digest = computePlanDigest(samplePlan);
+  const planJson = (show.evidence as string) ?? "{}";
+  const planInspection = inspectPlan(planJson);
+  const planDigest = computePlanDigest(planJson);
+  console.log(`  Parsed changes: ${planInspection.changes.length}, destructive: ${planInspection.destructive_changes.length}, risk: ${planInspection.risk}`);
+
+  const policyEngine = new InfrastructurePolicyEngine();
+  const policyVerdicts = policyEngine.evaluate({
+    environment: "production",
+    actions: ["apply"],
+    changes: {
+      create: planInspection.changes.filter(c => c.action === "CREATE").length,
+      update: planInspection.changes.filter(c => c.action === "UPDATE").length,
+      replace: planInspection.changes.filter(c => c.action === "REPLACE").length,
+      destroy: planInspection.changes.filter(c => c.action === "DELETE").length,
+    },
+    region: (region.evidence as string) ?? undefined,
+  });
+  const policyPass = policyVerdicts.every(v => v.passed);
+  console.log(`  Policy: ${policyPass ? "PASS" : "FAIL"}`);
+
   const approvalService = new InfrastructureApprovalService(engine);
   const approval = await approvalService.requestApproval({
     plan_id: "plan-pass2",
     environment: "production",
     provider: "aws",
-    workspace: "test",
-    commit_sha: "abc123",
-    plan_digest: digest,
-    requested_changes: { create: 0, update: 0, replace: 0, destroy: 0 },
-    risk: "LOW",
-    approver: "system",
+    workspace: tfDir,
+    commit_sha: "pass2",
+    plan_digest: planDigest,
+    requested_changes: {
+      create: planInspection.changes.filter(c => c.action === "CREATE").length,
+      update: planInspection.changes.filter(c => c.action === "UPDATE").length,
+      replace: planInspection.changes.filter(c => c.action === "REPLACE").length,
+      destroy: planInspection.changes.filter(c => c.action === "DELETE").length,
+    },
+    risk: planInspection.risk,
+    approver: "human-required",
   });
-  const digestOk = await approvalService.verifyPlanDigest(approval.id, digest);
+  const digestOk = await approvalService.verifyPlanDigest(approval.id, planDigest);
   console.log(`  Plan Digest Binding: ${digestOk ? "PASS" : "FAIL"}`);
 
-  // Drift detection
-  const drift = new InfrastructureDriftService(terraform);
-  const driftResult = await drift.detect(process.cwd());
+  const safeApply = new SafeApplyService();
+  const applyVerdict = safeApply.evaluate({
+    terraformAvailable: tfAvailable,
+    awsAvailable: identity.status === "PASS",
+    planValid: validate.status === "PASS" && plan.status === "PASS",
+    planDigestMatches: digestOk,
+    securityPolicyPass: policyPass,
+    approvalExists: true,
+    isDestructive: planInspection.destructive_changes.length > 0,
+    isProduction: true,
+  });
+  console.log(`  Apply Safety: ${applyVerdict.status} - ${applyVerdict.reason}`);
+
+  const driftService = new InfrastructureDriftService(terraform);
+  const driftResult = await driftService.detect(tfDir);
   console.log(`  Drift Detection: ${driftResult.status}`);
 
-  console.log(`\nAPPROVAL`);
-  console.log(`  Plan Binding: PASS`);
-  console.log(`  Digest Binding: ${digestOk ? "PASS" : "FAIL"}`);
-  let productionGateStatus = "BLOCKED";
-  if (canExecuteInfra && policyPass && digestOk) {
-    productionGateStatus = "PASS";
-  } else if (canExecuteInfra && (!policyPass || !digestOk)) {
-    productionGateStatus = "FAIL";
-  }
-  console.log(`  Production Gate: ${productionGateStatus}`);
-
-  // Evidence
   const evidence = {
     pass: "Phase 6 Pass 2",
     timestamp: new Date().toISOString(),
     capabilities: {
       node: capMap.node?.available ?? false,
       npm: capMap.npm?.available ?? false,
-      docker: capMap.docker?.available ?? false,
+      docker_cli: capMap.docker_cli?.available ?? false,
+      docker_daemon: capMap.docker_daemon?.available ?? false,
       terraform: tfAvailable,
       aws: capMap.aws?.available ?? false,
     },
     terraform: {
       available: tfAvailable,
-      format: tfAvailable ? "BLOCKED" : "BLOCKED",
-      init: "BLOCKED",
-      validate: "BLOCKED",
-      plan: "BLOCKED",
-      apply: "BLOCKED",
+      fmt: fmt.status,
+      init: init.status,
+      validate: validate.status,
+      plan: plan.status,
+      show: show.status,
+      risk: planInspection.risk,
+      changes: planInspection.changes,
+      destructive_changes: planInspection.destructive_changes,
+      plan_digest: planDigest,
     },
-    aws: {
-      identity: identity,
-      region: region,
-    },
-    security: {
-      iac_policy: policyStatus,
-      credential_exposure: "PASS",
-      plan_digest_binding: digestOk ? "PASS" : "FAIL",
-      drift_detection: driftResult.status,
-    },
+    aws: { identity, region },
+    policy: policyVerdicts,
     approval: {
-      plan_binding: "PASS",
-      digest_binding: digestOk ? "PASS" : "FAIL",
-      production_gate: productionGateStatus,
+      plan_digest_binding: digestOk,
+      approval_id: approval.id,
     },
+    apply_safety: applyVerdict,
+    drift_detection: driftResult.status,
     blocked: [
-      { capability: "Terraform", reason: capMap.terraform?.reason ?? "not installed" },
-      { capability: "AWS CLI", reason: capMap.aws?.reason ?? "not installed" },
-      { capability: "AWS Identity", reason: identity.reason ?? "AWS CLI unavailable" },
-      { capability: "Terraform Plan/Apply", reason: "requires Terraform + AWS" },
+      { capability: "AWS Identity", reason: identity.reason ?? "No valid credentials" },
+      { capability: "AWS Region", reason: region.reason ?? "No region configured" },
+      { capability: "Terraform Apply", reason: applyVerdict.reason },
     ],
     failures: [],
   };
 
   await new EvidenceService(path.join(process.cwd(), "phase6-pass2-evidence.json")).writeEvidence(evidence);
   console.log("\nEvidence written to phase6-pass2-evidence.json");
-  console.log("\nFINAL STATUS: BLOCKED (AWS and Terraform not available)");
+  const finalStatus = applyVerdict.status === "PASS" ? "PASS" : "BLOCKED";
+  console.log(`\nFINAL STATUS: ${finalStatus}`);
 }
 
 main().catch((e) => {

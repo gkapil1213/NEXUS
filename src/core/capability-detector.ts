@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import spawn from "cross-spawn";
 
 export interface Capability {
   name: string;
@@ -11,17 +11,15 @@ export interface Capability {
 export class CapabilityDetector {
   private async runCommand(cmd: string, args: string[] = [], timeoutMs = 10000): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve) => {
-      // nosemgrep: spawn-shell-true – shell is required for Windows command resolution; commands are static
-      // nosemgrep: spawn-shell-true, detect-child-process
-const child = spawn(cmd, args, { shell: true, windowsHide: true });
+      const child = spawn(cmd, args, { shell: false, windowsHide: true });
       let stdout = "";
       let stderr = "";
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
         resolve({ stdout, stderr: "Command timed out", exitCode: 124 });
       }, timeoutMs);
-      child.stdout.on("data", (d: any) => (stdout += d.toString()));
-      child.stderr.on("data", (d: any) => (stderr += d.toString()));
+      child.stdout?.on("data", (d: any) => (stdout += d.toString()));
+      child.stderr?.on("data", (d: any) => (stderr += d.toString()));
       child.on("error", (err: any) => {
         clearTimeout(timer);
         resolve({ stdout, stderr: String(err), exitCode: 1 });
@@ -33,15 +31,15 @@ const child = spawn(cmd, args, { shell: true, windowsHide: true });
     });
   }
 
-  private async checkCommand(cmd: string, versionArgs: string[] = ["--version"]): Promise<Capability> {
-    const res = await this.runCommand(cmd, versionArgs);
+  private async checkCommand(cmd: string, versionArgs: string[] = ["--version"], capabilityName?: string, timeoutMs = 10000): Promise<Capability> {
+    const res = await this.runCommand(cmd, versionArgs, timeoutMs);
     const available = res.exitCode === 0;
     let version = null;
     if (available) {
       version = res.stdout.trim().split("\n")[0] || res.stderr.trim().split("\n")[0];
     }
     return {
-      name: cmd,
+      name: capabilityName ?? cmd,
       available,
       version,
       reason: available ? null : res.stderr.trim() || "executable not found",
@@ -51,23 +49,23 @@ const child = spawn(cmd, args, { shell: true, windowsHide: true });
 
   async detect(): Promise<Capability[]> {
     const checks = [
-      this.checkCommand("node"),
-      this.checkCommand("npm", ["--version"]),
-      this.checkCommand("docker", ["--version"]),
-      this.checkCommand("docker", ["info"]),
-      this.checkCommand("cosign", ["version"]),
-      this.checkCommand("semgrep", ["--version"]),
-      this.checkCommand("gitleaks", ["version"]),
-      this.checkCommand("trivy", ["--version"]),
-      this.checkCommand("checkov", ["--version"]),
-      this.checkCommand("syft", ["version"]),
-      this.checkCommand("grype", ["version"]),
-      this.checkCommand("playwright", ["--version"]),
-      this.checkCommand("chromium", ["--version"]),
-      this.checkCommand("git", ["--version"]),
-      this.checkCommand("curl", ["--version"]),
-      this.checkCommand("terraform", ["version"]),
-      this.checkCommand("aws", ["--version"]),
+      this.checkCommand("node", ["--version"], "node"),
+      this.checkCommand("npm", ["--version"], "npm"),
+      this.checkCommand("docker", ["--version"], "docker_cli"),
+      this.checkCommand("docker", ["info"], "docker_daemon", 30000),
+      this.checkCommand("cosign", ["version"], "cosign"),
+      this.checkCommand("semgrep", ["--version"], "semgrep"),
+      this.checkCommand("gitleaks", ["version"], "gitleaks"),
+      this.checkCommand("trivy", ["--version"], "trivy"),
+      this.checkCommand("checkov", ["--version"], "checkov"),
+      this.checkCommand("syft", ["version"], "syft"),
+      this.checkCommand("grype", ["version"], "grype"),
+      this.checkCommand("playwright", ["--version"], "playwright"),
+      this.checkCommand("chromium", ["--version"], "chromium"),
+      this.checkCommand("git", ["--version"], "git"),
+      this.checkCommand("curl", ["--version"], "curl"),
+      this.checkCommand("terraform", ["version"], "terraform"),
+      this.checkCommand("aws", ["--version"], "aws"),
     ];
     return Promise.all(checks);
   }

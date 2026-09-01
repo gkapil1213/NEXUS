@@ -1,62 +1,100 @@
 {
   "pass": "Phase 6 Pass 2",
-  "timestamp": "2026-08-30T16:05:07.870Z",
+  "timestamp": "2026-09-01T18:04:39.042Z",
   "capabilities": {
     "node": true,
     "npm": true,
-    "docker": true,
-    "terraform": false,
-    "aws": false
+    "docker_cli": true,
+    "docker_daemon": true,
+    "terraform": true,
+    "aws": true
   },
   "terraform": {
-    "available": false,
-    "format": "BLOCKED",
-    "init": "BLOCKED",
-    "validate": "BLOCKED",
-    "plan": "BLOCKED",
-    "apply": "BLOCKED"
+    "available": true,
+    "fmt": "PASS",
+    "init": "PASS",
+    "validate": "PASS",
+    "plan": "PASS",
+    "show": "PASS",
+    "risk": "LOW",
+    "changes": [
+      {
+        "resource": "aws_s3_bucket.example",
+        "action": "create",
+        "risk": "LOW",
+        "reason": null
+      }
+    ],
+    "destructive_changes": [],
+    "plan_digest": "sha256:0071f408668f091318f23f1ab53073d56a24abbba5c775e4475b4bb697e609a1"
   },
   "aws": {
     "identity": {
       "status": "BLOCKED",
       "operation": "getIdentity",
       "provider": "aws",
-      "reason": "Error: spawn aws ENOENT"
+      "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
     },
     "region": {
       "status": "BLOCKED",
       "operation": "getRegion",
       "provider": "aws",
-      "reason": "Error: spawn aws ENOENT"
+      "reason": "No region configured"
     }
   },
-  "security": {
-    "iac_policy": "BLOCKED",
-    "credential_exposure": "PASS",
-    "plan_digest_binding": "PASS",
-    "drift_detection": "BLOCKED"
-  },
+  "policy": [
+    {
+      "rule": "NO_DESTROY_WITHOUT_APPROVAL",
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "rule": "REQUIRE_EXPLICIT_REGION",
+      "passed": false,
+      "reason": "Production region not specified"
+    },
+    {
+      "rule": "PLAN_DIGEST_UNCHANGED",
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "rule": "NO_PUBLIC_DATABASE",
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "rule": "NO_PUBLIC_STORAGE",
+      "passed": true,
+      "reason": ""
+    },
+    {
+      "rule": "NO_UNRESTRICTED_SECURITY_GROUP",
+      "passed": true,
+      "reason": ""
+    }
+  ],
   "approval": {
-    "plan_binding": "PASS",
-    "digest_binding": "PASS",
-    "production_gate": "BLOCKED"
+    "plan_digest_binding": true,
+    "approval_id": "infraappr_dee93615-74f9-447a-a42e-42d0e04a6ba9"
   },
+  "apply_safety": {
+    "status": "BLOCKED",
+    "reason": "AWS not available"
+  },
+  "drift_detection": "BLOCKED",
   "blocked": [
     {
-      "capability": "Terraform",
-      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file."
-    },
-    {
-      "capability": "AWS CLI",
-      "reason": "'aws' is not recognized as an internal or external command,\r\noperable program or batch file."
-    },
-    {
       "capability": "AWS Identity",
-      "reason": "Error: spawn aws ENOENT"
+      "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
     },
     {
-      "capability": "Terraform Plan/Apply",
-      "reason": "requires Terraform + AWS"
+      "capability": "AWS Region",
+      "reason": "No region configured"
+    },
+    {
+      "capability": "Terraform Apply",
+      "reason": "AWS not available"
     }
   ],
   "failures": []

@@ -38,7 +38,7 @@ export class TerraformService {
   }
 
   async format(dir: string): Promise<CloudOperationResult> {
-    const res = await this.runTerraform(["fmt", "-check", "-diff"], dir);
+    const res = await this.runTerraform(["fmt", "-check"], dir);
     return {
       status: res.exitCode === 0 ? "PASS" : "FAIL",
       operation: "fmt",
@@ -79,7 +79,7 @@ export class TerraformService {
         output: initRes.stderr,
       };
     }
-    const planRes = await this.runTerraform(["plan", "-out=plan.tfplan"], dir);
+    const planRes = await this.runTerraform(["plan", "-out", "plan.tfplan"], dir);
     if (planRes.exitCode !== 0) {
       return {
         status: "FAIL",
@@ -103,6 +103,17 @@ export class TerraformService {
       estimated_cost: null,
       risk,
       output: showRes.stdout,
+    };
+  }
+
+  async show(dir: string): Promise<CloudOperationResult> {
+    const res = await this.runTerraform(["show", "-json", "plan.tfplan"], dir);
+    return {
+      status: res.exitCode === 0 ? "PASS" : "FAIL",
+      operation: "show",
+      provider: "aws",
+      reason: res.exitCode === 0 ? null : res.stderr,
+      evidence: res.stdout,
     };
   }
 

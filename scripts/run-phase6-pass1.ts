@@ -13,7 +13,7 @@ async function main() {
   const capabilities = await detector.detect();
   console.log("Capabilities:");
   for (const cap of capabilities) {
-    if (["terraform", "aws", "docker", "node", "npm"].includes(cap.name)) {
+    if (["terraform", "aws", "docker_cli", "docker_daemon", "node", "npm"].includes(cap.name)) {
       console.log(`  ${cap.name.padEnd(10)} ${cap.available ? "PASS" : "BLOCKED"}  ${cap.version ?? ""} ${cap.reason ?? ""}`);
     }
   }
@@ -46,7 +46,7 @@ async function main() {
     pass: 1,
     title: "Production Infrastructure & AWS/Terraform Foundation",
     timestamp: new Date().toISOString(),
-    capabilities: capabilities.filter(c => ["terraform", "aws", "docker", "node", "npm"].includes(c.name)),
+    capabilities: capabilities.filter(c => ["terraform", "aws", "docker_cli", "docker_daemon", "node", "npm"].includes(c.name)),
     terraform: {
       available: tfAvailable,
       format: tfAvailable ? "PASS" : "BLOCKED",
