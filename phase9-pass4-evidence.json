@@ -1,0 +1,168 @@
+{
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T08:04:50.944Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T08:04:51.552Z"
+    },
+    {
+      "name": "python",
+      "available": true,
+      "version": "Python 3.14.6",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T08:04:51.603Z"
+    },
+    {
+      "name": "pytest",
+      "available": true,
+      "version": "pytest 9.1.1",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T08:04:52.124Z"
+    },
+    {
+      "name": "docker",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T08:04:52.266Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r\nRelease-Date: 2023-03-20\r\nProtocols: dict file ftp ftps http https imap imaps pop3 pop3s smtp smtps telnet tftp\r\nFeatures: AsynchDNS HSTS HTTPS-proxy IDN IPv6 Kerberos Largefile NTLM SPNEGO SSL SSPI threadsafe Unicode UnixSockets",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T08:04:52.379Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T08:04:52.517Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T08:04:53.630Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "reason": "Command failed: chromium --version\n'chromium' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T08:04:53.659Z"
+    },
+    {
+      "name": "k6",
+      "available": false,
+      "reason": "Command failed: k6 --version\n'k6' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T08:04:53.695Z"
+    },
+    {
+      "name": "jmeter",
+      "available": false,
+      "reason": "Command failed: jmeter --version\n'jmeter' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T08:04:53.754Z"
+    },
+    {
+      "name": "artillery",
+      "available": false,
+      "reason": "Command failed: artillery --version\n'artillery' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T08:04:53.790Z"
+    },
+    {
+      "name": "autocannon",
+      "available": false,
+      "reason": "Command failed: autocannon --version\n'autocannon' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T08:04:53.824Z"
+    },
+    {
+      "name": "wrk",
+      "available": false,
+      "reason": "Command failed: wrk --version\n'wrk' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T08:04:53.859Z"
+    },
+    {
+      "name": "hey",
+      "available": false,
+      "reason": "Command failed: hey --version\n'hey' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T08:04:53.892Z"
+    }
+  ],
+  "runs": {
+    "runA": "7ee3dbcc-f801-40db-b5bb-8b0847360ca9",
+    "runB": "ff22b7fe-697e-420d-9b88-d8f247d8c8d4"
+  },
+  "api_verification": {
+    "status": "PASS",
+    "results": [
+      {
+        "endpoint": "runs",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/baseline",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/performance",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/load",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/stress",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/failures",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/recovery",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/slo",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/error-budget",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/events",
+        "status": 200
+      },
+      {
+        "endpoint": "runs/ff22b7fe-697e-420d-9b88-d8f247d8c8d4/audit",
+        "status": 200
+      }
+    ]
+  },
+  "regression": {
+    "baseline_run_id": "7ee3dbcc-f801-40db-b5bb-8b0847360ca9",
+    "metric_name": "p95_latency",
+    "baseline_value": 32,
+    "current_value": 8,
+    "percentage_change": -75,
+    "threshold": 20,
+    "decision": "PASS"
+  }
+}

@@ -1,0 +1,923 @@
+{
+  "timestamp": "2026-09-02T09:48:38.793Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T09:48:38.886Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T09:48:39.790Z"
+    },
+    {
+      "name": "python",
+      "available": true,
+      "version": "Python 3.14.6",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T09:48:39.858Z"
+    },
+    {
+      "name": "pytest",
+      "available": true,
+      "version": "pytest 9.1.1",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T09:48:40.378Z"
+    },
+    {
+      "name": "docker",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T09:48:40.484Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r\nRelease-Date: 2023-03-20\r\nProtocols: dict file ftp ftps http https imap imaps pop3 pop3s smtp smtps telnet tftp\r\nFeatures: AsynchDNS HSTS HTTPS-proxy IDN IPv6 Kerberos Largefile NTLM SPNEGO SSL SSPI threadsafe Unicode UnixSockets",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T09:48:40.566Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T09:48:40.666Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T09:48:41.868Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "reason": "Command failed: chromium --version\n'chromium' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T09:48:41.909Z"
+    },
+    {
+      "name": "k6",
+      "available": false,
+      "reason": "Command failed: k6 --version\n'k6' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T09:48:41.955Z"
+    },
+    {
+      "name": "jmeter",
+      "available": false,
+      "reason": "Command failed: jmeter --version\n'jmeter' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T09:48:41.996Z"
+    },
+    {
+      "name": "artillery",
+      "available": false,
+      "reason": "Command failed: artillery --version\n'artillery' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T09:48:42.033Z"
+    },
+    {
+      "name": "autocannon",
+      "available": false,
+      "reason": "Command failed: autocannon --version\n'autocannon' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T09:48:42.066Z"
+    },
+    {
+      "name": "wrk",
+      "available": false,
+      "reason": "Command failed: wrk --version\n'wrk' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T09:48:42.099Z"
+    },
+    {
+      "name": "hey",
+      "available": false,
+      "reason": "Command failed: hey --version\n'hey' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T09:48:42.131Z"
+    }
+  ],
+  "runs": {
+    "runA": "73748d91-1cd3-4162-a26b-f0d784682589",
+    "runB": "0d9be736-443a-49ed-acb0-8d55169148da"
+  },
+  "database": {
+    "record": {
+      "id": "0d9be736-443a-49ed-acb0-8d55169148da",
+      "project_id": "nexus",
+      "execution_id": "67561ca7-5fbc-4c79-8470-0d892120f343",
+      "status": "COMPLETED",
+      "started_at": "2026-09-02T09:49:40.375Z",
+      "completed_at": "2026-09-02T09:50:38.273Z",
+      "duration_ms": 57898,
+      "environment": "local",
+      "trigger": "pass6-runB",
+      "git_commit": null,
+      "version": "0.1.0",
+      "gate_status": "PASS",
+      "created_at": "2026-09-02T09:49:40.375Z",
+      "updated_at": "2026-09-02T09:50:38.273Z",
+      "summary": null
+    },
+    "counts": {
+      "performance_baselines": 1,
+      "performance_runs": 1,
+      "load_test_runs": 3,
+      "stress_test_runs": 5,
+      "failure_injections": 1,
+      "recovery_runs": 1,
+      "slo_evaluations": 1,
+      "error_budget_snapshots": 1,
+      "performance_regressions": 1,
+      "reliability_event_refs": 13,
+      "reliability_audit_refs": 13
+    },
+    "orphan_check": "not explicitly queried; will use counts"
+  },
+  "api": [
+    {
+      "endpoint": "runs",
+      "status": 200,
+      "data": {
+        "runs": [
+          {
+            "id": "0d9be736-443a-49ed-acb0-8d55169148da",
+            "project_id": "nexus",
+            "execution_id": "67561ca7-5fbc-4c79-8470-0d892120f343",
+            "status": "COMPLETED",
+            "started_at": "2026-09-02T09:49:40.375Z",
+            "completed_at": "2026-09-02T09:50:38.273Z",
+            "duration_ms": 57898,
+            "environment": "local",
+            "trigger": "pass6-runB",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "PASS",
+            "created_at": "2026-09-02T09:49:40.375Z",
+            "updated_at": "2026-09-02T09:50:38.273Z",
+            "summary": null
+          },
+          {
+            "id": "73748d91-1cd3-4162-a26b-f0d784682589",
+            "project_id": "nexus",
+            "execution_id": "076b9167-e7ac-4088-9e34-6d42f3540c11",
+            "status": "COMPLETED",
+            "started_at": "2026-09-02T09:48:42.133Z",
+            "completed_at": "2026-09-02T09:49:40.373Z",
+            "duration_ms": 58240,
+            "environment": "local",
+            "trigger": "pass6-runA",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "PASS",
+            "created_at": "2026-09-02T09:48:42.133Z",
+            "updated_at": "2026-09-02T09:49:40.373Z",
+            "summary": null
+          },
+          {
+            "id": "7021892b-51df-47f7-9dfd-4e1d45954c43",
+            "project_id": "nexus",
+            "execution_id": "22421f25-f6c0-4104-a44a-8b93abf5d4b5",
+            "status": "COMPLETED",
+            "started_at": "2026-09-02T09:38:07.684Z",
+            "completed_at": "2026-09-02T09:39:05.703Z",
+            "duration_ms": 58019,
+            "environment": "local",
+            "trigger": "pass5-runB",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "FAIL",
+            "created_at": "2026-09-02T09:38:07.684Z",
+            "updated_at": "2026-09-02T09:39:05.704Z",
+            "summary": null
+          },
+          {
+            "id": "704f9ccf-4232-4733-9d24-57b4bc112197",
+            "project_id": "nexus",
+            "execution_id": "20bd1b46-cc64-4c74-b1e3-459b1cab9fde",
+            "status": "COMPLETED",
+            "started_at": "2026-09-02T09:37:09.344Z",
+            "completed_at": "2026-09-02T09:38:07.677Z",
+            "duration_ms": 58333,
+            "environment": "local",
+            "trigger": "pass5-runA",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "FAIL",
+            "created_at": "2026-09-02T09:37:09.344Z",
+            "updated_at": "2026-09-02T09:38:07.679Z",
+            "summary": null
+          },
+          {
+            "id": "be69358d-063d-4d57-8c5a-984e939b9083",
+            "project_id": "nexus",
+            "execution_id": "05441dc8-53d6-4b2c-8212-da1fa0ff2ced",
+            "status": "COMPLETED",
+            "started_at": "2026-09-02T08:15:49.801Z",
+            "completed_at": "2026-09-02T08:16:47.927Z",
+            "duration_ms": 58126,
+            "environment": "local",
+            "trigger": "pass5-runB",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "FAIL",
+            "created_at": "2026-09-02T08:15:49.801Z",
+            "updated_at": "2026-09-02T08:16:47.927Z",
+            "summary": null
+          },
+          {
+            "id": "5691a33b-949e-4545-81eb-b5bc86d764fe",
+            "project_id": "nexus",
+            "execution_id": "52fb1a0d-2dbb-4a86-bb1b-2b0c2e912728",
+            "status": "COMPLETED",
+            "started_at": "2026-09-02T08:14:51.458Z",
+            "completed_at": "2026-09-02T08:15:49.796Z",
+            "duration_ms": 58338,
+            "environment": "local",
+            "trigger": "pass5-runA",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "FAIL",
+            "created_at": "2026-09-02T08:14:51.458Z",
+            "updated_at": "2026-09-02T08:15:49.796Z",
+            "summary": null
+          },
+          {
+            "id": "ff22b7fe-697e-420d-9b88-d8f247d8c8d4",
+            "project_id": "nexus",
+            "execution_id": "1c9ce218-9002-4e34-a411-0f2ba789d0ca",
+            "status": "COMPLETED",
+            "started_at": "2026-09-02T08:05:52.073Z",
+            "completed_at": "2026-09-02T08:06:49.983Z",
+            "duration_ms": 57910,
+            "environment": "local",
+            "trigger": "pass4-runB",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "FAIL",
+            "created_at": "2026-09-02T08:05:52.073Z",
+            "updated_at": "2026-09-02T08:06:49.984Z",
+            "summary": null
+          },
+          {
+            "id": "7ee3dbcc-f801-40db-b5bb-8b0847360ca9",
+            "project_id": "nexus",
+            "execution_id": "32c27000-a8e2-42d9-8cbf-8efb7e0c7226",
+            "status": "COMPLETED",
+            "started_at": "2026-09-02T08:04:53.894Z",
+            "completed_at": "2026-09-02T08:05:52.072Z",
+            "duration_ms": 58178,
+            "environment": "local",
+            "trigger": "pass4-runA",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "FAIL",
+            "created_at": "2026-09-02T08:04:53.894Z",
+            "updated_at": "2026-09-02T08:05:52.072Z",
+            "summary": null
+          },
+          {
+            "id": "21b91e15-95e4-48c3-989d-d3925b174290",
+            "project_id": "nexus",
+            "execution_id": "2ad1dd67-9d89-4c8d-b383-f4ebd4301670",
+            "status": "FAIL",
+            "started_at": "2026-09-02T07:52:07.438Z",
+            "completed_at": "2026-09-02T07:53:05.686Z",
+            "duration_ms": 58248,
+            "environment": "local",
+            "trigger": "phase9-pass3",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "FAIL",
+            "created_at": "2026-09-02T07:52:07.438Z",
+            "updated_at": "2026-09-02T07:53:05.686Z",
+            "summary": null
+          },
+          {
+            "id": "c7c1b66e-e814-4aff-b682-01a9d1865cd1",
+            "project_id": "nexus",
+            "execution_id": "10e2cfd6-6261-4462-a542-bea45207db78",
+            "status": "FAIL",
+            "started_at": "2026-09-02T07:49:37.448Z",
+            "completed_at": "2026-09-02T07:50:35.890Z",
+            "duration_ms": 58442,
+            "environment": "local",
+            "trigger": "phase9-pass3",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "FAIL",
+            "created_at": "2026-09-02T07:49:37.448Z",
+            "updated_at": "2026-09-02T07:50:35.890Z",
+            "summary": null
+          },
+          {
+            "id": "afbd2836-ce00-4963-b5e6-2a132f7ff24f",
+            "project_id": "nexus",
+            "execution_id": "529c12d0-c16f-4a19-a1e1-88550eb5b513",
+            "status": "FAIL",
+            "started_at": "2026-09-02T07:44:38.486Z",
+            "completed_at": "2026-09-02T07:45:36.806Z",
+            "duration_ms": 58320,
+            "environment": "local",
+            "trigger": "phase9-pass3",
+            "git_commit": null,
+            "version": "0.1.0",
+            "gate_status": "FAIL",
+            "created_at": "2026-09-02T07:44:38.486Z",
+            "updated_at": "2026-09-02T07:45:36.807Z",
+            "summary": null
+          }
+        ],
+        "limit": 20,
+        "offset": 0
+      }
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da",
+      "status": 200,
+      "data": {
+        "id": "0d9be736-443a-49ed-acb0-8d55169148da",
+        "project_id": "nexus",
+        "execution_id": "67561ca7-5fbc-4c79-8470-0d892120f343",
+        "status": "COMPLETED",
+        "started_at": "2026-09-02T09:49:40.375Z",
+        "completed_at": "2026-09-02T09:50:38.273Z",
+        "duration_ms": 57898,
+        "environment": "local",
+        "trigger": "pass6-runB",
+        "git_commit": null,
+        "version": "0.1.0",
+        "gate_status": "PASS",
+        "created_at": "2026-09-02T09:49:40.375Z",
+        "updated_at": "2026-09-02T09:50:38.273Z",
+        "summary": null
+      }
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/baseline",
+      "status": 200,
+      "data": [
+        {
+          "id": "ee2a2d30-bfc5-4835-9857-522c615ed278",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "status_code": 200,
+          "latency_ms": 4,
+          "memory_rss": 206610432,
+          "cpu_count": 0,
+          "timestamp": "2026-09-02T09:49:40.383Z"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/performance",
+      "status": 200,
+      "data": [
+        {
+          "id": "468dd04f-857b-4f86-a4af-6cfc74c1f1bd",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "total_requests": 5,
+          "successful_requests": 5,
+          "failed_requests": 0,
+          "error_rate": 0,
+          "throughput": 8.156606851549755,
+          "duration_ms": 613,
+          "p50": 16,
+          "p90": 16,
+          "p95": 16,
+          "p99": 16,
+          "min_latency": 14,
+          "max_latency": 16,
+          "created_at": "2026-09-02T09:49:40.999Z"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/load",
+      "status": 200,
+      "data": [
+        {
+          "id": "824be222-a5b0-4f02-b15c-6fddd3bdafed",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "concurrency": 5,
+          "total_requests": 104,
+          "success": 104,
+          "failure": 0,
+          "throughput": 481.48148148148147,
+          "p50": 3,
+          "p90": 5,
+          "p95": 10,
+          "p99": 18,
+          "error_rate": 0,
+          "duration_ms": 216,
+          "created_at": "2026-09-02T09:49:41.771Z"
+        },
+        {
+          "id": "09040bd4-10f1-4a32-86c4-1e3b81c68e8f",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "concurrency": 10,
+          "total_requests": 109,
+          "success": 109,
+          "failure": 0,
+          "throughput": 495.45454545454544,
+          "p50": 5,
+          "p90": 21,
+          "p95": 31,
+          "p99": 36,
+          "error_rate": 0,
+          "duration_ms": 220,
+          "created_at": "2026-09-02T09:49:41.773Z"
+        },
+        {
+          "id": "b0b4281f-e57c-4253-8281-49aab2eaf4df",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "concurrency": 20,
+          "total_requests": 119,
+          "success": 119,
+          "failure": 0,
+          "throughput": 358.433734939759,
+          "p50": 12,
+          "p90": 71,
+          "p95": 74,
+          "p99": 76,
+          "error_rate": 0,
+          "duration_ms": 332,
+          "created_at": "2026-09-02T09:49:41.774Z"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/stress",
+      "status": 200,
+      "data": [
+        {
+          "id": "164776ff-55df-48b8-84ce-55775efe496b",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "concurrency": 1,
+          "total_requests": 715,
+          "success": 715,
+          "failure": 0,
+          "throughput": 70.9959289047761,
+          "p50": 16,
+          "p90": 17,
+          "p95": 18,
+          "p99": 25,
+          "error_rate": 0,
+          "breaking_point": null,
+          "created_at": "2026-09-02T09:50:33.212Z"
+        },
+        {
+          "id": "62d89ba5-fb44-45bb-a32d-6276f872042c",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "concurrency": 2,
+          "total_requests": 3797,
+          "success": 3797,
+          "failure": 0,
+          "throughput": 376.3131813676908,
+          "p50": 2,
+          "p90": 16,
+          "p95": 17,
+          "p99": 23,
+          "error_rate": 0,
+          "breaking_point": null,
+          "created_at": "2026-09-02T09:50:33.213Z"
+        },
+        {
+          "id": "188941c5-e709-46dc-a5ca-5c38bb9fdd1c",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "concurrency": 4,
+          "total_requests": 9687,
+          "success": 9687,
+          "failure": 0,
+          "throughput": 962.8267567836199,
+          "p50": 3,
+          "p90": 9,
+          "p95": 16,
+          "p99": 21,
+          "error_rate": 0,
+          "breaking_point": null,
+          "created_at": "2026-09-02T09:50:33.213Z"
+        },
+        {
+          "id": "628fd1a9-207a-43b5-936b-bd90c0584f87",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "concurrency": 8,
+          "total_requests": 32170,
+          "success": 32170,
+          "failure": 0,
+          "throughput": 3213.786213786214,
+          "p50": 2,
+          "p90": 3,
+          "p95": 5,
+          "p99": 15,
+          "error_rate": 0,
+          "breaking_point": null,
+          "created_at": "2026-09-02T09:50:33.214Z"
+        },
+        {
+          "id": "724f075f-ed89-4e1b-8418-e16a4c333870",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "concurrency": 16,
+          "total_requests": 34381,
+          "success": 34381,
+          "failure": 0,
+          "throughput": 3419.2938836399803,
+          "p50": 4,
+          "p90": 7,
+          "p95": 10,
+          "p99": 19,
+          "error_rate": 0,
+          "breaking_point": null,
+          "created_at": "2026-09-02T09:50:33.214Z"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/failures",
+      "status": 200,
+      "data": [
+        {
+          "id": "763e8bc0-33ed-4c24-ae78-0938cc3542e8",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "failure_type": "HTTP_503",
+          "target": "http://localhost:62533/health",
+          "started_at": "2026-09-02T09:50:33.216Z",
+          "ended_at": "2026-09-02T09:50:38.255Z",
+          "duration_ms": 5039,
+          "status_before": "200",
+          "status_during": "503",
+          "status_after": "200",
+          "recovered": 1,
+          "evidence": "{\"failure_type\":\"HTTP_503\",\"started_at\":\"2026-09-02T09:50:33.216Z\",\"ended_at\":\"2026-09-02T09:50:38.255Z\",\"duration_ms\":5039}"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/recovery",
+      "status": 200,
+      "data": [
+        {
+          "id": "68fd8cc6-5a8a-4d5d-9f51-7e99cb1999e0",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "health_before_failure": 1,
+          "failure_detected_at": "2026-09-02T09:50:33.216Z",
+          "recovery_started_at": "2026-09-02T09:50:38.261Z",
+          "recovered_at": "2026-09-02T09:50:38.261Z",
+          "recovery_duration_ms": 0,
+          "recovery_status": "RECOVERED"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/slo",
+      "status": 200,
+      "data": [
+        {
+          "id": "74137933-dff6-4c10-ae15-4ddb4461eb5c",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "availability_percent": 100,
+          "latency_p95_ms": 16,
+          "error_rate_percent": 0,
+          "throughput_rps": 8.156606851549755,
+          "availability_target": 99,
+          "latency_target": 1000,
+          "error_rate_target": 5,
+          "throughput_target": 1,
+          "result": "PASS",
+          "created_at": "2026-09-02T09:50:38.263Z"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/error-budget",
+      "status": 200,
+      "data": [
+        {
+          "id": "103b5376-af5b-492f-b4bb-fd9f001ab4a3",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "allowed_errors": 0,
+          "observed_errors": 0,
+          "remaining_budget": 0,
+          "budget_consumed_percent": 0,
+          "created_at": "2026-09-02T09:50:38.265Z"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/regression",
+      "status": 200,
+      "data": [
+        {
+          "id": "f404cf74-8d5d-4c34-9733-ccdcf48184b0",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+          "baseline_run_id": "73748d91-1cd3-4162-a26b-f0d784682589",
+          "metric_name": "p95_latency",
+          "baseline_value": 32,
+          "current_value": 16,
+          "percentage_change": -50,
+          "threshold": 20,
+          "decision": "PASS",
+          "created_at": "2026-09-02T09:50:38.268Z"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/events",
+      "status": 200,
+      "data": [
+        {
+          "id": "2f6bc28b-8e4f-4529-94b4-d9002fd7f868",
+          "type": "reliability.error_budget.evaluated",
+          "timestamp": "2026-09-02T09:50:38.265Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "35ae0d12-ce3a-45fa-9f48-100f4bf6cc89",
+          "type": "reliability.gate.completed",
+          "timestamp": "2026-09-02T09:50:38.271Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\",\"status\":\"PASS\"}"
+        },
+        {
+          "id": "3db12771-2cb2-4b8c-b159-129b450d5285",
+          "type": "reliability.failure_injection.started",
+          "timestamp": "2026-09-02T09:50:38.256Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "52dfea66-83c3-4f46-a5e4-ca9a9efd368b",
+          "type": "reliability.load.completed",
+          "timestamp": "2026-09-02T09:49:41.775Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "6e0a7721-5cb1-4a24-b900-c8aac0df5bb0",
+          "type": "reliability.recovery.completed",
+          "timestamp": "2026-09-02T09:50:38.262Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "79e0073a-7f26-4931-9af4-cd62172912cb",
+          "type": "reliability.regression.evaluated",
+          "timestamp": "2026-09-02T09:50:38.268Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\",\"status\":\"PASS\"}"
+        },
+        {
+          "id": "8fc37559-0444-49ad-80ec-0c9c654bd01c",
+          "type": "reliability.slo.evaluated",
+          "timestamp": "2026-09-02T09:50:38.264Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "9bb7d5ee-3dcc-4697-a47a-9e73f08d40f7",
+          "type": "reliability.stress.completed",
+          "timestamp": "2026-09-02T09:50:33.215Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "b47b83f1-7081-4ce9-b9f5-c8d4268d5a8e",
+          "type": "reliability.failure_injection.completed",
+          "timestamp": "2026-09-02T09:50:38.257Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "c090d050-8f3a-49a0-b0a7-4c585990f63e",
+          "type": "reliability.run.started",
+          "timestamp": "2026-09-02T09:49:40.375Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "c5a637b8-fe7d-4abc-92bd-5348e709aac4",
+          "type": "reliability.performance.completed",
+          "timestamp": "2026-09-02T09:49:41.000Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "d582f41b-ca3c-4887-910e-0197df2eeb7e",
+          "type": "reliability.baseline.completed",
+          "timestamp": "2026-09-02T09:49:40.384Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        },
+        {
+          "id": "e0fbbf69-035b-4ef4-8d84-5e5f9ee463f5",
+          "type": "reliability.run.completed",
+          "timestamp": "2026-09-02T09:50:38.274Z",
+          "data": "{\"reliability_run_id\":\"0d9be736-443a-49ed-acb0-8d55169148da\"}"
+        }
+      ]
+    },
+    {
+      "endpoint": "runs/0d9be736-443a-49ed-acb0-8d55169148da/audit",
+      "status": 200,
+      "data": [
+        {
+          "id": "1f8b8af7-cc1d-4819-886c-e62d67775ea3",
+          "actor": "system",
+          "action": "slo_evaluated",
+          "resource": "slo",
+          "result": "PASS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:50:38.264Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "2ac2f072-44df-4c31-82d8-ff33eacf642c",
+          "actor": "system",
+          "action": "run_created",
+          "resource": "reliability_run",
+          "result": "SUCCESS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:49:40.376Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "33c69830-00e8-4f1c-afa4-f1bb29ba44c7",
+          "actor": "system",
+          "action": "baseline_recorded",
+          "resource": "baseline",
+          "result": "SUCCESS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:49:40.385Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "3c678eb7-a8ce-418a-87c5-e70abcd26a1c",
+          "actor": "system",
+          "action": "gate_evaluated",
+          "resource": "gate",
+          "result": "PASS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:50:38.271Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "4ef409fe-8b38-4dd2-87bc-dcfc4d2763b2",
+          "actor": "system",
+          "action": "failure_injected",
+          "resource": "failure_injection",
+          "result": "SUCCESS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:50:38.258Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "6d12ebd5-e541-408a-8e52-916e8a13dc8e",
+          "actor": "system",
+          "action": "recovery_completed",
+          "resource": "recovery",
+          "result": "SUCCESS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:50:38.262Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "707510ee-7891-4d95-abe3-707efe27a279",
+          "actor": "system",
+          "action": "stress_recorded",
+          "resource": "stress",
+          "result": "SUCCESS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:50:33.215Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "79b1432d-c01c-4707-b057-4afc9fe330aa",
+          "actor": "system",
+          "action": "run_completed",
+          "resource": "reliability_run",
+          "result": "SUCCESS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:50:38.274Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "949b7c51-2b00-44b7-827e-3d90e73e2e6a",
+          "actor": "system",
+          "action": "regression_evaluated",
+          "resource": "regression",
+          "result": "PASS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:50:38.269Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "a9f769e1-21e6-4804-89a1-c019b0008cb5",
+          "actor": "system",
+          "action": "load_recorded",
+          "resource": "load",
+          "result": "SUCCESS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:49:41.776Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "b91ceb99-f1ea-44ff-81ff-c90a678c959e",
+          "actor": "system",
+          "action": "status_changed",
+          "resource": "reliability_run",
+          "result": "RUNNING",
+          "metadata": "{\"from\":\"CREATED\",\"to\":\"RUNNING\"}",
+          "timestamp": "2026-09-02T09:49:40.376Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "cba3ba8d-dd9f-406f-ba7a-f8b1916c7f1a",
+          "actor": "system",
+          "action": "performance_recorded",
+          "resource": "performance",
+          "result": "SUCCESS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:49:41.001Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        },
+        {
+          "id": "f17a88ab-8d7e-4bfd-83b9-ab9c8e2cd2e2",
+          "actor": "system",
+          "action": "error_budget_evaluated",
+          "resource": "error_budget",
+          "result": "SUCCESS",
+          "metadata": "{}",
+          "timestamp": "2026-09-02T09:50:38.266Z",
+          "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da"
+        }
+      ]
+    }
+  ],
+  "consistency": {
+    "run_id_matches": true,
+    "baseline_count": true,
+    "performance_count": true,
+    "load_count": true,
+    "stress_count": true,
+    "failures_count": true,
+    "recovery_count": true,
+    "slo_count": true,
+    "error_budget_count": true,
+    "regression_count": true,
+    "regression_data_match": true
+  },
+  "idempotency": {
+    "status": "PASS",
+    "note": "Separate run IDs for each execution; reads are idempotent."
+  },
+  "failure_state": {
+    "status": "PASS",
+    "note": "Controlled failure injection (HTTP_503) remained non-fatal and recovery succeeded."
+  },
+  "slo": {
+    "availability_percent": 100,
+    "latency_p95_ms": 16,
+    "error_rate_percent": 0,
+    "throughput_rps": 8.156606851549755,
+    "slo_met": true
+  },
+  "error_budget": {
+    "allowed_errors": 0,
+    "observed_errors": 0,
+    "remaining_budget": 0,
+    "budget_consumed_percent": 0
+  },
+  "regression": {
+    "status": "PASS",
+    "record": {
+      "id": "f404cf74-8d5d-4c34-9733-ccdcf48184b0",
+      "reliability_run_id": "0d9be736-443a-49ed-acb0-8d55169148da",
+      "baseline_run_id": "73748d91-1cd3-4162-a26b-f0d784682589",
+      "metric_name": "p95_latency",
+      "baseline_value": 32,
+      "current_value": 16,
+      "percentage_change": -50,
+      "threshold": 20,
+      "decision": "PASS",
+      "created_at": "2026-09-02T09:50:38.268Z"
+    },
+    "note": "Compared Run B against Run A."
+  },
+  "load_tool": {
+    "external": "BLOCKED",
+    "builtin": "PASS"
+  },
+  "browser": "BLOCKED",
+  "cleanup": {
+    "fixture_stopped": true,
+    "note": "Fixture stopped after each run."
+  },
+  "events": {
+    "count": 13
+  },
+  "audit": {
+    "count": 13
+  },
+  "evidence_integrity": {
+    "run_id_in_evidence": "0d9be736-443a-49ed-acb0-8d55169148da",
+    "run_id_in_db": "0d9be736-443a-49ed-acb0-8d55169148da",
+    "run_id_in_api": "0d9be736-443a-49ed-acb0-8d55169148da",
+    "matches": true,
+    "gate_match": true,
+    "gate_status": "PASS",
+    "gate_expected": "PASS"
+  },
+  "typescript": "PENDING",
+  "regression_suites": "PENDING"
+}

@@ -1,0 +1,339 @@
+{
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T07:28:44.889Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T07:28:45.521Z"
+    },
+    {
+      "name": "python",
+      "available": true,
+      "version": "Python 3.14.6",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T07:28:45.574Z"
+    },
+    {
+      "name": "pytest",
+      "available": true,
+      "version": "pytest 9.1.1",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T07:28:45.991Z"
+    },
+    {
+      "name": "docker",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T07:28:46.086Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r\nRelease-Date: 2023-03-20\r\nProtocols: dict file ftp ftps http https imap imaps pop3 pop3s smtp smtps telnet tftp\r\nFeatures: AsynchDNS HSTS HTTPS-proxy IDN IPv6 Kerberos Largefile NTLM SPNEGO SSL SSPI threadsafe Unicode UnixSockets",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T07:28:46.148Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T07:28:46.242Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T07:28:47.324Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "reason": "Command failed: chromium --version\n'chromium' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T07:28:47.354Z"
+    },
+    {
+      "name": "k6",
+      "available": false,
+      "reason": "Command failed: k6 --version\n'k6' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T07:28:47.389Z"
+    },
+    {
+      "name": "jmeter",
+      "available": false,
+      "reason": "Command failed: jmeter --version\n'jmeter' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T07:28:47.424Z"
+    },
+    {
+      "name": "artillery",
+      "available": false,
+      "reason": "Command failed: artillery --version\n'artillery' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T07:28:47.459Z"
+    },
+    {
+      "name": "autocannon",
+      "available": false,
+      "reason": "Command failed: autocannon --version\n'autocannon' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T07:28:47.493Z"
+    },
+    {
+      "name": "wrk",
+      "available": false,
+      "reason": "Command failed: wrk --version\n'wrk' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T07:28:47.527Z"
+    },
+    {
+      "name": "hey",
+      "available": false,
+      "reason": "Command failed: hey --version\n'hey' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T07:28:47.567Z"
+    }
+  ],
+  "baseline": {
+    "status": 200,
+    "latency_ms": 78,
+    "timestamp": "2026-09-02T07:28:48.160Z",
+    "memory_rss": 81543168
+  },
+  "performance": {
+    "totalRequests": 5,
+    "success": 5,
+    "failed": 0,
+    "latency": {
+      "min": 17,
+      "max": 19,
+      "p50": 18,
+      "p90": 19,
+      "p95": 19,
+      "p99": 19
+    },
+    "throughput": 8.025682182985554,
+    "errorRate": 0,
+    "duration_ms": 623
+  },
+  "load": [
+    {
+      "level": 5,
+      "metrics": {
+        "totalRequests": 104,
+        "success": 104,
+        "failed": 0,
+        "latency": {
+          "min": 3,
+          "max": 15,
+          "p50": 5,
+          "p90": 8,
+          "p95": 13,
+          "p99": 15
+        },
+        "throughput": 314.19939577039275,
+        "errorRate": 0,
+        "duration_ms": 331
+      }
+    },
+    {
+      "level": 10,
+      "metrics": {
+        "totalRequests": 109,
+        "success": 109,
+        "failed": 0,
+        "latency": {
+          "min": 3,
+          "max": 22,
+          "p50": 8,
+          "p90": 16,
+          "p95": 20,
+          "p99": 22
+        },
+        "throughput": 497.716894977169,
+        "errorRate": 0,
+        "duration_ms": 219
+      }
+    },
+    {
+      "level": 20,
+      "metrics": {
+        "totalRequests": 119,
+        "success": 119,
+        "failed": 0,
+        "latency": {
+          "min": 7,
+          "max": 56,
+          "p50": 22,
+          "p90": 49,
+          "p95": 52,
+          "p99": 56
+        },
+        "throughput": 342.93948126801155,
+        "errorRate": 0,
+        "duration_ms": 347
+      }
+    }
+  ],
+  "stress": {
+    "breakingPoint": null,
+    "maxMetrics": {
+      "totalRequests": 31419,
+      "success": 31419,
+      "failed": 0,
+      "latency": {
+        "min": 2,
+        "max": 50,
+        "p50": 4,
+        "p90": 9,
+        "p95": 11,
+        "p99": 21
+      },
+      "throughput": 3114.801229305046,
+      "errorRate": 0,
+      "duration_ms": 10087
+    },
+    "levels": [
+      {
+        "concurrency": 1,
+        "metrics": {
+          "totalRequests": 702,
+          "success": 702,
+          "failed": 0,
+          "latency": {
+            "min": 0,
+            "max": 31,
+            "p50": 16,
+            "p90": 16,
+            "p95": 17,
+            "p99": 20
+          },
+          "throughput": 69.52560166386056,
+          "errorRate": 0,
+          "duration_ms": 10097
+        },
+        "started_at": "2026-09-02T07:28:50.780Z",
+        "ended_at": "2026-09-02T07:29:00.880Z"
+      },
+      {
+        "concurrency": 2,
+        "metrics": {
+          "totalRequests": 3133,
+          "success": 3133,
+          "failed": 0,
+          "latency": {
+            "min": 0,
+            "max": 37,
+            "p50": 2,
+            "p90": 16,
+            "p95": 17,
+            "p99": 18
+          },
+          "throughput": 311.3076311605723,
+          "errorRate": 0,
+          "duration_ms": 10064
+        },
+        "started_at": "2026-09-02T07:29:00.880Z",
+        "ended_at": "2026-09-02T07:29:10.949Z"
+      },
+      {
+        "concurrency": 4,
+        "metrics": {
+          "totalRequests": 7555,
+          "success": 7555,
+          "failed": 0,
+          "latency": {
+            "min": 0,
+            "max": 30,
+            "p50": 3,
+            "p90": 16,
+            "p95": 17,
+            "p99": 19
+          },
+          "throughput": 753.0150503338982,
+          "errorRate": 0,
+          "duration_ms": 10033
+        },
+        "started_at": "2026-09-02T07:29:10.949Z",
+        "ended_at": "2026-09-02T07:29:20.991Z"
+      },
+      {
+        "concurrency": 8,
+        "metrics": {
+          "totalRequests": 25283,
+          "success": 25283,
+          "failed": 0,
+          "latency": {
+            "min": 1,
+            "max": 65,
+            "p50": 2,
+            "p90": 6,
+            "p95": 9,
+            "p99": 17
+          },
+          "throughput": 2503.0195030195027,
+          "errorRate": 0,
+          "duration_ms": 10101
+        },
+        "started_at": "2026-09-02T07:29:20.991Z",
+        "ended_at": "2026-09-02T07:29:31.108Z"
+      },
+      {
+        "concurrency": 16,
+        "metrics": {
+          "totalRequests": 31419,
+          "success": 31419,
+          "failed": 0,
+          "latency": {
+            "min": 2,
+            "max": 50,
+            "p50": 4,
+            "p90": 9,
+            "p95": 11,
+            "p99": 21
+          },
+          "throughput": 3114.801229305046,
+          "errorRate": 0,
+          "duration_ms": 10087
+        },
+        "started_at": "2026-09-02T07:29:31.108Z",
+        "ended_at": "2026-09-02T07:29:41.229Z"
+      }
+    ]
+  },
+  "failure_injection": {
+    "failure_type": "HTTP_503",
+    "started_at": "2026-09-02T07:29:41.232Z",
+    "ended_at": "2026-09-02T07:29:46.291Z",
+    "duration_ms": 5059
+  },
+  "recovery": {
+    "health_before_failure": true,
+    "recovered": true,
+    "timestamp": "2026-09-02T07:29:46.310Z"
+  },
+  "slo": {
+    "availability_percent": 100,
+    "latency_p95_ms": 19,
+    "error_rate_percent": 0,
+    "throughput_rps": 8.025682182985554,
+    "slo_met": true
+  },
+  "error_budget": {
+    "allowed_errors": 0,
+    "observed_errors": 0,
+    "remaining_budget": 0,
+    "budget_consumed_percent": 0
+  },
+  "reliability_gate": {
+    "status": "PASS",
+    "reasons": []
+  },
+  "events": [],
+  "audit": []
+}
