@@ -1,0 +1,170 @@
+{
+  "timestamp": "2026-09-02T11:14:46.860Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T11:14:46.949Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T11:14:47.755Z"
+    },
+    {
+      "name": "python",
+      "available": true,
+      "version": "Python 3.14.6",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T11:14:47.811Z"
+    },
+    {
+      "name": "pytest",
+      "available": true,
+      "version": "pytest 9.1.1",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T11:14:48.365Z"
+    },
+    {
+      "name": "docker",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T11:14:48.465Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r\nRelease-Date: 2023-03-20\r\nProtocols: dict file ftp ftps http https imap imaps pop3 pop3s smtp smtps telnet tftp\r\nFeatures: AsynchDNS HSTS HTTPS-proxy IDN IPv6 Kerberos Largefile NTLM SPNEGO SSL SSPI threadsafe Unicode UnixSockets",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T11:14:48.542Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T11:14:48.655Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": "executable found",
+      "checked_at": "2026-09-02T11:14:49.869Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "reason": "Command failed: chromium --version\n'chromium' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T11:14:49.900Z"
+    },
+    {
+      "name": "k6",
+      "available": false,
+      "reason": "Command failed: k6 --version\n'k6' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T11:14:49.935Z"
+    },
+    {
+      "name": "jmeter",
+      "available": false,
+      "reason": "Command failed: jmeter --version\n'jmeter' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T11:14:49.974Z"
+    },
+    {
+      "name": "artillery",
+      "available": false,
+      "reason": "Command failed: artillery --version\n'artillery' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T11:14:50.004Z"
+    },
+    {
+      "name": "autocannon",
+      "available": false,
+      "reason": "Command failed: autocannon --version\n'autocannon' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T11:14:50.034Z"
+    },
+    {
+      "name": "wrk",
+      "available": false,
+      "reason": "Command failed: wrk --version\n'wrk' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T11:14:50.067Z"
+    },
+    {
+      "name": "hey",
+      "available": false,
+      "reason": "Command failed: hey --version\n'hey' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "checked_at": "2026-09-02T11:14:50.104Z"
+    }
+  ],
+  "metrics": [],
+  "logs": [],
+  "health": [],
+  "alerts": [
+    {
+      "deduplicated": false,
+      "id": "e3cb6119-2dda-4bc6-af1d-4c47da42187f"
+    }
+  ],
+  "incidents": [
+    {
+      "id": "ece839a3-d8b1-4905-8cb7-cef2f78ad612",
+      "status": "RESOLVED"
+    }
+  ],
+  "root_cause_analyses": [
+    {
+      "id": "4177ef39-ba1d-40f3-91e8-46a408d4f614",
+      "classification": "APPLICATION",
+      "confidence": 0.95
+    }
+  ],
+  "remediation_actions": [
+    {
+      "id": "44f36655-da01-43b9-945c-4a4a8fbb188c",
+      "status": "EXECUTED"
+    }
+  ],
+  "events": [],
+  "audit": [],
+  "database": {
+    "metric_count": 35,
+    "log_count": 49,
+    "alert_count": 14,
+    "incident_count": 14
+  },
+  "api_verification": {
+    "metrics": 200,
+    "logs": 200,
+    "services": 200,
+    "alerts": 200,
+    "incidents": 200,
+    "incidents/ece839a3-d8b1-4905-8cb7-cef2f78ad612": 200,
+    "incidents/ece839a3-d8b1-4905-8cb7-cef2f78ad612/evidence": 200,
+    "incidents/ece839a3-d8b1-4905-8cb7-cef2f78ad612/root-cause": 200,
+    "incidents/ece839a3-d8b1-4905-8cb7-cef2f78ad612/remediation": 200
+  },
+  "consistency": {
+    "incident_status_matches_recovery": true,
+    "alert_resolved": true,
+    "evidence_count": 2
+  },
+  "performance": {
+    "metric_ingestion_latency_ms": 1,
+    "log_ingestion_latency_ms": 1,
+    "incident_creation_duration_ms": 0,
+    "api_latency_ms": 0
+  },
+  "blockers": [
+    "Prometheus",
+    "Grafana",
+    "OpenTelemetry",
+    "Jaeger",
+    "Loki",
+    "Chromium"
+  ],
+  "failures": []
+}
