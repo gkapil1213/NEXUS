@@ -65,6 +65,15 @@ export class AWSProvider extends CloudProvider {
   }
 
   async getRegion(): Promise<CloudOperationResult<string>> {
+    const envRegion = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION;
+    if (envRegion) {
+      return {
+        status: "PASS",
+        operation: "getRegion",
+        provider: this.name,
+        evidence: envRegion,
+      };
+    }
     const res = await this.runAws(["configure", "get", "region"]);
     if (res.exitCode !== 0 || !res.stdout.trim()) {
       return {
@@ -182,3 +191,4 @@ export class AWSProvider extends CloudProvider {
     };
   }
 }
+

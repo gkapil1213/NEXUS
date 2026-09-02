@@ -18,7 +18,7 @@ export interface CloudOperationResult<T = unknown> {
 
 export interface TerraformPlanChange {
   resource: string;
-  action: "CREATE" | "UPDATE" | "REPLACE" | "DESTROY" | "NO_CHANGE";
+  action: "CREATE" | "UPDATE" | "REPLACE" | "DELETE" | "NO_CHANGE";
   risk: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   reason?: string;
 }

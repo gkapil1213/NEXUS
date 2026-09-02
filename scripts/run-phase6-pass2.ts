@@ -30,7 +30,7 @@ async function main() {
   console.log(`  docker_cli: ${capMap.docker_cli?.available ? "PASS" : "BLOCKED"} ${capMap.docker_cli?.version ?? ""}`);
   console.log(`  docker_daemon: ${capMap.docker_daemon?.available ? "PASS" : "BLOCKED"} ${capMap.docker_daemon?.reason ?? ""}`);
   console.log(`  terraform: ${capMap.terraform?.available ? "PASS" : "BLOCKED"} ${capMap.terraform?.version ?? ""}`);
-  console.log(`  aws: ${capMap.aws?.available ? "PASS" : "BLOCKED"} ${capMap.aws?.version ?? ""}`);
+  console.log(`  aws: ${capMap.aws_cli?.available ? "PASS" : "BLOCKED"} ${capMap.aws_cli?.version ?? ""}`);
 
   const aws = new AWSProvider();
   const identity = await aws.getIdentity();
@@ -132,7 +132,7 @@ async function main() {
       docker_cli: capMap.docker_cli?.available ?? false,
       docker_daemon: capMap.docker_daemon?.available ?? false,
       terraform: tfAvailable,
-      aws: capMap.aws?.available ?? false,
+      aws: capMap.aws_cli?.available ?? false,
     },
     terraform: {
       available: tfAvailable,

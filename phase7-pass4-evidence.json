@@ -1,0 +1,223 @@
+{
+  "phase": 7,
+  "pass": 4,
+  "timestamp": "2026-09-02T03:41:17.069Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": null,
+      "checked_at": "2026-09-02T03:41:05.079Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": null,
+      "checked_at": "2026-09-02T03:41:06.524Z"
+    },
+    {
+      "name": "docker_cli",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": null,
+      "checked_at": "2026-09-02T03:41:05.078Z"
+    },
+    {
+      "name": "docker_daemon",
+      "available": true,
+      "version": "Client:",
+      "reason": null,
+      "checked_at": "2026-09-02T03:41:16.299Z"
+    },
+    {
+      "name": "cosign",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T03:41:14.145Z"
+    },
+    {
+      "name": "semgrep",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T03:41:14.182Z"
+    },
+    {
+      "name": "gitleaks",
+      "available": true,
+      "version": "8.30.1",
+      "reason": null,
+      "checked_at": "2026-09-02T03:41:09.725Z"
+    },
+    {
+      "name": "trivy",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T03:41:14.341Z"
+    },
+    {
+      "name": "checkov",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T03:41:14.411Z"
+    },
+    {
+      "name": "syft",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T03:41:14.528Z"
+    },
+    {
+      "name": "grype",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T03:41:14.617Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": null,
+      "checked_at": "2026-09-02T03:41:08.436Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "version": null,
+      "reason": "Error: spawn chromium ENOENT",
+      "checked_at": "2026-09-02T03:41:05.313Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": null,
+      "checked_at": "2026-09-02T03:41:05.447Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
+      "reason": null,
+      "checked_at": "2026-09-02T03:41:05.401Z"
+    },
+    {
+      "name": "terraform",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T03:41:14.996Z"
+    },
+    {
+      "name": "aws_cli",
+      "available": true,
+      "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
+      "reason": null,
+      "checked_at": "2026-09-02T03:41:08.350Z"
+    }
+  ],
+  "failures": {
+    "healthy": {
+      "kind": "http",
+      "status": 200,
+      "responseTimeMs": 29,
+      "reachable": true
+    },
+    "http_503": {
+      "kind": "http",
+      "status": 503,
+      "responseTimeMs": 18,
+      "reachable": true
+    },
+    "connection_refused": {
+      "kind": "connection_refused",
+      "status": null,
+      "responseTimeMs": 6,
+      "reachable": false,
+      "error": "ECONNREFUSED"
+    },
+    "timeout": {
+      "kind": "timeout",
+      "status": null,
+      "responseTimeMs": 512,
+      "reachable": false,
+      "error": "timeout"
+    }
+  },
+  "classifications": {
+    "health": "HEALTHY",
+    "http_503": "HEALTH_FAILURE",
+    "connection_refused": "CONNECTION_REFUSED",
+    "timeout": "TIMEOUT"
+  },
+  "incident": {
+    "id": "incident_pass4",
+    "severity": "HIGH",
+    "status": "CLOSED",
+    "summary": "Health check failure detected",
+    "started_at": "2026-09-02T03:41:17.051Z"
+  },
+  "transitions": [
+    "OPEN",
+    "INVESTIGATING",
+    "MITIGATED",
+    "RESOLVED",
+    "CLOSED"
+  ],
+  "analysis": {
+    "classification": "APPLICATION_FAILURE",
+    "confidence": "HIGH",
+    "summary": "HTTP 503 returned by health endpoint",
+    "evidence_refs": [
+      "healthy-probe",
+      "failure-probe",
+      "recovery-not-done"
+    ],
+    "uncertainty": "Connection refused and timeout scenarios were also observed; classification based on the dominant 503 signal."
+  },
+  "recovery_recommendation": {
+    "action": "RESTART",
+    "reason": "Health endpoint returned 503; service likely degraded",
+    "risk": "LOW",
+    "requires_approval": false
+  },
+  "timeline": [
+    {
+      "at": "2026-09-02T03:41:17.040Z",
+      "event": "healthy probe"
+    },
+    {
+      "at": "2026-09-02T03:41:17.051Z",
+      "event": "503 failure detected"
+    },
+    {
+      "at": "2026-09-02T03:41:16.557Z",
+      "event": "timeout"
+    },
+    {
+      "at": "2026-09-02T03:41:17.069Z",
+      "event": "incident created"
+    }
+  ],
+  "events": "PASS",
+  "audit": "PASS",
+  "blocked": [
+    {
+      "capability": "AWS",
+      "reason": "AWS credentials unavailable"
+    },
+    {
+      "capability": "Chromium",
+      "reason": "Chromium executable not found"
+    }
+  ],
+  "failures_list": [],
+  "secret_redaction": "PASS"
+}

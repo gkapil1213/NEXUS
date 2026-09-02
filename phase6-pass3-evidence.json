@@ -1,69 +1,303 @@
 {
-  "pass": "Phase 6 Pass 3",
-  "timestamp": "2026-08-30T16:15:14.078Z",
-  "capabilities": {
-    "node": true,
-    "npm": true,
-    "docker": true,
-    "terraform": false,
-    "aws": false
-  },
-  "terraform": {
-    "available": false,
-    "format": "BLOCKED",
-    "init": "BLOCKED",
-    "validate": "BLOCKED",
-    "plan": "BLOCKED"
-  },
+  "phase": 6,
+  "pass": 3,
+  "timestamp": "2026-09-01T18:54:13.230Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:09.618Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:09.618Z"
+    },
+    {
+      "name": "docker_cli",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:09.618Z"
+    },
+    {
+      "name": "docker_daemon",
+      "available": true,
+      "version": "Client:",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:17.461Z"
+    },
+    {
+      "name": "cosign",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-01T18:53:14.036Z"
+    },
+    {
+      "name": "semgrep",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-01T18:53:14.062Z"
+    },
+    {
+      "name": "gitleaks",
+      "available": true,
+      "version": "8.30.1",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:09.617Z"
+    },
+    {
+      "name": "trivy",
+      "available": true,
+      "version": "Version: 0.74.0",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:17.229Z"
+    },
+    {
+      "name": "checkov",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-01T18:53:18.781Z"
+    },
+    {
+      "name": "syft",
+      "available": true,
+      "version": "Application:   syft",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:15.650Z"
+    },
+    {
+      "name": "grype",
+      "available": true,
+      "version": "Application:         grype",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:15.752Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:15.013Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "version": null,
+      "reason": "Error: spawn chromium ENOENT",
+      "checked_at": "2026-09-01T18:53:10.274Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:10.274Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:09.890Z"
+    },
+    {
+      "name": "terraform",
+      "available": true,
+      "version": "Terraform v1.16.0",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:12.685Z"
+    },
+    {
+      "name": "aws_cli",
+      "available": true,
+      "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
+      "reason": null,
+      "checked_at": "2026-09-01T18:53:13.012Z"
+    }
+  ],
   "aws": {
     "identity": {
       "status": "BLOCKED",
       "operation": "getIdentity",
       "provider": "aws",
-      "reason": "Error: spawn aws ENOENT"
+      "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
     },
     "region": {
       "status": "BLOCKED",
       "operation": "getRegion",
       "provider": "aws",
-      "reason": "Error: spawn aws ENOENT"
+      "reason": "No region configured"
     }
   },
-  "plan_inspection": {
-    "destructive_detection": "PASS",
-    "offline_tests": "PASS"
-  },
-  "approval": {
-    "digest_binding": "PASS",
-    "mismatch_detection": "PASS"
+  "terraform": {
+    "available": true,
+    "fmt": "PASS",
+    "init": "PASS",
+    "validate": "PASS",
+    "plan": "PASS",
+    "show": "PASS",
+    "risk": "MEDIUM",
+    "changes": [
+      {
+        "resource": "aws_s3_bucket.example",
+        "action": "CREATE",
+        "risk": "LOW",
+        "reason": null
+      }
+    ],
+    "destructive_changes": [],
+    "plan_digest": "sha256:d34c85d7f74875b7cd79f2670bce826243e6e79fd9524d295e5754223c1dfd0c"
   },
   "policy": {
-    "non_destructive": "PASS",
-    "destructive": "FAIL"
+    "main": [
+      {
+        "rule": "NO_DESTROY_WITHOUT_APPROVAL",
+        "passed": true,
+        "reason": ""
+      },
+      {
+        "rule": "REQUIRE_EXPLICIT_REGION",
+        "passed": true,
+        "reason": ""
+      },
+      {
+        "rule": "PLAN_DIGEST_UNCHANGED",
+        "passed": true,
+        "reason": ""
+      },
+      {
+        "rule": "NO_PUBLIC_DATABASE",
+        "passed": true,
+        "reason": ""
+      },
+      {
+        "rule": "NO_PUBLIC_STORAGE",
+        "passed": true,
+        "reason": ""
+      },
+      {
+        "rule": "NO_UNRESTRICTED_SECURITY_GROUP",
+        "passed": true,
+        "reason": ""
+      }
+    ],
+    "destructive_production": [
+      {
+        "rule": "NO_DESTROY_WITHOUT_APPROVAL",
+        "passed": false,
+        "reason": "Destructive changes require human approval"
+      },
+      {
+        "rule": "REQUIRE_EXPLICIT_REGION",
+        "passed": false,
+        "reason": "Production region not specified"
+      },
+      {
+        "rule": "PLAN_DIGEST_UNCHANGED",
+        "passed": true,
+        "reason": ""
+      },
+      {
+        "rule": "NO_PUBLIC_DATABASE",
+        "passed": true,
+        "reason": ""
+      },
+      {
+        "rule": "NO_PUBLIC_STORAGE",
+        "passed": true,
+        "reason": ""
+      },
+      {
+        "rule": "NO_UNRESTRICTED_SECURITY_GROUP",
+        "passed": true,
+        "reason": ""
+      }
+    ],
+    "destructive_production_blocked": true
   },
-  "safe_apply": {
+  "approval": {
+    "plan_digest_binding": true,
+    "approval_id": "infraappr_66bc29a7-72a9-4ed8-904c-dd0b2f5d2291"
+  },
+  "apply_safety": {
     "status": "BLOCKED",
-    "reason": "Terraform not available"
+    "reason": "AWS not available"
   },
-  "cost_safety": "UNAVAILABLE",
   "drift": "BLOCKED",
-  "verification": "BLOCKED",
+  "parser_tests": {
+    "passed": 6,
+    "failed": 0,
+    "results": [
+      {
+        "actions": [],
+        "action": "NO_CHANGE",
+        "risk": "LOW",
+        "ok": true
+      },
+      {
+        "actions": [
+          "create"
+        ],
+        "action": "CREATE",
+        "risk": "MEDIUM",
+        "ok": true
+      },
+      {
+        "actions": [
+          "update"
+        ],
+        "action": "UPDATE",
+        "risk": "MEDIUM",
+        "ok": true
+      },
+      {
+        "actions": [
+          "delete"
+        ],
+        "action": "DELETE",
+        "risk": "HIGH",
+        "ok": true
+      },
+      {
+        "actions": [
+          "create",
+          "delete"
+        ],
+        "action": "REPLACE",
+        "risk": "HIGH",
+        "ok": true
+      },
+      {
+        "actions": [
+          "delete",
+          "create"
+        ],
+        "action": "REPLACE",
+        "risk": "HIGH",
+        "ok": true
+      }
+    ]
+  },
   "blocked": [
     {
-      "capability": "Terraform",
-      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file."
-    },
-    {
-      "capability": "AWS CLI",
-      "reason": "'aws' is not recognized as an internal or external command,\r\noperable program or batch file."
-    },
-    {
       "capability": "AWS Identity",
-      "reason": "Error: spawn aws ENOENT"
+      "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
     },
     {
-      "capability": "Terraform Plan/Apply",
-      "reason": "requires Terraform + AWS"
+      "capability": "AWS Region",
+      "reason": "No region configured"
+    },
+    {
+      "capability": "Terraform Apply",
+      "reason": "AWS not available"
     }
   ],
   "failures": []

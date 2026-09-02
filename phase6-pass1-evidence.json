@@ -2,80 +2,76 @@
   "phase": 6,
   "pass": 1,
   "title": "Production Infrastructure & AWS/Terraform Foundation",
-  "timestamp": "2026-08-30T15:38:55.635Z",
+  "timestamp": "2026-09-01T17:30:37.975Z",
   "capabilities": [
     {
       "name": "node",
       "available": true,
       "version": "v26.4.0",
       "reason": null,
-      "checked_at": "2026-08-30T15:38:46.109Z"
+      "checked_at": "2026-09-01T17:29:57.466Z"
     },
     {
       "name": "npm",
       "available": true,
       "version": "11.18.0",
       "reason": null,
-      "checked_at": "2026-08-30T15:38:47.522Z"
+      "checked_at": "2026-09-01T17:29:59.773Z"
     },
     {
-      "name": "docker",
+      "name": "docker_cli",
       "available": true,
       "version": "Docker version 29.7.2, build a7dcaa6",
       "reason": null,
-      "checked_at": "2026-08-30T15:38:46.235Z"
+      "checked_at": "2026-09-01T17:29:57.466Z"
     },
     {
-      "name": "docker",
+      "name": "docker_daemon",
       "available": true,
       "version": "Client:",
       "reason": null,
-      "checked_at": "2026-08-30T15:38:50.948Z"
+      "checked_at": "2026-09-01T17:30:05.380Z"
     },
     {
       "name": "terraform",
-      "available": false,
-      "version": null,
-      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T15:38:46.294Z"
+      "available": true,
+      "version": "Terraform v1.16.0",
+      "reason": null,
+      "checked_at": "2026-09-01T17:29:58.580Z"
     },
     {
       "name": "aws",
-      "available": false,
-      "version": null,
-      "reason": "'aws' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-08-30T15:38:46.453Z"
+      "available": true,
+      "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
+      "reason": null,
+      "checked_at": "2026-09-01T17:30:00.909Z"
     }
   ],
   "terraform": {
-    "available": false,
-    "format": "BLOCKED",
-    "validate": "BLOCKED",
-    "plan": "BLOCKED",
-    "reason": "terraform not installed"
+    "available": true,
+    "format": "PASS",
+    "validate": "PASS",
+    "plan": "PASS",
+    "reason": null
   },
   "aws": {
     "identity": {
       "status": "BLOCKED",
       "operation": "getIdentity",
       "provider": "aws",
-      "reason": "Error: spawn aws ENOENT"
+      "reason": "aws: [ERROR]: An error occurred (NoCredentials): Unable to locate credentials. You can configure credentials by running \"aws login\"."
     },
     "region": {
       "status": "BLOCKED",
       "operation": "getRegion",
       "provider": "aws",
-      "reason": "Error: spawn aws ENOENT"
+      "reason": "No region configured"
     }
   },
   "blocked": [
     {
-      "capability": "Terraform",
-      "reason": "terraform not installed"
-    },
-    {
       "capability": "AWS CLI / Identity",
-      "reason": "Error: spawn aws ENOENT"
+      "reason": "aws: [ERROR]: An error occurred (NoCredentials): Unable to locate credentials. You can configure credentials by running \"aws login\"."
     }
   ],
   "failures": []

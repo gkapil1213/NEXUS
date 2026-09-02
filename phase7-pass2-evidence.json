@@ -1,0 +1,164 @@
+{
+  "phase": 7,
+  "pass": 2,
+  "timestamp": "2026-09-02T03:33:58.459Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:48.971Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:51.141Z"
+    },
+    {
+      "name": "docker_cli",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:48.970Z"
+    },
+    {
+      "name": "docker_daemon",
+      "available": true,
+      "version": "Client:",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:52.908Z"
+    },
+    {
+      "name": "cosign",
+      "available": true,
+      "version": "______   ______        _______. __    _______ .__   __.",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:50.842Z"
+    },
+    {
+      "name": "semgrep",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T03:33:58.227Z"
+    },
+    {
+      "name": "gitleaks",
+      "available": true,
+      "version": "8.30.1",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:53.341Z"
+    },
+    {
+      "name": "trivy",
+      "available": true,
+      "version": "Version: 0.74.0",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:52.185Z"
+    },
+    {
+      "name": "checkov",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T03:33:58.391Z"
+    },
+    {
+      "name": "syft",
+      "available": true,
+      "version": "Application:   syft",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:52.535Z"
+    },
+    {
+      "name": "grype",
+      "available": true,
+      "version": "Application:         grype",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:50.966Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:52.748Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "version": null,
+      "reason": "Error: spawn chromium ENOENT",
+      "checked_at": "2026-09-02T03:33:49.090Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:49.245Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:49.029Z"
+    },
+    {
+      "name": "terraform",
+      "available": true,
+      "version": "Terraform v1.16.0",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:50.217Z"
+    },
+    {
+      "name": "aws_cli",
+      "available": true,
+      "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
+      "reason": null,
+      "checked_at": "2026-09-02T03:33:52.781Z"
+    }
+  ],
+  "events": "PASS",
+  "event_id": "evt_f8b79796-5143-4923-812d-4e852eda37a8",
+  "audit": "PASS",
+  "metrics": "PASS",
+  "metrics_data": {
+    "process_memory_heap_used": 13835200,
+    "process_memory_rss": 85655552,
+    "process_cpu_count": 4,
+    "process_uptime_seconds": 175360.171,
+    "load_average_1m": 0,
+    "load_average_5m": 0,
+    "load_average_15m": 0
+  },
+  "health": {
+    "status": "BLOCKED",
+    "error": "connect ECONNREFUSED 127.0.0.1:18080"
+  },
+  "alert_test": "BLOCKED",
+  "aws": {
+    "status": "BLOCKED",
+    "reason": "AWS credentials not available"
+  },
+  "chromium": {
+    "status": "BLOCKED",
+    "reason": "Chromium executable not found"
+  },
+  "blocked": [
+    {
+      "capability": "AWS",
+      "reason": "AWS credentials not available"
+    },
+    {
+      "capability": "Chromium",
+      "reason": "Chromium executable not found"
+    }
+  ],
+  "failures": [],
+  "secret_redaction": "PASS"
+}

@@ -1,185 +1,167 @@
 {
   "phase": 6,
-  "pass": 8,
-  "timestamp": "2026-09-01T19:29:25.364Z",
+  "pass": 16,
+  "timestamp": "2026-09-02T03:21:32.288Z",
   "capabilities": [
     {
       "name": "node",
       "available": true,
       "version": "v26.4.0",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:27.981Z"
+      "checked_at": "2026-09-02T03:21:07.166Z"
     },
     {
       "name": "npm",
       "available": true,
       "version": "11.18.0",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:29.604Z"
+      "checked_at": "2026-09-02T03:21:09.326Z"
     },
     {
       "name": "docker_cli",
       "available": true,
       "version": "Docker version 29.7.2, build a7dcaa6",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:27.981Z"
+      "checked_at": "2026-09-02T03:21:07.165Z"
     },
     {
       "name": "docker_daemon",
       "available": true,
       "version": "Client:",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:37.958Z"
+      "checked_at": "2026-09-02T03:21:11.311Z"
     },
     {
       "name": "cosign",
-      "available": false,
-      "version": null,
-      "reason": "Command timed out",
-      "checked_at": "2026-09-01T19:28:36.045Z"
+      "available": true,
+      "version": "______   ______        _______. __    _______ .__   __.",
+      "reason": null,
+      "checked_at": "2026-09-02T03:21:08.963Z"
     },
     {
       "name": "semgrep",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-09-01T19:28:36.091Z"
+      "checked_at": "2026-09-02T03:21:16.376Z"
     },
     {
       "name": "gitleaks",
       "available": true,
       "version": "8.30.1",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:34.386Z"
+      "checked_at": "2026-09-02T03:21:10.995Z"
     },
     {
       "name": "trivy",
-      "available": false,
-      "version": null,
-      "reason": "Command timed out",
-      "checked_at": "2026-09-01T19:28:36.357Z"
+      "available": true,
+      "version": "Version: 0.74.0",
+      "reason": null,
+      "checked_at": "2026-09-02T03:21:10.569Z"
     },
     {
       "name": "checkov",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-09-01T19:28:36.530Z"
+      "checked_at": "2026-09-02T03:21:16.549Z"
     },
     {
       "name": "syft",
       "available": true,
       "version": "Application:   syft",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:34.793Z"
+      "checked_at": "2026-09-02T03:21:10.677Z"
     },
     {
       "name": "grype",
       "available": true,
       "version": "Application:         grype",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:33.194Z"
+      "checked_at": "2026-09-02T03:21:09.318Z"
     },
     {
       "name": "playwright",
       "available": true,
       "version": "Version 1.62.1",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:33.673Z"
+      "checked_at": "2026-09-02T03:21:10.586Z"
     },
     {
       "name": "chromium",
       "available": false,
       "version": null,
       "reason": "Error: spawn chromium ENOENT",
-      "checked_at": "2026-09-01T19:28:27.974Z"
+      "checked_at": "2026-09-02T03:21:07.463Z"
     },
     {
       "name": "git",
       "available": true,
       "version": "git version 2.55.0.windows.4",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:27.980Z"
+      "checked_at": "2026-09-02T03:21:07.760Z"
     },
     {
       "name": "curl",
       "available": true,
       "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:27.980Z"
+      "checked_at": "2026-09-02T03:21:07.346Z"
     },
     {
       "name": "terraform",
       "available": true,
       "version": "Terraform v1.16.0",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:36.018Z"
+      "checked_at": "2026-09-02T03:21:08.327Z"
     },
     {
       "name": "aws_cli",
       "available": true,
       "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
       "reason": null,
-      "checked_at": "2026-09-01T19:28:33.842Z"
+      "checked_at": "2026-09-02T03:21:10.244Z"
     }
   ],
   "aws": {
-    "cli": true,
-    "credentials": "MISSING/INVALID",
+    "cli": "PASS",
+    "credential_source": "environment",
+    "credential_status": "INVALID",
+    "credential_classification": "INVALID_CREDENTIALS",
     "identity": "BLOCKED",
-    "region": "BLOCKED",
+    "region": "PASS",
+    "region_source": "us-east-1",
     "api_access": "BLOCKED",
     "readiness": "BLOCKED"
   },
-  "terraform": {
-    "fmt": "PASS",
-    "init": "PASS",
-    "validate": "PASS",
-    "plan": "PASS",
-    "plan_digest": "sha256:32ec9d7bf06021db97ff79b792dd5bc5a0cb1a8c6bfcaec0a44af958b774e160",
-    "policy": "PASS"
+  "discovery": {
+    "s3": "BLOCKED",
+    "ec2": "BLOCKED",
+    "vpc": "BLOCKED",
+    "ecr": "BLOCKED",
+    "overall": "BLOCKED"
   },
-  "execution_gate": {
-    "plan": "PASS",
-    "digest": "PASS",
-    "policy": "PASS",
-    "approval": "PASS",
-    "aws_readiness": "BLOCKED",
-    "execution": "BLOCKED",
-    "mutation_executed": false
-  },
-  "state_machine": {
-    "initial": "PLANNED",
-    "legal_transition": "PASS",
-    "illegal_transition_blocked": "PASS"
-  },
-  "failure_recovery": {
-    "classification": "TIMEOUT",
-    "action": "RETRY",
-    "safe": true
-  },
-  "events": {
-    "recorded": "PASS"
-  },
-  "audit": {
-    "recorded": "PASS"
-  },
+  "mutation_attempted": false,
+  "mutation_executed": false,
+  "events": "PASS",
+  "audit": "PASS",
+  "secret_redaction": "PASS",
   "blocked": [
     {
       "capability": "AWS Identity",
       "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
     },
     {
-      "capability": "AWS Region",
-      "reason": "No region configured"
+      "capability": "AWS API Access",
+      "reason": "AWS identity blocked"
     },
     {
       "capability": "AWS Readiness",
-      "reason": "AWS not ready"
+      "reason": "AWS not fully ready"
     },
     {
-      "capability": "Terraform Apply",
-      "reason": "AWS not available"
+      "capability": "AWS Read-Only Discovery",
+      "reason": "AWS credentials invalid"
     }
   ],
   "failures": []

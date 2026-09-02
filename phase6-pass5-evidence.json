@@ -1,58 +1,193 @@
 {
-  "pass": "Phase 6 Pass 5",
-  "timestamp": "2026-08-30T16:32:02.337Z",
-  "capabilities": {
-    "node": true,
-    "docker": true,
-    "terraform": false,
-    "aws": false
+  "phase": 6,
+  "pass": 5,
+  "timestamp": "2026-09-01T19:09:16.043Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:50.041Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:52.120Z"
+    },
+    {
+      "name": "docker_cli",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:50.041Z"
+    },
+    {
+      "name": "docker_daemon",
+      "available": true,
+      "version": "Client:",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:53.289Z"
+    },
+    {
+      "name": "cosign",
+      "available": true,
+      "version": "______   ______        _______. __    _______ .__   __.",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:51.908Z"
+    },
+    {
+      "name": "semgrep",
+      "available": true,
+      "version": "1.174.0",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:58.955Z"
+    },
+    {
+      "name": "gitleaks",
+      "available": true,
+      "version": "8.30.1",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:53.940Z"
+    },
+    {
+      "name": "trivy",
+      "available": true,
+      "version": "Version: 0.74.0",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:53.069Z"
+    },
+    {
+      "name": "checkov",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-01T19:08:59.472Z"
+    },
+    {
+      "name": "syft",
+      "available": true,
+      "version": "Application:   syft",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:52.926Z"
+    },
+    {
+      "name": "grype",
+      "available": true,
+      "version": "Application:         grype",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:52.412Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:53.161Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "version": null,
+      "reason": "Error: spawn chromium ENOENT",
+      "checked_at": "2026-09-01T19:08:50.108Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:50.076Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:50.183Z"
+    },
+    {
+      "name": "terraform",
+      "available": true,
+      "version": "Terraform v1.16.0",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:51.733Z"
+    },
+    {
+      "name": "aws_cli",
+      "available": true,
+      "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
+      "reason": null,
+      "checked_at": "2026-09-01T19:08:52.668Z"
+    }
+  ],
+  "aws": {
+    "cli": true,
+    "identity": {
+      "status": "BLOCKED",
+      "operation": "getIdentity",
+      "provider": "aws",
+      "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
+    },
+    "region": {
+      "status": "BLOCKED",
+      "operation": "getRegion",
+      "provider": "aws",
+      "reason": "No region configured"
+    }
   },
-  "state": {
-    "model": "PASS",
-    "persistence": "PASS",
-    "hashing": "PASS",
-    "snapshots": "PASS"
+  "discovery": {
+    "s3": "BLOCKED",
+    "ec2": "BLOCKED",
+    "vpc": "BLOCKED",
+    "ecr": "BLOCKED"
   },
-  "drift": {
-    "no_drift": "NO_DRIFT",
-    "resource_change": "DRIFTED",
-    "resource_removal": "DRIFTED",
-    "classification": "PASS"
-  },
-  "policy": {
-    "non_destructive": "PASS",
-    "approval_binding": "PASS",
-    "digest_binding": "PASS"
-  },
-  "deployment": {
-    "state_machine": "PASS",
-    "authorization": "PASS (offline)",
-    "idempotency": "PASS",
-    "retry": "PASS (offline)",
-    "failure_recovery": "PASS (offline)"
-  },
-  "runtime": {
-    "terraform_plan": "BLOCKED",
-    "terraform_apply": "BLOCKED",
-    "state_refresh": "BLOCKED",
-    "verification": "BLOCKED",
-    "health": "BLOCKED",
-    "cost": "UNAVAILABLE",
-    "drift_runtime": "BLOCKED"
-  },
-  "audit": {
-    "events": "PASS",
-    "audit_trail": "PASS",
-    "evidence": "PASS"
+  "inventory": [],
+  "environment_mapping": "BLOCKED",
+  "audit": [
+    {
+      "event": "aws.identity.checked",
+      "operation": "BLOCKED",
+      "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
+    },
+    {
+      "event": "aws.region.resolved",
+      "operation": "BLOCKED",
+      "reason": "No region configured"
+    },
+    {
+      "event": "aws.inventory.started",
+      "operation": "DISCOVERY",
+      "status": "BLOCKED"
+    },
+    {
+      "event": "aws.inventory.completed",
+      "operation": "DISCOVERY",
+      "count": 0
+    },
+    {
+      "event": "aws.operation.blocked",
+      "operation": "apply/destroy",
+      "reason": "read-only pass"
+    }
+  ],
+  "security": {
+    "secret_redaction": "PASS (no credentials in evidence)"
   },
   "blocked": [
     {
-      "capability": "Terraform",
-      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file."
+      "capability": "AWS Identity",
+      "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
     },
     {
-      "capability": "AWS",
-      "reason": "Error: spawn aws ENOENT"
+      "capability": "AWS Region",
+      "reason": "No region configured"
+    },
+    {
+      "capability": "AWS Read-Only Discovery",
+      "reason": "Credentials unavailable"
     }
   ],
   "failures": []

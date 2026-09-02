@@ -1,6 +1,6 @@
 {
   "pass": "Phase 6 Pass 2",
-  "timestamp": "2026-09-01T18:04:39.042Z",
+  "timestamp": "2026-09-01T18:26:16.336Z",
   "capabilities": {
     "node": true,
     "npm": true,
@@ -14,26 +14,19 @@
     "fmt": "PASS",
     "init": "PASS",
     "validate": "PASS",
-    "plan": "PASS",
+    "plan": "FAIL",
     "show": "PASS",
     "risk": "LOW",
-    "changes": [
-      {
-        "resource": "aws_s3_bucket.example",
-        "action": "create",
-        "risk": "LOW",
-        "reason": null
-      }
-    ],
+    "changes": [],
     "destructive_changes": [],
-    "plan_digest": "sha256:0071f408668f091318f23f1ab53073d56a24abbba5c775e4475b4bb697e609a1"
+    "plan_digest": "sha256:91e9569e7a00569c8f95b3f84ee323dfa4fa96f8afed42b08e01dcb95a79cd52"
   },
   "aws": {
     "identity": {
       "status": "BLOCKED",
       "operation": "getIdentity",
       "provider": "aws",
-      "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
+      "reason": "aws: [ERROR]: An error occurred (NoCredentials): Unable to locate credentials. You can configure credentials by running \"aws login\"."
     },
     "region": {
       "status": "BLOCKED",
@@ -76,7 +69,7 @@
   ],
   "approval": {
     "plan_digest_binding": true,
-    "approval_id": "infraappr_dee93615-74f9-447a-a42e-42d0e04a6ba9"
+    "approval_id": "infraappr_ee5d85a3-611e-453c-96c7-9bdb8ed33a23"
   },
   "apply_safety": {
     "status": "BLOCKED",
@@ -86,7 +79,7 @@
   "blocked": [
     {
       "capability": "AWS Identity",
-      "reason": "aws: [ERROR]: An error occurred (InvalidClientTokenId) when calling the GetCallerIdentity operation: The security token included in the request is invalid."
+      "reason": "aws: [ERROR]: An error occurred (NoCredentials): Unable to locate credentials. You can configure credentials by running \"aws login\"."
     },
     {
       "capability": "AWS Region",

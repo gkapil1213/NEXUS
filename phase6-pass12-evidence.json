@@ -1,175 +1,191 @@
 {
   "phase": 6,
-  "pass": 10,
-  "timestamp": "2026-09-02T02:05:07.540Z",
+  "pass": 12,
+  "timestamp": "2026-09-02T02:41:38.592Z",
   "capabilities": [
     {
       "name": "node",
       "available": true,
       "version": "v26.4.0",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:10.271Z"
+      "checked_at": "2026-09-02T02:40:45.603Z"
     },
     {
       "name": "npm",
       "available": true,
       "version": "11.18.0",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:13.907Z"
+      "checked_at": "2026-09-02T02:40:47.626Z"
     },
     {
       "name": "docker_cli",
       "available": true,
       "version": "Docker version 29.7.2, build a7dcaa6",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:10.270Z"
+      "checked_at": "2026-09-02T02:40:45.602Z"
     },
     {
       "name": "docker_daemon",
       "available": true,
       "version": "Client:",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:24.524Z"
+      "checked_at": "2026-09-02T02:40:57.122Z"
     },
     {
       "name": "cosign",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-09-02T02:04:19.289Z"
+      "checked_at": "2026-09-02T02:40:54.788Z"
     },
     {
       "name": "semgrep",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-09-02T02:04:19.332Z"
+      "checked_at": "2026-09-02T02:40:54.819Z"
     },
     {
       "name": "gitleaks",
       "available": true,
       "version": "8.30.1",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:17.399Z"
+      "checked_at": "2026-09-02T02:40:50.361Z"
     },
     {
       "name": "trivy",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-09-02T02:04:19.566Z"
+      "checked_at": "2026-09-02T02:40:54.977Z"
     },
     {
       "name": "checkov",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-09-02T02:04:19.611Z"
+      "checked_at": "2026-09-02T02:40:55.040Z"
     },
     {
       "name": "syft",
-      "available": false,
-      "version": null,
-      "reason": "Command timed out",
-      "checked_at": "2026-09-02T02:04:19.736Z"
+      "available": true,
+      "version": "Application:   syft",
+      "reason": null,
+      "checked_at": "2026-09-02T02:40:54.635Z"
     },
     {
       "name": "grype",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-09-02T02:04:19.831Z"
+      "checked_at": "2026-09-02T02:40:55.182Z"
     },
     {
       "name": "playwright",
       "available": true,
       "version": "Version 1.62.1",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:16.830Z"
+      "checked_at": "2026-09-02T02:40:49.957Z"
     },
     {
       "name": "chromium",
       "available": false,
       "version": null,
       "reason": "Error: spawn chromium ENOENT",
-      "checked_at": "2026-09-02T02:04:10.587Z"
+      "checked_at": "2026-09-02T02:40:45.643Z"
     },
     {
       "name": "git",
       "available": true,
       "version": "git version 2.55.0.windows.4",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:13.120Z"
+      "checked_at": "2026-09-02T02:40:45.910Z"
     },
     {
       "name": "curl",
       "available": true,
       "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:10.587Z"
+      "checked_at": "2026-09-02T02:40:45.661Z"
     },
     {
       "name": "terraform",
       "available": true,
       "version": "Terraform v1.16.0",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:14.610Z"
+      "checked_at": "2026-09-02T02:40:47.448Z"
     },
     {
       "name": "aws_cli",
       "available": true,
       "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
       "reason": null,
-      "checked_at": "2026-09-02T02:04:16.663Z"
+      "checked_at": "2026-09-02T02:40:49.407Z"
     }
   ],
-  "aws": {
+  "aws_readiness": {
     "cli": true,
-    "credentials": "MISSING/INVALID",
+    "credentials": "BLOCKED",
     "identity": "BLOCKED",
     "region": "BLOCKED",
-    "readiness": "BLOCKED"
+    "api_access": "BLOCKED",
+    "overall": "BLOCKED"
   },
-  "provider_abstraction": "PASS (local mock/synthetic only; AWS adapter real but blocked)",
   "terraform": {
     "fmt": "PASS",
     "init": "PASS",
     "validate": "PASS",
     "plan": "PASS",
     "show": "PASS",
-    "plan_digest": "sha256:104aa7165fbfb7e9f69d669b991b81349b733d1fe67296ffc8cd7637a33f34c9",
-    "policy": "PASS"
+    "plan_digest": "sha256:89b3e30a6e2ba7456f8707ef8e5ade5578f2ee460807672a11d26419240971cb",
+    "changes": [
+      {
+        "resource": "aws_s3_bucket.example",
+        "action": "CREATE",
+        "risk": "LOW",
+        "reason": null
+      }
+    ],
+    "destructive_changes": [],
+    "risk": "MEDIUM"
+  },
+  "tamper_test": {
+    "original_digest": "sha256:89b3e30a6e2ba7456f8707ef8e5ade5578f2ee460807672a11d26419240971cb",
+    "tampered_digest": "sha256:af03e470af12e4b66ccfe6f620917c3e8291f7b8d07cbe9eb750d3bdaa96eee5",
+    "rejected": true
   },
   "approval": {
-    "binding": "PASS"
+    "original_binding": true,
+    "tampered_binding": false
   },
   "state_machine": {
-    "initial": "PLANNED",
-    "legal_transition": "PASS"
+    "legal_transition": "PASS",
+    "illegal_transition_blocked": "PASS"
   },
   "snapshot": {
-    "captured": true
+    "created": true,
+    "idempotent_hash": "PASS"
   },
-  "drift": {
-    "offline": "BLOCKED",
-    "aws": "BLOCKED"
-  },
-  "health": {
-    "local": "HEALTHY (synthetic)",
-    "aws": "BLOCKED"
-  },
-  "idempotency": "PASS",
-  "concurrency": "PASS",
+  "offline_drift": "BLOCKED",
+  "local_health": "HEALTHY (synthetic)",
   "failure_recovery": {
     "classification": "TIMEOUT",
-    "action": "RETRY"
+    "retry_limit_safe": "PASS",
+    "actions": [
+      "RETRY",
+      "RETRY",
+      "HUMAN_REVIEW"
+    ]
   },
+  "concurrency": "PASS",
   "events": "PASS",
   "audit": "PASS",
-  "security": "PASS (no credentials)",
-  "apply_safety": {
-    "status": "BLOCKED",
+  "mutation_guard": {
+    "executed": false,
     "reason": "AWS not available"
+  },
+  "security": {
+    "no_credential_leak": "PASS"
   },
   "blocked": [
     {
@@ -185,8 +201,8 @@
       "reason": "AWS not ready"
     },
     {
-      "capability": "Terraform Apply",
-      "reason": "AWS not available"
+      "capability": "AWS Mutation",
+      "reason": "BLOCKED"
     }
   ],
   "failures": []

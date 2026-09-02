@@ -65,7 +65,7 @@ export class CapabilityDetector {
       this.checkCommand("git", ["--version"], "git"),
       this.checkCommand("curl", ["--version"], "curl"),
       this.checkCommand("terraform", ["version"], "terraform"),
-      this.checkCommand("aws", ["--version"], "aws"),
+      this.checkCommand("aws", ["--version"], "aws_cli"),
     ];
     return Promise.all(checks);
   }
