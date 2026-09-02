@@ -1,0 +1,205 @@
+{
+  "phase": 8,
+  "pass": 1,
+  "timestamp": "2026-09-02T05:41:51.918Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:40.671Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:42.719Z"
+    },
+    {
+      "name": "docker_cli",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:40.671Z"
+    },
+    {
+      "name": "docker_daemon",
+      "available": true,
+      "version": "Client:",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:44.964Z"
+    },
+    {
+      "name": "cosign",
+      "available": true,
+      "version": "______   ______        _______. __    _______ .__   __.",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:42.959Z"
+    },
+    {
+      "name": "semgrep",
+      "available": true,
+      "version": "1.174.0",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:49.517Z"
+    },
+    {
+      "name": "gitleaks",
+      "available": true,
+      "version": "8.30.1",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:44.552Z"
+    },
+    {
+      "name": "trivy",
+      "available": true,
+      "version": "Version: 0.74.0",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:46.511Z"
+    },
+    {
+      "name": "checkov",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T05:41:50.133Z"
+    },
+    {
+      "name": "syft",
+      "available": true,
+      "version": "Application:   syft",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:45.096Z"
+    },
+    {
+      "name": "grype",
+      "available": true,
+      "version": "Application:         grype",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:45.830Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:43.384Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "version": null,
+      "reason": "Error: spawn chromium ENOENT",
+      "checked_at": "2026-09-02T05:41:40.907Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:41.125Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:40.863Z"
+    },
+    {
+      "name": "terraform",
+      "available": true,
+      "version": "Terraform v1.16.0",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:42.523Z"
+    },
+    {
+      "name": "aws_cli",
+      "available": true,
+      "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:43.623Z"
+    },
+    {
+      "name": "python",
+      "status": "PASS",
+      "version": "Python 3.14.6",
+      "command": "python --version",
+      "duration_ms": 100,
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:50.241Z"
+    },
+    {
+      "name": "pip",
+      "status": "PASS",
+      "version": "pip 26.1.2 from C:\\Users\\pc\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\site-packages\\pip (python 3.14)",
+      "command": "pip --version",
+      "duration_ms": 1052,
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:51.293Z"
+    },
+    {
+      "name": "pytest",
+      "status": "PASS",
+      "version": "pytest 9.1.1",
+      "command": "pytest --version",
+      "duration_ms": 613,
+      "reason": null,
+      "checked_at": "2026-09-02T05:41:51.906Z"
+    }
+  ],
+  "security_services": {
+    "security_capability_manager": "PASS",
+    "sast_foundation": "BLOCKED",
+    "secret_scanning_foundation": "BLOCKED",
+    "dependency_security": "BLOCKED",
+    "container_security": "BLOCKED",
+    "iac_security": "BLOCKED",
+    "sbom": "BLOCKED",
+    "artifact_signing": "BLOCKED",
+    "security_policy": "PASS",
+    "security_gate": "PASS",
+    "secret_redaction": "PASS",
+    "events": "PASS",
+    "audit": "PASS"
+  },
+  "tests": {
+    "secret_redaction": "PASS",
+    "policy_engine": "PASS",
+    "gate": "PASS"
+  },
+  "blocked": [
+    {
+      "capability": "SAST",
+      "reason": "scanner scan not executed in pass1"
+    },
+    {
+      "capability": "Secret Scan",
+      "reason": "scanner scan not executed in pass1"
+    },
+    {
+      "capability": "Dependency Scan",
+      "reason": "scanner scan not executed in pass1"
+    },
+    {
+      "capability": "Container Scan",
+      "reason": "scanner scan not executed in pass1"
+    },
+    {
+      "capability": "IaC Scan",
+      "reason": "scanner scan not executed in pass1"
+    },
+    {
+      "capability": "SBOM",
+      "reason": "scan not executed in pass1"
+    },
+    {
+      "capability": "Artifact Signing",
+      "reason": "not executed in pass1"
+    }
+  ],
+  "failures": [],
+  "secret_redaction": "PASS"
+}

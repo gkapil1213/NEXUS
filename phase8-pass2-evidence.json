@@ -1,0 +1,211 @@
+{
+  "phase": 8,
+  "pass": 2,
+  "timestamp": "2026-09-02T05:51:45.490Z",
+  "capabilities": [
+    {
+      "name": "node",
+      "available": true,
+      "version": "v26.4.0",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:15.560Z"
+    },
+    {
+      "name": "npm",
+      "available": true,
+      "version": "11.18.0",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:17.956Z"
+    },
+    {
+      "name": "docker_cli",
+      "available": true,
+      "version": "Docker version 29.7.2, build a7dcaa6",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:15.559Z"
+    },
+    {
+      "name": "docker_daemon",
+      "available": true,
+      "version": "Client:",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:19.818Z"
+    },
+    {
+      "name": "cosign",
+      "available": true,
+      "version": "______   ______        _______. __    _______ .__   __.",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:17.836Z"
+    },
+    {
+      "name": "semgrep",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T05:45:24.756Z"
+    },
+    {
+      "name": "gitleaks",
+      "available": true,
+      "version": "8.30.1",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:19.634Z"
+    },
+    {
+      "name": "trivy",
+      "available": true,
+      "version": "Version: 0.74.0",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:19.212Z"
+    },
+    {
+      "name": "checkov",
+      "available": false,
+      "version": null,
+      "reason": "Command timed out",
+      "checked_at": "2026-09-02T05:45:24.917Z"
+    },
+    {
+      "name": "syft",
+      "available": true,
+      "version": "Application:   syft",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:19.092Z"
+    },
+    {
+      "name": "grype",
+      "available": true,
+      "version": "Application:         grype",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:18.695Z"
+    },
+    {
+      "name": "playwright",
+      "available": true,
+      "version": "Version 1.62.1",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:19.334Z"
+    },
+    {
+      "name": "chromium",
+      "available": false,
+      "version": null,
+      "reason": "Error: spawn chromium ENOENT",
+      "checked_at": "2026-09-02T05:45:15.604Z"
+    },
+    {
+      "name": "git",
+      "available": true,
+      "version": "git version 2.55.0.windows.4",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:15.683Z"
+    },
+    {
+      "name": "curl",
+      "available": true,
+      "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:15.657Z"
+    },
+    {
+      "name": "terraform",
+      "available": true,
+      "version": "Terraform v1.16.0",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:17.448Z"
+    },
+    {
+      "name": "aws_cli",
+      "available": true,
+      "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
+      "reason": null,
+      "checked_at": "2026-09-02T05:45:18.929Z"
+    }
+  ],
+  "image": "nexus-app:audit-1788278621709",
+  "results": {
+    "sast": {
+      "scanner": "semgrep",
+      "status": "FAIL",
+      "findings_count": 1,
+      "severity_counts": {
+        "WARNING": 1
+      }
+    },
+    "secrets": {
+      "scanner": "gitleaks",
+      "status": "PASS",
+      "findings_count": 0
+    },
+    "dependencies": {
+      "scanner": "npm-audit",
+      "status": "PASS",
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      }
+    },
+    "container": {
+      "scanner": "trivy",
+      "status": "PASS",
+      "findings_count": 0,
+      "severity_counts": {}
+    },
+    "sbom": {
+      "scanner": "syft",
+      "status": "TIMEOUT",
+      "components": 0,
+      "format": null
+    },
+    "grype": {
+      "scanner": "grype",
+      "status": "FAIL",
+      "findings_count": 8,
+      "severity_counts": {
+        "High": 2,
+        "Medium": 6
+      }
+    },
+    "iac": {
+      "scanner": "checkov",
+      "status": "FAIL",
+      "reason": null
+    },
+    "signing": {
+      "scanner": "cosign",
+      "status": "FAIL",
+      "sign_exit": 1,
+      "verify_exit": 1
+    }
+  },
+  "policy": {
+    "status": "FAIL",
+    "reasons": [
+      "SAST findings detected",
+      "IaC misconfigurations detected"
+    ]
+  },
+  "events": "PASS",
+  "audit": "PASS",
+  "blocked": [
+    {
+      "capability": "Checkov",
+      "reason": "possibly timed out"
+    },
+    {
+      "capability": "Chromium",
+      "reason": "executable not found"
+    },
+    {
+      "capability": "Artifact Signing",
+      "reason": "may be blocked if COSIGN_PASSWORD not set or no key"
+    }
+  ],
+  "failures": [],
+  "secret_redaction": "PASS"
+}
