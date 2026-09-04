@@ -1,6 +1,7 @@
 ﻿import { WorkerConfig } from "./worker-config";
 import { WorkerSecurity } from "./worker-security";
 import { WorkerTransport } from "./worker-transport";
+import { WorkerSandbox } from "./worker-sandbox";
 
 export interface WorkerJobRequest {
   jobId: string;
@@ -33,7 +34,8 @@ export class WorkerAgent {
   constructor(
     private config: WorkerConfig,
     private security: WorkerSecurity,
-    private transport: WorkerTransport
+    private transport: WorkerTransport,
+    private sandbox?: WorkerSandbox
   ) {}
 
   async start(): Promise<void> {
@@ -83,15 +85,41 @@ export class WorkerAgent {
       return result;
     }
 
-    // Execute (simplified: always success for now, but real execution would use adapter)
-    const result: WorkerJobResult = {
-      jobId: job.jobId,
-      dispatchId: job.dispatchId,
-      leaseId: job.leaseId,
-      success: true,
-      stdout: "Simulated execution success",
-      evidence: { worker: this.config.workerId },
-    };
+    let result: WorkerJobResult;
+    if (this.sandbox) {
+      const sandboxResult = await this.sandbox.execute({
+        executable: job.executable || "node",
+        args: job.args || [],
+        cwd: job.cwd || this.config.executionRoot || process.cwd(),
+        envAllowlist: this.config.envAllowlist,
+        timeoutMs: job.timeoutMs || this.config.executionTimeoutMs || 30000,
+      });
+      result = {
+        jobId: job.jobId,
+        dispatchId: job.dispatchId,
+        leaseId: job.leaseId,
+        success: sandboxResult.success,
+        stdout: sandboxResult.stdout,
+        stderr: sandboxResult.stderr,
+        exitCode: sandboxResult.exitCode,
+        evidence: {
+          timedOut: sandboxResult.timedOut,
+          cancelled: sandboxResult.cancelled,
+          durationMs: sandboxResult.durationMs,
+        },
+      };
+    } else {
+      // Backward-compatible simulated path for existing Phase 16 tests
+      result = {
+        jobId: job.jobId,
+        dispatchId: job.dispatchId,
+        leaseId: job.leaseId,
+        success: true,
+        stdout: "Simulated execution success",
+        evidence: { worker: this.config.workerId },
+      };
+    }
+
     await this.transport.reportResult(this.config.workerId, result);
     this.currentJobId = undefined;
     return result;

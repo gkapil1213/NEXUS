@@ -9,4 +9,8 @@
   agentVersion?: string;
   heartbeatIntervalMs?: number;
   executionTimeoutMs?: number;
+  executionRoot?: string;
+  envAllowlist?: string[];
+  allowedOperations?: string[];
+  allowedExecutables?: string[];
 }

@@ -17,7 +17,7 @@ export class WorkerSecurity {
 
   validateArgs(args: string[] | undefined): boolean {
     if (!args) return true;
-    return args.every((arg) => !/[;&|`$(){}]/.test(arg));
+    return args.every((arg) => !/[;&|`]/.test(arg));
   }
 
   validateCwd(cwd: string | undefined): boolean {
