@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import Database from "better-sqlite3";
 import { WorkerSession, WorkerSessionStatus } from "./worker-session";
 
 export class WorkerSessionStore {
@@ -71,6 +71,10 @@ export class WorkerSessionStore {
 
   markRevoked(sessionId: string): void {
     this.db.prepare("UPDATE worker_sessions SET status = 'REVOKED', revoked = 1 WHERE session_id = ?").run(sessionId);
+  }
+
+  revokeAllForWorker(workerId: string): void {
+    this.db.prepare("UPDATE worker_sessions SET status = 'REVOKED', revoked = 1 WHERE worker_id = ?").run(workerId);
   }
 
   private mapSession(row: any): WorkerSession {
