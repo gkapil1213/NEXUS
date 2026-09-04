@@ -1,4 +1,4 @@
-﻿import { ExecutionStore } from "./execution-store";
+import { ExecutionStore } from "./execution-store";
 import { ExecutionLease } from "./execution-models";
 
 export class LeaseManager {
@@ -47,6 +47,10 @@ export class LeaseManager {
       lease.workerId === workerId &&
       lease.expiresAt > now
     );
+  }
+
+  getActiveLeaseForJob(jobId: string): ExecutionLease | undefined {
+    return this.store.getActiveLeaseForJob(jobId);
   }
 
   releaseLease(leaseId: string, now: number = Date.now()): void {
