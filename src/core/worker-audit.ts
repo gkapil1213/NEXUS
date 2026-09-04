@@ -131,7 +131,7 @@ export class WorkerAuditStore {
         eventId: row.event_id,
         eventType: row.event_type,
         timestamp: row.timestamp,
-        workerId: row.worker_id,
+        workerId: row.worker_id ?? undefined,
         sessionId: row.session_id ?? undefined,
         jobId: row.job_id ?? undefined,
         attemptId: row.attempt_id ?? undefined,
