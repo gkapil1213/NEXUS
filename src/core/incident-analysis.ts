@@ -1,8 +1,10 @@
-import { ObservabilityService } from "./observability-service";
+﻿import { ObservabilityService } from "./observability-service";
 import { Incident } from "./observability-types";
 
 export interface IncidentAnalysis {
   incidentId: string;
+  service: string;
+  environment: string;
   classification: "APPLICATION" | "DATABASE" | "NETWORK" | "DEPENDENCY" | "DEPLOYMENT" | "SECURITY" | "RESOURCE" | "CONFIGURATION" | "UNKNOWN";
   confidence: "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
   summary: string;
@@ -43,6 +45,8 @@ export class IncidentAnalysisService {
 
     return {
       incidentId: incident.id,
+      service: incident.service,
+      environment: incident.environment ?? "unknown",
       classification,
       confidence,
       summary,
