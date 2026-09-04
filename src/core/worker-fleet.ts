@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import Database from "better-sqlite3";
 
 export interface WorkerFleetState {
   workerId: string;
@@ -90,6 +90,23 @@ export class WorkerFleetStore {
 
   listWorkers(): WorkerFleetState[] {
     return this.db.prepare("SELECT * FROM worker_fleet_state").all().map(this.map);
+  }
+
+  getHealthyWorkerCount(): number {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) as count FROM worker_fleet_state
+      WHERE draining = 0 AND maintenance = 0 AND active_jobs < concurrency_limit
+    `).get() as any;
+    return row?.count ?? 0;
+  }
+
+  getUtilization(): number {
+    const row = this.db.prepare(`
+      SELECT COALESCE(SUM(active_jobs),0) as used, COALESCE(SUM(concurrency_limit),0) as total
+      FROM worker_fleet_state
+    `).get() as any;
+    if (!row || row.total === 0) return 0;
+    return row.used / row.total;
   }
 
   private map(row: any): WorkerFleetState {

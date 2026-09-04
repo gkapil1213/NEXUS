@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import Database from "better-sqlite3";
 
 export interface CapacityReservation {
   reservationId: string;
@@ -55,6 +55,27 @@ export class WorkerCapacityService {
   getActiveConcurrency(workerId: string): number {
     const row = this.db.prepare(
       "SELECT COALESCE(SUM(concurrency),0) as total FROM worker_capacity_reservations WHERE worker_id = ? AND status = 'ACTIVE'"
+    ).get(workerId) as any;
+    return row?.total ?? 0;
+  }
+
+  getReservedCpu(workerId: string): number {
+    const row = this.db.prepare(
+      "SELECT COALESCE(SUM(cpu),0) as total FROM worker_capacity_reservations WHERE worker_id = ? AND status = 'ACTIVE'"
+    ).get(workerId) as any;
+    return row?.total ?? 0;
+  }
+
+  getReservedMemory(workerId: string): number {
+    const row = this.db.prepare(
+      "SELECT COALESCE(SUM(memory),0) as total FROM worker_capacity_reservations WHERE worker_id = ? AND status = 'ACTIVE'"
+    ).get(workerId) as any;
+    return row?.total ?? 0;
+  }
+
+  getReservedDisk(workerId: string): number {
+    const row = this.db.prepare(
+      "SELECT COALESCE(SUM(disk),0) as total FROM worker_capacity_reservations WHERE worker_id = ? AND status = 'ACTIVE'"
     ).get(workerId) as any;
     return row?.total ?? 0;
   }

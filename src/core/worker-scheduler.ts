@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import Database from "better-sqlite3";
 import { WorkerFleetStore, WorkerFleetState } from "./worker-fleet";
 import { WorkerCapacityService } from "./worker-capacity";
 import { RemoteWorkerStore } from "./remote-worker-store";
@@ -19,6 +19,7 @@ export interface JobRequirements {
   requiredEnvironment?: string;
   minMemory?: number;
   minCpu?: number;
+  minDisk?: number;
   priority?: JobPriority;
 }
 
@@ -107,6 +108,33 @@ export class WorkerScheduler {
       if (used >= limit) {
         rejections.push({ workerId: worker.workerId, reason: "INSUFFICIENT_CAPACITY" });
         continue;
+      }
+
+      // CPU capacity enforcement
+      if (requirements.minCpu !== undefined) {
+        const reservedCpu = this.capacity.getReservedCpu(worker.workerId);
+        if (worker.cpuCapacity === undefined || worker.cpuCapacity - reservedCpu < requirements.minCpu) {
+          rejections.push({ workerId: worker.workerId, reason: "INSUFFICIENT_CPU" });
+          continue;
+        }
+      }
+
+      // Memory capacity enforcement
+      if (requirements.minMemory !== undefined) {
+        const reservedMemory = this.capacity.getReservedMemory(worker.workerId);
+        if (worker.memoryCapacity === undefined || worker.memoryCapacity - reservedMemory < requirements.minMemory) {
+          rejections.push({ workerId: worker.workerId, reason: "INSUFFICIENT_MEMORY" });
+          continue;
+        }
+      }
+
+      // Disk capacity enforcement
+      if (requirements.minDisk !== undefined) {
+        const reservedDisk = this.capacity.getReservedDisk(worker.workerId);
+        if (worker.diskCapacity === undefined || worker.diskCapacity - reservedDisk < requirements.minDisk) {
+          rejections.push({ workerId: worker.workerId, reason: "INSUFFICIENT_DISK" });
+          continue;
+        }
       }
 
       // If we have lease/execution integration, try acquire lease before final selection
