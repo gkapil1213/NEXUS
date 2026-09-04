@@ -2,6 +2,7 @@
 import { WorkerSecurity } from "./worker-security";
 import { WorkerTransport } from "./worker-transport";
 import { WorkerSandbox } from "./worker-sandbox";
+import { WorkerObservabilityService } from "./worker-observability";
 import { sha256Hex, computeResultDigest } from "./integrity";
 
 export interface WorkerJobRequest {
@@ -39,7 +40,8 @@ export class WorkerAgent {
     private config: WorkerConfig,
     private security: WorkerSecurity,
     private transport: WorkerTransport,
-    private sandbox?: WorkerSandbox
+    private sandbox?: WorkerSandbox,
+    private observability?: WorkerObservabilityService
   ) {}
 
   async start(): Promise<void> {
@@ -116,7 +118,24 @@ export class WorkerAgent {
         stderrSha256,
       };
       result.resultSha256 = computeResultDigest(result as any);
+
+      if (this.observability) {
+        this.observability.recordExecution({
+          workerId: this.config.workerId,
+          jobId: job.jobId,
+          dispatchId: job.dispatchId,
+          leaseId: job.leaseId,
+          eventType: result.success ? "EXECUTION_COMPLETED" : "EXECUTION_FAILED",
+          payload: {
+            exitCode: result.exitCode,
+            stdoutSha256: result.stdoutSha256,
+            stderrSha256: result.stderrSha256,
+            resultSha256: result.resultSha256,
+          },
+        });
+      }
     } else {
+      // Backward-compatible simulated path for existing Phase 16 tests
       result = {
         jobId: job.jobId,
         dispatchId: job.dispatchId,
