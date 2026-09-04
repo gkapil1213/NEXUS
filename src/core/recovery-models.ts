@@ -39,3 +39,31 @@ export interface IncidentAnalysis {
   severity: string;
   details: string;
 }
+// Append to existing file or integrate cleanly
+
+export type RecoveryLifecycleState =
+  | "DETECTED"
+  | "ANALYZING"
+  | "DECIDING"
+  | "APPROVED"
+  | "EXECUTING"
+  | "VERIFYING"
+  | "RECOVERED"
+  | "FAILED"
+  | "BLOCKED"
+  | "HUMAN_REVIEW_REQUIRED";
+
+export interface RecoveryAttemptRecord {
+  id: string;
+  incidentId: string;
+  attemptNumber: number;
+  action: RecoveryAction;
+  decision: RecoveryDecision;
+  status: RecoveryLifecycleState;
+  verificationResult?: boolean;
+  evidence: string[];
+  error?: string;
+  startedAt: number;
+  completedAt?: number;
+  idempotencyKey: string; // deterministic key to prevent duplicates
+}

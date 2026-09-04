@@ -119,3 +119,87 @@ export class RecoveryStore {
     };
   }
 }
+// Add import for RecoveryAttemptRecord if needed
+
+export class RecoveryStore {
+  // existing methods...
+
+  // ---------- Recovery Attempts ----------
+  addAttempt(attempt: RecoveryAttemptRecord): void {
+    this.db.prepare(`
+      INSERT INTO recovery_attempts (
+        id, incident_id, attempt_number, action_json, decision,
+        status, verification_result, evidence_json, error,
+        started_at, completed_at, idempotency_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      attempt.id,
+      attempt.incidentId,
+      attempt.attemptNumber,
+      JSON.stringify(attempt.action),
+      attempt.decision,
+      attempt.status,
+      attempt.verificationResult === undefined ? null : attempt.verificationResult,
+      JSON.stringify(attempt.evidence),
+      attempt.error || null,
+      attempt.startedAt,
+      attempt.completedAt || null,
+      attempt.idempotencyKey
+    );
+  }
+
+  updateAttempt(attempt: RecoveryAttemptRecord): void {
+    this.db.prepare(`
+      UPDATE recovery_attempts SET
+        status = ?,
+        verification_result = ?,
+        evidence_json = ?,
+        error = ?,
+        completed_at = ?
+      WHERE id = ?
+    `).run(
+      attempt.status,
+      attempt.verificationResult === undefined ? null : attempt.verificationResult,
+      JSON.stringify(attempt.evidence),
+      attempt.error || null,
+      attempt.completedAt || null,
+      attempt.id
+    );
+  }
+
+  getAttemptByIdempotencyKey(key: string): RecoveryAttemptRecord | undefined {
+    const row = this.db.prepare(`
+      SELECT * FROM recovery_attempts WHERE idempotency_key = ?
+    `).get(key);
+    return row ? this.mapAttempt(row) : undefined;
+  }
+
+  getAttempt(id: string): RecoveryAttemptRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM recovery_attempts WHERE id = ?").get(id);
+    return row ? this.mapAttempt(row) : undefined;
+  }
+
+  listAttemptsForIncident(incidentId: string): RecoveryAttemptRecord[] {
+    const rows = this.db.prepare(`
+      SELECT * FROM recovery_attempts WHERE incident_id = ? ORDER BY attempt_number ASC
+    `).all(incidentId);
+    return rows.map(this.mapAttempt);
+  }
+
+  private mapAttempt(row: any): RecoveryAttemptRecord {
+    return {
+      id: row.id,
+      incidentId: row.incident_id,
+      attemptNumber: row.attempt_number,
+      action: JSON.parse(row.action_json),
+      decision: row.decision,
+      status: row.status,
+      verificationResult: row.verification_result === null ? undefined : !!row.verification_result,
+      evidence: JSON.parse(row.evidence_json),
+      error: row.error || undefined,
+      startedAt: row.started_at,
+      completedAt: row.completed_at || undefined,
+      idempotencyKey: row.idempotency_key,
+    };
+  }
+}
