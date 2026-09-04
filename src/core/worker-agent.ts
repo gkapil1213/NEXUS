@@ -2,6 +2,7 @@
 import { WorkerSecurity } from "./worker-security";
 import { WorkerTransport } from "./worker-transport";
 import { WorkerSandbox } from "./worker-sandbox";
+import { sha256Hex, computeResultDigest } from "./integrity";
 
 export interface WorkerJobRequest {
   jobId: string;
@@ -23,6 +24,9 @@ export interface WorkerJobResult {
   stderr?: string;
   exitCode?: number;
   evidence?: Record<string, any>;
+  stdoutSha256?: string;
+  stderrSha256?: string;
+  resultSha256?: string;
 }
 
 export class WorkerAgent {
@@ -64,7 +68,6 @@ export class WorkerAgent {
     this.currentJobId = job.jobId;
     await this.transport.heartbeat(this.config.workerId, job.jobId);
 
-    // Validate job using security policy
     const validation = this.security.validateRequest({
       operation: job.operation,
       executable: job.executable,
@@ -94,6 +97,8 @@ export class WorkerAgent {
         envAllowlist: this.config.envAllowlist,
         timeoutMs: job.timeoutMs || this.config.executionTimeoutMs || 30000,
       });
+      const stdoutSha256 = sha256Hex(sandboxResult.stdout);
+      const stderrSha256 = sha256Hex(sandboxResult.stderr);
       result = {
         jobId: job.jobId,
         dispatchId: job.dispatchId,
@@ -107,9 +112,11 @@ export class WorkerAgent {
           cancelled: sandboxResult.cancelled,
           durationMs: sandboxResult.durationMs,
         },
+        stdoutSha256,
+        stderrSha256,
       };
+      result.resultSha256 = computeResultDigest(result as any);
     } else {
-      // Backward-compatible simulated path for existing Phase 16 tests
       result = {
         jobId: job.jobId,
         dispatchId: job.dispatchId,
