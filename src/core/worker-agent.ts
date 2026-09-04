@@ -1,0 +1,109 @@
+﻿import { WorkerConfig } from "./worker-config";
+import { WorkerSecurity } from "./worker-security";
+import { WorkerTransport } from "./worker-transport";
+
+export interface WorkerJobRequest {
+  jobId: string;
+  dispatchId: string;
+  leaseId: string;
+  operation: string;
+  executable?: string;
+  args?: string[];
+  cwd?: string;
+  timeoutMs?: number;
+}
+
+export interface WorkerJobResult {
+  jobId: string;
+  dispatchId: string;
+  leaseId: string;
+  success: boolean;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  evidence?: Record<string, any>;
+}
+
+export class WorkerAgent {
+  private running = false;
+  private currentJobId?: string;
+  private heartbeatTimer?: NodeJS.Timeout;
+  private cancellationRequested = new Set<string>();
+
+  constructor(
+    private config: WorkerConfig,
+    private security: WorkerSecurity,
+    private transport: WorkerTransport
+  ) {}
+
+  async start(): Promise<void> {
+    await this.transport.connect();
+    const authenticated = await this.transport.authenticate(this.config.workerId, this.config.credentialRef);
+    if (!authenticated) {
+      await this.transport.disconnect();
+      throw new Error("Worker authentication failed");
+    }
+    this.running = true;
+    this.startHeartbeat();
+  }
+
+  private startHeartbeat(): void {
+    const interval = this.config.heartbeatIntervalMs || 30000;
+    this.heartbeatTimer = setInterval(() => {
+      this.transport.heartbeat(this.config.workerId, this.currentJobId).catch(() => {});
+    }, interval);
+  }
+
+  async processOnce(): Promise<WorkerJobResult | null> {
+    if (!this.running) return null;
+    const job = await this.transport.receiveJob(this.config.workerId);
+    if (!job) return null;
+
+    this.currentJobId = job.jobId;
+    await this.transport.heartbeat(this.config.workerId, job.jobId);
+
+    // Validate job using security policy
+    const validation = this.security.validateRequest({
+      operation: job.operation,
+      executable: job.executable,
+      args: job.args,
+      cwd: job.cwd,
+    });
+    if (!validation.valid) {
+      const result: WorkerJobResult = {
+        jobId: job.jobId,
+        dispatchId: job.dispatchId,
+        leaseId: job.leaseId,
+        success: false,
+        stderr: validation.errors.join("; "),
+        evidence: { validation_failed: true },
+      };
+      await this.transport.reportResult(this.config.workerId, result);
+      this.currentJobId = undefined;
+      return result;
+    }
+
+    // Execute (simplified: always success for now, but real execution would use adapter)
+    const result: WorkerJobResult = {
+      jobId: job.jobId,
+      dispatchId: job.dispatchId,
+      leaseId: job.leaseId,
+      success: true,
+      stdout: "Simulated execution success",
+      evidence: { worker: this.config.workerId },
+    };
+    await this.transport.reportResult(this.config.workerId, result);
+    this.currentJobId = undefined;
+    return result;
+  }
+
+  async stop(): Promise<void> {
+    this.running = false;
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    await this.transport.disconnect();
+  }
+
+  requestCancellation(jobId: string): void {
+    this.cancellationRequested.add(jobId);
+  }
+}
