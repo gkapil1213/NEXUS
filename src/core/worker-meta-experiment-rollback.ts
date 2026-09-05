@@ -1,0 +1,20 @@
+﻿export type RollbackStatus = 'ROLLED_BACK' | 'ROLLBACK_BLOCKED' | 'ROLLBACK_FAILED';
+
+export interface MetaRollbackInput {
+  metaExperimentId: string;
+  methodId: string;
+  duplicateRollback: boolean;
+  rollbackAuthorized: boolean;
+  governanceAllowed: boolean;
+  safetyAllowed: boolean;
+  rollbackAvailable: boolean;
+  verificationSucceeded: boolean;
+}
+
+export function evaluateMetaRollback(input: MetaRollbackInput): RollbackStatus {
+  if (input.duplicateRollback) return 'ROLLBACK_BLOCKED';
+  if (!input.rollbackAuthorized || !input.rollbackAvailable) return 'ROLLBACK_BLOCKED';
+  if (!input.governanceAllowed || !input.safetyAllowed) return 'ROLLBACK_BLOCKED';
+  if (!input.verificationSucceeded) return 'ROLLBACK_FAILED';
+  return 'ROLLED_BACK';
+}
