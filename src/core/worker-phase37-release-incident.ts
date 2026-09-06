@@ -1,0 +1,11 @@
+import { randomUUID } from 'crypto';
+export function processReleaseIncident(input: any): any {
+  const id = input.signature || randomUUID();
+  return {
+    id,
+    releaseId: input.releaseId,
+    severity: input.severity || 'MEDIUM',
+    signature: input.signature || null,
+    resolutionState: 'OPEN',
+  };
+}
