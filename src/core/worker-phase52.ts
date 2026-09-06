@@ -86,5 +86,3 @@ export function processAutonomousExecutionControlPlane(input: any): any {
   const status = input.approve ? 'COMPLETED' : 'APPROVAL_REQUIRED';
   return { id: randomUUID(), executionId: input.executionId, status, evidence: input.evidence || [], audit: input.audit || [], learning: input.learning || [] };
 }
-
-
