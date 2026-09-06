@@ -1,0 +1,41 @@
+import { randomUUID } from 'crypto';
+export function processReleaseExecution(input: any): any {
+  const id = input.idempotencyKey || randomUUID();
+  const result: any = {
+    id,
+    idempotencyKey: input.idempotencyKey || id,
+    releaseId: input.releaseId,
+    environment: input.environment || null,
+    state: input.state || 'created',
+    strategy: input.strategy || null,
+    waveId: input.waveId || null,
+    provider: input.provider || null,
+    result: input.result || null,
+    error: input.error || null,
+    startedAt: input.startedAt || null,
+    completedAt: input.completedAt || null,
+  };
+  if (input.from && input.to) {
+    const validTransitions: Record<string, string[]> = {
+      created: ['approved','cancelled'],
+      approved: ['running','cancelled'],
+      running: ['paused','succeeded','failed','halted'],
+      paused: ['running','halted'],
+      halted: ['rolling_back','cancelled'],
+      succeeded: ['completed'],
+      failed: ['rolling_back'],
+      rolling_back: ['rolled_back','failed'],
+      rolled_back: ['failed'],
+    };
+    const allowed = validTransitions[input.from] || [];
+    if (allowed.includes(input.to)) {
+      result.validTransition = true;
+      result.state = input.to;
+    } else {
+      throw new Error('Invalid transition');
+    }
+  }
+  if (input.operation === 'halt') result.state = 'halted';
+  if (input.circuitBreakerState === 'OPEN') result.blocked = true;
+  return result;
+}
