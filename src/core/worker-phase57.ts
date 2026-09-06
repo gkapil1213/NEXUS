@@ -280,4 +280,3 @@ export function redactSecret(text: string): string {
     .replace(/credential\s*[:=]\s*\S+/gi, 'credential=[REDACTED]')
     .replace(/private[_-]?key\s*[:=]\s*\S+/gi, 'private_key=[REDACTED]');
 }
-
