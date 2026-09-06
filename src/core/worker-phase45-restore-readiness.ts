@@ -7,5 +7,3 @@ export function processRestoreReadiness(input: any): any {
   else if (input.blocked) readiness = 'BLOCKED';
   return { id: randomUUID(), serviceId: input.serviceId, readinessState: readiness, reasons };
 }
-
-
