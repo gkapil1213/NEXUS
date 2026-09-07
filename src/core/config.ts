@@ -25,7 +25,7 @@ export const CONFIG: {
   pbkdf2Iterations: 100_000,
   maxRequestChars: 4_000,
   persistence: {
-    engine: "memory",
+    engine: "sqlite",
     dbName: "nexus.sqlite",
   },
 };

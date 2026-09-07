@@ -1,5 +1,5 @@
-import Database from "better-sqlite3";
-import { NexusEngine, StoreName } from "./db";
+﻿import Database from "better-sqlite3";
+import { NexusEngine, StoreName, SQLStatement } from "./db";
 import { Err } from "./errors";
 
 export class SQLiteEngine implements NexusEngine {
@@ -8,6 +8,10 @@ export class SQLiteEngine implements NexusEngine {
 
   private constructor(db: Database.Database) {
     this.db = db;
+  }
+
+  static fromDatabase(db: Database.Database): SQLiteEngine {
+    return new SQLiteEngine(db);
   }
   transaction<T>(fn: () => T): T {
   const tx = this.db.transaction(fn);
@@ -85,8 +89,31 @@ export class SQLiteEngine implements NexusEngine {
     const rows = this.db.prepare(`SELECT DISTINCT store FROM nexus_records`).all() as { store: string }[];
     return rows.map((r) => r.store);
   }
+  sqlQuery(sql: string, ...params: unknown[]): unknown[] {
+    const isSelect = /^\s*(select|pragma|with)\b/i.test(sql);
+    const stmt = this.db.prepare(sql);
+    if (isSelect) {
+      return stmt.all(...params) as unknown[];
+    } else {
+      stmt.run(...params);
+      return [];
+    }
+  }
+
+  prepare(sql: string): SQLStatement {
+    const stmt = this.db.prepare(sql);
+    return {
+      run: (...params: unknown[]) => { const result = stmt.run(...params); return { changes: result.changes, lastInsertRowid: result.lastInsertRowid }; },
+      get: (...params: unknown[]) => stmt.get(...params),
+      all: (...params: unknown[]) => stmt.all(...params),
+    };
+  }
 
   close(): void {
     this.db.close();
   }
 }
+
+
+
+

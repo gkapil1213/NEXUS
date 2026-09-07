@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+﻿import { NexusEngine } from "./db";
 import {
   ExecutionJob,
   ExecutionAttempt,
@@ -12,7 +12,7 @@ import {
 } from "./execution-models";
 
 export class ExecutionStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   // ---------- Jobs ----------
   createJob(job: ExecutionJob): void {
@@ -502,3 +502,7 @@ export class ExecutionStore {
     };
   }
 }
+
+
+
+

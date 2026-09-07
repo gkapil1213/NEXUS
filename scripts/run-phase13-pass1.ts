@@ -1,4 +1,5 @@
-import Database from "better-sqlite3";
+﻿import Database from "better-sqlite3";
+import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { ExecutionStore } from "../src/core/execution-store";
 import { ExecutionStateMachine } from "../src/core/execution-state-machine";
 import { WorkerRegistry } from "../src/core/worker-registry";
@@ -163,7 +164,7 @@ function createTestDb() {
       created_at INTEGER NOT NULL
     );
   `);
-  return db;
+  return SQLiteEngine.fromDatabase(db);
 }
 
 // Helper to create standard components
@@ -648,3 +649,6 @@ run().catch((err) => {
   console.error("Phase 13 harness error:", err);
   process.exit(1);
 });
+
+
+
