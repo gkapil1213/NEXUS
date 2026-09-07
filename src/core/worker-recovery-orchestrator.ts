@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerRecoveryService } from "./worker-recovery";
 import { WorkerCapacityService } from "./worker-capacity";
 import { WorkerLeaseAnomalyDetector, LeaseAnomaly } from "./worker-lease-anomaly";
@@ -26,7 +26,7 @@ export type RecoveryState =
 
 export class WorkerRecoveryOrchestrator {
   constructor(
-    private db: Database.Database,
+    private db: NexusEngine,
     private recovery: WorkerRecoveryService,
     private capacity: WorkerCapacityService,
     private anomalyDetector: WorkerLeaseAnomalyDetector,

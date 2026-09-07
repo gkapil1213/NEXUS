@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type ConflictResolution = "ALLOW" | "SERIALIZE" | "MERGE" | "DEFER" | "DENY";
 
@@ -10,7 +10,7 @@ export interface ControlConflict {
 }
 
 export class WorkerControlConflictDetector {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   evaluate(actionA: string, actionB: string): ConflictResolution {
     const key = [actionA, actionB].sort().join("|");

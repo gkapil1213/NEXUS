@@ -1,10 +1,10 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { CoordinatorRegistry } from "./worker-coordinator-registry";
 
 export type QuorumStatus = "QUORUM_AVAILABLE" | "QUORUM_LOST" | "QUORUM_UNKNOWN";
 
 export class CoordinatorQuorum {
-  constructor(private db: Database.Database, private registry: CoordinatorRegistry, private majorityThresholdFactor: number = 0.5) {}
+  constructor(private db: NexusEngine, private registry: CoordinatorRegistry, private majorityThresholdFactor: number = 0.5) {}
 
   evaluate(now: number = Date.now()): QuorumStatus {
     const active = this.registry.listActive(now);

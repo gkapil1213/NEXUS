@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { ExecutionStore } from "./execution-store";
 import { LeaseManager } from "./lease-manager";
 import { WorkerHealthStore } from "./worker-health";
@@ -12,7 +12,7 @@ export interface RecoveryDecision {
 
 export class WorkerRecoveryService {
   constructor(
-    private db: Database.Database,
+    private db: NexusEngine,
     private workerStore: RemoteWorkerStore,
     private sessionStore: WorkerSessionStore,
     private executionStore: ExecutionStore,

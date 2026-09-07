@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type TelemetryEventType =
   | "WORKER_REGISTERED"
@@ -69,7 +69,7 @@ export interface TelemetryEvent {
 }
 
 export class WorkerTelemetryStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   persist(event: TelemetryEvent): void {
     this.db.prepare(`

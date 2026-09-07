@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerReleaseBudget {
-  constructor(private db: Database.Database, private maxActions: number = 3) {}
+  constructor(private db: NexusEngine, private maxActions: number = 3) {}
 
   canExecute(): boolean {
     const row = this.db.prepare("SELECT COUNT(*) as c FROM release_executions WHERE state IN ('EXECUTING','SUCCEEDED')").get() as any;

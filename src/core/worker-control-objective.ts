@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export interface ControlObjective {
   objectiveId: string;
@@ -10,7 +10,7 @@ export interface ControlObjective {
 }
 
 export class WorkerControlObjective {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(objective: ControlObjective): void {
     this.db.prepare(`

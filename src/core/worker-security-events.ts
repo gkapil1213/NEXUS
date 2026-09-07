@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export interface WorkerSecurityEvent {
   eventId: string;
@@ -16,7 +16,7 @@ export interface WorkerSecurityEvent {
 }
 
 export class WorkerSecurityEventStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   recordEvent(event: WorkerSecurityEvent): void {
     this.db.prepare(`

@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type OptimizationRollbackDecision = "ROLLBACK_ALLOWED" | "ROLLBACK_BLOCKED" | "ROLLBACK_DEFERRED";
 
 export class WorkerCostOptimizationRollback {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   evaluate(rollbackAvailable: boolean, safetyDecision: string, currentState: string): OptimizationRollbackDecision {
     if (!rollbackAvailable || safetyDecision !== "ALLOW") return "ROLLBACK_BLOCKED";

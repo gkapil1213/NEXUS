@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type DecisionExecutionStatus = "UNAVAILABLE" | "SUCCEEDED" | "FAILED" | "DUPLICATE";
 
 export class WorkerDecisionExecutor {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   execute(decisionId: string): DecisionExecutionStatus {
     const row = this.db.prepare("SELECT * FROM unified_decisions WHERE decision_id = ?").get(decisionId) as any;

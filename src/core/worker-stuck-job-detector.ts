@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type StuckJobState = "NORMAL" | "SUSPECTED" | "STUCK" | "RECOVERY_REQUIRED";
 
 export class WorkerStuckJobDetector {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   evaluate(jobId: string, executionDurationMs: number, leaseAgeMs: number, heartbeatAgeMs: number): StuckJobState {
     if (executionDurationMs > 120000 && leaseAgeMs > 120000 && heartbeatAgeMs > 120000) {

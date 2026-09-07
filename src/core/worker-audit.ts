@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { sha256Hex, canonicalize } from "./integrity";
 import { sanitizeTelemetryPayload } from "./worker-telemetry-sanitizer";
 
@@ -26,7 +26,7 @@ export interface AuditEventRecord extends AuditEvent {
 }
 
 export class WorkerAuditStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   append(event: AuditEvent): AuditEventRecord {
     const lastRow = this.db.prepare(

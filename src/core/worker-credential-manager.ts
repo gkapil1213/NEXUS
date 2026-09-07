@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { createHash, randomBytes } from "crypto";
 
 export interface WorkerCredential {
@@ -12,7 +12,7 @@ export interface WorkerCredential {
 }
 
 export class WorkerCredentialManager {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   generateCredential(workerId: string, ttlMs?: number): { credentialId: string; secret: string; expiresAt?: number } {
     const secret = randomBytes(32).toString("base64url");

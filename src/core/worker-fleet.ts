@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export interface WorkerFleetState {
   workerId: string;
@@ -26,7 +26,7 @@ export interface WorkerFleetState {
 }
 
 export class WorkerFleetStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   upsert(state: WorkerFleetState): void {
     this.db.prepare(`

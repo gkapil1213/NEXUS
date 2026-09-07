@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerReleasePlan {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(releaseId: string, changeId: string, strategy: string, environment: string, idempotencyKey: string): boolean {
     try {

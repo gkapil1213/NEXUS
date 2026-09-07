@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type RecoveryVerificationResult = "RECOVERED" | "PARTIALLY_RECOVERED" | "NOT_RECOVERED" | "REGRESSED" | "UNKNOWN";
 
 export class WorkerRecoveryVerification {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   verify(recoveryId: string, beforeSli: number, afterSli: number, direction: "increase" | "decrease", sufficientObservations: boolean): RecoveryVerificationResult {
     if (!sufficientObservations || !Number.isFinite(beforeSli) || !Number.isFinite(afterSli)) return "UNKNOWN";

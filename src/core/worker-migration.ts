@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerMigration {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   createMigration(jobId: string, sourceWorkerId: string, destinationWorkerId: string, idempotencyKey: string): boolean {
     try {

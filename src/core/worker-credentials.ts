@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { createHash, randomBytes } from "crypto";
 
 export type CredentialStatus =
@@ -29,7 +29,7 @@ export interface WorkerCredentialRecord {
 }
 
 export class WorkerCredentialService {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   private hashSecret(secret: string): string {
     return createHash("sha256").update(secret).digest("hex");

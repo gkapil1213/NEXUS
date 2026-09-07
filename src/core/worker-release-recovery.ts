@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type RecoveryState = "ROLLING_BACK" | "RECOVERY_VERIFY" | "ROLLED_BACK" | "FAILED";
 
 export class WorkerReleaseRecovery {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   initiate(releaseId: string, rollbackAvailable: boolean, rollbackTargetValid: boolean): RecoveryState {
     if (!rollbackAvailable || !rollbackTargetValid) return "FAILED";

@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type PredictiveRecommendationType =
   | "SCALE_OUT_NOW"
@@ -9,7 +9,7 @@ export type PredictiveRecommendationType =
   | "HOLD";
 
 export class WorkerPredictiveRecommendation {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(recommendation: {
     recommendationId: string;

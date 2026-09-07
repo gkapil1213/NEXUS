@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { createHash, randomBytes } from "crypto";
 import { RemoteWorkerStore } from "./remote-worker-store";
 import { RemoteWorkerStatus } from "./remote-worker-models";
@@ -52,7 +52,7 @@ export class WorkerEnrollment {
   private auditEvents: AuditEvent[] = [];
 
   constructor(
-    private db: Database.Database,
+    private db: NexusEngine,
     private workerStore: RemoteWorkerStore,
     private credentialResolver: CredentialResolver
   ) {}

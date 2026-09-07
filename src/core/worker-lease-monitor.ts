@@ -1,11 +1,11 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { ExecutionStore } from "./execution-store";
 import { LeaseManager } from "./lease-manager";
 import { WorkerHealthStore } from "./worker-health";
 
 export class WorkerLeaseMonitor {
   constructor(
-    private db: Database.Database,
+    private db: NexusEngine,
     private executionStore: ExecutionStore,
     private leaseManager: LeaseManager,
     private healthStore: WorkerHealthStore
@@ -35,4 +35,3 @@ export class WorkerLeaseMonitor {
     }
   }
 }
-

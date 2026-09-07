@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class CoordinatorEpochManager {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(coordinatorId: string, term: number, ttlMs: number = 60000): { epochId: string; term: number } {
     const epochId = `epoch_${term}_${Date.now()}_${Math.random().toString(36).slice(2)}`;

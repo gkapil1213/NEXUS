@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type WorkerTrustState =
   | "UNKNOWN"
@@ -21,7 +21,7 @@ export interface WorkerTrustRecord {
 }
 
 export class WorkerTrustStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   getTrust(workerId: string): WorkerTrustRecord | undefined {
     const row = this.db.prepare("SELECT * FROM worker_trust WHERE worker_id = ?").get(workerId);

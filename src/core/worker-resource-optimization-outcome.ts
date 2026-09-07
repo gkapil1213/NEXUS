@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type ResourceOptimizationOutcome = "EFFECTIVE" | "INEFFECTIVE" | "REGRESSION" | "NEUTRAL" | "UNKNOWN";
 
 export class WorkerResourceOptimizationOutcome {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   classify(expectedCost: number, actualCost: number, expectedReliability: number, actualReliability: number, telemetryFresh: boolean): ResourceOptimizationOutcome {
     if (!telemetryFresh || !Number.isFinite(expectedCost) || !Number.isFinite(actualCost) || !Number.isFinite(expectedReliability) || !Number.isFinite(actualReliability)) return "UNKNOWN";

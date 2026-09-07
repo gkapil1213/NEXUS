@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerControlBudget {
-  constructor(private db: Database.Database, private maxActions: number = 10) {}
+  constructor(private db: NexusEngine, private maxActions: number = 10) {}
 
   canExecute(scope: string): boolean {
     const row = this.db.prepare(`

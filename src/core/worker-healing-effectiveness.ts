@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type HealingEffectiveness =
   | "SUCCESS"
@@ -9,7 +9,7 @@ export type HealingEffectiveness =
   | "UNKNOWN";
 
 export class WorkerHealingEffectiveness {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   classify(beforeSli: number, afterSli: number, direction: "increase" | "decrease", rollbackOccurred: boolean): HealingEffectiveness {
     if (!Number.isFinite(beforeSli) || !Number.isFinite(afterSli)) return "UNKNOWN";

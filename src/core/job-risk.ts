@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type JobRiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | "UNKNOWN";
 
@@ -11,7 +11,7 @@ export interface JobRiskFactors {
 }
 
 export class JobRisk {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   evaluate(jobId: string, factors: JobRiskFactors): { level: JobRiskLevel; reasons: string[] } {
     const reasons: string[] = [];

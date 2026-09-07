@@ -1,8 +1,8 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { RemoteWorker, RemoteWorkerStatus } from "./remote-worker-models";
 
 export class RemoteWorkerStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   registerWorker(worker: RemoteWorker): void {
     this.db.prepare(`

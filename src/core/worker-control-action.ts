@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type ControlActionType =
   | "SCALE_OUT"
@@ -38,7 +38,7 @@ export interface ControlAction {
 }
 
 export class ControlActionStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(action: ControlAction): void {
     this.db.prepare(`

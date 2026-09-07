@@ -1,7 +1,7 @@
-import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class JobOwnershipManager {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   acquire(jobId: string, coordinatorId: string, epochId: string): boolean {
     try {

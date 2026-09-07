@@ -1,8 +1,8 @@
-import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerSession, WorkerSessionStatus } from "./worker-session";
 
 export class WorkerSessionStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   createSession(session: WorkerSession): void {
     this.db.prepare(`

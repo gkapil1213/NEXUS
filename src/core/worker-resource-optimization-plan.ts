@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export interface ResourceOptimizationPlanInput {
   optimizationId: string;
@@ -20,7 +20,7 @@ export interface ResourceOptimizationPlanInput {
 }
 
 export class WorkerResourceOptimizationPlan {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(input: ResourceOptimizationPlanInput): boolean {
     try {

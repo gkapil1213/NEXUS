@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type OptimizationExecutionStatus = "UNAVAILABLE" | "SUCCEEDED" | "FAILED" | "DUPLICATE" | "EXPIRED";
 
 export class WorkerResourceOptimizationExecutor {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   execute(optimizationId: string): OptimizationExecutionStatus {
     const plan = this.db.prepare("SELECT * FROM resource_optimization_plans WHERE optimization_id = ?").get(optimizationId) as any;

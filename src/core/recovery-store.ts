@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import {
   RecoveryPolicy,
   RecoveryJob,
@@ -6,7 +6,7 @@ import {
 } from "./recovery-models";
 
 export class RecoveryStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   // ---------- Policies ----------
   getPolicy(id: string): RecoveryPolicy | undefined {

@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type ControlDecisionStatus =
   | "PROPOSED"
@@ -43,7 +43,7 @@ export interface ControlDecision {
 }
 
 export class ControlDecisionStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(decision: ControlDecision): void {
     this.db.prepare(`

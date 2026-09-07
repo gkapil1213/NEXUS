@@ -2,12 +2,12 @@
 import { Err } from "./errors";
 
 /**
- * NEXUS Phase 1 ï¿½ persistence engine.
+ * NEXUS Phase 1 Ã¯Â¿Â½ persistence engine.
  *
  * Real, durable persistence via IndexedDB (schema-versioned). In non-browser
  * contexts (Node test harnesses) a clearly-labelled in-memory engine is used
  * instead; the engine kind is exposed so health/verification can report
- * exactly which runtime is backing the platform ï¿½ never pretending an
+ * exactly which runtime is backing the platform Ã¯Â¿Â½ never pretending an
  * unverified persistence mode is the durable one.
  *
  * Safety properties:
@@ -20,7 +20,7 @@ import { Err } from "./errors";
  */
 
 /**
- * Schema v8 (Phase 4 Pass 1): ADDITIVE migration ï¿½ adds security_executions,
+ * Schema v8 (Phase 4 Pass 1): ADDITIVE migration Ã¯Â¿Â½ adds security_executions,
  * security_evidence, security_findings, security_decisions,
  * security_risk_assessments and finding_audit_log stores for the Security
  * Control Plane. IndexedDB preserves every existing object store and record
@@ -61,7 +61,7 @@ export const NEXUS_STORES = [
   "security_decisions",
   "security_risk_assessments",
   "finding_audit_log",
-  // Phase 4 Pass 7 â€“ Continuous Security Operations
+  // Phase 4 Pass 7 Ã¢â‚¬â€œ Continuous Security Operations
   "security_finding_observations",
   "security_risk_snapshots",
   "security_scanner_health",
@@ -87,8 +87,7 @@ export interface NexusEngine {
   stores(): string[];
   sqlQuery(sql: string, ...params: unknown[]): unknown[];
   prepare(sql: string): SQLStatement;
-  transaction<T>(fn: () => T): T;
-  transaction<T>(fn: () => T): T;
+  exec(sql: string): void;
   transaction<T>(fn: () => T): T;
 }
 
@@ -125,7 +124,7 @@ const INDEXES: Record<string, [string, string][]> = {
   audit: [["byResource", "resource_id"]],
   evidence: [["byExecution", "execution_id"]],
   artifacts: [["byExecution", "execution_id"]],
-  // Phase 4 Pass 1 ï¿½ Security Control Plane indexes
+  // Phase 4 Pass 1 Ã¯Â¿Â½ Security Control Plane indexes
   security_executions: [
     ["byProject", "project_id"],
     ["byExecution", "execution_id"],
@@ -314,6 +313,10 @@ class IdbEngine implements NexusEngine {
   prepare(_sql: string): SQLStatement {
     throw Err.persistence("SQL_UNSUPPORTED", "raw SQL queries are not supported by the IndexedDB engine");
   }
+
+  exec(_sql: string): void {
+    throw Err.persistence("SQL_UNSUPPORTED", "raw SQL execution is not supported by the IndexedDB engine");
+  }
 }
 
 /* ------------------------- Memory engine (non-browser) --------------------- */
@@ -370,6 +373,10 @@ class MemEngine implements NexusEngine {
   prepare(_sql: string): SQLStatement {
     throw Err.persistence("SQL_UNSUPPORTED", "raw SQL queries are not supported by the memory engine");
   }
+
+  exec(_sql: string): void {
+    throw Err.persistence("SQL_UNSUPPORTED", "raw SQL execution is not supported by the memory engine");
+  }
 }
 
 /* --------------------------------- open ----------------------------------- */
@@ -389,9 +396,12 @@ export function openEngine(): Promise<NexusEngine> {
       CONFIG.persistence.engine = "memory";
     }
     const kind = CONFIG.persistence.engine;
-    if (kind === "sqlite") {
-      const { SQLiteEngine } = await import("./sqlite-engine");
-      return await SQLiteEngine.open(CONFIG.persistence.dbName);
+        if (kind === "sqlite") {
+      if (import.meta.env.SSR) {
+        const { SQLiteEngine } = await import("./sqlite-engine");
+        return await SQLiteEngine.open(CONFIG.persistence.dbName);
+      }
+      throw Err.persistence("INVALID_RUNTIME", "SQLite persistence is only available in Node runtime");
     }
     if (kind === "idb" && typeof indexedDB !== "undefined") {
       try {
@@ -466,11 +476,5 @@ export function timingSafeEqual(a: string, b: string): boolean {
 export function resetEngineForTesting(): void {
   enginePromise = null;
 }
-
-
-
-
-
-
 
 

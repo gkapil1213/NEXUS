@@ -1,5 +1,5 @@
-﻿import Database from "better-sqlite3";
 import { NexusEngine, StoreName, SQLStatement } from "./db";
+import Database from "better-sqlite3";
 import { Err } from "./errors";
 
 export class SQLiteEngine implements NexusEngine {
@@ -109,11 +109,11 @@ export class SQLiteEngine implements NexusEngine {
     };
   }
 
+  exec(sql: string): void {
+    this.db.exec(sql);
+  }
+
   close(): void {
-    this.db.close();
+    (this.db as Database.Database).close();
   }
 }
-
-
-
-

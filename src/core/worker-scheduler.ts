@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerFleetStore, WorkerFleetState } from "./worker-fleet";
 import { WorkerCapacityService } from "./worker-capacity";
 import { RemoteWorkerStore } from "./remote-worker-store";
@@ -39,7 +39,7 @@ export interface SchedulingDecision {
 
 export class WorkerScheduler {
   constructor(
-    private db: Database.Database,
+    private db: NexusEngine,
     private fleet: WorkerFleetStore,
     private capacity: WorkerCapacityService,
     private remoteWorkers: RemoteWorkerStore,

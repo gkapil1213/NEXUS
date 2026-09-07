@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type SloState = "HEALTHY" | "WARNING" | "BREACHING" | "CRITICAL" | "UNKNOWN";
 
@@ -14,7 +14,7 @@ export interface SloDefinition {
 }
 
 export class WorkerSlo {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   register(def: SloDefinition): void {
     this.db.prepare(`

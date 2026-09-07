@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type ReliabilityState = "RELIABLE" | "DEGRADED" | "UNRELIABLE" | "UNKNOWN";
 
@@ -11,7 +11,7 @@ export interface ReliabilityEvidence {
 }
 
 export class WorkerReliability {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   evaluate(workerId: string, evidence: ReliabilityEvidence): ReliabilityState {
     if (evidence.successCount === 0 && evidence.failureCount === 0 && evidence.recoveryCount === 0) {

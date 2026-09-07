@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerReleaseOutcome {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   persistOutcome(releaseId: string, changeId: string, promotionSuccess: boolean, rollbackOccurred: boolean, reason: string): void {
     // Use existing change_outcomes table if present; otherwise no-op. We'll assume Phase 17.21 table exists.

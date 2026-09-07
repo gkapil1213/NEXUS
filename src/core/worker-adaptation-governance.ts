@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerAdaptationGovernance {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   freeze(parameterPath: string, reason: string): void {
     this.db.prepare(`

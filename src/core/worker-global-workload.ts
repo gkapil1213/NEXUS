@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerFleetStore } from "./worker-fleet";
 
 export interface WorkloadObservation {
@@ -20,7 +20,7 @@ export interface WorkloadObservation {
 }
 
 export class GlobalWorkloadObserver {
-  constructor(private db: Database.Database, private fleet: WorkerFleetStore) {}
+  constructor(private db: NexusEngine, private fleet: WorkerFleetStore) {}
 
   observe(windowStart: number = Date.now() - 60000, windowEnd: number = Date.now()): WorkloadObservation {
     const fleetState = this.fleet.listWorkers();

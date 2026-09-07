@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerHealingLoop {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   freeze(reason: string, scope: string, correlationId?: string): void {
     this.db.prepare(`

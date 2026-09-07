@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { ScalingStrategy } from "./worker-scaling-strategy";
 import { ScalingRisk } from "./worker-scaling-risk";
 import { ScalingSafetyDecision } from "./worker-scaling-safety-gate";
@@ -18,7 +18,7 @@ export interface ScalingPlanInput {
 }
 
 export class WorkerScalingPlan {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(input: ScalingPlanInput): boolean {
     try {

@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerDecisionContext } from "./worker-decision-context";
 import { WorkerDecisionNormalizer, DomainRecommendation } from "./worker-decision-normalizer";
 import { WorkerDecisionConflictDetector } from "./worker-decision-conflict-detector";
@@ -25,7 +25,7 @@ export class UnifiedProductionOrchestrator {
   private verifier = new WorkerDecisionVerification();
   private outcome: WorkerDecisionOutcome;
 
-  constructor(private db: Database.Database) {
+  constructor(private db: NexusEngine) {
     this.executor = new WorkerDecisionExecutor(db);
     this.outcome = new WorkerDecisionOutcome(db);
   }

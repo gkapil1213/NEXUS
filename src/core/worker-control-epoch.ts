@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerControlEpoch {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(policyVersion: number, ttlMs: number = 60000): string {
     const epochId = `epoch_${Date.now()}_${Math.random().toString(36).slice(2)}`;

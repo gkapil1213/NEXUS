@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import { ControlDecisionStore, ControlDecision, ControlDecisionStatus } from "./worker-control-decision";
 import { ControlActionStore, ControlAction } from "./worker-control-action";
 import { WorkerControlExecutor, ExecutorResult } from "./worker-control-executor";

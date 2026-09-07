@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export interface ReliabilityScoreInput {
   availability: number;
@@ -12,7 +12,7 @@ export interface ReliabilityScoreInput {
 }
 
 export class WorkerReliabilityScore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   calculate(input: ReliabilityScoreInput): number {
     if (input.confidence < 0.5) return 0;

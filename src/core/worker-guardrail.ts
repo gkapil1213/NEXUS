@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerGuardrail {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   evaluate(actionType: string, affectedWorkers: number, resourceDelta: number, fleetPercentage: number): { allowed: boolean; reason: string } {
     // Check basic hard guardrail: fleet percentage <= 0.5, affectedWorkers <= 10, resourceDelta bounded

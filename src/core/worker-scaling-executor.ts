@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type ScalingExecutionStatus = "EXECUTION_UNAVAILABLE" | "SUCCEEDED" | "FAILED" | "DUPLICATE" | "EXPIRED";
 
 export class WorkerScalingExecutor {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   execute(planId: string): ScalingExecutionStatus {
     const plan = this.db.prepare("SELECT * FROM scaling_plans WHERE plan_id = ?").get(planId) as any;

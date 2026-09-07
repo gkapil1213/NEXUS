@@ -1,11 +1,11 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { CoordinatorRegistry } from "./worker-coordinator-registry";
 import { CoordinatorQuorum } from "./worker-coordinator-quorum";
 import { CoordinatorEpochManager } from "./worker-coordinator-epoch";
 
 export class CoordinatorElection {
   constructor(
-    private db: Database.Database,
+    private db: NexusEngine,
     private registry: CoordinatorRegistry,
     private quorum: CoordinatorQuorum,
     private epochManager: CoordinatorEpochManager

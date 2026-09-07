@@ -1,8 +1,8 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerLearningConfidence } from "./worker-learning-confidence";
 
 export class WorkerAdaptiveLearning {
-  constructor(private db: Database.Database, private confidence: WorkerLearningConfidence) {}
+  constructor(private db: NexusEngine, private confidence: WorkerLearningConfidence) {}
 
   ingestOutcome(outcome: {
     outcomeId: string;

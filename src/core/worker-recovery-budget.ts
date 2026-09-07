@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerRecoveryBudget {
-  constructor(private db: Database.Database, private maxActions: number = 3) {}
+  constructor(private db: NexusEngine, private maxActions: number = 3) {}
 
   canExecute(scope: string): boolean {
     const row = this.db.prepare("SELECT COALESCE(SUM(action_count),0) as total FROM recovery_budgets WHERE scope = ? AND window_end > ?").get(scope, Date.now()) as any;

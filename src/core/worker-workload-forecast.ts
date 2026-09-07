@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type WorkloadForecastState = "STABLE" | "GROWING" | "SURGING" | "DECLINING" | "UNKNOWN" | "INSUFFICIENT_DATA";
 
@@ -10,7 +10,7 @@ export interface WorkloadForecast {
 }
 
 export class WorkerWorkloadForecast {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   evaluate(currentQueueDepth: number, previousQueueDepth?: number): WorkloadForecast {
     if (previousQueueDepth === undefined) {

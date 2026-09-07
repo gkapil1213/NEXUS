@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerChangeOutcome {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   persist(changeId: string, releaseId: string, classification: string, confidence: number): void {
     this.db.prepare(`

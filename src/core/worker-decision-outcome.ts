@@ -1,7 +1,7 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export class WorkerDecisionOutcome {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   persist(decisionId: string, classification: string, correlationId?: string): void {
     this.db.prepare(`INSERT INTO unified_decision_outcomes (outcome_id, decision_id, classification, evidence, correlation_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`).run(

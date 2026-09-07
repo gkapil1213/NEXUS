@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { ControlActionType } from "./worker-control-action";
 
 export type ExecutorResult =
@@ -8,7 +8,7 @@ export type ExecutorResult =
   | "UNSUPPORTED_EXTERNAL_EXECUTION";
 
 export class WorkerControlExecutor {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   execute(actionType: ControlActionType, targetId?: string): ExecutorResult {
     // These actions mutate control-plane state.

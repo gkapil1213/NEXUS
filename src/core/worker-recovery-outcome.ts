@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type RecoveryOutcomeClassification = "SUCCESS" | "PARTIAL_SUCCESS" | "NO_EFFECT" | "REGRESSION" | "UNKNOWN";
 
 export class WorkerRecoveryOutcome {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   classify(beforeSli: number, afterSli: number, direction: "increase" | "decrease", rollbackOccurred: boolean): RecoveryOutcomeClassification {
     if (!Number.isFinite(beforeSli) || !Number.isFinite(afterSli)) return "UNKNOWN";

@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type OverrideType = "STOP_AUTONOMOUS_CONTROL" | "PAUSE_AUTONOMOUS_CONTROL" | "RESUME_AUTONOMOUS_CONTROL" | "CANCEL_DECISION" | "CANCEL_ACTION";
 
@@ -13,7 +13,7 @@ export interface ControlOverride {
 }
 
 export class WorkerControlOverrideStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   create(override: ControlOverride): void {
     this.db.prepare(`

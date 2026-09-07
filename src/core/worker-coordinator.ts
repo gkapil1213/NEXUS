@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export interface CoordinationPlan {
   planId: string;
@@ -13,7 +13,7 @@ export interface CoordinationPlan {
 }
 
 export class WorkerCoordinator {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   createPlan(plan: CoordinationPlan): boolean {
     try {

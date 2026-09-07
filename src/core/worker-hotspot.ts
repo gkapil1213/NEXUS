@@ -1,10 +1,10 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerFleetStore } from "./worker-fleet";
 
 export type HotspotState = "NORMAL" | "WATCH" | "HOT" | "CRITICAL";
 
 export class WorkerHotspot {
-  constructor(private db: Database.Database, private fleet: WorkerFleetStore) {}
+  constructor(private db: NexusEngine, private fleet: WorkerFleetStore) {}
 
   evaluate(workerId: string): { state: HotspotState; reason: string } {
     const worker = this.fleet.getWorkerState(workerId);

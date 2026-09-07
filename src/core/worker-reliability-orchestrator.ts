@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerIncidentCorrelator } from "./worker-incident-correlator";
 import { WorkerRecoveryStrategy } from "./worker-recovery-strategy";
 import { WorkerRecoveryRisk } from "./worker-recovery-risk";
@@ -10,7 +10,7 @@ import { WorkerRecoveryOutcome } from "./worker-recovery-outcome";
 
 export class WorkerReliabilityOrchestrator {
   constructor(
-    private db: Database.Database,
+    private db: NexusEngine,
     private correlator: WorkerIncidentCorrelator,
     private strategy: WorkerRecoveryStrategy,
     private risk: WorkerRecoveryRisk,

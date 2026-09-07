@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type WorkerHealthState =
   | "HEALTHY"
@@ -22,7 +22,7 @@ export interface WorkerHealthSnapshot {
 }
 
 export class WorkerHealthStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   upsertHealth(snapshot: WorkerHealthSnapshot): void {
     this.db.prepare(`

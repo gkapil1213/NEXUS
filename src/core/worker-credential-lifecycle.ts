@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerCredentialService } from "./worker-credentials";
 import { WorkerSessionStore } from "./worker-session-store";
 import { WorkerTrustStore } from "./worker-trust";
@@ -7,7 +7,7 @@ import { RemoteWorkerStore } from "./remote-worker-store";
 
 export class WorkerCredentialLifecycleManager {
   constructor(
-    private db: Database.Database,
+    private db: NexusEngine,
     private credentials: WorkerCredentialService,
     private sessions: WorkerSessionStore,
     private trust: WorkerTrustStore,

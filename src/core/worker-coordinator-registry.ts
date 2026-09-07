@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type CoordinatorState = "ACTIVE" | "CANDIDATE" | "FOLLOWER" | "DRAINING" | "FAILED" | "FENCED" | "RECOVERING";
 
@@ -15,7 +15,7 @@ export interface CoordinatorRecord {
 }
 
 export class CoordinatorRegistry {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   register(record: CoordinatorRecord): void {
     this.db.prepare(`

@@ -1,9 +1,9 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type HealingAction = "REBALANCE" | "REDUCE_ADMISSION" | "SCALE_OUT" | "SCALE_IN" | "QUARANTINE" | "RELEASE_RESERVATION" | "RECOVER_JOB" | "ROLLBACK" | "DEFER_OPTIMIZATION";
 
 export class WorkerSelfHealing {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   recommend(sloState: string, burnRate: number, workerHealth: string): HealingAction | "NO_ACTION" {
     if (sloState === "CRITICAL" || burnRate > 5) return "ROLLBACK";

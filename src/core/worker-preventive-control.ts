@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 
 export type PreventiveAction =
   | "SCALE_OUT"
@@ -11,7 +11,7 @@ export type PreventiveAction =
   | "DEFER_OPTIMIZATION";
 
 export class WorkerPreventiveControl {
-  constructor(private db: Database.Database) {}
+  constructor(private db: NexusEngine) {}
 
   recommend(reliabilityScore: number, burnRate: number, capacityRisk: string): PreventiveAction | "NO_ACTION" {
     if (reliabilityScore < 0.3 || burnRate > 5) return "PREPARE_RECOVERY";

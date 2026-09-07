@@ -1,4 +1,4 @@
-﻿import Database from "better-sqlite3";
+import { NexusEngine } from "./db";
 import { WorkerHealthStore } from "./worker-health";
 import { WorkerSessionStore } from "./worker-session-store";
 import { RemoteWorkerStore } from "./remote-worker-store";
@@ -15,7 +15,7 @@ export interface HeartbeatMessage {
 
 export class WorkerHeartbeatService {
   constructor(
-    private db: Database.Database,
+    private db: NexusEngine,
     private workerStore: RemoteWorkerStore,
     private sessionStore: WorkerSessionStore,
     private healthStore: WorkerHealthStore
