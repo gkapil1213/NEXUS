@@ -1,4 +1,5 @@
-import Database from "better-sqlite3";
+﻿import Database from "better-sqlite3";import { SQLiteEngine } from "../src/core/sqlite-engine";
+
 import { createHash } from "crypto";
 import { createHash } from "crypto";
 import { RemoteWorkerStore } from "../src/core/remote-worker-store";
@@ -280,7 +281,7 @@ async function run() {
   // 10-11 secure dispatch, duplicate dispatch
   test("secure dispatch", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const worker = { workerId: "w1", hostname: "h", status: "ONLINE" as const, registeredAt: Date.now() };
     const workerRegistry = new WorkerRegistry(execStore);
@@ -293,7 +294,7 @@ async function run() {
 
   test("duplicate dispatch rejection", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     createDummyJob(execStore, "job1");
     const leaseManager = new LeaseManager(execStore);
     let rejected = false;
@@ -307,7 +308,7 @@ async function run() {
   // 12 lease validation
   test("lease validation", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     createDummyJob(execStore, "job1");
     const leaseManager = new LeaseManager(execStore);
     const lease = leaseManager.acquireLease("job1", "w1", 60000);
@@ -342,7 +343,7 @@ async function run() {
   // 15-16 cancellation, acknowledgment
   test("cancellation request", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(execStore);
     const leaseManager = new LeaseManager(execStore);
     const engine = new ExecutionEngine(execStore, workerRegistry, leaseManager, new RetryEngine());
@@ -358,7 +359,7 @@ async function run() {
   // 17 timeout
   test("timeout", async () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(execStore);
     const leaseManager = new LeaseManager(execStore);
     const engine = new ExecutionEngine(execStore, workerRegistry, leaseManager, new RetryEngine());
@@ -379,7 +380,7 @@ async function run() {
 
   test("worker crash recovery", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerStore = new RemoteWorkerStore(db);
     const leaseManager = new LeaseManager(execStore);
     // implement recovery simple
@@ -392,7 +393,7 @@ async function run() {
   // 20 retry, 21 idempotency
   test("retry", async () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(execStore);
     const leaseManager = new LeaseManager(execStore);
     const engine = new ExecutionEngine(execStore, workerRegistry, leaseManager, new RetryEngine());
@@ -408,7 +409,7 @@ async function run() {
 
   test("idempotency", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(execStore);
     const leaseManager = new LeaseManager(execStore);
     const engine = new ExecutionEngine(execStore, workerRegistry, leaseManager, new RetryEngine());
@@ -523,7 +524,7 @@ async function run() {
 
   test("cross-worker result rejection", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     createDummyJob(execStore, "job1");
     const leaseManager = new LeaseManager(execStore);
     leaseManager.acquireLease("job1", "w1", 60000);
@@ -586,3 +587,4 @@ run().catch((err) => {
   console.error("Phase 16 harness error:", err);
   process.exit(1);
 });
+

@@ -1,4 +1,5 @@
-import Database from "better-sqlite3";
+﻿import Database from "better-sqlite3";import { SQLiteEngine } from "../src/core/sqlite-engine";
+
 import { ExecutionAdapterRegistry } from "../src/core/execution-adapter-registry";
 import { LocalProcessAdapter } from "../src/core/local-process-adapter";
 import { CICDAdapter } from "../src/core/cicd-adapter";
@@ -452,7 +453,7 @@ async function run() {
   // 23. Phase 13 job creation
   test("Phase 13 job creation", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -464,7 +465,7 @@ async function run() {
   // 24. Phase 13 lease integration
   test("Phase 13 lease integration", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -479,7 +480,7 @@ async function run() {
   // 25. Phase 13 retry integration
   test("Phase 13 retry integration", async () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -497,7 +498,7 @@ async function run() {
   // 26. artifact integration
   test("artifact integration", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const artifactStore = new ArtifactStore(store);
     const artifact = artifactStore.registerArtifact(
       { artifactId: "art1", name: "test", type: "txt", createdAt: Date.now() },
@@ -509,7 +510,7 @@ async function run() {
   // 27. release integration
   test("release integration", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const releaseManager = new ReleaseManager(store);
     const release = releaseManager.createRelease("rel1", "1.0.0", "art1");
     return release.status === "CREATED";
@@ -518,7 +519,7 @@ async function run() {
   // 28. approval integration
   test("approval integration", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const approvalGate = new ApprovalGate(store);
     const decision = approvalGate.evaluate("dep1", "rel1", "production", "deploy");
     return decision === "HUMAN_APPROVAL_REQUIRED";
@@ -527,7 +528,7 @@ async function run() {
   // 29. deployment gate integration
   test("deployment gate integration", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const gates = new DeploymentGates();
     const release = { releaseId: "rel1", version: "1.0.0", status: "CREATED" as const, createdAt: Date.now(), updatedAt: Date.now() };
     const artifact = { artifactId: "art1", name: "a", type: "t", checksum: "abc", createdAt: Date.now() };
@@ -579,7 +580,7 @@ async function run() {
   // 32. Phase 13 regression (simple)
   test("Phase 13 regression", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -591,7 +592,7 @@ async function run() {
   // 33. adapter crash recovery (lease expiry)
   test("adapter crash recovery", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -611,7 +612,7 @@ async function run() {
   // 34. execution restart recovery
   test("execution restart recovery", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -640,7 +641,7 @@ async function run() {
   // 35. idempotent execution
   test("idempotent execution", () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -670,7 +671,7 @@ async function run() {
   // 38. timeout/retry interaction
   test("timeout/retry interaction", async () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -689,7 +690,7 @@ async function run() {
   // 39. cancellation/restart interaction
   test("cancellation/restart interaction", async () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -708,7 +709,7 @@ async function run() {
   // 40. complete end-to-end execution flow
   test("complete end-to-end execution flow", async () => {
     const db = createPhase13Db();
-    const store = new ExecutionStore(db);
+    const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(store);
     const leaseManager = new LeaseManager(store);
     const retryEngine = new RetryEngine();
@@ -744,3 +745,4 @@ run().catch((err) => {
   console.error("Phase 14 harness error:", err);
   process.exit(1);
 });
+

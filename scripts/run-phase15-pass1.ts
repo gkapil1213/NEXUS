@@ -1,4 +1,5 @@
-﻿import Database from "better-sqlite3";
+﻿import Database from "better-sqlite3";import { SQLiteEngine } from "../src/core/sqlite-engine";
+
 import { RemoteWorkerStore } from "../src/core/remote-worker-store";
 import { RemoteWorkerRegistry } from "../src/core/remote-worker-registry";
 import { WorkerAuthentication } from "../src/core/worker-authentication";
@@ -273,7 +274,7 @@ async function run() {
   // Dispatch/lease integration
   test("job dispatch lease validation", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const worker = { workerId: "w1", hostname: "h", status: "ONLINE" as const, registeredAt: Date.now() };
     const workerRegistry = new WorkerRegistry(execStore);
@@ -286,7 +287,7 @@ async function run() {
 
   test("duplicate dispatch rejection", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const job = { id: "job1", idempotencyKey: "idem1", jobType: "test", status: "QUEUED" as any, createdAt: Date.now(), updatedAt: Date.now(), cancellationRequested: false, cancellationAcknowledged: false };
     execStore.createJob(job);
@@ -300,7 +301,7 @@ async function run() {
 
   test("control plane recovery", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerStore = new RemoteWorkerStore(db);
     const leaseManager = new LeaseManager(execStore);
     const recovery = new ControlPlaneRecovery(workerStore, execStore, leaseManager);
@@ -374,7 +375,7 @@ async function run() {
 
   test("job hijacking rejection", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const job = { id: "job1", idempotencyKey: "idem1", jobType: "test", status: "QUEUED" as any, createdAt: Date.now(), updatedAt: Date.now(), cancellationRequested: false, cancellationAcknowledged: false };
     execStore.createJob(job);
@@ -499,7 +500,7 @@ async function run() {
 
   test("Phase 13 regression", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const workerRegistry = new WorkerRegistry(execStore);
     const leaseManager = new LeaseManager(execStore);
     const engine = new ExecutionEngine(execStore, workerRegistry, leaseManager, new RetryEngine());
@@ -523,3 +524,4 @@ run().catch((err) => {
   console.error("Phase 15 harness error:", err);
   process.exit(1);
 });
+

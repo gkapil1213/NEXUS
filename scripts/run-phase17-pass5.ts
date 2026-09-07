@@ -1,4 +1,5 @@
-import Database from "better-sqlite3";
+﻿import Database from "better-sqlite3";import { SQLiteEngine } from "../src/core/sqlite-engine";
+
 import { WorkerHealthStore, WorkerHealthSnapshot } from "../src/core/worker-health";
 import { WorkerHealthMonitor, HealthThresholds } from "../src/core/worker-health-monitor";
 import { WorkerHeartbeatService } from "../src/core/worker-heartbeat";
@@ -301,7 +302,7 @@ async function run() {
   // Lease health validation
   test("active lease health validation", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     execStore.createJob({ id: "job1", idempotencyKey: "idem1", jobType: "test", status: "QUEUED", createdAt: Date.now(), updatedAt: Date.now(), cancellationRequested: false, cancellationAcknowledged: false });
     const leaseManager = new LeaseManager(execStore);
     const lease = leaseManager.acquireLease("job1", "w1", 60000);
@@ -310,7 +311,7 @@ async function run() {
 
   test("expired lease detection", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     execStore.createJob({ id: "job1", idempotencyKey: "idem1", jobType: "test", status: "QUEUED", createdAt: Date.now(), updatedAt: Date.now(), cancellationRequested: false, cancellationAcknowledged: false });
     const leaseManager = new LeaseManager(execStore);
     const lease = leaseManager.acquireLease("job1", "w1", 10);
@@ -330,7 +331,7 @@ async function run() {
 
   test("unauthorized lease renewal rejection", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     execStore.createJob({ id: "job1", idempotencyKey: "idem1", jobType: "test", status: "QUEUED", createdAt: Date.now(), updatedAt: Date.now(), cancellationRequested: false, cancellationAcknowledged: false });
     const leaseManager = new LeaseManager(execStore);
     leaseManager.acquireLease("job1", "w1", 60000);
@@ -344,7 +345,7 @@ async function run() {
     registerWorker(db, "w1");
     const workerStore = new RemoteWorkerStore(db);
     const sessionStore = new WorkerSessionStore(db);
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const healthStore = new WorkerHealthStore(db);
     const recovery = new WorkerRecoveryService(db, workerStore, sessionStore, execStore, leaseManager, healthStore);
@@ -359,7 +360,7 @@ async function run() {
     registerWorker(db, "w1");
     const workerStore = new RemoteWorkerStore(db);
     const sessionStore = new WorkerSessionStore(db);
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const healthStore = new WorkerHealthStore(db);
     const recovery = new WorkerRecoveryService(db, workerStore, sessionStore, execStore, leaseManager, healthStore);
@@ -376,7 +377,7 @@ async function run() {
     registerWorker(db, "w1");
     const workerStore = new RemoteWorkerStore(db);
     const sessionStore = new WorkerSessionStore(db);
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const healthStore = new WorkerHealthStore(db);
     execStore.createJob({ id: "job1", idempotencyKey: "idem1", jobType: "test", status: "RUNNING", createdAt: Date.now(), updatedAt: Date.now(), cancellationRequested: false, cancellationAcknowledged: false, retryPolicy: { maxAttempts: 3, initialDelayMs: 10, multiplier: 2, maxDelayMs: 100 } });
     const worker = workerStore.getWorker("w1")!;
@@ -407,7 +408,7 @@ async function run() {
     registerWorker(db, "w1");
     const workerStore = new RemoteWorkerStore(db);
     const sessionStore = new WorkerSessionStore(db);
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const healthStore = new WorkerHealthStore(db);
     const recovery = new WorkerRecoveryService(db, workerStore, sessionStore, execStore, leaseManager, healthStore);
@@ -433,7 +434,7 @@ async function run() {
     registerWorker(db, "w1");
     const workerStore = new RemoteWorkerStore(db);
     const sessionStore = new WorkerSessionStore(db);
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const healthStore = new WorkerHealthStore(db);
     const recovery = new WorkerRecoveryService(db, workerStore, sessionStore, execStore, leaseManager, healthStore);
@@ -477,7 +478,7 @@ async function run() {
     const workerStore = registerWorker(db, "w1");
     workerStore.revokeWorker("w1");
     const sessionStore = new WorkerSessionStore(db);
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const healthStore = new WorkerHealthStore(db);
     const recovery = new WorkerRecoveryService(db, workerStore, sessionStore, execStore, leaseManager, healthStore);
@@ -491,7 +492,7 @@ async function run() {
 
   test("lease hijacking rejection", () => {
     const db = createDb();
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     execStore.createJob({ id: "job1", idempotencyKey: "idem1", jobType: "test", status: "QUEUED", createdAt: Date.now(), updatedAt: Date.now(), cancellationRequested: false, cancellationAcknowledged: false });
     const leaseManager = new LeaseManager(execStore);
     leaseManager.acquireLease("job1", "w1", 60000);
@@ -551,3 +552,4 @@ run().catch((err) => {
   console.error("Phase 17.5 harness error:", err);
   process.exit(1);
 });
+

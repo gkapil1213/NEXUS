@@ -1,4 +1,5 @@
-import Database from "better-sqlite3";
+﻿import Database from "better-sqlite3";import { SQLiteEngine } from "../src/core/sqlite-engine";
+
 import { GlobalWorkloadObserver } from "../src/core/worker-global-workload";
 import { WorkerWorkloadTrend } from "../src/core/worker-workload-trend";
 import { WorkerPredictiveCapacity } from "../src/core/worker-predictive-capacity";
@@ -522,7 +523,7 @@ async function run() {
     const db = createDb();
     addWorker(db, "w1");
     db.prepare(`INSERT INTO execution_jobs (id, idempotency_key, job_type, status, created_at, updated_at, cancellation_requested, cancellation_acknowledged) VALUES ('job1','idem1','test','QUEUED',?,?,0,0)`).run(Date.now(), Date.now());
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const lease = leaseManager.acquireLease("job1", "w1", 60000);
     return leaseManager.validateLease(lease.leaseId, "w1");
@@ -573,3 +574,4 @@ run().catch(err => {
   console.error("Phase 17.16 harness error:", err);
   process.exit(1);
 });
+

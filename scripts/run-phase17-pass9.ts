@@ -1,4 +1,5 @@
-import Database from "better-sqlite3";
+﻿import Database from "better-sqlite3";import { SQLiteEngine } from "../src/core/sqlite-engine";
+
 import { WorkerFleetStore, WorkerFleetState } from "../src/core/worker-fleet";
 import { WorkerCapacityService } from "../src/core/worker-capacity";
 import { WorkerScheduler, JobRequirements } from "../src/core/worker-scheduler";
@@ -228,7 +229,7 @@ async function run() {
     addHealth(db, "w1", "HEALTHY");
     addCredential(db, "w1");
     createJob(db, "job1");
-    const scheduler = new WorkerScheduler(db, new WorkerFleetStore(db), new WorkerCapacityService(db), new RemoteWorkerStore(db), new WorkerHealthStore(db), new WorkerTrustStore(db), new WorkerCredentialService(db), new ExecutionStore(db), new LeaseManager(new ExecutionStore(db)));
+    const scheduler = new WorkerScheduler(db, new WorkerFleetStore(db), new WorkerCapacityService(db), new RemoteWorkerStore(db), new WorkerHealthStore(db), new WorkerTrustStore(db), new WorkerCredentialService(db), new ExecutionStore(SQLiteEngine.fromDatabase(db)), new LeaseManager(new ExecutionStore(SQLiteEngine.fromDatabase(db))));
     const dec = scheduler.schedule("job1", { requiredCapabilities: ["node"] });
     return dec.selectedWorkerId === "w1";
   });
@@ -357,7 +358,7 @@ async function run() {
     addHealth(db, "w1", "HEALTHY");
     addCredential(db, "w1");
     createJob(db, "job1");
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const scheduler = new WorkerScheduler(db, new WorkerFleetStore(db), new WorkerCapacityService(db), new RemoteWorkerStore(db), new WorkerHealthStore(db), new WorkerTrustStore(db), new WorkerCredentialService(db), execStore, leaseManager);
     const dec = scheduler.schedule("job1", { requiredCapabilities: ["node"] });
@@ -372,7 +373,7 @@ async function run() {
     addHealth(db, "w1", "HEALTHY");
     addCredential(db, "w1");
     createJob(db, "job1");
-    const execStore = new ExecutionStore(db);
+    const execStore = new ExecutionStore(SQLiteEngine.fromDatabase(db));
     const leaseManager = new LeaseManager(execStore);
     const scheduler = new WorkerScheduler(db, new WorkerFleetStore(db), new WorkerCapacityService(db), new RemoteWorkerStore(db), new WorkerHealthStore(db), new WorkerTrustStore(db), new WorkerCredentialService(db), execStore, leaseManager);
     const dec1 = scheduler.schedule("job1", { requiredCapabilities: ["node"] });
@@ -443,3 +444,4 @@ run().catch(err => {
   console.error("Phase 17.9 harness error:", err);
   process.exit(1);
 });
+

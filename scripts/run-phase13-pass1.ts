@@ -169,7 +169,7 @@ function createTestDb() {
 
 // Helper to create standard components
 function setup(db: Database.Database) {
-  const store = new ExecutionStore(db);
+  const store = new ExecutionStore(SQLiteEngine.fromDatabase(db));
   const workerRegistry = new WorkerRegistry(store);
   const leaseManager = new LeaseManager(store);
   const retryEngine = new RetryEngine();
@@ -649,6 +649,7 @@ run().catch((err) => {
   console.error("Phase 13 harness error:", err);
   process.exit(1);
 });
+
 
 
 

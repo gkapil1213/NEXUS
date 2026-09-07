@@ -1,4 +1,5 @@
-﻿import Database from "better-sqlite3";
+﻿import Database from "better-sqlite3";import { SQLiteEngine } from "../src/core/sqlite-engine";
+
 import { WorkerFleetStore, WorkerFleetState } from "../src/core/worker-fleet";
 import { WorkerCapacityService } from "../src/core/worker-capacity";
 import { WorkerScheduler, JobRequirements } from "../src/core/worker-scheduler";
@@ -265,7 +266,7 @@ async function run() {
       new WorkerBackpressureEngine({ queueDepthNormal: 10, queueDepthElevated: 20, queueDepthHigh: 30, utilizationNormal: 0.6, utilizationElevated: 0.8, utilizationHigh: 0.95 }),
       new WorkerFleetStore(db),
       new WorkerCapacityService(db),
-      new WorkerScheduler(db, new WorkerFleetStore(db), new WorkerCapacityService(db), new RemoteWorkerStore(db), new WorkerHealthStore(db), new WorkerTrustStore(db), new WorkerCredentialService(db), new ExecutionStore(db), new LeaseManager(new ExecutionStore(db)))
+      new WorkerScheduler(db, new WorkerFleetStore(db), new WorkerCapacityService(db), new RemoteWorkerStore(db), new WorkerHealthStore(db), new WorkerTrustStore(db), new WorkerCredentialService(db), new ExecutionStore(SQLiteEngine.fromDatabase(db)), new LeaseManager(new ExecutionStore(SQLiteEngine.fromDatabase(db))))
     );
     const res = admission.evaluate("job1", { requiredCapabilities: ["node"] }, 1, 0.5, "NORMAL");
     return res.decision === "ADMIT" && res.workerId === "w1";
@@ -277,7 +278,7 @@ async function run() {
     const admission = new WorkerAdmissionEngine(
       new WorkerBackpressureEngine({ queueDepthNormal: 10, queueDepthElevated: 20, queueDepthHigh: 30, utilizationNormal: 0.6, utilizationElevated: 0.8, utilizationHigh: 0.95 }),
       new WorkerFleetStore(db), new WorkerCapacityService(db),
-      new WorkerScheduler(db, new WorkerFleetStore(db), new WorkerCapacityService(db), new RemoteWorkerStore(db), new WorkerHealthStore(db), new WorkerTrustStore(db), new WorkerCredentialService(db), new ExecutionStore(db), new LeaseManager(new ExecutionStore(db)))
+      new WorkerScheduler(db, new WorkerFleetStore(db), new WorkerCapacityService(db), new RemoteWorkerStore(db), new WorkerHealthStore(db), new WorkerTrustStore(db), new WorkerCredentialService(db), new ExecutionStore(SQLiteEngine.fromDatabase(db)), new LeaseManager(new ExecutionStore(SQLiteEngine.fromDatabase(db))))
     );
     const res = admission.evaluate("job1", {}, 40, 0.99, "LOW");
     return res.decision === "DEFER";
@@ -399,3 +400,4 @@ run().catch(err => {
   console.error("Phase 17.10 harness error:", err);
   process.exit(1);
 });
+
