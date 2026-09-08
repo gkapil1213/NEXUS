@@ -1,5 +1,6 @@
 import { NexusEngine, StoreName, SQLStatement } from "./db";
 import Database from "better-sqlite3";
+import { join } from "path";
 import { Err } from "./errors";
 
 export class SQLiteEngine implements NexusEngine {
@@ -20,6 +21,11 @@ export class SQLiteEngine implements NexusEngine {
 }
   static async open(path: string): Promise<SQLiteEngine> {
     const db = new Database(path);
+        // Run migrations before engine is ready
+        const { MigrationRunner } = await import('./migration-runner');
+        const migrationsDir = join(process.cwd(), 'src', 'db', 'migrations');
+        const runner = new MigrationRunner(db, migrationsDir);
+        runner.run();
     db.pragma("journal_mode = WAL");
     db.exec(`
       CREATE TABLE IF NOT EXISTS nexus_records (

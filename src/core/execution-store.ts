@@ -181,22 +181,31 @@ export class ExecutionStore {
   }
 
   // ---------- Leases ----------
-  acquireLease(lease: ExecutionLease): void {
-    this.db.prepare(`
-      INSERT INTO execution_leases (
-        lease_id, job_id, worker_id, acquired_at, expires_at,
-        renewed_at, released_at, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      lease.leaseId,
-      lease.jobId,
-      lease.workerId,
-      lease.acquiredAt,
-      lease.expiresAt,
-      lease.renewedAt,
-      lease.releasedAt,
-      lease.status
-    );
+  acquireLease(lease: ExecutionLease): { acquired: boolean; existingLease?: ExecutionLease } {
+    try {
+      this.db.prepare(`
+        INSERT INTO execution_leases (
+          lease_id, job_id, worker_id, acquired_at, expires_at,
+          renewed_at, released_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        lease.leaseId,
+        lease.jobId,
+        lease.workerId,
+        lease.acquiredAt,
+        lease.expiresAt,
+        lease.renewedAt,
+        lease.releasedAt ?? null,
+        lease.status
+      );
+      return { acquired: true };
+    } catch (err: any) {
+      if (err.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed/i.test(err.message)) {
+        const existing = this.getActiveLeaseForJob(lease.jobId);
+        return { acquired: false, existingLease: existing };
+      }
+      throw err;
+    }
   }
 
   updateLease(lease: ExecutionLease): void {
