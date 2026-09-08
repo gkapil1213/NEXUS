@@ -1,10 +1,10 @@
 /**
- * NEXUS Phase 1 — NexusKernel.
+ * NEXUS Phase 1 â€” NexusKernel.
  *
  * The platform foundation: initializes persistence, events, audit, agents,
  * services and orchestration in a strict order, tracks boot steps for the
  * UI, and fails loudly (never partially-silently) when a subsystem cannot
- * start. Contains no business logic — that lives in services and agents.
+ * start. Contains no business logic â€” that lives in services and agents.
  */
 
 import { AuditService } from "./audit";
@@ -26,6 +26,20 @@ import {
   type SecretProvider,
 } from "./security";
 import { GitHubService } from "./github";
+import { ExecutionStore } from "./execution-store";
+import { ExecutionEngine } from "./execution-engine";
+import { WorkerRegistry } from "./worker-registry";
+import { LeaseManager } from "./lease-manager";
+import { RetryEngine } from "./retry-engine";
+import { JobDispatcher } from "./job-dispatcher";
+import { RemoteWorkerStore } from "./remote-worker-store";
+import { RemoteWorkerRegistry } from "./remote-worker-registry";
+import { WorkerAuthentication } from "./worker-authentication";
+import { InMemoryWorkerAuthStore } from "./worker-auth-store";
+import { ExecutionAdapterRegistry } from "./execution-adapter-registry";
+import { RemoteExecutionManager } from "./remote-execution-manager";
+import { SkippedEnvironmentRemoteAdapter } from "./skipped-environment-adapter";
+import { SkippedEnvironmentExecutionAdapter } from "./skipped-environment-execution-adapter";
 import { AgentPolicyEngine, ExecutionPolicyEngine, AgentExecutionService } from "./execution-policy";
 import { ProjectDetector } from "./devops";
 import {
@@ -54,17 +68,17 @@ export interface KernelServices {
   sessions: SessionService;
   secrets: SecretProvider;
   github: GitHubService;
-  // Phase 2 Pass 1 — centralized authorization + identity lifecycle.
+  // Phase 2 Pass 1 â€” centralized authorization + identity lifecycle.
   authz: AuthorizationService;
   identity: IdentityService;
-  // Phase 2 Pass 2 — secure agent execution & execution policy.
+  // Phase 2 Pass 2 â€” secure agent execution & execution policy.
   agentPolicy: AgentPolicyEngine;
   execPolicy: ExecutionPolicyEngine;
   agentExec: AgentExecutionService;
-  // Phase 2 Pass 3 — workspace isolation & sandbox.
+  // Phase 2 Pass 3 â€” workspace isolation & sandbox.
   workspaces: WorkspaceService;
   sandbox: ExecutionSandbox;
-  // Phase 3 Pass 3 — CI/CD pipeline + Git provider foundation.
+  // Phase 3 Pass 3 â€” CI/CD pipeline + Git provider foundation.
   cicd: {
     agent: PipelineAgent;
     validator: PipelineValidator;
@@ -72,7 +86,7 @@ export interface KernelServices {
     gitlab: GitLabProvider;
     engine: CiPipelineEngine;
   };
-  // Phase 3 Pass 5 — runtime bridge (process execution + Docker/Trivy/Playwright).
+  // Phase 3 Pass 5 â€” runtime bridge (process execution + Docker/Trivy/Playwright).
   runtime: RuntimeBridge;
 }
 
@@ -92,6 +106,11 @@ export class NexusKernel {
   services!: KernelServices;
   status: "booting" | "ready" | "failed" = "booting";
   failure: NexusError | null = null;
+  executionEngine?: ExecutionEngine;
+  jobDispatcher?: JobDispatcher;
+  remoteWorkerRegistry?: RemoteWorkerRegistry;
+  remoteExecutionManager?: RemoteExecutionManager;
+  executionAdapterRegistry?: ExecutionAdapterRegistry;
 
   private step(id: string, status: BootStep["status"], detail: string | null = null): void {
     const s = this.steps.find((x) => x.id === id);
@@ -109,7 +128,7 @@ export class NexusKernel {
       if (configBlocked()) {
         throw Err.startup("CONFIG_INVALID", `configuration validation failed: ${CONFIG.issues.join("; ")}`);
       }
-      this.step("config", "ok", `${CONFIG.env} · v${CONFIG.version}`);
+      this.step("config", "ok", `${CONFIG.env} Â· v${CONFIG.version}`);
 
       // 2. persistence
       this.step("persistence", "running");
@@ -119,7 +138,7 @@ export class NexusKernel {
         this.step("persistence", "fail", "probe failed");
         throw Err.startup("PERSISTENCE_FAILED", "persistence engine failed its round-trip probe");
       }
-      this.step("persistence", "ok", `${engine.kind} · ${latency}ms`);
+      this.step("persistence", "ok", `${engine.kind} Â· ${latency}ms`);
 
       // 3. events
       this.step("events", "running");
@@ -152,18 +171,46 @@ export class NexusKernel {
       const evidence = new EvidenceService(svcCtx);
       const artifacts = new ArtifactService(svcCtx);
       const orchestrator = new NexusOrchestrator({ engine, events, audit, registry, projects, executions, evidence, artifacts });
+      // Wire execution stack (production)
+      if (engine.kind === "sqlite") {
+        const rawDb = (engine as any).getDatabase();
+        if (rawDb) {
+          const executionStore = new ExecutionStore(rawDb);
+          const workerRegistry = new WorkerRegistry(executionStore);
+          const leaseManager = new LeaseManager(executionStore);
+          const retryEngine = new RetryEngine();
+          const executionEngine = new ExecutionEngine(executionStore, workerRegistry, leaseManager, retryEngine);
+
+          const remoteWorkerStore = new RemoteWorkerStore(rawDb);
+          const authStore = new InMemoryWorkerAuthStore();
+          const workerAuthentication = new WorkerAuthentication(authStore);
+          const remoteWorkerRegistry = new RemoteWorkerRegistry(remoteWorkerStore, workerAuthentication);
+
+          const adapterRegistry = new ExecutionAdapterRegistry();
+                  adapterRegistry.register(new SkippedEnvironmentExecutionAdapter());
+          const remoteAdapter = new SkippedEnvironmentRemoteAdapter();
+          const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter);
+          const jobDispatcher = new JobDispatcher(remoteWorkerRegistry, remoteExecutionManager, executionStore, leaseManager);
+
+          this.executionEngine = executionEngine;
+          this.jobDispatcher = jobDispatcher;
+          this.remoteWorkerRegistry = remoteWorkerRegistry;
+          this.remoteExecutionManager = remoteExecutionManager;
+          this.executionAdapterRegistry = adapterRegistry;
+        }
+      }
       this.step("orchestration", "ok", "deterministic path assembled");
 
-      // Phase 2 Pass 1 — centralized authorization + identity lifecycle.
+      // Phase 2 Pass 1 â€” centralized authorization + identity lifecycle.
       const authz = new AuthorizationService(audit);
       const identity = new IdentityService(engine, authz, audit);
 
-      // Phase 2 Pass 2 — secure agent execution & execution policy.
+      // Phase 2 Pass 2 â€” secure agent execution & execution policy.
       const agentPolicy = new AgentPolicyEngine();
       const execPolicy = new ExecutionPolicyEngine(registry, authz, agentPolicy);
       const agentExec = new AgentExecutionService({ engine, registry, authz, agentPolicy, execPolicy, audit, events });
 
-      // Phase 2 Pass 3 — workspace isolation & sandbox (logical boundary;
+      // Phase 2 Pass 3 â€” workspace isolation & sandbox (logical boundary;
       // BrowserSandbox.isolationReport() states the true isolation level).
       const filePolicy = new FileAccessPolicy();
       const workspaces = new WorkspaceService({
@@ -177,7 +224,7 @@ export class NexusKernel {
       const sandbox: ExecutionSandbox = new BrowserSandbox(workspaces);
       agentExec.attachSandbox(workspaces);
 
-      // Phase 3 Pass 3 — CI/CD pipeline + Git provider foundation. The GitHub
+      // Phase 3 Pass 3 â€” CI/CD pipeline + Git provider foundation. The GitHub
       // provider wraps the same GitHubService instance (connection on demand);
       // remote operations stay honestly BLOCKED until a token is connected.
       const github = new GitHubService();
@@ -201,13 +248,13 @@ export class NexusKernel {
         engine: cicdEngine,
       };
 
-      // Phase 3 Pass 5 — runtime bridge. Detects process-execution capability
+      // Phase 3 Pass 5 â€” runtime bridge. Detects process-execution capability
       // honestly: BLOCKED in the managed browser workspace, AVAILABLE only after
       // real probes when a host bridge is injected. Emits events + audit.
       this.step("runtime", "running");
       const runtime = new RuntimeBridge({ events, audit });
       await runtime.detect().catch(() => undefined);
-      this.step("runtime", "ok", `${runtime.kind()} · docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
+      this.step("runtime", "ok", `${runtime.kind()} Â· docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
 
       this.services = {
         engine,
@@ -291,15 +338,15 @@ export class NexusKernel {
       latency_ms: null,
     });
 
-    // GitHub is an optional integration — unconnected is a valid, honest state.
+    // GitHub is an optional integration â€” unconnected is a valid, honest state.
     const gh = this.services.github.state();
     const rate = gh.rate;
     subsystems.push({
       name: "github",
       status: gh.connected ? "healthy" : "degraded",
       detail: gh.connected
-        ? `connected as @${gh.identity?.login}${rate ? ` · rate ${rate.remaining}/${rate.limit}` : ""}`
-        : "not connected — optional integration (token held in memory only)",
+        ? `connected as @${gh.identity?.login}${rate ? ` Â· rate ${rate.remaining}/${rate.limit}` : ""}`
+        : "not connected â€” optional integration (token held in memory only)",
       latency_ms: null,
     });
 
@@ -348,7 +395,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
         metadata: { role: "OWNER" }, // no credential material
       });
       const session = await services.sessions.issue(user.id);
-      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "…", result: "allow" });
+      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "â€¦", result: "allow" });
       return { user: toPublicUser(user), session };
     },
 
@@ -376,11 +423,11 @@ export function createAuthApi(services: KernelServices): AuthApi {
         });
         throw Err.auth(
           user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
-          `account is ${user.status} — authentication refused`,
+          `account is ${user.status} â€” authentication refused`,
         );
       }
       const session = await services.sessions.issue(user.id);
-      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "…", result: "allow" });
+      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "â€¦", result: "allow" });
       return { user: toPublicUser(user), session };
     },
 
@@ -389,7 +436,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
       await services.sessions.revoke(token);
       if (session) {
         const user = await services.engine.get<User>("users", session.user_id);
-        await services.audit.record({ actor: user?.email ?? "unknown", action: "auth.logout", resource_type: "session", resource_id: token.slice(0, 8) + "…", result: "info" });
+        await services.audit.record({ actor: user?.email ?? "unknown", action: "auth.logout", resource_type: "session", resource_id: token.slice(0, 8) + "â€¦", result: "info" });
       }
     },
 
@@ -400,7 +447,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
       if (user.status !== "active") {
         throw Err.auth(
           user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
-          `account is ${user.status} — authentication refused`,
+          `account is ${user.status} â€” authentication refused`,
         );
       }
       return { user: toPublicUser(user), session };

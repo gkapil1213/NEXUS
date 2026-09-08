@@ -19,6 +19,10 @@ export class SQLiteEngine implements NexusEngine {
   return tx();
   
 }
+
+  getDatabase(): Database.Database {
+    return this.db;
+  }
   static async open(path: string): Promise<SQLiteEngine> {
     const db = new Database(path);
         // Run migrations before engine is ready
