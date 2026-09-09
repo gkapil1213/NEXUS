@@ -19,18 +19,12 @@ export class DispatchService implements ExecutionDispatchPort {
         private store: ExecutionStore
     ) {}
 
-    private async createOrGetDispatchRecord(
+    private createOrGetDispatchRecord(
         job: ExecutionJob,
         attempt: ExecutionAttempt,
         leaseId: string,
         request: ExecutionAdapterRequest
-    ): Promise<{ record: RemoteDispatchRecord; created: boolean }> {
-        const existing = this.store.getRemoteDispatchByJobIdempotencyKey(job.idempotencyKey);
-
-        if (existing) {
-            return { record: existing, created: false };
-        }
-
+    ): { record: RemoteDispatchRecord; created: boolean } {
         const now = Date.now();
         const internalId = generateInternalId();
 
@@ -47,18 +41,15 @@ export class DispatchService implements ExecutionDispatchPort {
             updatedAt: now,
         };
 
-        this.store.upsertRemoteDispatch(record);
-
-        return { record, created: true };
+        return this.store.createRemoteDispatchIfAbsent(record);
     }
-
     async dispatch(
         job: ExecutionJob,
         attempt: ExecutionAttempt,
         leaseId: string,
         request: ExecutionAdapterRequest
     ): Promise<{ dispatchId: string }> {
-        const { record, created } = await this.createOrGetDispatchRecord(
+        const { record, created } = this.createOrGetDispatchRecord(
             job,
             attempt,
             leaseId,

@@ -553,6 +553,26 @@ export class ExecutionStore {
         );
     }
 
+    createRemoteDispatchIfAbsent(record: RemoteDispatchRecord): { record: RemoteDispatchRecord; created: boolean } {
+        try {
+            this.addRemoteDispatch(record);
+            return { record, created: true };
+        } catch (err: any) {
+            if (
+                err?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+                /UNIQUE constraint failed/i.test(err?.message ?? "")
+            ) {
+                const existing = this.getRemoteDispatchByJobIdempotencyKey(record.idempotencyKey);
+
+                if (existing) {
+                    return { record: existing, created: false };
+                }
+            }
+
+            throw err;
+        }
+    }
+
     upsertRemoteDispatch(record: RemoteDispatchRecord): void {
         const existing = this.getRemoteDispatch(record.dispatchId);
         if (existing) {

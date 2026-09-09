@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS remote_dispatches (
     attempt_id TEXT NOT NULL,
     worker_id TEXT NOT NULL,
     lease_id TEXT NOT NULL,
-    idempotency_key TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL,
     external_provider_id TEXT,
     request TEXT,
@@ -312,23 +312,81 @@ async function testDurableDispatchIntent() {
 }
 async function testDuplicateDispatchPrevention() {
     resetDb();
-    const job = engine.createJob("node", { args: ["-e", "console.log('duplicate')"] }, "idem-dup");
+
+    const job = engine.createJob(
+        "node",
+        { args: ["-e", "console.log('duplicate')"] },
+        "idem-dup"
+    );
+
     const claim = engine.claimNextJob("worker-1");
-    const record: RemoteDispatchRecord = {
-        dispatchId: "first-dispatch",
+
+    const attemptId = insertAttempt(
+        job.id,
+        "worker-1",
+        claim.lease.leaseId
+    );
+
+    const makeIntent = (): RemoteDispatchRecord => ({
+        dispatchId: "concurrent-" + Math.random().toString(36).slice(2),
         jobId: job.id,
-        attemptId: insertAttempt(job.id, "worker-1", claim.lease.leaseId),
+        attemptId,
         workerId: "worker-1",
         leaseId: claim.lease.leaseId,
         idempotencyKey: job.idempotencyKey,
-        status: "DISPATCHED",
-        request: { operation: "node", args: ["-e", "console.log('duplicate')"] },
+        status: "DISPATCH_INTENT",
+        request: {
+            operation: "node",
+            args: ["-e", "console.log('duplicate')"]
+        },
         createdAt: Date.now(),
         updatedAt: Date.now(),
-    };
-    store.upsertRemoteDispatch(record);
-    const existing = store.getRemoteDispatchByJobIdempotencyKey(job.idempotencyKey);
-    assert(existing !== undefined && existing.dispatchId === "first-dispatch", "Duplicate dispatch prevented via idempotency lookup");
+    });
+
+    const results = await Promise.all(
+        Array.from({ length: 10 }, async () => {
+            return store.createRemoteDispatchIfAbsent(makeIntent());
+        })
+    );
+
+    const created = results.filter(result => result.created);
+    const reused = results.filter(result => !result.created);
+
+    assert(
+        created.length === 1,
+        "Concurrent idempotency creates exactly one dispatch"
+    );
+
+    assert(
+        reused.length === 9,
+        "Concurrent duplicate callers reuse the existing dispatch"
+    );
+
+    const dispatchIds = new Set(
+        results.map(result => result.record.dispatchId)
+    );
+
+    assert(
+        dispatchIds.size === 1,
+        "All concurrent callers receive the same dispatch ID"
+    );
+
+    const persisted = store.getRemoteDispatchByJobIdempotencyKey(
+        job.idempotencyKey
+    );
+
+    assert(
+        persisted !== undefined &&
+        persisted.status === "DISPATCH_INTENT",
+        "Exactly one durable dispatch intent remains persisted"
+    );
+
+    const jobDispatches = store.listRemoteDispatchesByJob(job.id);
+
+    assert(
+        jobDispatches.length === 1,
+        "Database contains exactly one dispatch for the job"
+    );
 }
 async function testDispatchFailure() {
     resetDb();
