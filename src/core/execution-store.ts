@@ -593,4 +593,11 @@ export class ExecutionStore {
             createdAt: row.created_at,
             updatedAt: row.updated_at,
         };
-    }}
+    }
+
+
+    getRemoteDispatchByJobIdempotencyKey(key: string): RemoteDispatchRecord | undefined {
+        const row = this.db.prepare("SELECT * FROM remote_dispatches WHERE idempotency_key = ? ORDER BY created_at DESC LIMIT 1").get(key);
+        return row ? this.mapRemoteDispatch(row) : undefined;
+    }
+}

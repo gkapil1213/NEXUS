@@ -3,7 +3,7 @@ import { RemoteExecutionManager } from "./remote-execution-manager";
 import { ExecutionStore } from "./execution-store";
 import { LeaseManager } from "./lease-manager";
 import { ExecutionAdapterRequest } from "./execution-adapter";
-import { RemoteDispatchRecord } from "./execution-models";
+
 
 export class JobDispatcher {
     constructor(
@@ -45,19 +45,7 @@ export class JobDispatcher {
 
             const dispatch = await this.remoteManager.dispatch(request, workerId, lease.leaseId);
 
-            const record: RemoteDispatchRecord = {
-                dispatchId: dispatch.dispatchId,
-                jobId: jobId,
-                attemptId: "", // will be set by DispatchService
-                workerId: workerId,
-                leaseId: lease.leaseId,
-                idempotencyKey: job.idempotencyKey,
-                status: "DISPATCHED",
-                request: request,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-            };
-            this.store.upsertRemoteDispatch(record);
+
             return dispatch.dispatchId;
         } catch (err) {
             this.workerRegistry.markIdle(workerId);

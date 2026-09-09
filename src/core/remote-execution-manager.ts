@@ -15,14 +15,35 @@ export class RemoteExecutionManager {
         }
     }
 
-    private async reconcilePersistedDispatches(records: RemoteDispatchRecord[]): Promise<void> {
+    public async reconcilePersistedDispatches(records: RemoteDispatchRecord[]): Promise<void> {
         for (const record of records) {
-            if (!this.dispatches.has(record.dispatchId)) {
-                try {
-                    const status = await this.adapter.getStatus(record.dispatchId);
-                    this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: status.status });
-                } catch {
-                    this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: "UNKNOWN" });
+            if (this.dispatches.has(record.dispatchId)) continue;
+
+            // Terminal states are already durable; do not overwrite them.
+            if (record.status === "COMPLETED" || record.status === "FAILED" || record.status === "CANCELLED") {
+                this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: record.status });
+                continue;
+            }
+
+            let finalStatus: RemoteDispatchRecord["status"] = "UNKNOWN";
+            try {
+                const queryId = record.externalProviderId ?? record.dispatchId;
+                const status = await this.adapter.getStatus(queryId);
+                finalStatus = status.status as RemoteDispatchRecord["status"];
+                this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: status.status });
+            } catch {
+                this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: "UNKNOWN" });
+            }
+
+            if (this.store) {
+                const fresh = this.store.getRemoteDispatch(record.dispatchId);
+                if (fresh) {
+                    const updated: RemoteDispatchRecord = {
+                        ...fresh,
+                        status: finalStatus,
+                        updatedAt: Date.now(),
+                    };
+                    this.store.upsertRemoteDispatch(updated);
                 }
             }
         }
@@ -56,12 +77,25 @@ export class RemoteExecutionManager {
     }
 
     async collectResult(dispatchId: string): Promise<ExecutionAdapterResult> {
-        const entry = this.dispatches.get(dispatchId);
-        if (entry) return entry.adapter.collectResult(dispatchId);
+        // Durable terminal results are authoritative across process restarts.
+        // Never prefer an in-memory adapter result over a persisted result.
         if (this.store) {
             const record = this.store.getRemoteDispatch(dispatchId);
-            if (record && record.result) return record.result;
+            if (record) {
+                if (record.result) {
+                    return record.result;
+                }
+
+                const providerId = record.externalProviderId ?? dispatchId;
+                return this.adapter.collectResult(providerId);
+            }
         }
+
+        const entry = this.dispatches.get(dispatchId);
+        if (entry) {
+            return entry.adapter.collectResult(dispatchId);
+        }
+
         throw new Error(`Dispatch ${dispatchId} not found`);
     }
 
