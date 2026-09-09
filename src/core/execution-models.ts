@@ -157,11 +157,32 @@ export interface RemoteDispatchRecord {
     workerId: string;
     leaseId: string;
     idempotencyKey: string;
-    status: "DISPATCH_INTENT" | "DISPATCHED" | "COMPLETED" | "FAILED" | "CANCELLED" | "UNKNOWN";
+    status: "DISPATCH_INTENT" | "DISPATCHED" | "DELIVERED" | "COMPLETED" | "FAILED" | "CANCELLED" | "UNKNOWN";
     externalProviderId?: string;
     request?: ExecutionAdapterRequest;
     result?: ExecutionAdapterResult;
     error?: string;
     createdAt: number;
     updatedAt: number;
+}
+
+
+export interface RemoteExecutionResult {
+    resultId: string;
+    jobId: string;
+    attemptId: string;
+    workerId: string;
+    dispatchId: string;
+    leaseId: string;
+    success: boolean;
+    exitCode?: number;
+    stdoutRef?: string;
+    stderrRef?: string;
+    evidence?: Record<string, any>;
+    createdAt: number;
+    stdoutSha256?: string;
+    stderrSha256?: string;
+    resultSha256?: string;
+    verificationStatus?: string;
+    verifiedAt?: number;
 }

@@ -1,4 +1,4 @@
-﻿import { WorkerConfig } from "./worker-config";
+import { WorkerConfig } from "./worker-config";
 import { WorkerSecurity } from "./worker-security";
 import { WorkerTransport } from "./worker-transport";
 import { WorkerSandbox } from "./worker-sandbox";
@@ -135,15 +135,7 @@ export class WorkerAgent {
         });
       }
     } else {
-      // Backward-compatible simulated path for existing Phase 16 tests
-      result = {
-        jobId: job.jobId,
-        dispatchId: job.dispatchId,
-        leaseId: job.leaseId,
-        success: true,
-        stdout: "Simulated execution success",
-        evidence: { worker: this.config.workerId },
-      };
+      throw new Error("No sandbox provided; real execution is required");
     }
 
     await this.transport.reportResult(this.config.workerId, result);

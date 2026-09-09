@@ -27,6 +27,8 @@ import {
 } from "./security";
 import { GitHubService } from "./github";
 import { ExecutionStore } from "./execution-store";
+import { LocalProcessRemoteExecutionAdapter } from "./local-process-remote-adapter";
+import { LocalProcessExecutionAdapter } from "./local-process-execution-adapter";
 import { DispatchService } from "./dispatch-service";
 import { ExecutionEngine, type ExecutionDeps } from "./execution-engine";
 import { WorkerRegistry } from "./worker-registry";
@@ -36,7 +38,9 @@ import { JobDispatcher } from "./job-dispatcher";
 import { RemoteWorkerStore } from "./remote-worker-store";
 import { RemoteWorkerRegistry } from "./remote-worker-registry";
 import { WorkerAuthentication } from "./worker-authentication";
-import { InMemoryWorkerAuthStore } from "./worker-auth-store";
+import { WorkerGateway } from "./worker-gateway";
+import { WorkerGatewayRemoteExecutionAdapter } from "./worker-gateway-remote-adapter";
+import { SqliteWorkerAuthStore } from "./sqlite-worker-auth-store";
 import { ExecutionAdapterRegistry } from "./execution-adapter-registry";
 import { RemoteExecutionManager } from "./remote-execution-manager";
 import { SkippedEnvironmentRemoteAdapter } from "./skipped-environment-adapter";
@@ -183,15 +187,15 @@ export class NexusKernel {
           const retryEngine = new RetryEngine();
 
           const remoteWorkerStore = new RemoteWorkerStore(rawDb);
-          const authStore = new InMemoryWorkerAuthStore();
+          const authStore = new SqliteWorkerAuthStore(rawDb);
           const workerAuthentication = new WorkerAuthentication(authStore);
           const remoteWorkerRegistry = new RemoteWorkerRegistry(remoteWorkerStore, workerAuthentication);
 
           const adapterRegistry = new ExecutionAdapterRegistry();
           adapterRegistry.register(new SkippedEnvironmentExecutionAdapter());
 
-          const remoteAdapter = new SkippedEnvironmentRemoteAdapter();
-          const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore);
+          const remoteAdapter = new LocalProcessRemoteExecutionAdapter(new LocalProcessExecutionAdapter());
+          const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore); // real gateway pending
           const jobDispatcher = new JobDispatcher(workerRegistry, remoteExecutionManager, executionStore, leaseManager);
           const dispatchService = new DispatchService(jobDispatcher, remoteExecutionManager, executionStore);
 

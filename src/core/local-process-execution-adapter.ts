@@ -1,5 +1,5 @@
 import { ExecutionAdapter, ExecutionAdapterRequest, ExecutionAdapterResult, ExecutionAdapterContext } from "./execution-adapter";
-import { spawn } from "child_process";
+
 
 export class LocalProcessExecutionAdapter implements ExecutionAdapter {
     getId(): string { return "local-process"; }
@@ -17,6 +17,7 @@ export class LocalProcessExecutionAdapter implements ExecutionAdapter {
     }
 
     async execute(request: ExecutionAdapterRequest, context?: ExecutionAdapterContext): Promise<ExecutionAdapterResult> {
+        const { spawn } = await import("child_process");
         return new Promise((resolve) => {
             const cmd = request.operation;
             const args = request.args || [];

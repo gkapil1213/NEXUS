@@ -1,6 +1,14 @@
-﻿import { RemoteExecutionAdapter } from "./remote-execution-adapter";
+import { RemoteExecutionAdapter } from "./remote-execution-adapter";
 import { ExecutionAdapterRequest, ExecutionAdapterResult, ExecutionAdapter } from "./execution-adapter";
-import { randomUUID } from "crypto";
+
+
+
+function generateUUID(): string {
+    if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+    return `dispatch_${Date.now()}_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+}
 
 export class LocalProcessRemoteExecutionAdapter implements RemoteExecutionAdapter {
     private results = new Map<string, Promise<ExecutionAdapterResult>>();
@@ -12,7 +20,7 @@ export class LocalProcessRemoteExecutionAdapter implements RemoteExecutionAdapte
     async disconnect(): Promise<void> {}
 
     async dispatch(request: ExecutionAdapterRequest, workerId: string, leaseId: string): Promise<{ dispatchId: string }> {
-        const dispatchId = randomUUID();
+        const dispatchId = generateUUID();
         this.results.set(dispatchId, this.executionAdapter.execute(request));
         return { dispatchId };
     }

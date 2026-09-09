@@ -1,5 +1,5 @@
 import { NexusEngine } from "./db";
-import { RemoteDispatchRecord } from "./execution-models";
+import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
 import {
   ExecutionJob,
   ExecutionAttempt,
@@ -620,4 +620,81 @@ export class ExecutionStore {
         const row = this.db.prepare("SELECT * FROM remote_dispatches WHERE idempotency_key = ? ORDER BY created_at DESC LIMIT 1").get(key);
         return row ? this.mapRemoteDispatch(row) : undefined;
     }
-}
+
+    // ---------- Remote Execution Results ----------
+    addRemoteExecutionResult(result: RemoteExecutionResult): void {
+        this.db.prepare(`
+            INSERT INTO remote_execution_results (
+                result_id, job_id, attempt_id, worker_id, dispatch_id,
+                lease_id, success, exit_code, stdout_ref, stderr_ref,
+                evidence, created_at, stdout_sha256, stderr_sha256,
+                result_sha256, verification_status, verified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            result.resultId,
+            result.jobId,
+            result.attemptId,
+            result.workerId,
+            result.dispatchId,
+            result.leaseId,
+            result.success ? 1 : 0,
+            result.exitCode,
+            result.stdoutRef,
+            result.stderrRef,
+            result.evidence ? JSON.stringify(result.evidence) : null,
+            result.createdAt,
+            result.stdoutSha256,
+            result.stderrSha256,
+            result.resultSha256,
+            result.verificationStatus ?? "PENDING",
+            result.verifiedAt
+        );
+    }
+
+    getRemoteExecutionResultByDispatchId(dispatchId: string): RemoteExecutionResult | undefined {
+        const row = this.db.prepare("SELECT * FROM remote_execution_results WHERE dispatch_id = ?").get(dispatchId);
+        return row ? this.mapRemoteExecutionResult(row) : undefined;
+    }
+
+    getRemoteExecutionResultByJobId(jobId: string): RemoteExecutionResult | undefined {
+        const row = this.db.prepare("SELECT * FROM remote_execution_results WHERE job_id = ? ORDER BY created_at DESC LIMIT 1").get(jobId);
+        return row ? this.mapRemoteExecutionResult(row) : undefined;
+    }
+
+    private mapRemoteExecutionResult(row: any): RemoteExecutionResult {
+        return {
+            resultId: row.result_id,
+            jobId: row.job_id,
+            attemptId: row.attempt_id,
+            workerId: row.worker_id,
+            dispatchId: row.dispatch_id,
+            leaseId: row.lease_id,
+            success: !!row.success,
+            exitCode: row.exit_code,
+            stdoutRef: row.stdout_ref,
+            stderrRef: row.stderr_ref,
+            evidence: row.evidence ? JSON.parse(row.evidence) : undefined,
+            createdAt: row.created_at,
+            stdoutSha256: row.stdout_sha256,
+            stderrSha256: row.stderr_sha256,
+            resultSha256: row.result_sha256,
+            verificationStatus: row.verification_status,
+            verifiedAt: row.verified_at,
+        };
+    }
+    listRemoteDispatchesByWorkerStatus(workerId: string, status: string): RemoteDispatchRecord[] {
+        const rows = this.db.prepare(
+            "SELECT * FROM remote_dispatches WHERE worker_id = ? AND status = ? ORDER BY created_at"
+        ).all(workerId, status);
+        return rows.map((row: any) => this.mapRemoteDispatch(row));
+    }
+
+    persistRemoteExecutionResultAndDispatch(
+        result: RemoteExecutionResult,
+        dispatch: RemoteDispatchRecord
+    ): void {
+        this.db.transaction(() => {
+            this.addRemoteExecutionResult(result);
+            this.updateRemoteDispatch(dispatch);
+        });
+    }}
