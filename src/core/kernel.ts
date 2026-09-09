@@ -192,7 +192,7 @@ export class NexusKernel {
 
           const remoteAdapter = new SkippedEnvironmentRemoteAdapter();
           const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore);
-          const jobDispatcher = new JobDispatcher(remoteWorkerRegistry, remoteExecutionManager, executionStore, leaseManager);
+          const jobDispatcher = new JobDispatcher(workerRegistry, remoteExecutionManager, executionStore, leaseManager);
           const dispatchService = new DispatchService(jobDispatcher, remoteExecutionManager, executionStore);
 
           const executionDeps: ExecutionDeps = {

@@ -1,4 +1,4 @@
-﻿-- Phase 97: Autonomous Software Factory
+-- Phase 97: Autonomous Software Factory
 -- Migration 139
 
 PRAGMA foreign_keys = ON;
@@ -400,7 +400,7 @@ CREATE TABLE IF NOT EXISTS quality_gate_results (
     FOREIGN KEY (gate_id) REFERENCES quality_gates(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS release_candidates (
+CREATE TABLE IF NOT EXISTS release_candidates_phase97 (
     id TEXT PRIMARY KEY,
     product_id TEXT NOT NULL,
     version INTEGER NOT NULL,
@@ -423,7 +423,7 @@ CREATE TABLE IF NOT EXISTS release_versions (
     version INTEGER NOT NULL,
     snapshot TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (release_candidate_id) REFERENCES release_candidates(id) ON DELETE CASCADE,
+    FOREIGN KEY (release_candidate_id) REFERENCES release_candidates_phase97(id) ON DELETE CASCADE,
     UNIQUE(release_candidate_id, version)
 );
 
@@ -435,7 +435,7 @@ CREATE TABLE IF NOT EXISTS release_approvals (
     decided_at TEXT NOT NULL DEFAULT (datetime('now')),
     policy_context TEXT,
     idempotency_key TEXT NOT NULL UNIQUE,
-    FOREIGN KEY (release_candidate_id) REFERENCES release_candidates(id) ON DELETE CASCADE
+    FOREIGN KEY (release_candidate_id) REFERENCES release_candidates_phase97(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS deployment_plans (
@@ -445,10 +445,10 @@ CREATE TABLE IF NOT EXISTS deployment_plans (
     strategy TEXT NOT NULL,
     plan_data TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (release_candidate_id) REFERENCES release_candidates(id) ON DELETE CASCADE
+    FOREIGN KEY (release_candidate_id) REFERENCES release_candidates_phase97(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS deployment_executions (
+CREATE TABLE IF NOT EXISTS deployment_executions_phase97 (
     id TEXT PRIMARY KEY,
     deployment_plan_id TEXT NOT NULL,
     target_id TEXT NOT NULL,
@@ -466,7 +466,7 @@ CREATE TABLE IF NOT EXISTS deployment_targets (
     target_type TEXT NOT NULL,
     target_id TEXT NOT NULL,
     health_status TEXT NOT NULL DEFAULT 'UNKNOWN',
-    FOREIGN KEY (deployment_execution_id) REFERENCES deployment_executions(id) ON DELETE CASCADE
+    FOREIGN KEY (deployment_execution_id) REFERENCES deployment_executions_phase97(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS deployment_verifications (
@@ -476,7 +476,7 @@ CREATE TABLE IF NOT EXISTS deployment_verifications (
     status TEXT NOT NULL,
     evidence TEXT NOT NULL DEFAULT '{}',
     verified_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (deployment_execution_id) REFERENCES deployment_executions(id) ON DELETE CASCADE
+    FOREIGN KEY (deployment_execution_id) REFERENCES deployment_executions_phase97(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS factory_checkpoints (
@@ -621,5 +621,5 @@ CREATE INDEX idx_changes_product ON engineering_changes(product_id);
 CREATE INDEX idx_requirements_product ON requirements(product_id);
 CREATE INDEX idx_test_executions_suite ON test_executions(suite_id);
 CREATE INDEX idx_build_executions_plan ON build_executions(build_plan_id);
-CREATE INDEX idx_release_candidates_product ON release_candidates(product_id);
-CREATE INDEX idx_deployment_executions_plan ON deployment_executions(deployment_plan_id);
+CREATE INDEX idx_release_candidates_phase97_product ON release_candidates_phase97(product_id);
+CREATE INDEX idx_deployment_executions_phase97_plan ON deployment_executions_phase97(deployment_plan_id);

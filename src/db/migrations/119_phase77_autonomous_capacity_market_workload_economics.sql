@@ -1,4 +1,4 @@
--- Phase 77: Autonomous Engineering Capacity Market, Workload Economics & Global Resource Optimization
+﻿-- Phase 77: Autonomous Engineering Capacity Market, Workload Economics & Global Resource Optimization
 -- SQLite-compatible
 BEGIN;
 
@@ -177,7 +177,7 @@ CREATE TABLE IF NOT EXISTS provider_price_history (
     correlation_id TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS optimization_decisions (
+CREATE TABLE IF NOT EXISTS optimization_decisions_phase77 (
     id TEXT PRIMARY KEY,
     request_id TEXT,
     workload_id TEXT,
@@ -343,7 +343,7 @@ CREATE INDEX IF NOT EXISTS idx_capacity_market_offers_provider ON capacity_marke
 CREATE INDEX IF NOT EXISTS idx_capacity_market_requests_project ON capacity_market_requests(project_id);
 CREATE INDEX IF NOT EXISTS idx_price_obs_provider ON resource_price_observations(provider_id, region_id, resource_type);
 CREATE INDEX IF NOT EXISTS idx_workload_econ_profile_wid ON workload_economic_profiles(workload_id);
-CREATE INDEX IF NOT EXISTS idx_opt_decisions_request ON optimization_decisions(request_id);
+CREATE INDEX IF NOT EXISTS idx_opt_decisions_request ON optimization_decisions_phase77(request_id);
 CREATE INDEX IF NOT EXISTS idx_economic_alerts_type ON economic_alerts(alert_type);
 CREATE INDEX IF NOT EXISTS idx_optimization_incidents_type ON optimization_incidents(incident_type);
 

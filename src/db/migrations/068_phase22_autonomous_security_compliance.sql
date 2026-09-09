@@ -1,4 +1,4 @@
-﻿-- 068_phase22_autonomous_security_compliance.sql
+-- 068_phase22_autonomous_security_compliance.sql
 
 BEGIN;
 
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS security_findings (
     last_seen TEXT NOT NULL,
     status TEXT NOT NULL,
     fingerprint TEXT NOT NULL UNIQUE,
-    references TEXT NOT NULL,
+    "references" TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     idempotency_key TEXT NOT NULL UNIQUE

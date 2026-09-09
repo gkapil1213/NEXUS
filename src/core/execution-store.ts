@@ -129,9 +129,10 @@ export class ExecutionStore {
   }
 
   listAttemptsForJob(jobId: string): ExecutionAttempt[] {
-    return this.db.prepare(
+    const rows = this.db.prepare(
       "SELECT * FROM execution_attempts WHERE job_id = ? ORDER BY attempt_number"
-    ).all(jobId).map(this.mapAttempt);
+    ).all(jobId);
+    return rows.map((row: any) => this.mapAttempt(row));
   }
 
   // ---------- Workers ----------
@@ -567,11 +568,13 @@ export class ExecutionStore {
     }
 
     listRemoteDispatchesByJob(jobId: string): RemoteDispatchRecord[] {
-        return this.db.prepare("SELECT * FROM remote_dispatches WHERE job_id = ?").all(jobId).map(this.mapRemoteDispatch);
+        const rows = this.db.prepare("SELECT * FROM remote_dispatches WHERE job_id = ?").all(jobId);
+        return rows.map((row: any) => this.mapRemoteDispatch(row));
     }
 
     listAllRemoteDispatches(): RemoteDispatchRecord[] {
-        return this.db.prepare("SELECT * FROM remote_dispatches").all().map(this.mapRemoteDispatch);
+        const rows = this.db.prepare("SELECT * FROM remote_dispatches").all();
+        return rows.map((row: any) => this.mapRemoteDispatch(row));
     }
 
     private mapRemoteDispatch(row: any): RemoteDispatchRecord {

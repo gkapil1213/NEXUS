@@ -1,5 +1,4 @@
-﻿-- Phase 17.2: Secure Worker Transport & Session Layer
-ALTER TABLE worker_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'CREATED';
+-- Phase 17.2: Secure Worker Transport & Session Layer
 ALTER TABLE worker_sessions ADD COLUMN protocol_version TEXT;
 ALTER TABLE worker_sessions ADD COLUMN connection_id TEXT;
 ALTER TABLE worker_sessions ADD COLUMN last_seen_at INTEGER;

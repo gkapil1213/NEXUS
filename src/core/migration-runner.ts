@@ -1,4 +1,4 @@
-﻿import { readdirSync, readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import Database from 'better-sqlite3';
@@ -62,16 +62,26 @@ export class MigrationRunner {
                 }
                 continue;
             }
-            const apply = this.db.transaction(() => {
-                this.db.exec(mig.sql);
+            const hasExplicitTransaction = /^\s*BEGIN\b/im.test(mig.sql);
+            const insertHistory = () => {
                 this.db.prepare(`INSERT INTO ${this.tableName} (id, filename, checksum, applied_at) VALUES (?, ?, ?, ?)`).run(
                     mig.id,
                     mig.filename,
                     mig.checksum,
                     new Date().toISOString()
                 );
-            });
-            apply();
+            };
+            if (hasExplicitTransaction) {
+                // Execute as-is; the migration file manages its own transaction.
+                this.db.exec(mig.sql);
+                insertHistory();
+            } else {
+                const apply = this.db.transaction(() => {
+                    this.db.exec(mig.sql);
+                    insertHistory();
+                });
+                apply();
+            }
         }
     }
 

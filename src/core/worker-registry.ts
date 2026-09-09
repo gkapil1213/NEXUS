@@ -1,4 +1,4 @@
-﻿import { ExecutionStore } from "./execution-store";
+import { ExecutionStore } from "./execution-store";
 import { ExecutionWorker, WorkerStatus } from "./execution-models";
 
 export class WorkerRegistry {
@@ -27,6 +27,10 @@ export class WorkerRegistry {
     worker.status = "BUSY";
     worker.currentJobId = jobId;
     this.store.updateWorker(worker);
+  }
+
+  getWorker(workerId: string): ExecutionWorker | undefined {
+    return this.store.getWorker(workerId);
   }
 
   markIdle(workerId: string): void {

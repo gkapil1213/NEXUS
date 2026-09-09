@@ -1,4 +1,4 @@
-﻿-- Phase 99: Autonomous Engineering Governance, Compliance & Human Oversight
+-- Phase 99: Autonomous Engineering Governance, Compliance & Human Oversight
 -- Migration 141
 
 PRAGMA foreign_keys = ON;
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS governance_domains (
     idempotency_key TEXT NOT NULL UNIQUE
 );
 
-CREATE TABLE IF NOT EXISTS governance_policies (
+CREATE TABLE IF NOT EXISTS governance_policies_phase99 (
     id TEXT PRIMARY KEY,
     domain_id TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS governance_policy_versions (
     version INTEGER NOT NULL,
     snapshot TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (policy_id) REFERENCES governance_policies(id) ON DELETE CASCADE,
+    FOREIGN KEY (policy_id) REFERENCES governance_policies_phase99(id) ON DELETE CASCADE,
     UNIQUE(policy_id, version)
 );
 
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS governance_policy_bindings (
     entity_id TEXT NOT NULL,
     binding_data TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (policy_id) REFERENCES governance_policies(id) ON DELETE CASCADE,
+    FOREIGN KEY (policy_id) REFERENCES governance_policies_phase99(id) ON DELETE CASCADE,
     UNIQUE(policy_id, entity_type, entity_id)
 );
 
@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS governance_policy_conflicts (
     conflict_type TEXT NOT NULL,
     resolution TEXT NOT NULL DEFAULT 'UNRESOLVED',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (policy_id_1) REFERENCES governance_policies(id) ON DELETE CASCADE,
-    FOREIGN KEY (policy_id_2) REFERENCES governance_policies(id) ON DELETE CASCADE
+    FOREIGN KEY (policy_id_1) REFERENCES governance_policies_phase99(id) ON DELETE CASCADE,
+    FOREIGN KEY (policy_id_2) REFERENCES governance_policies_phase99(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS governance_decisions (
@@ -512,7 +512,7 @@ CREATE TABLE IF NOT EXISTS governance_replay (
     replayed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_governance_policies_domain ON governance_policies(domain_id);
+CREATE INDEX idx_governance_policies_phase99_domain ON governance_policies_phase99(domain_id);
 CREATE INDEX idx_compliance_controls_framework ON compliance_controls(framework_id);
 CREATE INDEX idx_compliance_assessments_control ON compliance_assessments(control_id);
 CREATE INDEX idx_authorization_grants_identity ON authorization_grants(identity);

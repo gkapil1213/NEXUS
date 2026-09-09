@@ -1,5 +1,5 @@
-﻿ALTER TABLE reliability_runs ADD COLUMN summary TEXT;
-ALTER TABLE reliability_runs ADD COLUMN updated_at TEXT;
+
+
 
 CREATE TABLE IF NOT EXISTS reliability_audit_refs (
   id TEXT PRIMARY KEY,

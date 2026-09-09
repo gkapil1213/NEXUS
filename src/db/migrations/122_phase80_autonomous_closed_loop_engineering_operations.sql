@@ -1,4 +1,4 @@
--- Phase 80: Autonomous Closed-Loop Engineering Operations & Adaptive Control
+﻿-- Phase 80: Autonomous Closed-Loop Engineering Operations & Adaptive Control
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS operational_baselines (
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS operational_impacts (
     correlation_id TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS control_decisions (
+CREATE TABLE IF NOT EXISTS control_decisions_phase80 (
     id TEXT PRIMARY KEY,
     deviation_id TEXT NOT NULL,
     decision_type TEXT NOT NULL CHECK (decision_type IN ('IGNORE','OBSERVE','ALERT','INVESTIGATE','ADJUST','RETRY','RECOVER','ROLLBACK','RESCHEDULE','REBALANCE','SCALE','FAILOVER','HALT','APPROVAL_REQUIRED')),
@@ -300,7 +300,7 @@ CREATE TABLE IF NOT EXISTS operational_replay_records (
 CREATE INDEX IF NOT EXISTS idx_op_baselines_entity ON operational_baselines(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_op_deviations_entity ON operational_deviations(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_op_diagnoses_deviation ON operational_diagnoses(deviation_id);
-CREATE INDEX IF NOT EXISTS idx_control_decisions_deviation ON control_decisions(deviation_id);
+CREATE INDEX IF NOT EXISTS idx_control_decisions_phase80_deviation ON control_decisions_phase80(deviation_id);
 CREATE INDEX IF NOT EXISTS idx_remediation_plans_deviation ON remediation_plans(deviation_id);
 CREATE INDEX IF NOT EXISTS idx_op_circuit_breakers_scope ON operational_circuit_breakers(scope, entity_id);
 

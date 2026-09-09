@@ -1,4 +1,4 @@
-﻿-- 065_phase19_autonomous_cicd_release_engineering.sql
+-- 065_phase19_autonomous_cicd_release_engineering.sql
 
 BEGIN;
 
@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS artifacts (
 CREATE TABLE IF NOT EXISTS release_candidates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     release_candidate_id TEXT NOT NULL UNIQUE,
+    release_id TEXT,
     artifact_id TEXT NOT NULL,
     source_revision TEXT NOT NULL,
     pipeline_execution_id TEXT NOT NULL,

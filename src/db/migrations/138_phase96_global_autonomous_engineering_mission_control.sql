@@ -1,4 +1,4 @@
-﻿-- Migration 138: Phase 96 Global Autonomous Engineering Mission Control
+-- Migration 138: Phase 96 Global Autonomous Engineering Mission Control
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS global_missions (
@@ -413,7 +413,7 @@ CREATE TABLE IF NOT EXISTS mission_failure_domains (
     FOREIGN KEY (mission_id) REFERENCES global_missions(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS mission_incidents (
+CREATE TABLE IF NOT EXISTS mission_incidents_phase96 (
     id TEXT PRIMARY KEY,
     mission_id TEXT,
     incident_type TEXT NOT NULL,
@@ -431,7 +431,7 @@ CREATE TABLE IF NOT EXISTS mission_escalations (
     escalation_level INTEGER NOT NULL,
     reason TEXT,
     escalated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (incident_id) REFERENCES mission_incidents(id) ON DELETE CASCADE
+    FOREIGN KEY (incident_id) REFERENCES mission_incidents_phase96(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS mission_recovery_plans (
@@ -463,7 +463,7 @@ CREATE TABLE IF NOT EXISTS mission_learning (
     FOREIGN KEY (mission_id) REFERENCES global_missions(id) ON DELETE SET NULL
 );
 
-CREATE TABLE IF NOT EXISTS mission_evidence (
+CREATE TABLE IF NOT EXISTS mission_evidence_phase96 (
     id TEXT PRIMARY KEY,
     mission_id TEXT NOT NULL,
     mission_version INTEGER,
@@ -475,7 +475,7 @@ CREATE TABLE IF NOT EXISTS mission_evidence (
     FOREIGN KEY (mission_id) REFERENCES global_missions(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS mission_audit (
+CREATE TABLE IF NOT EXISTS mission_audit_phase96 (
     id TEXT PRIMARY KEY,
     mission_id TEXT NOT NULL,
     entity_type TEXT NOT NULL,
@@ -489,7 +489,7 @@ CREATE TABLE IF NOT EXISTS mission_audit (
     FOREIGN KEY (mission_id) REFERENCES global_missions(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS mission_lineage (
+CREATE TABLE IF NOT EXISTS mission_lineage_phase96 (
     id TEXT PRIMARY KEY,
     mission_id TEXT NOT NULL,
     node_type TEXT NOT NULL,
@@ -515,7 +515,7 @@ CREATE INDEX idx_global_missions_project ON global_missions(project_id);
 CREATE INDEX idx_global_missions_state ON global_missions(state);
 CREATE INDEX idx_mission_versions_mission ON mission_versions(mission_id);
 CREATE INDEX idx_mission_dependencies_mission ON mission_dependencies(mission_id);
-CREATE INDEX idx_mission_incidents_mission ON mission_incidents(mission_id);
-CREATE INDEX idx_mission_evidence_mission ON mission_evidence(mission_id);
-CREATE INDEX idx_mission_audit_mission ON mission_audit(mission_id);
-CREATE INDEX idx_mission_lineage_mission ON mission_lineage(mission_id);
+CREATE INDEX idx_mission_incidents_phase96_mission ON mission_incidents_phase96(mission_id);
+CREATE INDEX idx_mission_evidence_phase96_mission ON mission_evidence_phase96(mission_id);
+CREATE INDEX idx_mission_audit_phase96_mission ON mission_audit_phase96(mission_id);
+CREATE INDEX idx_mission_lineage_phase96_mission ON mission_lineage_phase96(mission_id);

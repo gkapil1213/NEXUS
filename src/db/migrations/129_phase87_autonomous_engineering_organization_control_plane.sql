@@ -1,4 +1,4 @@
--- Phase 87: Autonomous Engineering Organization Control Plane
+﻿-- Phase 87: Autonomous Engineering Organization Control Plane
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS organizations (
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS objective_relationships (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS engineering_portfolios (
+CREATE TABLE IF NOT EXISTS engineering_portfolios_phase87 (
     id TEXT PRIMARY KEY,
     organization_id TEXT NOT NULL REFERENCES organizations(id),
     name TEXT NOT NULL,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS engineering_portfolios (
 CREATE TABLE IF NOT EXISTS engineering_programs (
     id TEXT PRIMARY KEY,
     organization_id TEXT NOT NULL REFERENCES organizations(id),
-    portfolio_id TEXT REFERENCES engineering_portfolios(id),
+    portfolio_id TEXT REFERENCES engineering_portfolios_phase87(id),
     name TEXT NOT NULL,
     owner TEXT,
     lifecycle_state TEXT NOT NULL DEFAULT 'CREATED',
@@ -387,7 +387,7 @@ CREATE TABLE IF NOT EXISTS organizational_learning (
 );
 
 CREATE INDEX IF NOT EXISTS idx_org_objectives_org ON strategic_objectives(organization_id);
-CREATE INDEX IF NOT EXISTS idx_org_portfolios_org ON engineering_portfolios(organization_id);
+CREATE INDEX IF NOT EXISTS idx_org_portfolios_org ON engineering_portfolios_phase87(organization_id);
 CREATE INDEX IF NOT EXISTS idx_org_programs_org ON engineering_programs(organization_id);
 
 COMMIT;

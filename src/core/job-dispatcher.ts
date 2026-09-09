@@ -1,4 +1,4 @@
-import { RemoteWorkerRegistry } from "./remote-worker-registry";
+import { WorkerRegistry } from "./worker-registry";
 import { RemoteExecutionManager } from "./remote-execution-manager";
 import { ExecutionStore } from "./execution-store";
 import { LeaseManager } from "./lease-manager";
@@ -7,7 +7,7 @@ import { RemoteDispatchRecord } from "./execution-models";
 
 export class JobDispatcher {
     constructor(
-        private workerRegistry: RemoteWorkerRegistry,
+        private workerRegistry: WorkerRegistry,
         private remoteManager: RemoteExecutionManager,
         private store: ExecutionStore,
         private leaseManager: LeaseManager
@@ -24,10 +24,13 @@ export class JobDispatcher {
         }
 
         const requiredOps = [request.operation];
-        if (worker.capabilities?.operations) {
-            const hasAll = requiredOps.every((op) => worker.capabilities!.operations!.includes(op));
-            if (!hasAll) throw new Error(`Worker ${workerId} does not support ${request.operation}`);
-        }
+        const capabilities: any = worker.capabilities;
+        const hasAll = Array.isArray(capabilities)
+            ? requiredOps.every(op => capabilities.includes(op))
+            : capabilities?.operations
+                ? requiredOps.every(op => capabilities.operations.includes(op))
+                : false;
+        if (!hasAll) throw new Error(`Worker ${workerId} does not support ${request.operation}`);
 
         let lease = this.leaseManager.getActiveLeaseForJob(jobId);
         if (!lease) {
@@ -39,7 +42,9 @@ export class JobDispatcher {
         this.workerRegistry.markBusy(workerId, jobId);
 
         try {
+
             const dispatch = await this.remoteManager.dispatch(request, workerId, lease.leaseId);
+
             const record: RemoteDispatchRecord = {
                 dispatchId: dispatch.dispatchId,
                 jobId: jobId,

@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS capacity_models (
     UNIQUE(region_id, fleet_id, project_id, environment, capacity_type, observed_at)
 );
 
-CREATE TABLE IF NOT EXISTS capacity_observations (
+CREATE TABLE IF NOT EXISTS capacity_observations_phase74 (
     id TEXT PRIMARY KEY,
     region_id TEXT NOT NULL,
     fleet_id TEXT,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS capacity_observations (
     UNIQUE(region_id, fleet_id, project_id, environment, capacity_type, observed_at)
 );
 
-CREATE TABLE IF NOT EXISTS capacity_forecasts (
+CREATE TABLE IF NOT EXISTS capacity_forecasts_phase74 (
     id TEXT PRIMARY KEY,
     region_id TEXT,
     fleet_id TEXT,
@@ -246,8 +246,8 @@ CREATE TABLE IF NOT EXISTS optimization_learning (
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_capacity_models_region ON capacity_models(region_id);
-CREATE INDEX IF NOT EXISTS idx_capacity_observations_region ON capacity_observations(region_id);
-CREATE INDEX IF NOT EXISTS idx_forecasts_region ON capacity_forecasts(region_id);
+CREATE INDEX IF NOT EXISTS idx_capacity_observations_phase74_region ON capacity_observations_phase74(region_id);
+CREATE INDEX IF NOT EXISTS idx_forecasts_region ON capacity_forecasts_phase74(region_id);
 CREATE INDEX IF NOT EXISTS idx_demands_project ON workload_demands(project_id);
 CREATE INDEX IF NOT EXISTS idx_optimization_decisions_workload ON optimization_decisions(workload_id);
 CREATE INDEX IF NOT EXISTS idx_placements_optimization ON placement_decisions(optimization_id);

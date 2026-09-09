@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS releases (
     FOREIGN KEY (pipeline_id) REFERENCES cicd_pipelines(id)
 );
 
-CREATE TABLE IF NOT EXISTS release_candidates (
+CREATE TABLE IF NOT EXISTS release_candidates_phase36 (
     id TEXT PRIMARY KEY,
     release_id TEXT NOT NULL,
     source_revision TEXT,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS release_risk_assessments (
     confidence REAL,
     recommended_strategy TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (release_candidate_id) REFERENCES release_candidates(id)
+    FOREIGN KEY (release_candidate_id) REFERENCES release_candidates_phase36(id)
 );
 
 CREATE TABLE IF NOT EXISTS release_health (
@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS release_circuit_breakers (
 );
 
 CREATE INDEX IF NOT EXISTS idx_releases_status ON releases(status);
-CREATE INDEX IF NOT EXISTS idx_release_candidates_release ON release_candidates(release_id);
+CREATE INDEX IF NOT EXISTS idx_release_candidates_phase36_release ON release_candidates_phase36(release_id);
 CREATE INDEX IF NOT EXISTS idx_release_risk_candidate ON release_risk_assessments(release_candidate_id);
 CREATE INDEX IF NOT EXISTS idx_release_health_release ON release_health(release_id);
 CREATE INDEX IF NOT EXISTS idx_progressive_plans_release ON progressive_delivery_plans(release_id);

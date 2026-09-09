@@ -147,6 +147,8 @@ export class ExecutionEngine {
                 job.updatedAt = Date.now();
                 this.store.updateJob(job);
                 this.leaseManager.releaseLease(leaseId);
+            job.currentLeaseId = undefined;
+        job.currentLeaseId = undefined;
                 this.workerRegistry.markIdle(workerId);
                 return job;
             }
@@ -155,6 +157,8 @@ export class ExecutionEngine {
                 job.updatedAt = Date.now();
                 this.store.updateJob(job);
                 this.leaseManager.releaseLease(leaseId);
+            job.currentLeaseId = undefined;
+        job.currentLeaseId = undefined;
                 this.workerRegistry.markIdle(workerId);
                 return job;
             }
@@ -167,6 +171,8 @@ export class ExecutionEngine {
                 job.updatedAt = Date.now();
                 this.store.updateJob(job);
                 this.leaseManager.releaseLease(leaseId);
+            job.currentLeaseId = undefined;
+        job.currentLeaseId = undefined;
                 this.workerRegistry.markIdle(workerId);
                 return job;
             }
@@ -193,6 +199,19 @@ export class ExecutionEngine {
 
         attempt.completedAt = Date.now();
 
+        if (job.cancellationRequested) {
+            attempt.status = "CANCELLED";
+            attempt.evidence = ["Execution cancelled after completion"];
+            this.store.updateAttempt(attempt);
+            job.cancellationAcknowledged = true;
+            job.status = "CANCELLED";
+            job.updatedAt = Date.now();
+            this.store.updateJob(job);
+            this.leaseManager.releaseLease(leaseId);
+            this.workerRegistry.markIdle(workerId);
+            return job;
+        }
+
         if (!executionResult || !executionResult.success) {
             attempt.status = "FAILED";
             attempt.error = executionError || "Execution failed";
@@ -204,6 +223,8 @@ export class ExecutionEngine {
                 job.updatedAt = Date.now();
                 this.store.updateJob(job);
                 this.leaseManager.releaseLease(leaseId);
+            job.currentLeaseId = undefined;
+        job.currentLeaseId = undefined;
                 this.workerRegistry.markIdle(workerId);
                 return job;
             }
@@ -230,6 +251,8 @@ export class ExecutionEngine {
             job.updatedAt = Date.now();
             this.store.updateJob(job);
             this.leaseManager.releaseLease(leaseId);
+            job.currentLeaseId = undefined;
+        job.currentLeaseId = undefined;
             this.workerRegistry.markIdle(workerId);
             return job;
         }
@@ -262,6 +285,7 @@ export class ExecutionEngine {
         this.store.updateJob(job);
 
         this.leaseManager.releaseLease(leaseId);
+        job.currentLeaseId = undefined;
         this.workerRegistry.markIdle(workerId);
 
         return job;

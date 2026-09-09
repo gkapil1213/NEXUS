@@ -44,14 +44,25 @@ export class RemoteExecutionManager {
 
     async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {
         const entry = this.dispatches.get(dispatchId);
-        if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
-        return entry.adapter.getStatus(dispatchId);
+        if (entry) return entry.adapter.getStatus(dispatchId);
+        if (this.store) {
+            const record = this.store.getRemoteDispatch(dispatchId);
+            if (record) {
+                if (record.result) return { status: record.result.success ? "COMPLETED" : "FAILED", evidence: record.result.evidence };
+                if (record.status) return { status: record.status };
+            }
+        }
+        throw new Error(`Dispatch ${dispatchId} not found`);
     }
 
     async collectResult(dispatchId: string): Promise<ExecutionAdapterResult> {
         const entry = this.dispatches.get(dispatchId);
-        if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
-        return entry.adapter.collectResult(dispatchId);
+        if (entry) return entry.adapter.collectResult(dispatchId);
+        if (this.store) {
+            const record = this.store.getRemoteDispatch(dispatchId);
+            if (record && record.result) return record.result;
+        }
+        throw new Error(`Dispatch ${dispatchId} not found`);
     }
 
     streamLogs(dispatchId: string) {
