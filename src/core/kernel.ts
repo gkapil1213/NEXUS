@@ -27,6 +27,7 @@ import {
 } from "./security";
 import { GitHubService } from "./github";
 import { ExecutionStore } from "./execution-store";
+import { DispatchService } from "./dispatch-service";
 import { ExecutionEngine, type ExecutionDeps } from "./execution-engine";
 import { WorkerRegistry } from "./worker-registry";
 import { LeaseManager } from "./lease-manager";
@@ -176,32 +177,10 @@ export class NexusKernel {
       if (engine.kind === "sqlite") {
         const rawDb = (engine as any).getDatabase();
         if (rawDb) {
-          const executionStore = new ExecutionStore(rawDb);
+                    const executionStore = new ExecutionStore(rawDb);
           const workerRegistry = new WorkerRegistry(executionStore);
           const leaseManager = new LeaseManager(executionStore);
           const retryEngine = new RetryEngine();
-          const executionDeps: ExecutionDeps = {
-        executionFn: async (job) => {
-          const adapter = adapterRegistry.list().find((a) => a.getCapabilities().includes(job.jobType));
-          if (!adapter) return false;
-          const request: ExecutionAdapterRequest = {
-            operation: job.jobType,
-            args: job.payload?.args ?? [],
-            cwd: job.payload?.cwd,
-            env: job.payload?.env,
-            timeoutMs: job.timeoutMs,
-            metadata: { jobId: job.id, idempotencyKey: job.idempotencyKey },
-          };
-          const result = await adapter.execute(request, { jobId: job.id });
-          return result.success;
-        },
-        verificationFn: async (job) => {
-          const adapter = adapterRegistry.list().find((a) => a.getCapabilities().includes(job.jobType));
-          if (!adapter) return false;
-          return adapter.healthCheck();
-        },
-      };
-      const executionEngine = new ExecutionEngine(executionStore, workerRegistry, leaseManager, retryEngine, executionDeps);
 
           const remoteWorkerStore = new RemoteWorkerStore(rawDb);
           const authStore = new InMemoryWorkerAuthStore();
@@ -209,16 +188,24 @@ export class NexusKernel {
           const remoteWorkerRegistry = new RemoteWorkerRegistry(remoteWorkerStore, workerAuthentication);
 
           const adapterRegistry = new ExecutionAdapterRegistry();
-                  adapterRegistry.register(new SkippedEnvironmentExecutionAdapter());
+          adapterRegistry.register(new SkippedEnvironmentExecutionAdapter());
+
           const remoteAdapter = new SkippedEnvironmentRemoteAdapter();
-          const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter);
+          const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore);
           const jobDispatcher = new JobDispatcher(remoteWorkerRegistry, remoteExecutionManager, executionStore, leaseManager);
+          const dispatchService = new DispatchService(jobDispatcher, remoteExecutionManager, executionStore);
+
+          const executionDeps: ExecutionDeps = {
+            dispatchPort: dispatchService,
+          };
+          const executionEngine = new ExecutionEngine(executionStore, workerRegistry, leaseManager, retryEngine, executionDeps);
 
           this.executionEngine = executionEngine;
           this.jobDispatcher = jobDispatcher;
           this.remoteWorkerRegistry = remoteWorkerRegistry;
           this.remoteExecutionManager = remoteExecutionManager;
           this.executionAdapterRegistry = adapterRegistry;
+
         }
       }
       this.step("orchestration", "ok", "deterministic path assembled");

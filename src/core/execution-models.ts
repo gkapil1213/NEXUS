@@ -1,4 +1,5 @@
-﻿export type ExecutionJobStatus =
+import { ExecutionAdapterRequest, ExecutionAdapterResult } from "./execution-adapter";
+export type ExecutionJobStatus =
   | "QUEUED"
   | "CLAIMED"
   | "RUNNING"
@@ -147,4 +148,20 @@ export interface ExecutionEvent {
   eventType: string;
   payload?: any;
   createdAt: number;
+}
+
+export interface RemoteDispatchRecord {
+    dispatchId: string;
+    jobId: string;
+    attemptId: string;
+    workerId: string;
+    leaseId: string;
+    idempotencyKey: string;
+    status: "DISPATCHED" | "COMPLETED" | "FAILED" | "CANCELLED" | "UNKNOWN";
+    externalProviderId?: string;
+    request?: ExecutionAdapterRequest;
+    result?: ExecutionAdapterResult;
+    error?: string;
+    createdAt: number;
+    updatedAt: number;
 }

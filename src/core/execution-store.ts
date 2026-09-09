@@ -1,4 +1,5 @@
-﻿import { NexusEngine } from "./db";
+import { NexusEngine } from "./db";
+import { RemoteDispatchRecord } from "./execution-models";
 import {
   ExecutionJob,
   ExecutionAttempt,
@@ -510,8 +511,83 @@ export class ExecutionStore {
       createdAt: row.created_at,
     };
   }
-}
 
+    // ---------- Remote Dispatches ----------
+    addRemoteDispatch(record: RemoteDispatchRecord): void {
+        this.db.prepare(`
+            INSERT INTO remote_dispatches (
+                dispatch_id, job_id, attempt_id, worker_id, lease_id,
+                idempotency_key, status, external_provider_id, request,
+                result, error, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            record.dispatchId,
+            record.jobId,
+            record.attemptId,
+            record.workerId,
+            record.leaseId,
+            record.idempotencyKey,
+            record.status,
+            record.externalProviderId,
+            record.request ? JSON.stringify(record.request) : null,
+            record.result ? JSON.stringify(record.result) : null,
+            record.error,
+            record.createdAt,
+            record.updatedAt
+        );
+    }
 
+    updateRemoteDispatch(record: RemoteDispatchRecord): void {
+        this.db.prepare(`
+            UPDATE remote_dispatches SET
+                status = ?, external_provider_id = ?, result = ?, error = ?, updated_at = ?
+            WHERE dispatch_id = ?
+        `).run(
+            record.status,
+            record.externalProviderId,
+            record.result ? JSON.stringify(record.result) : null,
+            record.error,
+            record.updatedAt,
+            record.dispatchId
+        );
+    }
 
+    upsertRemoteDispatch(record: RemoteDispatchRecord): void {
+        const existing = this.getRemoteDispatch(record.dispatchId);
+        if (existing) {
+            this.updateRemoteDispatch(record);
+        } else {
+            this.addRemoteDispatch(record);
+        }
+    }
 
+    getRemoteDispatch(dispatchId: string): RemoteDispatchRecord | undefined {
+        const row = this.db.prepare("SELECT * FROM remote_dispatches WHERE dispatch_id = ?").get(dispatchId);
+        return row ? this.mapRemoteDispatch(row) : undefined;
+    }
+
+    listRemoteDispatchesByJob(jobId: string): RemoteDispatchRecord[] {
+        return this.db.prepare("SELECT * FROM remote_dispatches WHERE job_id = ?").all(jobId).map(this.mapRemoteDispatch);
+    }
+
+    listAllRemoteDispatches(): RemoteDispatchRecord[] {
+        return this.db.prepare("SELECT * FROM remote_dispatches").all().map(this.mapRemoteDispatch);
+    }
+
+    private mapRemoteDispatch(row: any): RemoteDispatchRecord {
+        return {
+            dispatchId: row.dispatch_id,
+            jobId: row.job_id,
+            attemptId: row.attempt_id,
+            workerId: row.worker_id,
+            leaseId: row.lease_id,
+            idempotencyKey: row.idempotency_key,
+            status: row.status,
+            externalProviderId: row.external_provider_id,
+            request: row.request ? JSON.parse(row.request) : undefined,
+            result: row.result ? JSON.parse(row.result) : undefined,
+            error: row.error,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+        };
+    }}

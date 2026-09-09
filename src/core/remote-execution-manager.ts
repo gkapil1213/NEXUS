@@ -1,40 +1,62 @@
-﻿import { RemoteExecutionAdapter } from "./remote-execution-adapter";
+import { RemoteExecutionAdapter } from "./remote-execution-adapter";
 import { ExecutionAdapterRequest, ExecutionAdapterResult } from "./execution-adapter";
+import { ExecutionStore } from "./execution-store";
+import { RemoteDispatchRecord } from "./execution-models";
 
 export class RemoteExecutionManager {
-  private dispatches = new Map<string, { adapter: RemoteExecutionAdapter; status: string }>();
+    private dispatches = new Map<string, { adapter: RemoteExecutionAdapter; status: string }>();
 
-  constructor(private adapter: RemoteExecutionAdapter) {}
+    constructor(
+        private adapter: RemoteExecutionAdapter,
+        private store?: ExecutionStore
+    ) {
+        if (store) {
+            this.reconcilePersistedDispatches(store.listAllRemoteDispatches());
+        }
+    }
 
-  async dispatch(request: ExecutionAdapterRequest, workerId: string, leaseId: string): Promise<{ dispatchId: string }> {
-    await this.adapter.connect();
-    const result = await this.adapter.dispatch(request, workerId, leaseId);
-    this.dispatches.set(result.dispatchId, { adapter: this.adapter, status: "DISPATCHED" });
-    return result;
-  }
+    private async reconcilePersistedDispatches(records: RemoteDispatchRecord[]): Promise<void> {
+        for (const record of records) {
+            if (!this.dispatches.has(record.dispatchId)) {
+                try {
+                    const status = await this.adapter.getStatus(record.dispatchId);
+                    this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: status.status });
+                } catch {
+                    this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: "UNKNOWN" });
+                }
+            }
+        }
+    }
 
-  async cancel(dispatchId: string): Promise<void> {
-    const entry = this.dispatches.get(dispatchId);
-    if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
-    await entry.adapter.cancel(dispatchId);
-    entry.status = "CANCELLED";
-  }
+    async dispatch(request: ExecutionAdapterRequest, workerId: string, leaseId: string): Promise<{ dispatchId: string }> {
+        await this.adapter.connect();
+        const result = await this.adapter.dispatch(request, workerId, leaseId);
+        this.dispatches.set(result.dispatchId, { adapter: this.adapter, status: "DISPATCHED" });
+        return result;
+    }
 
-  async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {
-    const entry = this.dispatches.get(dispatchId);
-    if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
-    return entry.adapter.getStatus(dispatchId);
-  }
+    async cancel(dispatchId: string): Promise<void> {
+        const entry = this.dispatches.get(dispatchId);
+        if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
+        await entry.adapter.cancel(dispatchId);
+        entry.status = "CANCELLED";
+    }
 
-  async collectResult(dispatchId: string): Promise<ExecutionAdapterResult> {
-    const entry = this.dispatches.get(dispatchId);
-    if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
-    return entry.adapter.collectResult(dispatchId);
-  }
+    async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {
+        const entry = this.dispatches.get(dispatchId);
+        if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
+        return entry.adapter.getStatus(dispatchId);
+    }
 
-  streamLogs(dispatchId: string) {
-    const entry = this.dispatches.get(dispatchId);
-    if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
-    return entry.adapter.streamLogs(dispatchId);
-  }
+    async collectResult(dispatchId: string): Promise<ExecutionAdapterResult> {
+        const entry = this.dispatches.get(dispatchId);
+        if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
+        return entry.adapter.collectResult(dispatchId);
+    }
+
+    streamLogs(dispatchId: string) {
+        const entry = this.dispatches.get(dispatchId);
+        if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
+        return entry.adapter.streamLogs(dispatchId);
+    }
 }
