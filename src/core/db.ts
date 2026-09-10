@@ -1,13 +1,13 @@
-﻿import { CONFIG } from "./config";
+import { CONFIG } from "./config";
 import { Err } from "./errors";
 
 /**
- * NEXUS Phase 1 Ã¯Â¿Â½ persistence engine.
+ * NEXUS Phase 1 ï¿½ persistence engine.
  *
  * Real, durable persistence via IndexedDB (schema-versioned). In non-browser
  * contexts (Node test harnesses) a clearly-labelled in-memory engine is used
  * instead; the engine kind is exposed so health/verification can report
- * exactly which runtime is backing the platform Ã¯Â¿Â½ never pretending an
+ * exactly which runtime is backing the platform ï¿½ never pretending an
  * unverified persistence mode is the durable one.
  *
  * Safety properties:
@@ -20,7 +20,7 @@ import { Err } from "./errors";
  */
 
 /**
- * Schema v8 (Phase 4 Pass 1): ADDITIVE migration Ã¯Â¿Â½ adds security_executions,
+ * Schema v8 (Phase 4 Pass 1): ADDITIVE migration ï¿½ adds security_executions,
  * security_evidence, security_findings, security_decisions,
  * security_risk_assessments and finding_audit_log stores for the Security
  * Control Plane. IndexedDB preserves every existing object store and record
@@ -61,7 +61,7 @@ export const NEXUS_STORES = [
   "security_decisions",
   "security_risk_assessments",
   "finding_audit_log",
-  // Phase 4 Pass 7 Ã¢â‚¬â€œ Continuous Security Operations
+  // Phase 4 Pass 7 â€“ Continuous Security Operations
   "security_finding_observations",
   "security_risk_snapshots",
   "security_scanner_health",
@@ -117,14 +117,14 @@ export function nid(prefix: string): string {
 
 /* ----------------------------- IndexedDB engine ---------------------------- */
 
-const INDEXES: Record<string, [string, string][]> = {
+export const INDEXES: Record<string, [string, string][]> = {
   executions: [["byProject", "project_id"]],
   agent_runs: [["byExecution", "execution_id"]],
   events: [["byExecution", "execution_id"]],
   audit: [["byResource", "resource_id"]],
   evidence: [["byExecution", "execution_id"]],
   artifacts: [["byExecution", "execution_id"]],
-  // Phase 4 Pass 1 Ã¯Â¿Â½ Security Control Plane indexes
+  // Phase 4 Pass 1 ï¿½ Security Control Plane indexes
   security_executions: [
     ["byProject", "project_id"],
     ["byExecution", "execution_id"],

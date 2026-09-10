@@ -1,8 +1,15 @@
 import { NexusEngine, StoreName, SQLStatement } from "./db";
 import Database from "better-sqlite3";
+import { INDEXES } from "./db";
 import { join } from "path";
 import { Err } from "./errors";
 
+// Derived from the single source of truth in db.ts so SQLite cannot
+// drift from the IndexedDB / memory backends. Assumes each index name
+// maps to the same field across every store -- true for INDEXES today.
+const FIELD_OF: Record<string, string> = Object.fromEntries(
+  Object.values(INDEXES).flat().map(([idx, field]) => [idx, field]),
+);
 export class SQLiteEngine implements NexusEngine {
   readonly kind = "sqlite" as const;
   private db: Database.Database;
@@ -59,24 +66,15 @@ export class SQLiteEngine implements NexusEngine {
 
   async all<T>(store: StoreName): Promise<T[]> {
     const rows = this.db
-      .prepare(`SELECT value FROM nexus_records WHERE store = ?`)
+      .prepare(`SELECT value FROM nexus_records WHERE store = ? ORDER BY rowid`)
       .all(store) as { value: string }[];
     return rows.map((r) => JSON.parse(r.value) as T);
   }
 
   async byIndex<T>(store: StoreName, index: string, key: IDBValidKey | IDBKeyRange): Promise<T[]> {
-    // Generic fallback: not used in minimal SQLite tests
-    const rows = await this.all<Record<string, unknown>>(store);
-    const fieldMap: Record<string, string> = {
-      byProject: "project_id",
-      byExecution: "execution_id",
-      byArtifact: "artifact_digest",
-      byEvidence: "evidence_id",
-      byFinding: "finding_id",
-      byRelease: "release_id",
-    };
-    const field = fieldMap[index];
+    const field = FIELD_OF[index];
     if (!field) return [];
+    const rows = await this.all<Record<string, unknown>>(store);
     return rows.filter((r) => r[field] === key) as T[];
   }
 

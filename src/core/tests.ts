@@ -13,7 +13,7 @@ import { redactText } from "./audit";
 import { digestOf, sha256Hex } from "./db";
 import { AgentRegistry, InspectorAgent, buildAgentContext, type Agent } from "./agents";
 import { Err, NexusError, toSystemError } from "./errors";
-import { PERMISSIONS } from "./types";
+import { PERMISSIONS, type NexusEvent } from "./types";
 import { FileAccessPolicy, WorkspaceService, DEFAULT_WORKSPACE_LIMITS } from "./workspace";
 import {
   StaticGitProvider,
@@ -358,12 +358,12 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
       name: "events are append-only with strictly increasing order",
       category: "events",
       fn: async () => {
-        const before = await services.events.list(1000);
+        const before = await services.engine.all<NexusEvent>("events");
         const maxBefore = before.reduce((m, e) => Math.max(m, e.seq), 0);
         const e1 = await services.events.emit({ type: "decision.created", source: "suite", payload: { n: 1 } });
         const e2 = await services.events.emit({ type: "decision.created", source: "suite", payload: { n: 2 } });
         assert(e1.seq > maxBefore && e2.seq === e1.seq + 1, "sequence must be strictly increasing");
-        const after = await services.events.list(1000);
+        const after = await services.engine.all<NexusEvent>("events");
         assert(after.length === before.length + 2, "append-only: history must grow, never shrink");
         assert(after.some((e) => e.id === e1.id) && after.some((e) => e.id === e2.id), "prior events must remain");
         return `seq ${e1.seq} → ${e2.seq}`;
@@ -538,10 +538,10 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
       name: "REGRESSION: event history is never overwritten by new emissions",
       category: "regression",
       fn: async () => {
-        const before = await services.events.list(2000);
+        const before = await services.engine.all<NexusEvent>("events");
         await services.events.emit({ type: "evidence.created", source: "regression", payload: {} });
-        const after = await services.events.list(2000);
-        for (const e of before.slice(0, 50)) {
+        const after = await services.engine.all<NexusEvent>("events");
+        for (const e of before) {
           assert(after.some((x) => x.id === e.id && x.seq === e.seq), `event ${e.id} lost or mutated`);
         }
         return "history preserved";
@@ -1090,11 +1090,11 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
       name: "P3 regression: workspace events preserve strictly-increasing sequence",
       category: "p3-regression",
       fn: async () => {
-        const before = await services.events.list(2000);
+        const before = await services.engine.all<NexusEvent>("events");
         const projectId = await p3Project();
         const ws = await services.workspaces.create(ownerUser, { project_id: projectId, execution_id: "aex_p3_reg_seq" });
         created.workspaces.push(ws.id);
-        const after = await services.events.list(2000);
+        const after = await services.engine.all<NexusEvent>("events");
         for (let i = 1; i < after.length; i++) {
           assert(after[i].seq > after[i - 1].seq, "event sequence must be strictly increasing");
         }
