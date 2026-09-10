@@ -27,8 +27,6 @@ import {
 } from "./security";
 import { GitHubService } from "./github";
 import { ExecutionStore } from "./execution-store";
-import { LocalProcessRemoteExecutionAdapter } from "./local-process-remote-adapter";
-import { LocalProcessExecutionAdapter } from "./local-process-execution-adapter";
 import { DispatchService } from "./dispatch-service";
 import { ExecutionEngine, type ExecutionDeps } from "./execution-engine";
 import { WorkerRegistry } from "./worker-registry";
@@ -38,8 +36,8 @@ import { JobDispatcher } from "./job-dispatcher";
 import { RemoteWorkerStore } from "./remote-worker-store";
 import { RemoteWorkerRegistry } from "./remote-worker-registry";
 import { WorkerAuthentication } from "./worker-authentication";
-import { WorkerGateway } from "./worker-gateway";
-import { WorkerGatewayRemoteExecutionAdapter } from "./worker-gateway-remote-adapter";
+import type { WorkerGateway } from "./worker-gateway";
+import type { RemoteExecutionAdapter } from "./remote-execution-adapter";
 import { SqliteWorkerAuthStore } from "./sqlite-worker-auth-store";
 import { ExecutionAdapterRegistry } from "./execution-adapter-registry";
 import { RemoteExecutionManager } from "./remote-execution-manager";
@@ -117,6 +115,14 @@ export class NexusKernel {
   remoteWorkerRegistry?: RemoteWorkerRegistry;
   remoteExecutionManager?: RemoteExecutionManager;
   executionAdapterRegistry?: ExecutionAdapterRegistry;
+  // Server-side Worker Gateway. Populated in boot() only when running under
+  // Vite SSR (import.meta.env.SSR). Ordinary browser boot leaves this undefined.
+  workerGateway?: WorkerGateway;
+  // The exact same durable stores the runtime uses. Exposed for callers/tests.
+  executionStore?: ExecutionStore;
+  remoteWorkerStore?: RemoteWorkerStore;
+  workerAuthStore?: SqliteWorkerAuthStore;
+  private gatewayStarted = false;
 
   private step(id: string, status: BootStep["status"], detail: string | null = null): void {
     const s = this.steps.find((x) => x.id === id);
@@ -194,8 +200,28 @@ export class NexusKernel {
           const adapterRegistry = new ExecutionAdapterRegistry();
           adapterRegistry.register(new SkippedEnvironmentExecutionAdapter());
 
-          const remoteAdapter = new LocalProcessRemoteExecutionAdapter(new LocalProcessExecutionAdapter());
-          const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore); // real gateway pending
+          // Server-only Worker Gateway. worker-gateway.ts imports Node's
+          // "http" module and must not appear in the browser bundle. The
+          // import.meta.env.SSR guard lets Vite tree-shake this entire branch
+          // out of browser builds; dynamic imports keep the module lazy so the
+          // browser never resolves it.
+          let workerGateway: WorkerGateway | undefined;
+          let remoteAdapter: RemoteExecutionAdapter;
+          if (import.meta.env.SSR) {
+            const { WorkerGateway: GatewayCtor } = await import("./worker-gateway");
+            const { WorkerGatewayRemoteExecutionAdapter: AdapterCtor } = await import("./worker-gateway-remote-adapter");
+            const { WorkerSessionStore } = await import("./worker-session-store");
+            const sessionStore = new WorkerSessionStore(engine);
+            const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore);
+            workerGateway = gw;
+            remoteAdapter = new AdapterCtor(gw);
+          } else {
+            // Non-SSR: kernel cannot run worker gateway. This branch is only
+            // reached under runtimes where db.ts already refused to open
+            // SQLite; fail closed rather than fake remote execution.
+            throw Err.startup("GATEWAY_UNAVAILABLE", "WorkerGateway requires Vite SSR runtime");
+          }
+          const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore);
           const jobDispatcher = new JobDispatcher(workerRegistry, remoteExecutionManager, executionStore, leaseManager);
           const dispatchService = new DispatchService(jobDispatcher, remoteExecutionManager, executionStore);
 
@@ -209,6 +235,10 @@ export class NexusKernel {
           this.remoteWorkerRegistry = remoteWorkerRegistry;
           this.remoteExecutionManager = remoteExecutionManager;
           this.executionAdapterRegistry = adapterRegistry;
+          this.workerGateway = workerGateway;
+          this.executionStore = executionStore;
+          this.remoteWorkerStore = remoteWorkerStore;
+          this.workerAuthStore = authStore;
 
         }
       }
@@ -310,6 +340,30 @@ export class NexusKernel {
       if (running) this.step(running.id, "fail", this.failure.message);
       throw this.failure;
     }
+  }
+
+  /**
+   * Start the Worker Gateway HTTP listener.
+   *
+   * Deliberately NOT called by boot(). Ordinary browser/test boot must never
+   * open a TCP port. Server-mode callers set CONFIG.gateway.enabled = true
+   * and then call this method explicitly. Repeated calls are safe no-ops.
+   */
+  async startGateway(): Promise<void> {
+    if (!CONFIG.gateway.enabled) return;
+    if (!this.workerGateway) {
+      throw Err.startup("GATEWAY_NOT_WIRED", "kernel did not construct a WorkerGateway (requires Vite SSR runtime and sqlite persistence)");
+    }
+    if (this.gatewayStarted) return;
+    await this.workerGateway.start();
+    this.gatewayStarted = true;
+  }
+
+  /** Stop the Worker Gateway if it was started. Idempotent. */
+  async stopGateway(): Promise<void> {
+    if (!this.gatewayStarted || !this.workerGateway) return;
+    await this.workerGateway.stop();
+    this.gatewayStarted = false;
   }
 
   /** Real health: probes each subsystem; never reports healthy when a probe fails. */

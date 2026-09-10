@@ -1,0 +1,13 @@
+-- Add status column to worker_sessions.
+--
+-- WorkerSessionStore.createSession() and updateSession() write session.status,
+-- and getActiveSessionForWorker() filters on status IN ('ACTIVE','BUSY','IDLE').
+-- Migrations 022 and 024 created the table without this column, so any database
+-- produced through the kernel migration chain lacked it, and the first
+-- WorkerAgent authentication attempt failed with:
+--   "table worker_sessions has no column named status"
+--
+-- Adding it here brings the durable schema in line with the store's contract.
+-- Default is 'ACTIVE' to match the freshly-authenticated state the gateway
+-- creates in WorkerGateway.handleMessage.
+ALTER TABLE worker_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE';

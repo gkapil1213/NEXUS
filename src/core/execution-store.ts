@@ -736,8 +736,18 @@ export class ExecutionStore {
         result: RemoteExecutionResult,
         dispatch: RemoteDispatchRecord
     ): void {
-        this.db.transaction(() => {
+        const run = () => {
             this.addRemoteExecutionResult(result);
             this.updateRemoteDispatch(dispatch);
-        });
+        };
+        // Two shapes are accepted at runtime:
+        //  * raw better-sqlite3 Database (what the kernel passes) -
+        //    db.transaction(fn) returns a callable wrapper that must be invoked.
+        //  * SQLiteEngine - its transaction(fn) already executes fn eagerly and
+        //    returns fn's result, so we must NOT call anything a second time.
+        // Detecting the shape and invoking only the callable keeps both correct.
+        const maybeTx: any = (this.db as any).transaction(run);
+        if (typeof maybeTx === "function") {
+            maybeTx();
+        }
     }}

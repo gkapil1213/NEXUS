@@ -15,7 +15,7 @@ function sha256Hex(input: string): string {
 export class SqliteWorkerAuthStore implements WorkerAuthStore {
   constructor(private db: NexusEngine) {
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS worker_credentials (
+      CREATE TABLE IF NOT EXISTS worker_auth_credentials (
         worker_id TEXT PRIMARY KEY,
         credential_hash TEXT NOT NULL,
         revoked INTEGER NOT NULL DEFAULT 0
@@ -26,23 +26,23 @@ export class SqliteWorkerAuthStore implements WorkerAuthStore {
   setCredential(workerId: string, credential: string): void {
     const hash = sha256Hex(credential);
     this.db.prepare(`
-      INSERT INTO worker_credentials (worker_id, credential_hash, revoked)
+      INSERT INTO worker_auth_credentials (worker_id, credential_hash, revoked)
       VALUES (?, ?, 0)
       ON CONFLICT(worker_id) DO UPDATE SET credential_hash = excluded.credential_hash, revoked = 0
     `).run(workerId, hash);
   }
 
   getCredential(workerId: string): string | undefined {
-    const row = this.db.prepare("SELECT credential_hash FROM worker_credentials WHERE worker_id = ?").get(workerId);
+    const row = this.db.prepare("SELECT credential_hash FROM worker_auth_credentials WHERE worker_id = ?").get(workerId);
     return (row as any)?.credential_hash;
   }
 
   revokeWorker(workerId: string): void {
-    this.db.prepare("UPDATE worker_credentials SET revoked = 1 WHERE worker_id = ?").run(workerId);
+    this.db.prepare("UPDATE worker_auth_credentials SET revoked = 1 WHERE worker_id = ?").run(workerId);
   }
 
   isRevoked(workerId: string): boolean {
-    const row = this.db.prepare("SELECT revoked FROM worker_credentials WHERE worker_id = ?").get(workerId);
+    const row = this.db.prepare("SELECT revoked FROM worker_auth_credentials WHERE worker_id = ?").get(workerId);
     return !!row && (row as any).revoked === 1;
   }
 }

@@ -16,6 +16,13 @@ export const CONFIG: {
     engine: EngineKind;
     dbName: string;
   };
+  // Worker Gateway is opt-in. Default is disabled; kernel.boot() will never
+  // open a TCP listener. Server-mode callers set enabled = true then call
+  // NexusKernel.startGateway().
+  gateway: {
+    enabled: boolean;
+    port: number;
+  };
 } = {
   env: "DEVELOPMENT",
   version: "0.1.0",
@@ -27,6 +34,10 @@ export const CONFIG: {
   persistence: {
     engine: "sqlite",
     dbName: "nexus.sqlite",
+  },
+  gateway: {
+    enabled: false,
+    port: 0,
   },
 };
 
@@ -46,6 +57,10 @@ export function safeConfigView(): Record<string, unknown> {
     sessionTtlMs: CONFIG.sessionTtlMs,
     pbkdf2Iterations: CONFIG.pbkdf2Iterations,
     maxRequestChars: CONFIG.maxRequestChars,
+    gateway: {
+      enabled: CONFIG.gateway.enabled,
+      port: CONFIG.gateway.port,
+    },
     issues: [...CONFIG.issues],
   };
 }
