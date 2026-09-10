@@ -573,6 +573,49 @@ export class ExecutionStore {
         }
     }
 
+    createRemoteDispatchIdempotent(record: RemoteDispatchRecord): { record: RemoteDispatchRecord; created: boolean } {
+        // SELECT-first, INSERT-with-race-catch. Tolerant of missing UNIQUE index,
+        // also correct when a UNIQUE index on idempotency_key exists.
+        const existing = this.getRemoteDispatchByJobIdempotencyKey(record.idempotencyKey);
+        if (existing) return { record: existing, created: false };
+        try {
+            this.addRemoteDispatch(record);
+            return { record, created: true };
+        } catch (err: any) {
+            if (
+                err?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+                /UNIQUE constraint failed/i.test(err?.message ?? "")
+            ) {
+                const race = this.getRemoteDispatchByJobIdempotencyKey(record.idempotencyKey);
+                if (race) return { record: race, created: false };
+            }
+            throw err;
+        }
+    }
+
+    claimNextDispatchForWorker(workerId: string): RemoteDispatchRecord | undefined {
+        // Atomic DB-level claim. A single conditional UPDATE is the correctness guarantee:
+        // two concurrent pollers cannot both transition the same row DISPATCHED -> DELIVERED.
+        const now = Date.now();
+        for (let i = 0; i < 5; i++) {
+            const row: any = this.db
+                .prepare(
+                    "SELECT dispatch_id FROM remote_dispatches WHERE worker_id = ? AND status = 'DISPATCHED' ORDER BY created_at LIMIT 1"
+                )
+                .get(workerId);
+            if (!row) return undefined;
+            const info = this.db
+                .prepare(
+                    "UPDATE remote_dispatches SET status = 'DELIVERED', updated_at = ? WHERE dispatch_id = ? AND status = 'DISPATCHED'"
+                )
+                .run(now, row.dispatch_id);
+            if (info.changes === 1) {
+                return this.getRemoteDispatch(row.dispatch_id);
+            }
+            // Someone else claimed that row; retry for the next candidate.
+        }
+        return undefined;
+    }
     upsertRemoteDispatch(record: RemoteDispatchRecord): void {
         const existing = this.getRemoteDispatch(record.dispatchId);
         if (existing) {

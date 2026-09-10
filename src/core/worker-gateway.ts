@@ -1,4 +1,4 @@
-﻿import { createServer, IncomingMessage, ServerResponse } from "http";
+import { createServer, IncomingMessage, ServerResponse } from "http";
 import { WorkerTransport } from "./worker-transport";
 import { WorkerSessionStore } from "./worker-session-store";
 import { RemoteWorkerStore } from "./remote-worker-store";
@@ -145,24 +145,20 @@ export class WorkerGateway {
         return { type: "HEARTBEAT_ACK" };
       }
       case "JOB_OFFER": {
-        // Durable delivery: use executionStore to find next eligible dispatch
+        // Atomic DB-level claim: two concurrent pollers cannot claim the same dispatch.
         if (!this.executionStore) throw new Error("durable_store_unavailable");
-        const eligible = this.executionStore.listRemoteDispatchesByWorkerStatus(workerId, "DISPATCHED");
-        const dispatch = eligible[0];
-        if (!dispatch) return { type: "JOB_OFFER", job: null };
-        // Atomically mark as DELIVERED
-        const updated = { ...dispatch, status: "DELIVERED" as const, updatedAt: Date.now() };
-        this.executionStore.upsertRemoteDispatch(updated);
+        const claimed = this.executionStore.claimNextDispatchForWorker(workerId);
+        if (!claimed) return { type: "JOB_OFFER", job: null };
         return {
           type: "JOB_OFFER",
           job: {
-            jobId: dispatch.jobId,
-            dispatchId: dispatch.dispatchId,
-            leaseId: dispatch.leaseId,
-            operation: dispatch.request?.operation,
-            args: dispatch.request?.args,
-            cwd: dispatch.request?.cwd,
-            timeoutMs: dispatch.request?.timeoutMs,
+            jobId: claimed.jobId,
+            dispatchId: claimed.dispatchId,
+            leaseId: claimed.leaseId,
+            operation: claimed.request?.operation,
+            args: claimed.request?.args,
+            cwd: claimed.request?.cwd,
+            timeoutMs: claimed.request?.timeoutMs,
           },
         };
       }
@@ -223,6 +219,95 @@ export class WorkerGateway {
     }
   }
 
+  // ------------------------------------------------------------------
+  // Control-plane API (used by RemoteExecutionAdapter).
+  // ------------------------------------------------------------------
+
+  async createDispatch(input: {
+    jobId: string;
+    attemptId: string;
+    workerId: string;
+    leaseId: string;
+    idempotencyKey: string;
+    request: { operation: string; args?: string[]; cwd?: string; timeoutMs?: number };
+  }): Promise<{ dispatchId: string; created: boolean; status: string }> {
+    if (!this.executionStore) throw new Error("durable_store_unavailable");
+    if (!input.jobId) throw new Error("jobId_required");
+    if (!input.attemptId) throw new Error("attemptId_required");
+    if (!input.workerId) throw new Error("workerId_required");
+    if (!input.leaseId) throw new Error("leaseId_required");
+    if (!input.idempotencyKey) throw new Error("idempotencyKey_required");
+    if (!input.request || !input.request.operation) throw new Error("operation_required");
+
+    const record: RemoteDispatchRecord = {
+      dispatchId: crypto.randomUUID(),
+      jobId: input.jobId,
+      attemptId: input.attemptId,
+      workerId: input.workerId,
+      leaseId: input.leaseId,
+      idempotencyKey: input.idempotencyKey,
+      status: "DISPATCHED",
+      request: {
+        operation: input.request.operation,
+        args: input.request.args,
+        cwd: input.request.cwd,
+        timeoutMs: input.request.timeoutMs,
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const { record: stored, created } = this.executionStore.createRemoteDispatchIdempotent(record);
+    return { dispatchId: stored.dispatchId, created, status: stored.status };
+  }
+
+  async getDispatchStatus(dispatchId: string): Promise<RemoteDispatchRecord | undefined> {
+    if (!this.executionStore) throw new Error("durable_store_unavailable");
+    return this.executionStore.getRemoteDispatch(dispatchId);
+  }
+
+  async collectDispatchResult(dispatchId: string): Promise<any> {
+    if (!this.executionStore) throw new Error("durable_store_unavailable");
+    const dispatch = this.executionStore.getRemoteDispatch(dispatchId);
+    if (!dispatch) throw new Error("dispatch_not_found");
+    const result = this.executionStore.getRemoteExecutionResultByDispatchId(dispatchId);
+    if (!result) {
+      if (dispatch.status === "COMPLETED" || dispatch.status === "FAILED") {
+        const embedded: any = (dispatch as any).result;
+        if (embedded) {
+          return {
+            success: !!embedded.success,
+            exitCode: typeof embedded.exitCode === "number" ? embedded.exitCode : 0,
+            stdout: embedded.stdout,
+            stderr: embedded.stderr,
+            evidence: embedded.evidence,
+          };
+        }
+        throw new Error("result_unavailable");
+      }
+      throw new Error("result_not_ready");
+    }
+    // Storage-contract note: the JOB_RESULT handler above writes the worker's
+    // INLINE stdout/stderr into the columns named `stdout_ref`/`stderr_ref`.
+    // So for results produced by this gateway, those columns hold INLINE text.
+    // We therefore expose both `stdout` (inline) and `stdoutRef` (raw column)
+    // so callers can use the correct semantic. When real external references
+    // are introduced, only `stdoutRef` will carry meaning.
+    return {
+      success: result.success,
+      exitCode: result.exitCode ?? 0,
+      stdout: result.stdoutRef ?? undefined,
+      stderr: result.stderrRef ?? undefined,
+      stdoutRef: result.stdoutRef ?? undefined,
+      stderrRef: result.stderrRef ?? undefined,
+      evidence: result.evidence,
+      resultId: result.resultId,
+      resultSha256: result.resultSha256,
+      stdoutSha256: result.stdoutSha256,
+      stderrSha256: result.stderrSha256,
+      verificationStatus: result.verificationStatus,
+      verifiedAt: result.verifiedAt,
+    };
+  }
   offerJob(workerId: string, job: any): void {
     // Convert a direct job offer into a durable dispatch record
     if (!this.executionStore) return;
