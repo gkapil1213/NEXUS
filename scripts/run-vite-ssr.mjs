@@ -25,7 +25,6 @@ try {
   const mod = await vite.ssrLoadModule(entry);
   if (mod && typeof mod.run === "function") await mod.run();
   else if (mod && typeof mod.main === "function") await mod.main();
-  else throw new Error("entry module does not export run() or main()");
 } catch (err) {
   console.error(err);
   exitCode = 1;

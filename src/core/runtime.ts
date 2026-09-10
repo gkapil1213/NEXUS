@@ -83,6 +83,23 @@ export interface RuntimeStatus {
  * In the managed browser workspace this global is absent — which is exactly
  * how the managed mode is detected (not assumed).
  */
+export interface HostMaterializeFile {
+  path: string;
+  content: string;
+}
+export interface HostMaterializeRequest {
+  token: string;
+  files: HostMaterializeFile[];
+}
+export interface HostMaterializeResult {
+  cwd: string;
+  files_written: number;
+}
+export interface HostWorkspaceCleanupResult {
+  cleaned: boolean;
+  error?: string;
+}
+
 export interface HostBridge {
   platform(): string; // "win32" | "linux" | "darwin" | …
   exec(
@@ -90,12 +107,19 @@ export interface HostBridge {
     args: string[],
     opts: { timeout_ms?: number; cwd?: string },
   ): Promise<{ exit_code: number; stdout: string; stderr: string }>;
+
+  materializeWorkspace?(req: HostMaterializeRequest): Promise<HostMaterializeResult>;
+  cleanupWorkspace?(token: string): Promise<HostWorkspaceCleanupResult>;
 }
 
 declare global {
   interface Window {
     __NEXUS_HOST__?: HostBridge;
   }
+}
+
+export function getHostBridge(): HostBridge | null {
+  return hostBridge();
 }
 
 function hostBridge(): HostBridge | null {
@@ -105,7 +129,7 @@ function hostBridge(): HostBridge | null {
 
 /* ----------------------- Windows-aware executable map ---------------------- */
 
-export type AllowedTool = "docker" | "trivy" | "git" | "node" | "npm" | "npx" | "playwright" | "semgrep" | "gitleaks" | "checkov";
+export type AllowedTool = "docker" | "trivy" | "git" | "node" | "npm" | "npx" | "playwright" | "semgrep" | "gitleaks" | "checkov" | "pnpm" | "yarn" | "pytest";
 
 const EXECUTABLES: Record<AllowedTool, { win: string; posix: string }> = {
   docker: { win: "docker.exe", posix: "docker" },
@@ -113,6 +137,9 @@ const EXECUTABLES: Record<AllowedTool, { win: string; posix: string }> = {
   git: { win: "git.exe", posix: "git" },
   node: { win: "node.exe", posix: "node" },
   npm: { win: "npm.cmd", posix: "npm" },
+  pnpm: { win: "pnpm.cmd", posix: "pnpm" },
+  yarn: { win: "yarn.cmd", posix: "yarn" },
+  pytest: { win: "pytest.exe", posix: "pytest" },
   npx: { win: "npx.cmd", posix: "npx" },
   playwright: { win: "playwright.cmd", posix: "playwright" },
   semgrep: { win: "semgrep.exe", posix: "semgrep" },
@@ -180,18 +207,21 @@ export function sanitizeArgs(args: string[]): string[] {
 }
 
 /** Per-tool operation allowlists. Only these operations may ever be invoked. */
-const TOOL_OPERATIONS: Record<AllowedTool, readonly string[]> = {
+export const TOOL_OPERATIONS: Record<AllowedTool, readonly string[]> = {
   docker: ["version", "info", "build", "inspect", "run", "ps", "logs", "stop", "rm"],
   trivy: ["--version", "image", "filesystem"],
   git: ["--version", "status", "log", "rev-parse"],
   // `-e` is permitted ONLY with a registered trusted script (see TRUSTED_SCRIPTS).
   node: ["--version", "-e"],
-  npm: ["--version", "ls","audit"],
+  npm: ["--version", "ls", "audit", "run", "test", "install", "ci"],
   npx: ["--version", "playwright"],
   playwright: ["--version"],
   semgrep: ["--version", "scan"],
   gitleaks: ["version", "detect"],
   checkov: ["--version", "--directory"],
+  pnpm: ["--version", "run", "test", "install", "ci"],
+  yarn: ["--version", "run", "test", "install"],
+  pytest: ["--version", "run"],
 };
 
 /* ------------------------- Trusted inline scripts -------------------------- */

@@ -21,6 +21,14 @@
 
 import type { KernelServices } from "./kernel";
 import { ProjectDetector, SecurityScanner, SBOMService, buildPlanFrom, validateBuildPlan, PipelineEngine } from "./devops";
+import { createExecutor, getHostBridge } from "./runtime";
+import type { HostBridge } from "./runtime";
+import { createRuntimeCommandExecutor } from "./runtime-command-adapter";
+import { hasHostMaterialization, prepareHostWorkspace, cleanupHostWorkspace } from "./host-workspace";
+import type { WorkspaceService } from "./workspace";
+import type { CommandExecutor } from "./devops";
+
+// Executor and workspace materialization are resolved per-call in executePlan().
 import type { WsReader, PipelineContext, PipelineServices, StageRunner, StageOutput } from "./devops";
 import { detectCapabilities, executableHere } from "./capabilities";
 import type { CapabilityReport } from "./capabilities";
@@ -330,7 +338,7 @@ export async function generatePlan(
   const buildValidation = validateBuildPlan(buildPlan);
   const capabilities = await detectCapabilities();
   const exec = executableHere(capabilities);
-  const hasExecutor = false; // command runtime is not connected in this pass
+  const hasExecutor = hasHostMaterialization(getHostBridge());
 
   const stages = buildStages(detection, buildValidation, exec, intent, hasExecutor);
   const readyCount = stages.filter((s) => s.availability === "ready").length;
@@ -421,7 +429,15 @@ function cyclonedx(components: SbomComponent[], projectName: string): string {
 }
 
 /** Build the stage runners from existing devops services (no reimplementation). */
-function stageRunners(reader: WsReader, detection: DetectionResult, projectName: string): Partial<Record<PipelineStageName, StageRunner>> {
+interface StageExecDeps {
+  actor: Actor;
+  workspaceId: string;
+  workspaces: WorkspaceService;
+  bridge: HostBridge | null;
+  executor: CommandExecutor | null;
+}
+
+function stageRunners(reader: WsReader, detection: DetectionResult, projectName: string, execDeps: StageExecDeps): Partial<Record<PipelineStageName, StageRunner>> {
   const detector = new ProjectDetector();
   const scanner = new SecurityScanner();
   const sbom = new SBOMService();
@@ -433,23 +449,163 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
         status: "SUCCEEDED",
         command: null,
         logs: `detected language=${det.language} runtime=${det.runtime ?? "—"} pm=${det.package_manager ?? "—"} files=[${det.evidence.join(", ")}]`,
-        evidence: [{ type: "report", content: JSON.stringify(det, null, 2), metadata: { stage: "DETECTING" } }],
+        evidence: [{ type: "report" as const, content: JSON.stringify(det, null, 2), metadata: { stage: "DETECTING" } }],
       };
     },
     BUILDING: async (): Promise<StageOutput> => {
-      // No command runtime in the browser sandbox → honest BLOCKED.
-      return {
-        status: "BLOCKED",
-        blocked_reason: "command execution unavailable in this browser runtime (no shell/Node spawn); build requires a host runtime or CI runner",
-        logs: "BUILDING skipped: executor not available in this environment.",
-      };
+      if (!execDeps.executor) {
+        return {
+          status: "BLOCKED",
+          blocked_reason: "command execution unavailable — no host bridge with workspace materialization capability in this runtime",
+          logs: "BUILDING skipped: no host executor with materialization.",
+        };
+      }
+      const command = detection.build_command;
+      if (!command) {
+        return {
+          status: "BLOCKED",
+          blocked_reason: "build command unavailable: no build_command detected for this project",
+          logs: "BUILDING skipped: detection.build_command is null.",
+        };
+      }
+      const prepared = await prepareHostWorkspace(
+        { workspaces: execDeps.workspaces, bridge: execDeps.bridge },
+        execDeps.actor,
+        execDeps.workspaceId,
+      );
+      if (prepared.status === "BLOCKED") {
+        return {
+          status: "BLOCKED",
+          blocked_reason: prepared.reason,
+          logs: `BUILDING blocked: ${prepared.reason}`,
+        };
+      }
+      const started = Date.now();
+      let result: { exit_code: number; stdout: string; stderr: string };
+      try {
+        result = await execDeps.executor.exec(command, prepared.cwd);
+      } catch (e) {
+        const err = e as Error & { code?: string };
+        await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+        if (err.code === "EXECUTOR_BLOCKED") {
+          return { status: "BLOCKED", blocked_reason: err.message, logs: `BUILDING blocked: ${err.message}` };
+        }
+        return { status: "FAILED", logs: `BUILDING failed: ${err.message}` };
+      }
+      const duration_ms = Date.now() - started;
+      const cleanup = await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+      const evidence = [{
+        type: "report" as const,
+        content: JSON.stringify({
+          stage: "BUILDING",
+          command,
+          exit_code: result.exit_code,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          duration_ms,
+          materialized_files: prepared.files_written,
+          cleanup: { cleaned: cleanup.cleaned, error: cleanup.error ?? null },
+        }, null, 2),
+        metadata: { stage: "BUILDING" },
+      }];
+      if (!cleanup.cleaned) {
+        return {
+          status: "FAILED",
+          logs: `BUILDING: command exit=${result.exit_code} but host-workspace cleanup failed: ${cleanup.error ?? "unknown"}`,
+          evidence,
+        };
+      }
+      const logLines = [
+        `command: ${command}`,
+        `exit_code: ${result.exit_code}`,
+        `duration_ms: ${duration_ms}`,
+        `materialized_files: ${prepared.files_written}`,
+        "--- stdout ---",
+        result.stdout,
+        "--- stderr ---",
+        result.stderr,
+      ].join("\n");
+      return result.exit_code === 0
+        ? { status: "SUCCEEDED", logs: logLines, evidence }
+        : { status: "FAILED", logs: logLines, evidence };
     },
+
     TESTING: async (): Promise<StageOutput> => {
-      return {
-        status: "BLOCKED",
-        blocked_reason: "command execution unavailable in this browser runtime (no shell/Node spawn); tests require a host runtime or CI runner",
-        logs: "TESTING skipped: executor not available in this environment.",
-      };
+      if (!execDeps.executor) {
+        return {
+          status: "BLOCKED",
+          blocked_reason: "command execution unavailable — no host bridge with workspace materialization capability in this runtime",
+          logs: "TESTING skipped: no host executor with materialization.",
+        };
+      }
+      const command = detection.test_command;
+      if (!command) {
+        return {
+          status: "BLOCKED",
+          blocked_reason: "test command unavailable: no test_command detected for this project",
+          logs: "TESTING skipped: detection.test_command is null.",
+        };
+      }
+      const prepared = await prepareHostWorkspace(
+        { workspaces: execDeps.workspaces, bridge: execDeps.bridge },
+        execDeps.actor,
+        execDeps.workspaceId,
+      );
+      if (prepared.status === "BLOCKED") {
+        return {
+          status: "BLOCKED",
+          blocked_reason: prepared.reason,
+          logs: `TESTING blocked: ${prepared.reason}`,
+        };
+      }
+      const started = Date.now();
+      let result: { exit_code: number; stdout: string; stderr: string };
+      try {
+        result = await execDeps.executor.exec(command, prepared.cwd);
+      } catch (e) {
+        const err = e as Error & { code?: string };
+        await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+        if (err.code === "EXECUTOR_BLOCKED") {
+          return { status: "BLOCKED", blocked_reason: err.message, logs: `TESTING blocked: ${err.message}` };
+        }
+        return { status: "FAILED", logs: `TESTING failed: ${err.message}` };
+      }
+      const duration_ms = Date.now() - started;
+      const cleanup = await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+      const evidence = [{
+        type: "report" as const,
+        content: JSON.stringify({
+          stage: "TESTING",
+          command,
+          exit_code: result.exit_code,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          duration_ms,
+          materialized_files: prepared.files_written,
+          cleanup: { cleaned: cleanup.cleaned, error: cleanup.error ?? null },
+        }, null, 2),
+        metadata: { stage: "TESTING" },
+      }];
+      if (!cleanup.cleaned) {
+        return {
+          status: "FAILED",
+          logs: `TESTING: command exit=${result.exit_code} but host-workspace cleanup failed: ${cleanup.error ?? "unknown"}`,
+          evidence,
+        };
+      }
+      const logLines = [
+        `command: ${command}`,
+        `exit_code: ${result.exit_code}`,
+        `duration_ms: ${duration_ms}`,
+        `materialized_files: ${prepared.files_written}`,
+        "--- stdout ---",
+        result.stdout,
+        "--- stderr ---",
+        result.stderr,
+      ].join("\n");
+      return result.exit_code === 0
+        ? { status: "SUCCEEDED", logs: logLines, evidence }
+        : { status: "FAILED", logs: logLines, evidence };
     },
     SECURITY_REVIEW: async (): Promise<StageOutput> => {
       const res = await scanner.staticScan(reader);
@@ -457,7 +613,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
         status: res.status === "PASSED" ? "SUCCEEDED" : res.status === "FAILED" ? "FAILED" : "BLOCKED",
         blocked_reason: res.blocked_reason,
         logs: res.status === "PASSED" ? "static security scan: no secrets or unsafe config found" : `findings:\n${res.findings.join("\n")}`,
-        evidence: [{ type: "report", content: JSON.stringify(res, null, 2), metadata: { stage: "SECURITY_REVIEW" } }],
+        evidence: [{ type: "report" as const, content: JSON.stringify(res, null, 2), metadata: { stage: "SECURITY_REVIEW" } }],
       };
     },
     SBOM_GENERATION: async (): Promise<StageOutput> => {
@@ -536,6 +692,19 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
   const engine = new PipelineEngine(psvc);
   const reader = workspaceReader(svc, actor, plan.workspaceId);
 
+  const bridge = getHostBridge();
+  const runtimeExecutor = createExecutor();
+  const commandExecutor: CommandExecutor | null = runtimeExecutor.capability().available
+    ? createRuntimeCommandExecutor(runtimeExecutor)
+    : null;
+  const execDeps: StageExecDeps = {
+    actor,
+    workspaceId: plan.workspaceId,
+    workspaces: svc.workspaces,
+    bridge,
+    executor: commandExecutor,
+  };
+
   const ctx: PipelineContext = {
     actor,
     project_id: plan.project.id,
@@ -544,11 +713,11 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
     correlation_id: execution.id,
     workspace_id: plan.workspaceId,
     reader,
-    executor: null, // no command runtime in the browser sandbox → BLOCKED build/test
+    executor: execDeps.executor,
   };
 
   const run: PipelineRun = await engine.ensureRun(ctx, false);
-  const runners = stageRunners(reader, plan.detection, plan.project.name);
+  const runners = stageRunners(reader, plan.detection, plan.project.name, execDeps);
 
   const results: EngStageResult[] = [];
   let artifactCount = 0;
