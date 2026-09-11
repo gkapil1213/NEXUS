@@ -10,7 +10,7 @@
 import { AuditService } from "./audit";
 import { AgentRegistry, InspectorAgent } from "./agents";
 import { CONFIG, configBlocked, safeConfigView } from "./config";
-import { openEngine, probeEngine, type NexusEngine } from "./db";
+import { openEngine, probeEngine, nid, type NexusEngine } from "./db";
 import { Err, NexusError } from "./errors";
 import { EventService } from "./events";
 import { NexusOrchestrator } from "./orchestration";
@@ -56,7 +56,9 @@ import {
   CiPipelineEngine,
 } from "./cicd";
 import { BrowserSandbox, FileAccessPolicy, WorkspaceService, DEFAULT_WORKSPACE_LIMITS } from "./workspace";
-import { RuntimeBridge } from "./runtime";
+import { RuntimeBridge, getHostBridge, TokenBoundExecutor, DockerAdapter, PlaywrightAdapter, SmokeTestService } from "./runtime";
+import { DeploymentHistoryService } from "./deployment-history";
+import { CanonicalDeploymentOrchestrator } from "./deployment-orchestrator";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -92,6 +94,9 @@ export interface KernelServices {
   };
   // Phase 3 Pass 5 Ã¢â‚¬â€ runtime bridge (process execution + Docker/Trivy/Playwright).
   runtime: RuntimeBridge;
+  // Canonical deployment orchestration: real Docker container + real
+  // health/smoke verification + rollback against previous KNOWN_GOOD.
+  deployments: CanonicalDeploymentOrchestrator;
 }
 
 const BOOT_ORDER = [
@@ -299,6 +304,42 @@ export class NexusKernel {
       await runtime.detect().catch(() => undefined);
       this.step("runtime", "ok", `${runtime.kind()} Ã‚Â· docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
 
+      // Canonical deployment orchestration — uses the same RuntimeBridge
+      // (docker + smoke) and the same NexusEngine (via DeploymentHistoryService).
+      const deploymentHistory = new DeploymentHistoryService(engine);
+      const deployments = new CanonicalDeploymentOrchestrator(
+        deploymentHistory,
+        runtime.docker,
+        runtime.smoke,
+        { events, audit },
+        // Runtime binder: materializes a workspace token and wraps a
+        // fresh DockerAdapter + SmokeTestService around it. The shared
+        // RuntimeBridge.executor is never mutated.
+        async () => {
+          const bridge = getHostBridge();
+          if (!bridge || typeof bridge.materializeWorkspace !== "function" || typeof bridge.cleanupWorkspace !== "function") {
+            throw new Error("host bridge does not implement workspace materialization");
+          }
+          let token = nid("dep").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 128);
+          if (token.length < 4) token = (token + "deploy").slice(0, 128);
+          await bridge.materializeWorkspace({
+            token,
+            files: [{ path: ".nexus-deployment-probe", content: "NEXUS deployment workspace" }],
+          });
+          const boundExec = new TokenBoundExecutor(runtime.executor, token);
+          const boundDocker = new DockerAdapter(boundExec);
+          const boundPlaywright = new PlaywrightAdapter(boundExec);
+          const boundSmoke = new SmokeTestService(boundExec, boundPlaywright, { events, audit });
+          return {
+            docker: boundDocker,
+            smoke: boundSmoke,
+            cleanup: async () => {
+              try { await bridge.cleanupWorkspace!(token); } catch { /* honest no-op */ }
+            },
+          };
+        },
+      );
+
       this.services = {
         engine,
         events,
@@ -322,6 +363,7 @@ export class NexusKernel {
         github,
         cicd,
         runtime,
+        deployments,
       };
       this.status = "ready";
       await audit.record({

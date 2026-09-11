@@ -133,7 +133,7 @@ export class RollbackAgent {
       kind: "run",
       image: ref,
       name: containerName,
-      ports: [],
+      ports: [{ host: 0, container: containerPort }],
       detach: true,
     });
     if (run.status === "BLOCKED") {
