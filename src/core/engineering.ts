@@ -490,7 +490,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
         if (err.code === "EXECUTOR_BLOCKED") {
           return { status: "BLOCKED", blocked_reason: err.message, logs: `BUILDING blocked: ${err.message}` };
         }
-        return { status: "FAILED", logs: `BUILDING failed: ${err.message}` };
+        return { status: "FAILED", command, error: err.message, logs: `BUILDING failed: ${err.message}` };
       }
       const duration_ms = Date.now() - started;
       const cleanup = await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
@@ -511,6 +511,8 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
       if (!cleanup.cleaned) {
         return {
           status: "FAILED",
+          command,
+          error: `cleanup failed: ${cleanup.error ?? "unknown"}`,
           logs: `BUILDING: command exit=${result.exit_code} but host-workspace cleanup failed: ${cleanup.error ?? "unknown"}`,
           evidence,
         };
@@ -526,8 +528,8 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
         result.stderr,
       ].join("\n");
       return result.exit_code === 0
-        ? { status: "SUCCEEDED", logs: logLines, evidence }
-        : { status: "FAILED", logs: logLines, evidence };
+        ? { status: "SUCCEEDED", command, logs: logLines, evidence }
+        : { status: "FAILED", command, error: `exit_code=${result.exit_code}`, logs: logLines, evidence };
     },
 
     TESTING: async (): Promise<StageOutput> => {
@@ -568,7 +570,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
         if (err.code === "EXECUTOR_BLOCKED") {
           return { status: "BLOCKED", blocked_reason: err.message, logs: `TESTING blocked: ${err.message}` };
         }
-        return { status: "FAILED", logs: `TESTING failed: ${err.message}` };
+        return { status: "FAILED", command, error: err.message, logs: `TESTING failed: ${err.message}` };
       }
       const duration_ms = Date.now() - started;
       const cleanup = await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
@@ -589,6 +591,8 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
       if (!cleanup.cleaned) {
         return {
           status: "FAILED",
+          command,
+          error: `cleanup failed: ${cleanup.error ?? "unknown"}`,
           logs: `TESTING: command exit=${result.exit_code} but host-workspace cleanup failed: ${cleanup.error ?? "unknown"}`,
           evidence,
         };
@@ -604,8 +608,8 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
         result.stderr,
       ].join("\n");
       return result.exit_code === 0
-        ? { status: "SUCCEEDED", logs: logLines, evidence }
-        : { status: "FAILED", logs: logLines, evidence };
+        ? { status: "SUCCEEDED", command, logs: logLines, evidence }
+        : { status: "FAILED", command, error: `exit_code=${result.exit_code}`, logs: logLines, evidence };
     },
     SECURITY_REVIEW: async (): Promise<StageOutput> => {
       const res = await scanner.staticScan(reader);
