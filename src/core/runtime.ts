@@ -447,7 +447,7 @@ export class DockerAdapter {
         // Immutable tag required by caller; no implicit :latest.
         return { tool: "docker", operation: "build", args: ["-t", op.tag, op.context], timeout_ms: 600_000 };
       case "inspect":
-        return { tool: "docker", operation: "inspect", args: ["--format", "json", op.image] };
+        return { tool: "docker", operation: "inspect", args: [op.image] };
       case "run": {
         const args: string[] = [];
         if (op.detach) args.push("-d");

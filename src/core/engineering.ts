@@ -21,10 +21,11 @@
 
 import type { KernelServices } from "./kernel";
 import { ProjectDetector, SecurityScanner, SBOMService, buildPlanFrom, validateBuildPlan, PipelineEngine } from "./devops";
-import { createExecutor, getHostBridge } from "./runtime";
-import type { HostBridge } from "./runtime";
+import { createExecutor, getHostBridge, TokenBoundExecutor, DockerAdapter, TrivyAdapter } from "./runtime";
+import type { HostBridge, ProcessExecutor } from "./runtime";
 import { createRuntimeCommandExecutor } from "./runtime-command-adapter";
 import { hasHostMaterialization, prepareHostWorkspace, cleanupHostWorkspace } from "./host-workspace";
+import { validateDockerfile } from "./dockerfile-validator";
 import type { WorkspaceService } from "./workspace";
 import type { CommandExecutor } from "./devops";
 
@@ -39,6 +40,9 @@ import type {
   Execution,
   DetectionResult,
   BuildPlan,
+  DockerfileSource,
+  DockerfileVerdict,
+  ContainerImageInfo,
   PipelineRun,
   PipelineStage,
   PipelineStageName,
@@ -216,6 +220,7 @@ function buildStages(
 ): EngineeringPlanStage[] {
   const wantsDeploy = intent.signals.some((s) => s.id === "deploy");
   const hasDeps = (detection.package_manager !== null) || detection.evidence.includes("package.json") || detection.evidence.includes("requirements.txt");
+  const hasDockerfile = detection.dockerfile;
 
   const stages: EngineeringPlanStage[] = [
     {
@@ -258,6 +263,66 @@ function buildStages(
       availability: "ready",
       blockedReason: null,
     },
+  ];
+
+  if (wantsDeploy) {
+    stages.push(
+      {
+        id: "DOCKERFILE_DETECTION",
+        label: "Detect Dockerfile",
+        description: "Locate the Dockerfile in the workspace (no generation is fabricated).",
+        service: "DockerfileValidator (runtime)",
+        availability: hasDockerfile ? "ready" : "blocked",
+        blockedReason: hasDockerfile ? null : "No Dockerfile present in the workspace and no generation mechanism is available.",
+      },
+      {
+        id: "DOCKERFILE_VALIDATION",
+        label: "Validate Dockerfile",
+        description: "Deterministic scan of the Dockerfile for insecure and unsafe patterns.",
+        service: "DockerfileValidator (runtime)",
+        availability: hasDockerfile ? "ready" : "blocked",
+        blockedReason: hasDockerfile ? null : "Dockerfile validation requires a real Dockerfile source.",
+      },
+      {
+        id: "DOCKER_BUILD",
+        label: "Docker build",
+        description: "Build an immutable container image from the validated Dockerfile.",
+        service: "DockerAdapter (runtime)",
+        availability: exec.docker && hasDockerfile ? "ready" : "blocked",
+        blockedReason: !hasDockerfile
+          ? "Docker build requires a valid Dockerfile."
+          : !exec.docker
+            ? "Docker daemon is unavailable in this runtime — container build is BLOCKED, never simulated."
+            : null,
+      },
+      {
+        id: "IMAGE_INSPECTION",
+        label: "Image inspection",
+        description: "Inspect the built image (digest, arch, entrypoint, layers).",
+        service: "DockerAdapter (runtime)",
+        availability: exec.docker && hasDockerfile ? "ready" : "blocked",
+        blockedReason: !hasDockerfile
+          ? "Image inspection requires a real built image."
+          : !exec.docker
+            ? "Requires a real built image; Docker is unavailable."
+            : null,
+      },
+      {
+        id: "IMAGE_SECURITY_SCAN",
+        label: "Container scan",
+        description: "Scan the image for vulnerabilities (Trivy native or via Docker).",
+        service: "TrivyAdapter (runtime)",
+        availability: exec.docker && hasDockerfile ? "ready" : "blocked",
+        blockedReason: !hasDockerfile
+          ? "Image scan requires a real built image."
+          : !exec.docker
+            ? "No container scanner runtime available — scan is BLOCKED, never faked."
+            : null,
+      },
+    );
+  }
+
+  stages.push(
     {
       id: "SBOM_GENERATION",
       label: "Source SBOM",
@@ -274,37 +339,7 @@ function buildStages(
       availability: "ready",
       blockedReason: null,
     },
-  ];
-
-  if (wantsDeploy) {
-    stages.push(
-      {
-        id: "DOCKER_BUILD",
-        label: "Docker build",
-        description: "Build an immutable container image from the detected/generated Dockerfile.",
-        service: "DockerRuntimeAdapter (Phase 3 runtime)",
-        availability: exec.docker ? "ready" : "blocked",
-        blockedReason: exec.docker ? null : "Docker daemon is unavailable in this runtime — container build is BLOCKED, never simulated.",
-      },
-      {
-        id: "IMAGE_INSPECTION",
-        label: "Image inspection",
-        description: "Inspect the built image (digest, arch, entrypoint, layers).",
-        service: "DockerRuntimeAdapter (Phase 3 runtime)",
-        availability: exec.docker ? "ready" : "blocked",
-        blockedReason: exec.docker ? null : "Requires a real built image; Docker is unavailable.",
-      },
-      {
-        id: "IMAGE_SECURITY_SCAN",
-        label: "Container scan",
-        description: "Scan the image for vulnerabilities (Trivy / Grype / OSV).",
-        service: "Container scanner adapters (Phase 3 runtime)",
-        availability: exec.docker ? "ready" : "blocked",
-        blockedReason: exec.docker ? null : "No container scanner runtime available — scan is BLOCKED, never faked.",
-      },
-    );
-  }
-
+  );
   return stages;
 }
 
@@ -435,12 +470,58 @@ interface StageExecDeps {
   workspaces: WorkspaceService;
   bridge: HostBridge | null;
   executor: CommandExecutor | null;
+  runtimeExecutor: ProcessExecutor | null;
 }
 
+/** Parse `docker inspect` JSON into ContainerImageInfo. Never invents fields. */
+function parseDockerInspect(stdout: string): ContainerImageInfo {
+  const empty: ContainerImageInfo = {
+    id: null, repository: null, tag: null, digest: null, created: null,
+    architecture: null, os: null, entrypoint: null, user: null,
+    exposed_ports: null, layers: null, size_bytes: null,
+  };
+  try {
+    const parsed = JSON.parse(stdout.trim());
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    if (!arr.length) return empty;
+    const obj = arr[0] as Record<string, unknown>;
+    const tags: string[] = Array.isArray(obj.RepoTags) ? (obj.RepoTags as string[]) : [];
+    const firstTag = tags[0] || "";
+    const cIdx = firstTag.lastIndexOf(":");
+    const repo = cIdx > 0 ? firstTag.slice(0, cIdx) : null;
+    const tag = cIdx > 0 ? firstTag.slice(cIdx + 1) : null;
+    const digests: string[] = Array.isArray(obj.RepoDigests) ? (obj.RepoDigests as string[]) : [];
+    const firstDigest = digests[0] || "";
+    const aIdx = firstDigest.indexOf("@");
+    const digest = aIdx > 0 ? firstDigest.slice(aIdx + 1) : null;
+    const cfg = (obj.Config || {}) as Record<string, unknown>;
+    const rootFs = (obj.RootFS || {}) as Record<string, unknown>;
+    return {
+      id: typeof obj.Id === "string" ? obj.Id : null,
+      repository: repo,
+      tag: tag,
+      digest: digest,
+      created: typeof obj.Created === "string" ? obj.Created : null,
+      architecture: typeof obj.Architecture === "string" ? obj.Architecture : null,
+      os: typeof obj.Os === "string" ? obj.Os : null,
+      entrypoint: Array.isArray(cfg.Entrypoint) ? (cfg.Entrypoint as string[]) : null,
+      user: typeof cfg.User === "string" && cfg.User !== "" ? cfg.User : null,
+      exposed_ports: cfg.ExposedPorts && typeof cfg.ExposedPorts === "object" ? Object.keys(cfg.ExposedPorts as Record<string, unknown>) : null,
+      layers: Array.isArray(rootFs.Layers) ? (rootFs.Layers as unknown[]).length : null,
+      size_bytes: typeof obj.Size === "number" ? obj.Size : null,
+    };
+  } catch { return empty; }
+}
 function stageRunners(reader: WsReader, detection: DetectionResult, projectName: string, execDeps: StageExecDeps): Partial<Record<PipelineStageName, StageRunner>> {
   const detector = new ProjectDetector();
   const scanner = new SecurityScanner();
   const sbom = new SBOMService();
+  // Docker pipeline closure state — set by earlier stages, read by later ones.
+  const dockerState: {
+    dockerfileSource: DockerfileSource | null;
+    validationVerdict: DockerfileVerdict | null;
+    builtImage: string | null;
+  } = { dockerfileSource: null, validationVerdict: null, builtImage: null };
 
   return {
     DETECTING: async (): Promise<StageOutput> => {
@@ -611,6 +692,203 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
         ? { status: "SUCCEEDED", command, logs: logLines, evidence }
         : { status: "FAILED", command, error: `exit_code=${result.exit_code}`, logs: logLines, evidence };
     },
+    DOCKERFILE_DETECTION: async (): Promise<StageOutput> => {
+      const content = await reader.read("Dockerfile");
+      if (content === null) {
+        dockerState.dockerfileSource = null;
+        return {
+          status: "BLOCKED",
+          blocked_reason: "no Dockerfile found in workspace and no generation mechanism is available",
+          logs: "DOCKERFILE_DETECTION: workspace contains no Dockerfile",
+        };
+      }
+      const source: DockerfileSource = { origin: "USE_EXISTING", content, path: "Dockerfile" };
+      dockerState.dockerfileSource = source;
+      return {
+        status: "SUCCEEDED",
+        logs: `Dockerfile detected at ${source.path} (${content.length} bytes)` ,
+        evidence: [{
+          type: "file" as const,
+          content,
+          metadata: { stage: "DOCKERFILE_DETECTION", origin: source.origin, path: source.path },
+        }],
+      };
+    },
+
+    DOCKERFILE_VALIDATION: async (): Promise<StageOutput> => {
+      if (!dockerState.dockerfileSource) {
+        return {
+          status: "BLOCKED",
+          blocked_reason: "no Dockerfile source available from detection stage",
+        };
+      }
+      const result = validateDockerfile(dockerState.dockerfileSource);
+      dockerState.validationVerdict = result.verdict;
+      const report = JSON.stringify(result, null, 2);
+      if (result.verdict === "BLOCKED") {
+        return {
+          status: "BLOCKED",
+          blocked_reason: "Dockerfile validation could not run (no source)",
+          logs: report,
+          evidence: [{ type: "report" as const, content: report, metadata: { stage: "DOCKERFILE_VALIDATION", verdict: result.verdict } }],
+        };
+      }
+      if (result.verdict === "FAIL") {
+        const failedRules = result.findings.filter((f) => f.severity === "fail").map((f) => f.rule).join(", ");
+        return {
+          status: "FAILED",
+          error: "Dockerfile validation FAILED: " + failedRules,
+          logs: report,
+          evidence: [{ type: "report" as const, content: report, metadata: { stage: "DOCKERFILE_VALIDATION", verdict: result.verdict } }],
+        };
+      }
+      return {
+        status: "SUCCEEDED",
+        logs: `Dockerfile validation ${result.verdict} (${result.findings.length} finding(s))` ,
+        artifacts: [{ kind: "REPORT", name: "dockerfile-validation.json", content: report }],
+        evidence: [{ type: "report" as const, content: report, metadata: { stage: "DOCKERFILE_VALIDATION", verdict: result.verdict } }],
+      };
+    },
+    DOCKER_BUILD: async (): Promise<StageOutput> => {
+      if (!execDeps.runtimeExecutor || !execDeps.bridge) {
+        return { status: "BLOCKED", blocked_reason: "no host runtime executor / bridge available for Docker build" };
+      }
+      if (!dockerState.dockerfileSource) {
+        return { status: "BLOCKED", blocked_reason: "no Dockerfile source from DOCKERFILE_DETECTION" };
+      }
+      if (dockerState.validationVerdict !== "PASS" && dockerState.validationVerdict !== "WARN") {
+        return { status: "BLOCKED", blocked_reason: "Dockerfile validation verdict is " + (dockerState.validationVerdict ?? "none") + "; refusing to build" };
+      }
+      const prepared = await prepareHostWorkspace(
+        { workspaces: execDeps.workspaces, bridge: execDeps.bridge },
+        execDeps.actor,
+        execDeps.workspaceId,
+      );
+      if (prepared.status === "BLOCKED") {
+        return { status: "BLOCKED", blocked_reason: prepared.reason, logs: "DOCKER_BUILD blocked: " + prepared.reason };
+      }
+      const boundExec = new TokenBoundExecutor(execDeps.runtimeExecutor, prepared.token);
+      const docker = new DockerAdapter(boundExec);
+      const sanitized = (projectName.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/^-+|-+$/g, "").slice(0, 60)) || "app";
+      const rawTag = execDeps.workspaceId.replace(/[^a-z0-9]/gi, "").slice(0, 32).toLowerCase() || Date.now().toString(36);
+      const fullTag = "nexus/" + sanitized + ":" + rawTag;
+      const started = Date.now();
+      let result;
+      try {
+        result = await docker.run({ kind: "build", tag: fullTag, context: "." });
+      } catch (err) {
+        await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+        return { status: "FAILED", error: "docker build threw: " + (err as Error).message, logs: (err as Error).message };
+      }
+      const duration_ms = Date.now() - started;
+      const cleanup = await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+      const report = JSON.stringify({
+        stage: "DOCKER_BUILD",
+        command: result.command,
+        image: fullTag,
+        exit_code: result.exit_code,
+        duration_ms,
+        materialized_files: prepared.files_written,
+        cleanup: { cleaned: cleanup.cleaned, error: cleanup.error ?? null },
+        stderr_tail: (result.stderr || "").slice(0, 500),
+      }, null, 2);
+      const evi = [{ type: "report" as const, content: report, metadata: { stage: "DOCKER_BUILD", image: fullTag } }];
+      if (!cleanup.cleaned) {
+        return { status: "FAILED", error: "cleanup failed: " + (cleanup.error ?? "unknown"), logs: report, evidence: evi };
+      }
+      if (result.status === "BLOCKED") {
+        return { status: "BLOCKED", blocked_reason: result.blocked_reason ?? "docker build blocked", logs: report, evidence: evi };
+      }
+      if (result.status !== "SUCCEEDED" || result.exit_code !== 0) {
+        return { status: "FAILED", error: "docker build exited " + result.exit_code, logs: report, evidence: evi };
+      }
+      dockerState.builtImage = fullTag;
+      return {
+        status: "SUCCEEDED",
+        command: result.command,
+        logs: "docker build succeeded: " + fullTag + " (" + duration_ms + "ms)",
+        evidence: evi,
+      };
+    },
+
+    IMAGE_INSPECTION: async (): Promise<StageOutput> => {
+      if (!dockerState.builtImage) {
+        return { status: "BLOCKED", blocked_reason: "no built image from DOCKER_BUILD stage" };
+      }
+      if (!execDeps.runtimeExecutor || !execDeps.bridge) {
+        return { status: "BLOCKED", blocked_reason: "no host runtime executor / bridge available for image inspection" };
+      }
+      const prepared = await prepareHostWorkspace(
+        { workspaces: execDeps.workspaces, bridge: execDeps.bridge },
+        execDeps.actor,
+        execDeps.workspaceId,
+      );
+      if (prepared.status === "BLOCKED") {
+        return { status: "BLOCKED", blocked_reason: prepared.reason };
+      }
+      const boundExec = new TokenBoundExecutor(execDeps.runtimeExecutor, prepared.token);
+      const docker = new DockerAdapter(boundExec);
+      const result = await docker.run({ kind: "inspect", image: dockerState.builtImage });
+      const cleanup = await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+      const info = parseDockerInspect(result.stdout || "");
+      const report = JSON.stringify({ stage: "IMAGE_INSPECTION", image: dockerState.builtImage, exit_code: result.exit_code, info, cleanup: { cleaned: cleanup.cleaned } }, null, 2);
+      const evi = [{ type: "report" as const, content: report, metadata: { stage: "IMAGE_INSPECTION" } }];
+      if (result.status === "BLOCKED") {
+        return { status: "BLOCKED", blocked_reason: result.blocked_reason ?? "docker inspect blocked", logs: report, evidence: evi };
+      }
+      if (result.status !== "SUCCEEDED" || result.exit_code !== 0) {
+        return { status: "FAILED", error: "docker inspect exited " + result.exit_code, logs: report, evidence: evi };
+      }
+      return {
+        status: "SUCCEEDED",
+        command: "docker inspect " + dockerState.builtImage,
+        logs: "image inspected: id=" + (info.id ?? "unknown") + " repo=" + (info.repository ?? "?") + ":" + (info.tag ?? "?"),
+        evidence: evi,
+      };
+    },
+
+    IMAGE_SECURITY_SCAN: async (): Promise<StageOutput> => {
+      if (!dockerState.builtImage) {
+        return { status: "BLOCKED", blocked_reason: "no built image from DOCKER_BUILD stage" };
+      }
+      if (!execDeps.runtimeExecutor || !execDeps.bridge) {
+        return { status: "BLOCKED", blocked_reason: "no host runtime executor / bridge available for image scan" };
+      }
+      const prepared = await prepareHostWorkspace(
+        { workspaces: execDeps.workspaces, bridge: execDeps.bridge },
+        execDeps.actor,
+        execDeps.workspaceId,
+      );
+      if (prepared.status === "BLOCKED") {
+        return { status: "BLOCKED", blocked_reason: prepared.reason };
+      }
+      const boundExec = new TokenBoundExecutor(execDeps.runtimeExecutor, prepared.token);
+      const docker = new DockerAdapter(boundExec);
+      const trivy = new TrivyAdapter(boundExec, docker);
+      const started = Date.now();
+      let scan;
+      try {
+        scan = await trivy.scanImage(dockerState.builtImage);
+      } catch (err) {
+        await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+        return { status: "FAILED", error: "trivy scan threw: " + (err as Error).message, logs: (err as Error).message };
+      }
+      const duration_ms = Date.now() - started;
+      const cleanup = await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+      const report = JSON.stringify({ stage: "IMAGE_SECURITY_SCAN", image: dockerState.builtImage, scan, duration_ms, cleanup: { cleaned: cleanup.cleaned } }, null, 2);
+      const evi = [{ type: "report" as const, content: report, metadata: { stage: "IMAGE_SECURITY_SCAN" } }];
+      if (scan.status === "BLOCKED") {
+        return { status: "BLOCKED", blocked_reason: scan.blocked_reason ?? "trivy scan blocked", logs: report, evidence: evi };
+      }
+      if (scan.status === "FAIL") {
+        return { status: "FAILED", error: "trivy found " + scan.critical + " CRITICAL, " + scan.high + " HIGH", logs: report, evidence: evi };
+      }
+      return {
+        status: "SUCCEEDED",
+        logs: "trivy scan PASS (critical=0 high=0 medium=" + scan.medium + " low=" + scan.low + ") in " + duration_ms + "ms",
+        evidence: evi,
+      };
+    },
     SECURITY_REVIEW: async (): Promise<StageOutput> => {
       const res = await scanner.staticScan(reader);
       return {
@@ -707,6 +985,7 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
     workspaces: svc.workspaces,
     bridge,
     executor: commandExecutor,
+    runtimeExecutor,
   };
 
   const ctx: PipelineContext = {
