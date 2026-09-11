@@ -55,7 +55,7 @@ function bridgeExecutor(bridge: HostBridge): ProcessExecutor {
     capability: () => ({ available: true, kind: "EXTERNAL_HOST_RUNTIME", reason: null }),
     async run(cmd: any) {
       const exe = resolveExecutable(process.platform, cmd.tool as AllowedTool);
-      const r = await bridge.exec(exe, cmd.args ?? [], { cwd: cmd.cwd });
+      const r = await bridge.exec(exe, cmd.args ?? [], { cwd: cmd.cwd, workspace_token: cmd.workspace_token });
       return { exit_code: r.exit_code, stdout: r.stdout, stderr: r.stderr };
     },
   } as unknown as ProcessExecutor;
@@ -122,9 +122,10 @@ function bridgeExecutor(bridge: HostBridge): ProcessExecutor {
     } else {
       const repo = process.cwd();
       const adapter = createRuntimeCommandExecutor(bridgeExecutor(bridge));
-      await adapter.exec("npm test", prepared.cwd);
+      await adapter.exec("npm test", prepared.cwd, { workspace_token: prepared.token });
       const ecall = bridge.calls.find((c) => c.kind === "exec");
       check("B1 exec receives the materialized cwd", ecall?.opts?.cwd === prepared.cwd, `cwd=${ecall?.opts?.cwd}`);
+      check("B2 exec receives the materialized workspace token", ecall?.opts?.workspace_token === prepared.token, `token=${ecall?.opts?.workspace_token}`);
       check("B2 cwd is NOT \".\" and NOT the NEXUS repo", ecall?.opts?.cwd !== "." && ecall?.opts?.cwd !== repo, `repo=${repo}`);
       const cleanup = await cleanupHostWorkspace({ workspaces: ws, bridge }, prepared.token);
       check("B3 cleanup reports cleaned=true", cleanup.cleaned === true);
@@ -140,7 +141,7 @@ function bridgeExecutor(bridge: HostBridge): ProcessExecutor {
     if (prepared.status !== "READY") {
       check("C1 adapter exec uses materialized cwd", false, prepared.reason);
     } else {
-      await adapter.exec("npm test", prepared.cwd);
+      await adapter.exec("npm test", prepared.cwd, { workspace_token: prepared.token });
       const ecall = bridge.calls.find((c) => c.kind === "exec");
       check("C1 adapter exec uses materialized cwd (NOT '.')", ecall?.opts?.cwd === prepared.cwd && ecall.opts.cwd !== ".", `cwd=${ecall?.opts?.cwd}`);
     }
@@ -159,7 +160,7 @@ function bridgeExecutor(bridge: HostBridge): ProcessExecutor {
     if (prepared.status !== "READY") {
       check("D1 non-zero exit preserved", false, prepared.reason);
     } else {
-      const r = await adapter.exec("npm test", prepared.cwd);
+      const r = await adapter.exec("npm test", prepared.cwd, { workspace_token: prepared.token });
       check("D1 non-zero exit preserved verbatim", r.exit_code === 2 && r.stderr === "boom", "exit=2");
     }
   }

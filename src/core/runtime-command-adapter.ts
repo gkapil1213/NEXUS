@@ -1,4 +1,4 @@
-﻿// src/core/runtime-command-adapter.ts
+// src/core/runtime-command-adapter.ts
 //
 // Bridges devops.CommandExecutor (string in) to runtime.ProcessExecutor
 // (AllowlistedCommand in). Spawns nothing, uses no shell, and validates every
@@ -67,7 +67,7 @@ function resolve(tokens: string[]): AllowlistedCommand | null {
 
 export function createRuntimeCommandExecutor(runtime: ProcessExecutor): CommandExecutor {
   return {
-    async exec(command: string, cwd: string) {
+    async exec(command: string, cwd: string, opts?: { workspace_token?: string }) {
       const tokens = tokenize(command);
       const resolved = tokens ? resolve(tokens) : null;
       if (!resolved) {
@@ -77,7 +77,7 @@ export function createRuntimeCommandExecutor(runtime: ProcessExecutor): CommandE
         (err as Error & { code?: string }).code = "EXECUTOR_BLOCKED";
         throw err;
       }
-      const r = await runtime.run({ ...resolved, cwd });
+      const r = await runtime.run({ ...resolved, cwd, workspace_token: opts?.workspace_token });
       return { exit_code: r.exit_code, stdout: r.stdout, stderr: r.stderr };
     },
   };

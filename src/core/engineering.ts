@@ -456,7 +456,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
       if (!execDeps.executor) {
         return {
           status: "BLOCKED",
-          blocked_reason: "command execution unavailable — no host bridge with workspace materialization capability in this runtime",
+          blocked_reason: "command execution unavailable - no host bridge with workspace materialization capability in this runtime",
           logs: "BUILDING skipped: no host executor with materialization.",
         };
       }
@@ -483,7 +483,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
       const started = Date.now();
       let result: { exit_code: number; stdout: string; stderr: string };
       try {
-        result = await execDeps.executor.exec(command, prepared.cwd);
+        result = await execDeps.executor.exec(command, prepared.cwd, { workspace_token: prepared.token });
       } catch (e) {
         const err = e as Error & { code?: string };
         await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
@@ -536,7 +536,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
       if (!execDeps.executor) {
         return {
           status: "BLOCKED",
-          blocked_reason: "command execution unavailable — no host bridge with workspace materialization capability in this runtime",
+          blocked_reason: "command execution unavailable - no host bridge with workspace materialization capability in this runtime",
           logs: "TESTING skipped: no host executor with materialization.",
         };
       }
@@ -563,7 +563,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
       const started = Date.now();
       let result: { exit_code: number; stdout: string; stderr: string };
       try {
-        result = await execDeps.executor.exec(command, prepared.cwd);
+        result = await execDeps.executor.exec(command, prepared.cwd, { workspace_token: prepared.token });
       } catch (e) {
         const err = e as Error & { code?: string };
         await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);

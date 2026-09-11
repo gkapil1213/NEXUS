@@ -213,7 +213,7 @@ export function validateBuildPlan(plan: BuildPlan): BuildPlanValidation {
  *  so the orchestrator receives `null` and honestly reports BLOCKED. Tests may
  *  inject a stub to exercise success/failure paths. */
 export interface CommandExecutor {
-  exec(command: string, cwd: string): Promise<{ exit_code: number; stdout: string; stderr: string }>;
+  exec(command: string, cwd: string, opts?: { workspace_token?: string }): Promise<{ exit_code: number; stdout: string; stderr: string }>;
 }
 
 /* ------------------------------ SecurityScanner ----------------------------- */

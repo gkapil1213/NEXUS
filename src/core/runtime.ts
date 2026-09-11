@@ -105,7 +105,7 @@ export interface HostBridge {
   exec(
     command: string,
     args: string[],
-    opts: { timeout_ms?: number; cwd?: string },
+    opts: { timeout_ms?: number; cwd?: string; workspace_token?: string },
   ): Promise<{ exit_code: number; stdout: string; stderr: string }>;
 
   materializeWorkspace?(req: HostMaterializeRequest): Promise<HostMaterializeResult>;
@@ -161,6 +161,8 @@ export interface AllowlistedCommand {
   args: string[];
   timeout_ms?: number;
   cwd?: string;
+  /** Optional workspace-session token binding this command to a materialized session. */
+  workspace_token?: string;
   /**
    * Optional raw (unsanitized) arguments — permitted ONLY when every entry is
    * a registered TRUSTED_SCRIPT. Used for `node -e <script>`. Dynamic values
@@ -357,7 +359,7 @@ export class HostProcessExecutor implements ProcessExecutor {
     let timedOut = false;
     const timeout = cmd.timeout_ms ?? 120_000;
 
-    const execP = this.bridge.exec(exe, args, { timeout_ms: timeout, cwd: cmd.cwd });
+    const execP = this.bridge.exec(exe, args, { timeout_ms: timeout, cwd: cmd.cwd, workspace_token: cmd.workspace_token });
         const timerP = new Promise<never>((_, reject) =>
       globalThis.setTimeout(() => {
         timedOut = true;
