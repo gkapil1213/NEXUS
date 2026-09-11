@@ -397,8 +397,9 @@ export function openEngine(): Promise<NexusEngine> {
     }
     const kind = CONFIG.persistence.engine;
         if (kind === "sqlite") {
-      if (import.meta.env.SSR) {
-        const { SQLiteEngine } = await import("./sqlite-engine");
+      if (typeof process !== "undefined" && !!process.versions?.node) {
+        const spec = "./sqlite-engine";
+        const { SQLiteEngine } = await import(/* @vite-ignore */ spec);
         return await SQLiteEngine.open(CONFIG.persistence.dbName);
       }
       throw Err.persistence("INVALID_RUNTIME", "SQLite persistence is only available in Node runtime");

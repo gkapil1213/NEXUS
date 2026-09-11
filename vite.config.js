@@ -5,6 +5,14 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      external: ["better-sqlite3", "fs", "path", "crypto", "util", "os", "stream"],
+    },
+  },
+  optimizeDeps: {
+    exclude: ["better-sqlite3"],
+  },
   server: {
     host: "0.0.0.0",
     port: 3000,
