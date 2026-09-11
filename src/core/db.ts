@@ -386,6 +386,15 @@ let enginePromise: Promise<NexusEngine> | null = null;
 export function openEngine(): Promise<NexusEngine> {
   if (enginePromise) return enginePromise;
   enginePromise = (async () => {
+    // Browser runtime: use durable IndexedDB. Do not mutate CONFIG.
+    if (!import.meta.env.SSR && typeof indexedDB !== "undefined") {
+      try {
+        return await IdbEngine.open(CONFIG.persistence.dbName);
+      } catch {
+        return new MemEngine();
+      }
+    }
+
     // Allow environment variables to override persistence config (used by child processes)
     const envEngine = process.env.NEXUS_PERSISTENCE_ENGINE;
     const envDbPath = process.env.NEXUS_DB_PATH;

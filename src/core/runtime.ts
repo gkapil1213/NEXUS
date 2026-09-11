@@ -302,6 +302,25 @@ export interface ProcessExecutor {
   run(cmd: AllowlistedCommand): Promise<ExecResult>;
 }
 
+/** Wraps a ProcessExecutor so every command is bound to a workspace-session token. */
+export class TokenBoundExecutor implements ProcessExecutor {
+  constructor(
+    private readonly inner: ProcessExecutor,
+    private readonly workspaceToken: string,
+  ) {}
+
+  capability(): ExecutorCapability {
+    return this.inner.capability();
+  }
+
+  run(cmd: AllowlistedCommand): Promise<ExecResult> {
+    return this.inner.run({
+      ...cmd,
+      workspace_token: cmd.workspace_token ?? this.workspaceToken,
+    });
+  }
+}
+
 /**
  * Managed browser executor: has NO child-process capability. Every run()
  * reports BLOCKED — it never pretends to have executed anything.
@@ -936,13 +955,22 @@ export class RuntimeBridge {
   readonly qualityGate: QualityGateService;
   private last: RuntimeStatus | null = null;
 
-  constructor(private svc: RuntimeBridgeServices, executor?: ProcessExecutor) {
+  constructor(
+    private svc: RuntimeBridgeServices,
+    executor?: ProcessExecutor,
+    private bridgeOverride?: HostBridge | null,
+  ) {
     this.executor = executor ?? createExecutor();
     this.docker = new DockerAdapter(this.executor);
     this.trivy = new TrivyAdapter(this.executor, this.docker);
     this.playwright = new PlaywrightAdapter(this.executor);
     this.smoke = new SmokeTestService(this.executor, this.playwright, svc);
     this.qualityGate = new QualityGateService(svc);
+  }
+
+  private bridgeForProbes(): HostBridge | null {
+    if (this.bridgeOverride !== undefined) return this.bridgeOverride;
+    return getHostBridge();
   }
 
   kind(): RuntimeKind {
@@ -972,34 +1000,65 @@ export class RuntimeBridge {
         results.push(this.result(name, "BLOCKED", r, null));
       }
     } else {
-      const probe = async (tool: AllowedTool, operation: string, args: string[] = []): Promise<{ ok: boolean; evidence: string | null; reason: string | null }> => {
-        const res = await this.executor.run({ tool, operation, args }).catch((e) => ({ exit_code: -1, stdout: "", stderr: (e as Error).message, duration_ms: 0, timed_out: false }));
-        if (res.exit_code === 0) return { ok: true, evidence: (res.stdout || "exit 0").trim().split("\n")[0].slice(0, 120), reason: null };
-        return { ok: false, evidence: null, reason: `${tool} ${operation} exited ${res.exit_code}: ${(res.stderr || res.stdout).slice(0, 120)}` };
-      };
-
-      results.push(this.result("processExecution", "AVAILABLE", null, "host bridge present"));
-
-      const node = await probe("node", "--version");
-      results.push(this.result("node", node.ok ? "AVAILABLE" : "UNAVAILABLE", node.reason, node.evidence));
-      const npm = await probe("npm", "--version");
-      results.push(this.result("npm", npm.ok ? "AVAILABLE" : "UNAVAILABLE", npm.reason, npm.evidence));
-      const git = await probe("git", "--version");
-      results.push(this.result("git", git.ok ? "AVAILABLE" : "UNAVAILABLE", git.reason, git.evidence));
-
-      const dockerCli = await probe("docker", "version");
-      results.push(this.result("dockerCli", dockerCli.ok ? "AVAILABLE" : "UNAVAILABLE", dockerCli.reason, dockerCli.evidence));
-      const daemonReachable = dockerCli.ok && /"Server"|Server:/i.test(dockerCli.evidence ?? "") || (await this.docker.run({ kind: "info" })).status === "SUCCEEDED";
-      results.push(this.result("dockerDaemon", daemonReachable ? "AVAILABLE" : "BLOCKED", daemonReachable ? null : "Docker daemon unavailable", null));
-
-      const trivyDet = await this.trivy.detect();
-      results.push(this.result("trivy", trivyDet.strategy ? "AVAILABLE" : "BLOCKED", trivyDet.reason, trivyDet.strategy ? `strategy=${trivyDet.strategy}` : null));
-
-      const pwDet = await this.playwright.detect();
-      results.push(this.result("playwright", pwDet.playwright ? "AVAILABLE" : "BLOCKED", pwDet.reason, null));
-      results.push(this.result("chromium", pwDet.chromium ? "AVAILABLE" : "UNKNOWN", pwDet.chromium ? null : "Chromium presence requires host-side verification", null));
+      const HOST_DEP: CapabilityName[] = ["processExecution", "dockerCli", "dockerDaemon", "trivy", "node", "npm", "git", "playwright", "chromium"];
+      const bridge = this.bridgeForProbes();
+      let probeToken: string | null = null;
+      let boundExecutor: ProcessExecutor | null = null;
+      let matFail: string | null = null;
+      if (!bridge) {
+        matFail = "host bridge is not available";
+      } else if (typeof bridge.materializeWorkspace !== "function" || typeof bridge.cleanupWorkspace !== "function") {
+        matFail = "host bridge does not implement workspace materialization";
+      } else {
+        let token = nid("probe").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 128);
+        if (token.length < 4) token = (token + "probe").slice(0, 128);
+        try {
+          await bridge.materializeWorkspace({
+            token,
+            files: [{ path: ".nexus-runtime-probe", content: "NEXUS runtime capability probe" }],
+          });
+          probeToken = token;
+          boundExecutor = new TokenBoundExecutor(this.executor, token);
+        } catch (err) {
+          matFail = "probe workspace materialization failed: " + (err as Error).message;
+        }
+      }
+      if (!boundExecutor) {
+        const reason = matFail ?? "probe workspace unavailable";
+        for (const name of HOST_DEP) results.push(this.result(name, "BLOCKED", reason, null));
+      } else {
+        const ex: ProcessExecutor = boundExecutor;
+        const pDocker = new DockerAdapter(ex);
+        const pTrivy = new TrivyAdapter(ex, pDocker);
+        const pPlaywright = new PlaywrightAdapter(ex);
+        const probe = async (tool: AllowedTool, operation: string, args: string[] = []): Promise<{ ok: boolean; evidence: string | null; reason: string | null }> => {
+          const res = await ex.run({ tool, operation, args }).catch((e2) => ({ exit_code: -1, stdout: "", stderr: (e2 as Error).message, duration_ms: 0, timed_out: false }));
+          if (res.exit_code === 0) return { ok: true, evidence: (res.stdout || "exit 0").trim().split("\n")[0].slice(0, 120), reason: null };
+          return { ok: false, evidence: null, reason: tool + " " + operation + " exited " + res.exit_code + ": " + (res.stderr || res.stdout).slice(0, 120) };
+        };
+        try {
+          results.push(this.result("processExecution", "AVAILABLE", null, "host bridge present"));
+          const n = await probe("node", "--version"); results.push(this.result("node", n.ok ? "AVAILABLE" : "UNAVAILABLE", n.reason, n.evidence));
+          const p = await probe("npm", "--version"); results.push(this.result("npm", p.ok ? "AVAILABLE" : "UNAVAILABLE", p.reason, p.evidence));
+          const g = await probe("git", "--version"); results.push(this.result("git", g.ok ? "AVAILABLE" : "UNAVAILABLE", g.reason, g.evidence));
+          const d2 = await probe("docker", "version"); results.push(this.result("dockerCli", d2.ok ? "AVAILABLE" : "UNAVAILABLE", d2.reason, d2.evidence));
+          const dr = (d2.ok && /"Server"|Server:/i.test(d2.evidence ?? "")) || (await pDocker.run({ kind: "info" })).status === "SUCCEEDED";
+          results.push(this.result("dockerDaemon", dr ? "AVAILABLE" : "BLOCKED", dr ? null : "Docker daemon unavailable", null));
+          const td = await pTrivy.detect(); results.push(this.result("trivy", td.strategy ? "AVAILABLE" : "BLOCKED", td.reason, null));
+          const pd = await pPlaywright.detect(); results.push(this.result("playwright", pd.playwright ? "AVAILABLE" : "BLOCKED", pd.reason, null));
+          results.push(this.result("chromium", pd.chromium ? "AVAILABLE" : "UNKNOWN", pd.chromium ? null : "Chromium requires host verification", null));
+        } finally {
+          if (probeToken && bridge) {
+            try {
+              const cl = await bridge.cleanupWorkspace!(probeToken);
+              if (!cl.cleaned) console.warn("[nexus-runtime] probe cleanup reported failure: " + (cl.error ?? "unknown"));
+            } catch (e3) {
+              console.warn("[nexus-runtime] probe cleanup threw: " + (e3 as Error).message);
+            }
+          }
+        }
+      }
     }
-
     const get = (n: CapabilityName) => results.find((r) => r.name === n)!;
     const dockerStatus = get("dockerCli").status === "AVAILABLE" && get("dockerDaemon").status === "AVAILABLE" ? "AVAILABLE" : get("dockerDaemon").status === "BLOCKED" ? "BLOCKED" : "UNAVAILABLE";
 
