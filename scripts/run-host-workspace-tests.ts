@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { prepareHostWorkspace, cleanupHostWorkspace, hasHostMaterialization } from "../src/core/host-workspace";
 import { createRuntimeCommandExecutor } from "../src/core/runtime-command-adapter";
-import { resolveExecutable } from "../src/core/runtime";
+import { resolveExecutable, RuntimeBridge, TokenBoundExecutor } from "../src/core/runtime";
 import type { HostBridge, ProcessExecutor, AllowedTool } from "../src/core/runtime";
 
 let pass = 0, fail = 0;
@@ -180,6 +180,59 @@ function bridgeExecutor(bridge: HostBridge): ProcessExecutor {
     check("E3 hasHostMaterialization true for full bridge", hasHostMaterialization(recordingBridge()) === true);
   }
 
+  // F. Runtime capability probes are workspace-token bound
+  {
+    const bridge = recordingBridge();
+    const rb = new RuntimeBridge({ events: { emit: async () => {} }, audit: { record: async () => {} } } as any, bridgeExecutor(bridge), bridge);
+    await rb.detect();
+    const execs = bridge.calls.filter((c: any) => c.kind === 'exec');
+    const ok = execs.length > 0 && execs.every((c: any) => typeof c.opts?.workspace_token === 'string' && c.opts.workspace_token.length > 0);
+    check('F1 every runtime probe exec carries a workspace_token', ok, execs.length + ' probe execs');
+  }
+  {
+    const inner = { capability: () => ({ available: true, kind: 'EXTERNAL_HOST_RUNTIME', reason: null }), run: async (cmd: any) => ({ exit_code: 0, stdout: JSON.stringify(cmd), stderr: '' }) } as unknown as ProcessExecutor;
+    const tbe = new TokenBoundExecutor(inner, 'tok_A');
+    const r1 = await tbe.run({ tool: 'node', operation: '--version', args: [] } as any);
+    const p1 = JSON.parse(r1.stdout);
+    check('F2 TokenBoundExecutor injects token when absent', p1.workspace_token === 'tok_A', 'token=' + p1.workspace_token);
+    const r2 = await tbe.run({ tool: 'node', operation: '--version', args: [], workspace_token: 'tok_B' } as any);
+    const p2 = JSON.parse(r2.stdout);
+    check('F3 TokenBoundExecutor preserves explicit token', p2.workspace_token === 'tok_B', 'token=' + p2.workspace_token);
+  }
+  {
+    const bridge = recordingBridge();
+    const rb = new RuntimeBridge({ events: { emit: async () => {} }, audit: { record: async () => {} } } as any, bridgeExecutor(bridge), bridge);
+    await rb.detect();
+    const mc = bridge.calls.find((c: any) => c.kind === 'materialize');
+    const ok = !!mc && /^[A-Za-z0-9_-]{4,128}$/.test(mc.token) && Array.isArray(mc.files) && mc.files.length > 0;
+    check('F4 probe materialization uses valid token + at least one file', ok, 'token=' + (mc?.token?.slice(0, 20)) + ' files=' + (mc?.files?.length));
+  }
+  {
+    const bridge = recordingBridge();
+    bridge.exec = async (command: string, args: string[], opts: any) => {
+      bridge.calls.push({ kind: 'exec', command, args, opts });
+      if (/docker/i.test(command)) throw new Error('synthetic docker probe failure');
+      return { exit_code: 0, stdout: 'v1.0.0', stderr: '' };
+    };
+    const rb = new RuntimeBridge({ events: { emit: async () => {} }, audit: { record: async () => {} } } as any, bridgeExecutor(bridge), bridge);
+    try { await rb.detect(); } catch {}
+    const cc = bridge.calls.find((c: any) => c.kind === 'cleanup');
+    check('F5 probe-workspace cleanup runs even when a probe errors', !!cc, 'cleaned=' + !!cc);
+  }
+  {
+    const bridge = recordingBridge();
+    bridge.materializeWorkspace = async (req: any) => { bridge.calls.push({ kind: 'materialize', token: req.token, files: req.files }); throw new Error('materialize denied by test'); };
+    const rb = new RuntimeBridge({ events: { emit: async () => {} }, audit: { record: async () => {} } } as any, bridgeExecutor(bridge), bridge);
+    const status = await rb.detect();
+    const execs = bridge.calls.filter((c: any) => c.kind === 'exec');
+    check('F6 materialization failure -> BLOCKED, no tokenless probe attempted', status.processExecution === 'BLOCKED' && execs.length === 0, 'status=' + status.processExecution + ' execs=' + execs.length);
+  }
+  {
+    const browserExec = { capability: () => ({ available: false, kind: 'MANAGED_BROWSER_RUNTIME', reason: 'no host bridge' }), run: async () => { throw new Error('browser must not run'); } } as unknown as ProcessExecutor;
+    const rb = new RuntimeBridge({ events: { emit: async () => {} }, audit: { record: async () => {} } } as any, browserExec, null);
+    const status = await rb.detect();
+    check('F7 managed-browser runtime reports BLOCKED', status.processExecution === 'BLOCKED', 'processExecution=' + status.processExecution);
+  }
   console.log(`\nPASS: ${pass}  FAIL: ${fail}`);
   process.exit(fail === 0 ? 0 : 1);
 })();
