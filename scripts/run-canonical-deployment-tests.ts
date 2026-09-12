@@ -306,6 +306,120 @@ async function main() {
     check("T13 rollback never rebuilds an image (no docker build op)", buildCalls.length === 0, "build calls=" + buildCalls.length);
   }
 
+
+  // ---- T14: health BLOCKED -> BLOCKED (never KNOWN_GOOD) ----
+  {
+    const docker = mockDocker((op) => {
+      if (op.kind === "run") return { stdout: "container-t14\n" };
+      if (op.kind === "inspect" && op.image === "container-t14") return { stdout: JSON.stringify([{ Image: "sha256:aaa", NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12345" }] } } }]) };
+      return undefined;
+    });
+    const smoke = mockSmoke(() => ({ health: { ok: false, error: "ECONNREFUSED", status_code: null }, smoke: { status: "BLOCKED" }, verdict: "BLOCKED" }));
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const r = await orch.deploy({
+      project_id: "t14", environment: "dev", release_id: "r14",
+      image_repository: "nexus/x", image_tag: "v1", image_id: "sha256:aaa",
+      container_name: "t14-c", container_port: 8080,
+    });
+    check("T14 health BLOCKED cannot produce KNOWN_GOOD", r.deployment.status === "BLOCKED", "status=" + r.deployment.status);
+  }
+
+  // ---- T15: smoke BLOCKED -> BLOCKED (never KNOWN_GOOD) ----
+  {
+    const docker = mockDocker((op) => {
+      if (op.kind === "run") return { stdout: "container-t15\n" };
+      if (op.kind === "inspect" && op.image === "container-t15") return { stdout: JSON.stringify([{ Image: "sha256:aaa", NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12345" }] } } }]) };
+      return undefined;
+    });
+    const smoke = mockSmoke(() => ({ health: { ok: true, error: null, status_code: 200 }, smoke: { status: "BLOCKED" }, verdict: "BLOCKED" }));
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const r = await orch.deploy({
+      project_id: "t15", environment: "dev", release_id: "r15",
+      image_repository: "nexus/x", image_tag: "v1", image_id: "sha256:aaa",
+      container_name: "t15-c", container_port: 8080,
+    });
+    check("T15 smoke BLOCKED cannot produce KNOWN_GOOD", r.deployment.status === "BLOCKED", "status=" + r.deployment.status);
+  }
+
+  // ---- T16: docker inspect BLOCKED -> BLOCKED (distinct from FAILED) ----
+  {
+    const docker = mockDocker((op) => {
+      if (op.kind === "run") return { stdout: "container-t16\n" };
+      if (op.kind === "inspect" && op.image === "container-t16") return { status: "BLOCKED", blocked_reason: "host executor unavailable" };
+      return undefined;
+    });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const r = await orch.deploy({
+      project_id: "t16", environment: "dev", release_id: "r16",
+      image_repository: "nexus/x", image_tag: "v1", image_id: "sha256:aaa",
+      container_name: "t16-c", container_port: 8080,
+    });
+    check("T16 docker inspect BLOCKED -> BLOCKED (not FAILED)", r.deployment.status === "BLOCKED", "status=" + r.deployment.status);
+  }
+
+  // ---- T17: docker run BLOCKED emits deployment.blocked event ----
+  {
+    const events: string[] = [];
+    const svcSpy = { events: { emit: async (e: any) => { events.push(e.type); } }, audit: { record: async () => {} } } as any;
+    const docker = mockDocker((op) => op.kind === "run" ? { status: "BLOCKED", blocked_reason: "host executor unavailable" } : undefined);
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, svcSpy);
+    await orch.deploy({
+      project_id: "t17", environment: "dev", release_id: "r17",
+      image_repository: "nexus/x", image_tag: "v1", image_id: "sha256:aaa",
+      container_name: "t17-c", container_port: 8080,
+    });
+    check("T17 docker run BLOCKED emits deployment.blocked", events.includes("deployment.blocked"), "events=" + events.join(","));
+  }
+
+  // ---- T18: failed deployment does not overwrite previous KNOWN_GOOD ----
+  {
+    const known = await history.createDeployment({
+      project_id: "t18", environment: "prod", release_id: "rel-prev",
+      image_repository: "nexus/app", image_tag: "v1", image_id: "sha256:old",
+      container_name: "t18-c",
+    });
+    await history.markKnownGood(known.id);
+
+    const docker = mockDocker((op) => {
+      if (op.kind === "run") return { stdout: "container-t18\n" };
+      if (op.kind === "inspect" && op.image === "container-t18") return { stdout: JSON.stringify([{ Image: "sha256:new", NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12345" }] } } }]) };
+      if (op.kind === "inspect" && op.image === "sha256:old") return { stdout: JSON.stringify([{ Id: "sha256:old" }]) };
+      return undefined;
+    });
+    const smoke = mockSmoke(() => failSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    await orch.deploy({
+      project_id: "t18", environment: "prod", release_id: "rel-new",
+      image_repository: "nexus/app", image_tag: "v2", image_id: "sha256:new",
+      container_name: "t18-c", container_port: 8080,
+    });
+
+    const stillKnown = await history.getDeployment(known.id);
+    check("T18 failed deployment does not overwrite previous KNOWN_GOOD",
+      stillKnown !== null && stillKnown.status === "KNOWN_GOOD",
+      "prev_status=" + (stillKnown?.status ?? "null"));
+  }
+
+  // ---- T19: quality BLOCKED (defensive) cannot produce KNOWN_GOOD ----
+  {
+    const docker = mockDocker((op) => {
+      if (op.kind === "run") return { stdout: "container-t19\n" };
+      if (op.kind === "inspect" && op.image === "container-t19") return { stdout: JSON.stringify([{ Image: "sha256:aaa", NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12345" }] } } }]) };
+      return undefined;
+    });
+    // Deliberately inconsistent smoke service output: health PASS, smoke PASS, verdict BLOCKED
+    const smoke = mockSmoke(() => ({ health: { ok: true, error: null, status_code: 200 }, smoke: { status: "PASSED" }, verdict: "BLOCKED" }));
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const r = await orch.deploy({
+      project_id: "t19", environment: "dev", release_id: "r19",
+      image_repository: "nexus/x", image_tag: "v1", image_id: "sha256:aaa",
+      container_name: "t19-c", container_port: 8080,
+    });
+    check("T19 quality BLOCKED cannot produce KNOWN_GOOD", r.deployment.status === "BLOCKED", "status=" + r.deployment.status);
+  }
+
   console.log("\nPASS: " + pass + "  FAIL: " + fail);
   process.exit(fail === 0 ? 0 : 1);
 }

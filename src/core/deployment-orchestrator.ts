@@ -162,6 +162,11 @@ export class CanonicalDeploymentOrchestrator {
         failure_reason: "docker unavailable: " + (runRes.blocked_reason ?? "host executor unavailable"),
         completed_at: Date.now(),
       });
+      await this.svc.events.emit({
+        type: "deployment.blocked" as never, source: "CanonicalDeploymentOrchestrator",
+        execution_id: req.execution_id ?? null,
+        payload: { deployment_id: rec.id, reason: "docker run BLOCKED", blocked_reason: runRes.blocked_reason ?? null },
+      });
       return { deployment: (await this.history.getDeployment(rec.id))!, rollback: null };
     }
     if (runRes.status !== "SUCCEEDED") {
@@ -177,8 +182,21 @@ export class CanonicalDeploymentOrchestrator {
 
     /* (6) inspect the running container */
     const inspectRes = await docker.run({ kind: "inspect", image: containerId });
+    if (inspectRes.status === "BLOCKED") {
+      await this.history.setStatus(rec.id, "BLOCKED");
+      await this.history.updateDeployment(rec.id, {
+        failure_reason: "docker inspect BLOCKED: " + (inspectRes.blocked_reason ?? "host executor unavailable"),
+        completed_at: Date.now(),
+      });
+      await this.svc.events.emit({
+        type: "deployment.blocked" as never, source: "CanonicalDeploymentOrchestrator",
+        execution_id: req.execution_id ?? null,
+        payload: { deployment_id: rec.id, reason: "docker inspect BLOCKED", blocked_reason: inspectRes.blocked_reason ?? null },
+      });
+      return { deployment: (await this.history.getDeployment(rec.id))!, rollback: null };
+    }
     if (inspectRes.status !== "SUCCEEDED") {
-      await this.history.markFailed(rec.id, "docker inspect failed: " + inspectRes.stderr.slice(0, 200));
+      await this.history.markFailed(rec.id, "docker inspect failed (exit " + inspectRes.exit_code + "): " + inspectRes.stderr.slice(0, 200));
       return { deployment: (await this.history.getDeployment(rec.id))!, rollback: null };
     }
     let runningImageId: string | null = null;
@@ -237,8 +255,8 @@ export class CanonicalDeploymentOrchestrator {
         : verification.verdict === "BLOCKED" ? "BLOCKED" : "FAIL";
     await this.history.setChecks(rec.id, { health_status: health, smoke_status: smokeStatus, quality_gate: quality });
 
-    /* (11) BLOCKED branch */
-    if (health === "BLOCKED" || smokeStatus === "BLOCKED") {
+    /* (11) BLOCKED branch — any of health/smoke/quality BLOCKED blocks KNOWN_GOOD */
+    if (health === "BLOCKED" || smokeStatus === "BLOCKED" || quality === "BLOCKED") {
       await this.history.setStatus(rec.id, "BLOCKED");
       await this.history.updateDeployment(rec.id, {
         failure_reason: "verification BLOCKED (health=" + health + " smoke=" + smokeStatus + ") — required capability unavailable",
@@ -252,8 +270,8 @@ export class CanonicalDeploymentOrchestrator {
       return { deployment: (await this.history.getDeployment(rec.id))!, rollback: null };
     }
 
-    /* (12) KNOWN_GOOD when identity + health + smoke all PASS */
-    if (identityMatches && health === "PASS" && smokeStatus === "PASS") {
+    /* (12) KNOWN_GOOD only when identity + health + smoke + quality all PASS */
+    if (identityMatches && health === "PASS" && smokeStatus === "PASS" && quality === "PASS") {
       const known = await this.history.markKnownGood(rec.id);
       await this.svc.events.emit({
         type: "deployment.verified" as never, source: "CanonicalDeploymentOrchestrator",
