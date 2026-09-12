@@ -12,6 +12,45 @@ import {
   ExecutionEvent,
 } from "./execution-models";
 
+/* -------- Phase 103: durable release deployment intent -------- */
+
+export type ReleaseIntentStatus =
+  | "PENDING"
+  | "AUTHORIZED"
+  | "DEPLOYMENT_INTENT_CREATED"
+  | "DEPLOYING"
+  | "HEALTH_CHECKING"
+  | "SMOKE_TESTING"
+  | "VERIFICATION_FAILED"
+  | "ROLLING_BACK"
+  | "KNOWN_GOOD"
+  | "FAILED"
+  | "BLOCKED"
+  | "RECOVERY_REQUIRED";
+
+export interface ReleaseDeploymentIntent {
+  intentKey: string;
+  releaseId: string;
+  executionId: string;
+  artifactId: string;
+  artifactDigest: string;
+  commitSha: string;
+  environment: string;
+  imageRepository: string;
+  imageTag: string;
+  imageId: string | null;
+  imageDigest: string;
+  containerName: string;
+  containerPort: number;
+  status: ReleaseIntentStatus;
+  deploymentId: string | null;
+  failureReason: string | null;
+  recoveryReason: string | null;
+  leasedBy: string | null;
+  leaseExpiresAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
 export class ExecutionStore {
   constructor(private db: NexusEngine) {}
 
@@ -445,6 +484,186 @@ export class ExecutionStore {
     };
   }
 
+  /* -------- Phase 103: durable release deployment intent -------- */
+
+  private ensureIntentTable(): void {
+    // Schema is owned by migration 146.
+    // This compatibility method intentionally performs no runtime DDL.
+  }
+  /**
+   * Idempotent create. INSERT OR IGNORE guarantees a race produces exactly one row.
+   * Returns the row that now exists plus a flag indicating whether it was created.
+   */
+  createReleaseIntentIdempotent(
+    input: Omit<ReleaseDeploymentIntent, "status" | "deploymentId" | "failureReason" | "recoveryReason" | "leasedBy" | "leaseExpiresAt" | "createdAt" | "updatedAt">,
+  ): { intent: ReleaseDeploymentIntent; created: boolean } {
+    this.ensureIntentTable();
+    const now = Date.now();
+    const info = this.db.prepare(`
+      INSERT OR IGNORE INTO release_deployment_intents (
+        intent_key, release_id, execution_id, artifact_id, artifact_digest,
+        commit_sha, environment, image_repository, image_tag, image_id,
+        image_digest, container_name, container_port, status, deployment_id,
+        failure_reason, recovery_reason, leased_by, lease_expires_at,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DEPLOYMENT_INTENT_CREATED', NULL, NULL, NULL, NULL, NULL, ?, ?)
+    `).run(
+      input.intentKey,
+      input.releaseId,
+      input.executionId,
+      input.artifactId,
+      input.artifactDigest,
+      input.commitSha,
+      input.environment,
+      input.imageRepository,
+      input.imageTag,
+      input.imageId,
+      input.imageDigest,
+      input.containerName,
+      input.containerPort,
+      now,
+      now,
+    );
+    const existing = this.getReleaseIntent(input.intentKey);
+    if (!existing) throw new Error("release intent missing after INSERT OR IGNORE");
+    return { intent: existing, created: (info.changes ?? 0) > 0 };
+  }
+
+  getReleaseIntent(intentKey: string): ReleaseDeploymentIntent | undefined {
+    this.ensureIntentTable();
+    const row = this.db.prepare("SELECT * FROM release_deployment_intents WHERE intent_key = ?").get(intentKey);
+    return row ? this.mapReleaseIntent(row) : undefined;
+  }
+
+  updateReleaseIntentStatus(
+    intentKey: string,
+    status: ReleaseIntentStatus,
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null } = {},
+  ): ReleaseDeploymentIntent | undefined {
+    this.ensureIntentTable();
+    const now = Date.now();
+    this.db.prepare(`
+      UPDATE release_deployment_intents SET
+        status = ?,
+        deployment_id = COALESCE(?, deployment_id),
+        failure_reason = COALESCE(?, failure_reason),
+        recovery_reason = COALESCE(?, recovery_reason),
+        updated_at = ?
+      WHERE intent_key = ?
+    `).run(
+      status,
+      patch.deploymentId ?? null,
+      patch.failureReason ?? null,
+      patch.recoveryReason ?? null,
+      now,
+      intentKey,
+    );
+    return this.getReleaseIntent(intentKey);
+  }
+
+  /**
+   * Optimistic-lock lease. Acquires iff: no active lease OR lease expired OR caller already holds it.
+   * Returns the outcome; caller MUST inspect `acquired`.
+   */
+  acquireReleaseIntentLease(
+    intentKey: string,
+    workerId: string,
+    durationMs: number,
+  ): { acquired: boolean; holder: string | null; expiresAt: number | null } {
+    this.ensureIntentTable();
+    const now = Date.now();
+    const intent = this.getReleaseIntent(intentKey);
+    if (!intent) return { acquired: false, holder: null, expiresAt: null };
+    const leaseActive = intent.leasedBy !== null && intent.leaseExpiresAt !== null && intent.leaseExpiresAt > now;
+    const sameHolder = intent.leasedBy === workerId;
+    if (leaseActive && !sameHolder) {
+      return { acquired: false, holder: intent.leasedBy, expiresAt: intent.leaseExpiresAt };
+    }
+    const expiresAt = now + durationMs;
+    const info = this.db.prepare(`
+      UPDATE release_deployment_intents SET
+        leased_by = ?, lease_expires_at = ?, updated_at = ?
+      WHERE intent_key = ?
+        AND (
+          leased_by IS NULL
+          OR lease_expires_at IS NULL
+          OR lease_expires_at <= ?
+          OR leased_by = ?
+        )
+    `).run(workerId, expiresAt, now, intentKey, now, workerId);
+    if ((info.changes ?? 0) === 0) {
+      const fresh = this.getReleaseIntent(intentKey);
+      return { acquired: false, holder: fresh?.leasedBy ?? null, expiresAt: fresh?.leaseExpiresAt ?? null };
+    }
+    return { acquired: true, holder: workerId, expiresAt };
+  }
+
+  renewReleaseIntentLease(intentKey: string, workerId: string, durationMs: number): boolean {
+    this.ensureIntentTable();
+    const now = Date.now();
+    const expiresAt = now + durationMs;
+    const info = this.db.prepare(`
+      UPDATE release_deployment_intents SET
+        lease_expires_at = ?, updated_at = ?
+      WHERE intent_key = ? AND leased_by = ?
+    `).run(expiresAt, now, intentKey, workerId);
+    return (info.changes ?? 0) > 0;
+  }
+
+  releaseReleaseIntentLease(intentKey: string, workerId: string): boolean {
+    this.ensureIntentTable();
+    const now = Date.now();
+    const info = this.db.prepare(`
+      UPDATE release_deployment_intents SET
+        leased_by = NULL, lease_expires_at = NULL, updated_at = ?
+      WHERE intent_key = ? AND leased_by = ?
+    `).run(now, intentKey, workerId);
+    return (info.changes ?? 0) > 0;
+  }
+
+  listReleaseIntentsByStatus(status: ReleaseIntentStatus): ReleaseDeploymentIntent[] {
+    this.ensureIntentTable();
+    const rows = this.db.prepare(
+      "SELECT * FROM release_deployment_intents WHERE status = ? ORDER BY created_at DESC"
+    ).all(status);
+    return (rows as any[]).map((r) => this.mapReleaseIntent(r));
+  }
+
+  listRecoverableReleaseIntents(): ReleaseDeploymentIntent[] {
+    this.ensureIntentTable();
+    const rows = this.db.prepare(`
+      SELECT * FROM release_deployment_intents
+      WHERE status IN ('AUTHORIZED','DEPLOYMENT_INTENT_CREATED','DEPLOYING','HEALTH_CHECKING','SMOKE_TESTING','ROLLING_BACK')
+      ORDER BY created_at DESC
+    `).all();
+    return (rows as any[]).map((r) => this.mapReleaseIntent(r));
+  }
+
+  private mapReleaseIntent(row: any): ReleaseDeploymentIntent {
+    return {
+      intentKey: row.intent_key,
+      releaseId: row.release_id,
+      executionId: row.execution_id,
+      artifactId: row.artifact_id,
+      artifactDigest: row.artifact_digest,
+      commitSha: row.commit_sha,
+      environment: row.environment,
+      imageRepository: row.image_repository,
+      imageTag: row.image_tag,
+      imageId: row.image_id ?? null,
+      imageDigest: row.image_digest,
+      containerName: row.container_name,
+      containerPort: row.container_port,
+      status: row.status,
+      deploymentId: row.deployment_id ?? null,
+      failureReason: row.failure_reason ?? null,
+      recoveryReason: row.recovery_reason ?? null,
+      leasedBy: row.leased_by ?? null,
+      leaseExpiresAt: row.lease_expires_at ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
   private mapLease(row: any): ExecutionLease {
     return {
       leaseId: row.lease_id,
@@ -751,3 +970,4 @@ export class ExecutionStore {
             maybeTx();
         }
     }}
+

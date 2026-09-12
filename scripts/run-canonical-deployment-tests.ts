@@ -10,6 +10,9 @@ import { CanonicalDeploymentOrchestrator } from "../src/core/deployment-orchestr
 import type { DockerAdapter, DockerOp, DockerResult, SmokeTestService } from "../src/core/runtime";
 import { ReleaseDeploymentBridge } from "../src/core/deployment-release-bridge";
 import { ProductionReleaseEnforcementService } from "../src/core/production-release-enforcement";
+import { ExecutionStore } from "../src/core/execution-store";
+import { ReleaseDeploymentIntentService } from "../src/core/release-deployment-intent";
+import { ReleaseRecoveryService } from "../src/core/release-recovery";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -757,6 +760,141 @@ async function main() {
         + " digest=" + (persisted?.image_digest ?? "null"),
     );
   }
+  // ============================ Phase 103 ============================
+  const rawDb = (engine as any).getDatabase?.();
+  const execStore = rawDb ? new ExecutionStore(rawDb) : null;
+  const intents = execStore ? new ReleaseDeploymentIntentService(execStore) : null;
+  const recovery = new ReleaseRecoveryService();
+
+  if (!intents) {
+    console.log("[SKIPPED] Phase 103 tests — engine.getDatabase() unavailable");
+  } else {
+
+  const artifactStub = (id, execId, digest) => ({
+    async list(execution_id) {
+      if (execution_id !== execId) return [];
+      return [{ id, execution_id: execId, kind: "DOCKER_IMAGE", name: id, digest, size: 0, location: "artifact://" + id, created_at: Date.now() }];
+    }
+  });
+
+  const baseReq = (tag, artifactId, digest) => ({
+    authorizationId: "auth-" + tag, releaseId: "rel-" + tag, artifactId,
+    commitSha: "c-" + tag, environment: "production", projectId: "proj-" + tag,
+    executionId: "exec-" + tag, imageRepository: "nexus/" + tag, imageTag: "v1",
+    imageId: "sha256:" + tag, imageDigest: digest, containerName: tag + "-c", containerPort: 8080,
+  });
+
+  {
+    const t43Suffix = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); const input = { releaseId: "rel-t43-" + t43Suffix, executionId: "exec-t43-" + t43Suffix, artifactId: "art-t43-" + t43Suffix, artifactDigest: "sha256:t43-" + t43Suffix, commitSha: "c-t43-" + t43Suffix, environment: "production", imageRepository: "nexus/t43-" + t43Suffix, imageTag: "v1", imageId: null, imageDigest: "sha256:t43-" + t43Suffix, containerName: "t43-c-" + t43Suffix, containerPort: 8080 };
+    const r1 = await intents.getOrCreate(input);
+    const r2 = await intents.getOrCreate(input);
+    check("T43 durable intent created with deterministic key", r1.created === true && r2.created === false && r1.intent.intentKey === r2.intent.intentKey, "created1=" + r1.created + " created2=" + r2.created);
+  }
+
+  {
+    const n44 = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+    const execId44 = "exec-t44-" + n44;
+    const artifactId44 = "art-t44-" + n44;
+    const containerName44 = "container-t44-" + n44;
+    let dockerRuns = 0;
+    const docker = mockDocker((op) => {
+      if (op.kind === "run") { dockerRuns++; return { stdout: containerName44 + "\n" }; }
+      if (op.kind === "inspect" && op.image === containerName44) return { stdout: JSON.stringify([{ Image: "sha256:t44", NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12500" }] } } }]) };
+      return undefined;
+    });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactStub(artifactId44, execId44, "sha256:t44"), svc: fakeSvc, intents });
+    const req = {
+      authorizationId: "auth-t44-" + n44, releaseId: "rel-t44-" + n44, artifactId: artifactId44,
+      commitSha: "c-t44-" + n44, environment: "production", projectId: "proj-t44-" + n44,
+      executionId: execId44, imageRepository: "nexus/t44", imageTag: "v1",
+      imageId: "sha256:t44", imageDigest: "sha256:t44", containerName: containerName44, containerPort: 8080,
+    };
+    const first = await bridge.execute(req);
+    const runsAfterFirst = dockerRuns;
+    const second = await bridge.execute(req);
+    check("T44 duplicate intent does not deploy twice", runsAfterFirst === 1 && second.status === first.status && dockerRuns === runsAfterFirst, "first=" + first.status + " runs1=" + runsAfterFirst + " second=" + second.status + " runs2=" + dockerRuns);
+  }
+
+  {
+    const input = { releaseId: "rel-t45", executionId: "exec-t45", artifactId: "art-t45", artifactDigest: "sha256:t45", commitSha: "c-t45", environment: "production", imageRepository: "nexus/t45", imageTag: "v1", imageId: "sha256:t45", imageDigest: "sha256:t45", containerName: "t45-c", containerPort: 8080 };
+    const { intent } = await intents.getOrCreate(input);
+    intents.transition(intent.intentKey, "KNOWN_GOOD", { deploymentId: "dep-prior-t45" });
+    let dockerRuns = 0;
+    const docker = mockDocker((op) => { if (op.kind === "run") dockerRuns++; return undefined; });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactStub("art-t45", "exec-t45", "sha256:t45"), svc: fakeSvc, intents });
+    const res = await bridge.execute(baseReq("t45", "art-t45", "sha256:t45"));
+    check("T45 existing KNOWN_GOOD returned idempotently without Docker", res.status === "DEPLOYED" && res.deploymentId === "dep-prior-t45" && dockerRuns === 0, "status=" + res.status + " docker=" + dockerRuns);
+  }
+
+  {
+    const input = { releaseId: "rel-t49", executionId: "exec-t49", artifactId: "art-t49", artifactDigest: "sha256:t49", commitSha: "c-t49", environment: "production", imageRepository: "nexus/t49", imageTag: "v1", imageId: "sha256:t49", imageDigest: "sha256:t49", containerName: "t49-c", containerPort: 8080 };
+    const { intent } = await intents.getOrCreate(input);
+    intents.transition(intent.intentKey, "DEPLOYING");
+    let dockerRuns = 0;
+    const docker = mockDocker((op) => { if (op.kind === "run") dockerRuns++; return undefined; });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactStub("art-t49", "exec-t49", "sha256:t49"), svc: fakeSvc, intents });
+    const res = await bridge.execute(baseReq("t49", "art-t49", "sha256:t49"));
+    check("T49 crash during DEPLOYING enters recovery path", res.status === "BLOCKED" && dockerRuns === 0 && /RECOVERY_REQUIRED/.test(res.message), "status=" + res.status + " docker=" + dockerRuns);
+  }
+
+  {
+    const input = { releaseId: "rel-t52", executionId: "exec-t52", artifactId: "art-t52", artifactDigest: "sha256:t52", commitSha: "c-t52", environment: "production", imageRepository: "nexus/t52", imageTag: "v1", imageId: "sha256:t52", imageDigest: "sha256:t52", containerName: "t52-c", containerPort: 8080 };
+    const { intent } = await intents.getOrCreate(input);
+    const first = intents.acquireLease(intent.intentKey, "worker-A");
+    const second = intents.acquireLease(intent.intentKey, "worker-B");
+    let dockerRuns = 0;
+    const docker = mockDocker((op) => { if (op.kind === "run") dockerRuns++; return undefined; });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactStub("art-t52", "exec-t52", "sha256:t52"), svc: fakeSvc, intents, workerId: "worker-B" });
+    const res = await bridge.execute(baseReq("t52", "art-t52", "sha256:t52"));
+    check("T52 lease prevents concurrent deployment", first.acquired === true && second.acquired === false && res.status === "BLOCKED" && dockerRuns === 0, "first=" + first.acquired + " second=" + second.acquired + " res=" + res.status);
+  }
+
+  {
+    const input = { releaseId: "rel-t53", executionId: "exec-t53", artifactId: "art-t53", artifactDigest: "sha256:t53", commitSha: "c-t53", environment: "production", imageRepository: "nexus/t53", imageTag: "v1", imageId: null, imageDigest: "sha256:t53", containerName: "t53-c", containerPort: 8080 };
+    const { intent } = await intents.getOrCreate(input);
+    const shortLease = intents.acquireLease(intent.intentKey, "worker-old", 1);
+    await new Promise((r) => setTimeout(r, 15));
+    const reacquire = intents.acquireLease(intent.intentKey, "worker-new", 60000);
+    const after = intents.get(intent.intentKey);
+    check("T53 expired lease permits re-acquire", shortLease.acquired === true && reacquire.acquired === true && after?.status === "DEPLOYMENT_INTENT_CREATED", "old=" + shortLease.acquired + " new=" + reacquire.acquired + " status=" + (after?.status ?? "null"));
+  }
+
+  {
+    const i = { intentKey: "k54", status: "DEPLOYING", releaseId: "r", executionId: "e", artifactId: "a", artifactDigest: "d", imageRepository: "i", imageTag: "v", imageDigest: "id", containerName: "c", containerPort: 80, commitSha: "cs", environment: "prod" };
+    const p = recovery.classify({ intent: i });
+    check("T54 DEPLOYING requires Docker inspection", p.action === "RECOVERY_REQUIRED" && p.requiresDockerInspection === true, "action=" + p.action);
+  }
+  {
+    const i = { intentKey: "k55", status: "HEALTH_CHECKING", deploymentId: "dep-x", releaseId: "r", executionId: "e", artifactId: "a", artifactDigest: "d", imageRepository: "i", imageTag: "v", imageDigest: "id", containerName: "c", containerPort: 80, commitSha: "cs", environment: "prod" };
+    const p = recovery.classify({ intent: i });
+    check("T55 HEALTH_CHECKING resumes verification", p.action === "RESUME_VERIFICATION" && p.requiresDockerInspection === true, "action=" + p.action);
+  }
+  {
+    const i = { intentKey: "k56", status: "ROLLING_BACK", releaseId: "r", executionId: "e", artifactId: "a", artifactDigest: "d", imageRepository: "i", imageTag: "v", imageDigest: "id", containerName: "c", containerPort: 80, commitSha: "cs", environment: "prod" };
+    const p = recovery.classify({ intent: i });
+    check("T56 ROLLING_BACK resumes rollback", p.action === "RESUME_ROLLBACK" && p.requiresDockerInspection === true, "action=" + p.action);
+  }
+  {
+    const i = { intentKey: "k58", status: "KNOWN_GOOD", releaseId: "r", executionId: "e", artifactId: "a", artifactDigest: "d", imageRepository: "i", imageTag: "v", imageDigest: "id", containerName: "c", containerPort: 80, commitSha: "cs", environment: "prod" };
+    const p = recovery.classify({ intent: i });
+    check("T58 KNOWN_GOOD is terminal", p.action === "ALREADY_KNOWN_GOOD" && p.requiresDockerInspection === false, "action=" + p.action);
+  }
+  {
+    const i = { intentKey: "k59", status: "BLOCKED", releaseId: "r", executionId: "e", artifactId: "a", artifactDigest: "d", imageRepository: "i", imageTag: "v", imageDigest: "id", containerName: "c", containerPort: 80, commitSha: "cs", environment: "prod" };
+    const p = recovery.classify({ intent: i });
+    check("T59 BLOCKED is terminal", p.action === "ALREADY_BLOCKED" && p.requiresDockerInspection === false, "action=" + p.action);
+  }
+
+  }
+
   console.log("\nPASS: " + pass + "  FAIL: " + fail);
   process.exit(fail === 0 ? 0 : 1);
 }
