@@ -212,10 +212,13 @@ export class NexusKernel {
           // browser never resolves it.
           let workerGateway: WorkerGateway | undefined;
           let remoteAdapter: RemoteExecutionAdapter;
-          if (import.meta.env.SSR) {
-            const { WorkerGateway: GatewayCtor } = await import("./worker-gateway");
-            const { WorkerGatewayRemoteExecutionAdapter: AdapterCtor } = await import("./worker-gateway-remote-adapter");
-            const { WorkerSessionStore } = await import("./worker-session-store");
+          if (typeof process !== "undefined" && !!process.versions?.node) {
+            const gatewaySpec = "./worker-gateway";
+            const adapterSpec = "./worker-gateway-remote-adapter";
+            const sessionStoreSpec = "./worker-session-store";
+            const { WorkerGateway: GatewayCtor } = await import(/* @vite-ignore */ gatewaySpec);
+            const { WorkerGatewayRemoteExecutionAdapter: AdapterCtor } = await import(/* @vite-ignore */ adapterSpec);
+            const { WorkerSessionStore } = await import(/* @vite-ignore */ sessionStoreSpec);
             const sessionStore = new WorkerSessionStore(engine);
             const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore);
             workerGateway = gw;
