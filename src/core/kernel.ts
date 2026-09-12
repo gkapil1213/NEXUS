@@ -6,7 +6,6 @@
  * UI, and fails loudly (never partially-silently) when a subsystem cannot
  * start. Contains no business logic Ã¢â‚¬â€ that lives in services and agents.
  */
-
 import { AuditService } from "./audit";
 import { AgentRegistry, InspectorAgent } from "./agents";
 import { CONFIG, configBlocked, safeConfigView } from "./config";
@@ -65,6 +64,9 @@ import { ProductionReleaseDecisionService } from "./production-release-decision"
 import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
+import { ReleaseRecoveryService } from "./release-recovery";
+import { ReleaseRecoveryExecutor } from "./release-recovery-executor";
+import * as os from "node:os";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -118,6 +120,7 @@ const BOOT_ORDER = [
   ["agents", "register agent framework"],
   ["orchestration", "assemble orchestration"],
   ["runtime", "detect execution runtime"],
+  ["recovery", "recover in-flight releases"],
 ] as const;
 
 export class NexusKernel {
@@ -383,6 +386,32 @@ export class NexusKernel {
         releaseDecision,
         releaseBridge,
       );
+
+      // Phase 104: durable release recovery. Runs once at boot, only when
+      // the SQLite ExecutionStore exists. When it does not, recovery state
+      // cannot exist either - skip cleanly rather than invent one.
+      if (this.executionStore && releaseIntents) {
+        this.step("recovery", "running");
+        try {
+          const executor = new ReleaseRecoveryExecutor({
+            intents: releaseIntents,
+            recovery: new ReleaseRecoveryService(),
+            orchestrator: deployments,
+            history: deploymentHistory,
+            docker: runtime.docker,
+            smoke: runtime.smoke,
+            svc: { events, audit },
+            workerId: "nexus-" + os.hostname() + "-" + process.pid,
+          });
+          const rep = await executor.runOnce();
+          this.step("recovery", "ok", "scanned=" + rep.scanned + " acted=" + rep.acted + " blocked=" + rep.blocked + " leaseHeld=" + rep.leaseHeld);
+        } catch (e) {
+          this.step("recovery", "fail", e instanceof Error ? e.message : String(e));
+        }
+      } else {
+        this.step("recovery", "ok", "skipped: durable intent store unavailable");
+      }
+
       this.services = {
         engine,
         events,

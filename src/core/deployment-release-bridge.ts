@@ -102,6 +102,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
       artifactDigest: req.imageDigest,
       commitSha: req.commitSha,
       environment: req.environment,
+      projectId: req.projectId,
       imageRepository: req.imageRepository!,
       imageTag: req.imageTag!,
       imageId: req.imageId,

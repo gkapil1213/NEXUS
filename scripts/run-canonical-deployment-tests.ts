@@ -13,6 +13,7 @@ import { ProductionReleaseEnforcementService } from "../src/core/production-rele
 import { ExecutionStore } from "../src/core/execution-store";
 import { ReleaseDeploymentIntentService } from "../src/core/release-deployment-intent";
 import { ReleaseRecoveryService } from "../src/core/release-recovery";
+import { ReleaseRecoveryExecutor } from "../src/core/release-recovery-executor";
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean, detail = "") {
@@ -896,6 +897,294 @@ async function main() {
     const i = { intentKey: "k59", status: "BLOCKED", releaseId: "r", executionId: "e", artifactId: "a", artifactDigest: "d", imageRepository: "i", imageTag: "v", imageDigest: "id", containerName: "c", containerPort: 80, commitSha: "cs", environment: "prod" };
     const p = recovery.classify({ intent: i });
     check("T59 BLOCKED is terminal", p.action === "ALREADY_BLOCKED" && p.requiresDockerInspection === false, "action=" + p.action);
+  }
+
+  // ============================ Phase 104 ============================
+  {
+    const mkOrch = (d: any, s: any, svc: any = fakeSvc) => new CanonicalDeploymentOrchestrator(history, d, s, svc);
+    const seed = async (tag: string, patch: any = {}) => {
+      const n = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+      const input = {
+        releaseId: "rel-t" + tag + "-" + n, executionId: "exec-t" + tag + "-" + n,
+        artifactId: "art-t" + tag + "-" + n, artifactDigest: "sha256:t" + tag + "-" + n,
+        commitSha: "c-t" + tag + "-" + n, environment: "production",
+        projectId: "proj-t" + tag + "-" + n,
+        imageRepository: "nexus/t" + tag, imageTag: "v1",
+        imageId: "sha256:t" + tag + "-" + n, imageDigest: "sha256:t" + tag + "-" + n,
+        containerName: "t" + tag + "-c-" + n, containerPort: 8080,
+      };
+      const r = await intents.getOrCreate(input);
+      if (patch.status) intents.transition(r.intent.intentKey, patch.status, patch.patch ?? {});
+      const fresh = intents.get(r.intent.intentKey)!;
+      return { input, key: r.intent.intentKey, intent: fresh };
+    };
+
+    // T61
+    {
+      const noop = mockDocker(() => undefined);
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(noop, mockSmoke(() => okSmoke())), history, docker: noop, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t61" });
+      const rep = await exec.runOnce();
+      check("T61 runOnce returns well-formed report", typeof rep.scanned === "number" && Array.isArray(rep.actions) && Array.isArray(rep.blockedReasons), "scanned=" + rep.scanned);
+    }
+
+    // T62
+    {
+      const { intent } = await seed("62", { status: "DEPLOYING" });
+      let runs = 0;
+      const docker = mockDocker((op) => {
+        if (op.kind === "run") { runs++; return undefined; }
+        if (op.kind === "inspect" && op.image === intent.containerName) return { stdout: JSON.stringify([{ Image: intent.imageId, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13062" }] } } }]) };
+        return undefined;
+      });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t62" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T62 DEPLOYING + MATCHES_INTENT -> HEALTH_CHECKING, no docker run", runs === 0 && a?.status === "HEALTH_CHECKING", "status=" + a?.status + " docker=" + runs);
+    }
+
+    // T63
+    {
+      const { intent } = await seed("63", { status: "DEPLOYING" });
+      let runs = 0;
+      const docker = mockDocker((op) => {
+        if (op.kind === "run") { runs++; return undefined; }
+        if (op.kind === "inspect") return { status: "FAILED", exit_code: 1, stderr: "Error: No such object: " + intent.containerName };
+        return undefined;
+      });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t63" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T63 DEPLOYING + MISSING -> RECOVERY_REQUIRED, no docker run", runs === 0 && a?.status === "RECOVERY_REQUIRED", "status=" + a?.status + " docker=" + runs);
+    }
+
+    // T64
+    {
+      const { intent } = await seed("64", { status: "DEPLOYING" });
+      const docker = mockDocker((op) => {
+        if (op.kind === "inspect") return { stdout: JSON.stringify([{ Image: "sha256:wrong-" + intent.imageId, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13064" }] } } }]) };
+        return undefined;
+      });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t64" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T64 DEPLOYING + IDENTITY_MISMATCH -> VERIFICATION_FAILED", a?.status === "VERIFICATION_FAILED", "status=" + a?.status);
+    }
+
+    // T65
+    {
+      const { intent } = await seed("65", { status: "HEALTH_CHECKING", patch: { deploymentId: "dep-t65" } });
+      let runs = 0;
+      const docker = mockDocker((op) => {
+        if (op.kind === "run") { runs++; return undefined; }
+        if (op.kind === "inspect" && op.image === intent.containerName) return { stdout: JSON.stringify([{ Image: intent.imageId, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13065" }] } } }]) };
+        return undefined;
+      });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t65" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T65 HEALTH_CHECKING + smoke PASS -> KNOWN_GOOD, no docker run", runs === 0 && a?.status === "KNOWN_GOOD", "status=" + a?.status + " docker=" + runs);
+    }
+
+    // T66
+    {
+      const { intent } = await seed("66", { status: "HEALTH_CHECKING", patch: { deploymentId: "dep-t66" } });
+      let runs = 0;
+      const docker = mockDocker((op) => {
+        if (op.kind === "run") { runs++; return undefined; }
+        if (op.kind === "inspect" && op.image === intent.containerName) return { stdout: JSON.stringify([{ Image: intent.imageId, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13066" }] } } }]) };
+        return undefined;
+      });
+      const sm = mockSmoke(() => ({ health: { ok: true, error: null, status_code: 200 }, smoke: { status: "BLOCKED" }, verdict: "BLOCKED" }));
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, sm), history, docker, smoke: sm, svc: fakeSvc, workerId: "t66" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T66 HEALTH_CHECKING + smoke BLOCKED -> RECOVERY_REQUIRED, no docker run", runs === 0 && a?.status === "RECOVERY_REQUIRED", "status=" + a?.status + " docker=" + runs);
+    }
+
+    // T67
+    {
+      const { intent } = await seed("67", { status: "HEALTH_CHECKING", patch: { deploymentId: "dep-t67" } });
+      const docker = mockDocker((op) => {
+        if (op.kind === "inspect" && op.image === intent.containerName) return { stdout: JSON.stringify([{ Image: intent.imageId, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13067" }] } } }]) };
+        return undefined;
+      });
+      const sm = mockSmoke(() => ({ health: { ok: true, error: null, status_code: 200 }, smoke: { status: "FAILED" }, verdict: "FAIL" }));
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, sm), history, docker, smoke: sm, svc: fakeSvc, workerId: "t67" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T67 HEALTH_CHECKING + smoke FAIL -> VERIFICATION_FAILED", a?.status === "VERIFICATION_FAILED", "status=" + a?.status);
+    }
+
+    // T68
+    {
+      const { intent } = await seed("68", { status: "SMOKE_TESTING", patch: { deploymentId: "dep-t68" } });
+      const docker = mockDocker((op) => { if (op.kind === "inspect") return { status: "BLOCKED", blocked_reason: "no host" }; return undefined; });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t68" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T68 SMOKE_TESTING + inspect BLOCKED -> RECOVERY_REQUIRED", a?.status === "RECOVERY_REQUIRED", "status=" + a?.status);
+    }
+
+    // T69
+    {
+      const { intent } = await seed("69", { status: "KNOWN_GOOD", patch: { deploymentId: "dep-t69" } });
+      let runs = 0;
+      const docker = mockDocker((op) => { if (op.kind === "run") runs++; return undefined; });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t69" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T69 KNOWN_GOOD is terminal, no docker run", runs === 0 && a?.status === "KNOWN_GOOD", "status=" + a?.status + " docker=" + runs);
+    }
+
+    // T70
+    {
+      const { intent } = await seed("70", { status: "BLOCKED" });
+      let runs = 0;
+      const docker = mockDocker((op) => { if (op.kind === "run") runs++; return undefined; });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t70" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T70 BLOCKED is terminal, no docker run", runs === 0 && a?.status === "BLOCKED", "status=" + a?.status + " docker=" + runs);
+    }
+
+    // T71
+    {
+      const n = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+      const input = { releaseId: "rel-t71-" + n, executionId: "exec-t71-" + n, artifactId: "art-t71-" + n, artifactDigest: "sha256:t71-" + n, commitSha: "c-t71-" + n, environment: "production", imageRepository: "nexus/t71", imageTag: "v1", imageId: "sha256:t71-" + n, imageDigest: "sha256:t71-" + n, containerName: "t71-c-" + n, containerPort: 8080 };
+      const { intent } = await intents.getOrCreate(input);
+      intents.transition(intent.intentKey, "DEPLOYMENT_INTENT_CREATED");
+      let runs = 0;
+      const docker = mockDocker((op) => { if (op.kind === "run") runs++; return undefined; });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t71" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T71 missing projectId blocks safely, no docker run", runs === 0 && (a?.status === "DEPLOYMENT_INTENT_CREATED" || a?.status === "RECOVERY_REQUIRED"), "status=" + a?.status + " docker=" + runs);
+    }
+
+    // T72
+    {
+      const { intent } = await seed("72", { status: "DEPLOYMENT_INTENT_CREATED" });
+      let runs = 0;
+      const docker = mockDocker((op) => {
+        if (op.kind === "run") { runs++; return { stdout: intent.containerName + "\n" }; }
+        if (op.kind === "inspect" && op.image === intent.containerName) return { stdout: JSON.stringify([{ Image: intent.imageId, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13072" }] } } }]) };
+        return undefined;
+      });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t72" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T72 DEPLOYMENT_INTENT_CREATED + projectId -> KNOWN_GOOD, exactly one docker run", runs === 1 && a?.status === "KNOWN_GOOD", "status=" + a?.status + " docker=" + runs);
+    }
+
+    // T73
+    {
+      const { intent } = await seed("73", { status: "KNOWN_GOOD", patch: { deploymentId: "dep-t73" } });
+      let runs = 0;
+      const docker = mockDocker((op) => { if (op.kind === "run") runs++; return undefined; });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t73" });
+      await exec.runOnce();
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T73 replay on terminal intent is idempotent", runs === 0 && a?.status === "KNOWN_GOOD", "status=" + a?.status + " docker=" + runs);
+    }
+
+    // T74
+    {
+      const { intent } = await seed("74", { status: "DEPLOYMENT_INTENT_CREATED" });
+      let runs = 0;
+      const docker = mockDocker((op) => {
+        if (op.kind === "run") { runs++; return { stdout: intent.containerName + "\n" }; }
+        if (op.kind === "inspect" && op.image === intent.containerName) return { stdout: JSON.stringify([{ Image: intent.imageId, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13074" }] } } }]) };
+        return undefined;
+      });
+      const orch = mkOrch(docker, mockSmoke(() => okSmoke()));
+      const a = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: orch, history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t74-A" });
+      const b = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: orch, history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t74-B" });
+      const [ra, rb] = await Promise.all([a.runOnce(), b.runOnce()]);
+      check("T74 concurrent executors: at most one deploys", runs <= 1, "docker=" + runs + " leaseHeldA=" + ra.leaseHeld + " leaseHeldB=" + rb.leaseHeld);
+    }
+
+    // T75
+    {
+      const { intent } = await seed("75", { status: "DEPLOYMENT_INTENT_CREATED" });
+      const first = intents.acquireLease(intent.intentKey, "worker-old", 1);
+      await new Promise((r) => setTimeout(r, 15));
+      const second = intents.acquireLease(intent.intentKey, "worker-new", 60000);
+      check("T75 expired lease permits re-acquire", first.acquired === true && second.acquired === true, "first=" + first.acquired + " second=" + second.acquired);
+    }
+
+    // T76
+    {
+      const { intent } = await seed("76", { status: "VERIFICATION_FAILED", patch: { deploymentId: "dep-t76" } });
+      const calls: string[] = [];
+      const rb = { async rollback(i: any) { calls.push(i.intentKey); return { status: "COMPLETED" as const, deploymentId: "dep-t76-prev", message: "restored" }; } };
+      const docker = mockDocker(() => undefined);
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t76", rollback: rb });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      const own = calls.filter((k) => k === intent.intentKey).length;
+      check("T76 VERIFICATION_FAILED -> rollback once, FAILED terminal", own === 1 && a?.status === "FAILED", "ownRollbacks=" + own + " total=" + calls.length + " status=" + a?.status);
+    }
+
+    // T77
+    {
+      const { intent } = await seed("77", { status: "ROLLING_BACK" });
+      let calls = 0;
+      const docker = mockDocker((op) => {
+        if (op.kind === "inspect") return { stdout: JSON.stringify([{ Image: "sha256:other-than-intent", NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13077" }] } } }]) };
+        return undefined;
+      });
+      const rb = { async rollback() { calls++; return { status: "COMPLETED" as const, deploymentId: null, message: "should not run" }; } };
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t77", rollback: rb });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T77 RESUME_ROLLBACK + IDENTITY_MISMATCH -> terminal, no rollback", calls === 0 && (a?.status === "FAILED" || a?.status === "BLOCKED"), "rollback=" + calls + " status=" + a?.status);
+    }
+
+    // T78
+    {
+      const { intent } = await seed("78", { status: "ROLLING_BACK" });
+      const calls: string[] = [];
+      const docker = mockDocker((op) => {
+        if (op.kind === "inspect" && op.image === intent.containerName) return { stdout: JSON.stringify([{ Image: intent.imageId, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13078" }] } } }]) };
+        return undefined;
+      });
+      const rb = { async rollback(i: any) { calls.push(i.intentKey); return { status: "COMPLETED" as const, deploymentId: "dep-t78-prev", message: "restored" }; } };
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t78", rollback: rb });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      const own = calls.filter((k) => k === intent.intentKey).length;
+      check("T78 RESUME_ROLLBACK + MATCHES_INTENT -> rollback once", own === 1 && a?.status === "FAILED", "ownRollbacks=" + own + " total=" + calls.length + " status=" + a?.status);
+    }
+
+    // T79
+    {
+      const { intent } = await seed("79", { status: "DEPLOYING" });
+      const docker = mockDocker((op) => { if (op.kind === "inspect") return { status: "FAILED", exit_code: 1, stderr: "permission denied" }; return undefined; });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t79" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check("T79 ambiguous inspect -> RECOVERY_REQUIRED (never fakes success)", a?.status === "RECOVERY_REQUIRED", "status=" + a?.status);
+    }
+
+    // T80
+    {
+      const { intent, input } = await seed("80", { status: "DEPLOYMENT_INTENT_CREATED" });
+      let runs = 0;
+      const docker = mockDocker((op) => {
+        if (op.kind === "run") { runs++; return { stdout: intent.containerName + "\n" }; }
+        if (op.kind === "inspect" && op.image === intent.containerName) return { stdout: JSON.stringify([{ Image: intent.imageId, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "13080" }] } } }]) };
+        return undefined;
+      });
+      const exec = new ReleaseRecoveryExecutor({ intents, recovery, orchestrator: mkOrch(docker, mockSmoke(() => okSmoke())), history, docker, smoke: mockSmoke(() => okSmoke()), svc: fakeSvc, workerId: "t80" });
+      await exec.runOnce();
+      const a = intents.get(intent.intentKey);
+      check(
+        "T80 recovery preserves full lineage",
+        !!a && a.releaseId === input.releaseId && a.executionId === input.executionId && a.artifactId === input.artifactId && a.artifactDigest === input.artifactDigest && a.commitSha === input.commitSha && a.environment === input.environment && a.projectId === input.projectId && a.imageRepository === input.imageRepository && a.imageTag === input.imageTag && a.imageId === input.imageId && a.imageDigest === input.imageDigest && a.containerName === input.containerName && a.containerPort === input.containerPort,
+        "status=" + a?.status + " projectId=" + a?.projectId,
+      );
+    }
   }
 
   }

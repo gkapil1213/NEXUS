@@ -36,6 +36,7 @@ export interface ReleaseDeploymentIntent {
   artifactDigest: string;
   commitSha: string;
   environment: string;
+  projectId?: string | null;
   imageRepository: string;
   imageTag: string;
   imageId: string | null;
@@ -502,11 +503,11 @@ export class ExecutionStore {
     const info = this.db.prepare(`
       INSERT OR IGNORE INTO release_deployment_intents (
         intent_key, release_id, execution_id, artifact_id, artifact_digest,
-        commit_sha, environment, image_repository, image_tag, image_id,
+        commit_sha, environment, project_id, image_repository, image_tag, image_id,
         image_digest, container_name, container_port, status, deployment_id,
         failure_reason, recovery_reason, leased_by, lease_expires_at,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DEPLOYMENT_INTENT_CREATED', NULL, NULL, NULL, NULL, NULL, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DEPLOYMENT_INTENT_CREATED', NULL, NULL, NULL, NULL, NULL, ?, ?)
     `).run(
       input.intentKey,
       input.releaseId,
@@ -515,6 +516,7 @@ export class ExecutionStore {
       input.artifactDigest,
       input.commitSha,
       input.environment,
+      input.projectId ?? null,
       input.imageRepository,
       input.imageTag,
       input.imageId,
@@ -633,7 +635,7 @@ export class ExecutionStore {
     this.ensureIntentTable();
     const rows = this.db.prepare(`
       SELECT * FROM release_deployment_intents
-      WHERE status IN ('AUTHORIZED','DEPLOYMENT_INTENT_CREATED','DEPLOYING','HEALTH_CHECKING','SMOKE_TESTING','ROLLING_BACK')
+      WHERE status IN ('PENDING','AUTHORIZED','DEPLOYMENT_INTENT_CREATED','DEPLOYING','HEALTH_CHECKING','SMOKE_TESTING','VERIFICATION_FAILED','ROLLING_BACK','RECOVERY_REQUIRED')
       ORDER BY created_at DESC
     `).all();
     return (rows as any[]).map((r) => this.mapReleaseIntent(r));
@@ -648,6 +650,7 @@ export class ExecutionStore {
       artifactDigest: row.artifact_digest,
       commitSha: row.commit_sha,
       environment: row.environment,
+      projectId: row.project_id ?? null,
       imageRepository: row.image_repository,
       imageTag: row.image_tag,
       imageId: row.image_id ?? null,

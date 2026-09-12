@@ -12,6 +12,7 @@ export interface ReleaseIntentInput {
   artifactDigest: string;
   commitSha: string;
   environment: string;
+  projectId?: string | null;
   imageRepository: string;
   imageTag: string;
   imageId: string | null;
@@ -63,6 +64,7 @@ export class ReleaseDeploymentIntentService {
       artifactDigest: input.artifactDigest,
       commitSha: input.commitSha,
       environment: input.environment,
+      projectId: input.projectId ?? null,
       imageRepository: input.imageRepository,
       imageTag: input.imageTag,
       imageId: input.imageId,
