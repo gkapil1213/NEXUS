@@ -59,6 +59,11 @@ import { BrowserSandbox, FileAccessPolicy, WorkspaceService, DEFAULT_WORKSPACE_L
 import { RuntimeBridge, getHostBridge, TokenBoundExecutor, DockerAdapter, PlaywrightAdapter, SmokeTestService } from "./runtime";
 import { DeploymentHistoryService } from "./deployment-history";
 import { CanonicalDeploymentOrchestrator } from "./deployment-orchestrator";
+import { SecurityApi } from "./security-api";
+import { SecurityReleaseGate } from "./security-release-gate";
+import { ProductionReleaseDecisionService } from "./production-release-decision";
+import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
+import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -97,6 +102,10 @@ export interface KernelServices {
   // Canonical deployment orchestration: real Docker container + real
   // health/smoke verification + rollback against previous KNOWN_GOOD.
   deployments: CanonicalDeploymentOrchestrator;
+  // Phase 102: production release control plane wired to canonical deployment.
+  // Consumes ProductionReleaseEnforcementService with a ReleaseDeploymentBridge
+  // provider; enforcement BLOCKED/FAIL prevents Docker run.
+  releaseEnforcement: ProductionReleaseEnforcementService;
 }
 
 const BOOT_ORDER = [
@@ -343,6 +352,26 @@ export class NexusKernel {
         },
       );
 
+      // Phase 102: production release control plane wired to canonical
+      // deployment. releaseEnforcement.requestRelease() runs the existing
+      // ProductionReleaseDecisionService (security gate + approval + digest
+      // match). executeRelease() dispatches through ReleaseDeploymentBridge,
+      // which verifies artifact binding, rejects :latest, and only then calls
+      // CanonicalDeploymentOrchestrator.deploy().
+      const securityApi = new SecurityApi(engine);
+      const securityGate = new SecurityReleaseGate(securityApi);
+      const releaseDecision = new ProductionReleaseDecisionService(securityApi, securityGate);
+      const releaseBridge = new ReleaseDeploymentBridge({
+        deployments,
+        artifacts,
+        svc: { events, audit },
+      });
+      const releaseEnforcement = new ProductionReleaseEnforcementService(
+        securityApi,
+        securityGate,
+        releaseDecision,
+        releaseBridge,
+      );
       this.services = {
         engine,
         events,
@@ -367,7 +396,9 @@ export class NexusKernel {
         cicd,
         runtime,
         deployments,
+        releaseEnforcement,
       };
+
       this.status = "ready";
       await audit.record({
         actor: "system",

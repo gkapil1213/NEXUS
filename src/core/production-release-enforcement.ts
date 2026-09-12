@@ -18,6 +18,16 @@ export interface ProductionExecutionAuthorization {
   expiresAt: string;
   consumed: boolean;
   revoked: boolean;
+  // Phase 102: immutable digest bound at authorization time.
+  artifactDigest: string;
+  // Phase 102: optional deployment context carried forward.
+  projectId?: string;
+  executionId?: string;
+  imageRepository?: string;
+  imageTag?: string;
+  imageId?: string;
+  containerName?: string;
+  containerPort?: number;
 }
 
 export interface ReleaseRequestParams {
@@ -29,6 +39,13 @@ export interface ReleaseRequestParams {
   environment: string;
   approval: ProductionApproval;
   execution?: any; // optional, passed to gate
+  // Phase 102: optional deployment context.
+  projectId?: string;
+  imageRepository?: string;
+  imageTag?: string;
+  imageId?: string;
+  containerName?: string;
+  containerPort?: number;
 }
 
 export interface AuthorizationResult {
@@ -46,14 +63,42 @@ export interface DeploymentResult {
   deploymentId?: string;
 }
 
+/* --- Phase 102: release-execution provider seam --- */
+
+export interface ReleaseExecutionRequest {
+  authorizationId: string;
+  releaseId: string;
+  artifactId: string;
+  commitSha: string;
+  environment: string;
+  projectId: string | null;
+  executionId: string | null;
+  imageRepository: string | null;
+  imageTag: string | null;
+  imageId: string | null;
+  imageDigest: string;
+  containerName: string | null;
+  containerPort: number | null;
+}
+
+export interface ReleaseExecutionOutcome {
+  status: "DEPLOYED" | "FAIL" | "BLOCKED";
+  message: string;
+  deploymentId?: string | null;
+}
+
+export interface ReleaseExecutionProvider {
+  execute(req: ReleaseExecutionRequest): Promise<ReleaseExecutionOutcome>;
+}
+
 export class ProductionReleaseEnforcementService {
   private authorizations = new Map<string, ProductionExecutionAuthorization>();
-  private deploymentProviderAvailable = false; // no real provider by default
 
   constructor(
     private api: SecurityApi,
     private gate: SecurityReleaseGate,
     private decisionService: ProductionReleaseDecisionService,
+    private provider?: ReleaseExecutionProvider,
   ) {}
 
   async requestRelease(params: ReleaseRequestParams): Promise<AuthorizationResult> {
@@ -103,6 +148,14 @@ export class ProductionReleaseEnforcementService {
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
       consumed: false,
       revoked: false,
+      artifactDigest: params.artifactDigest,
+      projectId: params.projectId,
+      executionId: params.executionId,
+      imageRepository: params.imageRepository,
+      imageTag: params.imageTag,
+      imageId: params.imageId,
+      containerName: params.containerName,
+      containerPort: params.containerPort,
     };
 
     this.authorizations.set(authorization.authorizationId, authorization);
@@ -171,7 +224,7 @@ export class ProductionReleaseEnforcementService {
       return {
         status: authResult.status === "FAIL" ? "FAIL" : "BLOCKED",
         message: authResult.reasons.join(", "),
-        providerAvailable: this.deploymentProviderAvailable,
+        providerAvailable: this.provider !== undefined,
       };
     }
 
@@ -180,8 +233,8 @@ export class ProductionReleaseEnforcementService {
     auth.consumed = true;
     this.authorizations.set(auth.authorizationId, auth);
 
-    // Check deployment provider
-    if (!this.deploymentProviderAvailable) {
+    // No provider wired → fail closed (Phase 101 / Phase 4 Pass 6 behavior preserved).
+    if (!this.provider) {
       return {
         status: "BLOCKED",
         message: "No real production deployment provider configured",
@@ -189,12 +242,29 @@ export class ProductionReleaseEnforcementService {
       };
     }
 
-    // If provider available, would perform deployment here; not implemented for Pass 6
+    // Real provider wired → invoke canonical deployment, translate outcome.
+    const outcome = await this.provider.execute({
+      authorizationId: auth.authorizationId,
+      releaseId: auth.releaseId,
+      artifactId: auth.artifactId,
+      commitSha: auth.commitSha,
+      environment: auth.environment,
+      projectId: auth.projectId ?? null,
+      executionId: auth.executionId ?? null,
+      imageRepository: auth.imageRepository ?? null,
+      imageTag: auth.imageTag ?? null,
+      imageId: auth.imageId ?? null,
+      imageDigest: auth.artifactDigest,
+      containerName: auth.containerName ?? null,
+      containerPort: auth.containerPort ?? null,
+    });
+
     return {
-      status: "EXECUTING",
-      message: "Deployment provider would execute here",
+      status: outcome.status,
+      message: outcome.message,
       providerAvailable: true,
-      provider: "real-provider-placeholder",
+      provider: "canonical-deployment-orchestrator",
+      deploymentId: outcome.deploymentId ?? undefined,
     };
   }
 }
