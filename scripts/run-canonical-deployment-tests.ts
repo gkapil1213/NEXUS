@@ -1,4 +1,4 @@
-﻿// scripts/run-canonical-deployment-tests.ts
+// scripts/run-canonical-deployment-tests.ts
 //
 // Focused tests for CanonicalDeploymentOrchestrator. Mock Docker + mock
 // SmokeTestService are scripted; the DeploymentHistoryService runs against
@@ -77,6 +77,41 @@ async function main() {
     check("T1 :latest rejected", threw && docker.calls.length === 0, "threw=" + threw);
   }
 
+  // ---- T1b: digest must be used as immutable Docker image reference ----
+  {
+    const docker = mockDocker((op) => {
+      if (op.kind === "run") return { stdout: "container-t1b\n" };
+      if (op.kind === "inspect" && op.image === "container-t1b") {
+        return {
+          stdout: JSON.stringify([{
+            Image: "sha256:aaa",
+            NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12345" }] } }
+          }])
+        };
+      }
+      if (op.kind === "inspect" && op.image === "nexus/x@sha256:aaa") {
+        return { stdout: JSON.stringify([{ Id: "sha256:aaa" }]) };
+      }
+      return undefined;
+    });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+
+    const r = await orch.deploy({
+      project_id: "t1b", environment: "dev", release_id: "r1b",
+      image_repository: "nexus/x", image_tag: "v1",
+      image_id: null, image_digest: "sha256:aaa",
+      container_name: "t1b-c", container_port: 8080,
+    });
+
+    const runOp = docker.calls.find((c) => c.kind === "run" && c.image === "nexus/x@sha256:aaa");
+
+    check(
+      "T1b digest deployment uses immutable image reference",
+      !!runOp && r.deployment.status === "KNOWN_GOOD",
+      "run_image=" + (runOp?.image ?? "missing") + " status=" + r.deployment.status
+    );
+  }
   // ---- T2: no immutable identity -> BLOCKED ----
   {
     const docker = mockDocker(() => undefined);

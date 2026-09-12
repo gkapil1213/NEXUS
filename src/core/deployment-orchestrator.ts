@@ -151,7 +151,7 @@ export class CanonicalDeploymentOrchestrator {
     /* (5) run the real container */
     const runRes = await docker.run({
       kind: "run",
-      image: req.image_repository + ":" + req.image_tag,
+      image: req.image_digest ? req.image_repository + "@" + req.image_digest : req.image_repository + ":" + req.image_tag,
       name: req.container_name,
       ports: [{ host: req.container_host_port ?? 0, container: req.container_port }],
       detach: true,
