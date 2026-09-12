@@ -64,6 +64,7 @@ import { SecurityReleaseGate } from "./security-release-gate";
 import { ProductionReleaseDecisionService } from "./production-release-decision";
 import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
+import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -361,10 +362,20 @@ export class NexusKernel {
       const securityApi = new SecurityApi(engine);
       const securityGate = new SecurityReleaseGate(securityApi);
       const releaseDecision = new ProductionReleaseDecisionService(securityApi, securityGate);
+
+      // Phase 103: durable release intent + lease state lives in the same
+      // SQLite ExecutionStore used by the execution runtime. Optional —
+      // when the sqlite engine is unavailable, the bridge falls back to the
+      // legacy Phase 102 path (no durable intent, no crash recovery).
+      const releaseIntents = this.executionStore
+        ? new ReleaseDeploymentIntentService(this.executionStore)
+        : undefined;
+
       const releaseBridge = new ReleaseDeploymentBridge({
         deployments,
         artifacts,
         svc: { events, audit },
+        intents: releaseIntents,
       });
       const releaseEnforcement = new ProductionReleaseEnforcementService(
         securityApi,

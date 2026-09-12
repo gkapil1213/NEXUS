@@ -459,6 +459,11 @@ async function main() {
       container_name: "t30-c",
     });
     await history.markKnownGood(known.id);
+    // T30 timing guard: createDeployment uses Date.now() for started_at.
+    // Without a gap, the pre-seeded KNOWN_GOOD and the new deployment can
+    // share the same millisecond, and getPreviousKnownGood's strict
+    // `started_at < current.started_at` filter returns null.
+    await new Promise((r) => setTimeout(r, 10));
 
     let runCount = 0;
     const docker = mockDocker((op) => {
@@ -858,7 +863,7 @@ async function main() {
   }
 
   {
-    const input = { releaseId: "rel-t53", executionId: "exec-t53", artifactId: "art-t53", artifactDigest: "sha256:t53", commitSha: "c-t53", environment: "production", imageRepository: "nexus/t53", imageTag: "v1", imageId: null, imageDigest: "sha256:t53", containerName: "t53-c", containerPort: 8080 };
+    const n53 = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6); const input = { releaseId: "rel-t53-" + n53, executionId: "exec-t53-" + n53, artifactId: "art-t53-" + n53, artifactDigest: "sha256:t53-" + n53, commitSha: "c-t53-" + n53, environment: "production", imageRepository: "nexus/t53", imageTag: "v1", imageId: "sha256:t53", imageDigest: "sha256:t53", containerName: "t53-c-" + n53, containerPort: 8080 };
     const { intent } = await intents.getOrCreate(input);
     const shortLease = intents.acquireLease(intent.intentKey, "worker-old", 1);
     await new Promise((r) => setTimeout(r, 15));
@@ -893,7 +898,8 @@ async function main() {
     check("T59 BLOCKED is terminal", p.action === "ALREADY_BLOCKED" && p.requiresDockerInspection === false, "action=" + p.action);
   }
 
-  }
+  }
+
 
   console.log("\nPASS: " + pass + "  FAIL: " + fail);
   process.exit(fail === 0 ? 0 : 1);
