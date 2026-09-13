@@ -1670,6 +1670,11 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         assert(byId["BUILDING"]?.blockedReason, "build has a real blocked reason");
         assert(byId["SECURITY_REVIEW"]?.availability === "ready", "static security is ready");
         assert(byId["SBOM_GENERATION"]?.availability === "ready", "scaffold yields an SBOM-able manifest");
+        const stageIds = plan.stages.map((s) => s.id);
+        assert(
+          stageIds.indexOf("IMAGE_SECURITY_SCAN") < stageIds.indexOf("REGISTRY_PUBLISH"),
+          "image security scan must precede registry publication",
+        );
         assert(plan.readyCount + plan.blockedCount === plan.stages.length, "availability accounting is complete");
         return `lang=${plan.detection.language} ready=${plan.readyCount} blocked=${plan.blockedCount}`;
       },

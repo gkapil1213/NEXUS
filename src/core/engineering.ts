@@ -311,18 +311,6 @@ function buildStages(
             : null,
       },
       {
-        id: "REGISTRY_PUBLISH",
-        label: "Registry publish",
-        description: "Publish the built image to the configured container registry with an immutable tag and record the authoritative digest.",
-        service: "ContainerRegistryProvider",
-        availability: exec.docker && hasDockerfile ? "ready" : "blocked",
-        blockedReason: !hasDockerfile
-          ? "Registry publish requires a real built image."
-          : !exec.docker
-            ? "No Docker runtime available; registry publish is BLOCKED."
-            : null,
-      },
-      {
         id: "IMAGE_SECURITY_SCAN",
         label: "Container scan",
         description: "Scan the image for vulnerabilities (Trivy native or via Docker).",
@@ -332,6 +320,18 @@ function buildStages(
           ? "Image scan requires a real built image."
           : !exec.docker
             ? "No container scanner runtime available — scan is BLOCKED, never faked."
+            : null,
+      },
+      {
+        id: "REGISTRY_PUBLISH",
+        label: "Registry publish",
+        description: "Publish the built image to the configured container registry with an immutable tag and record the authoritative digest.",
+        service: "ContainerRegistryProvider",
+        availability: exec.docker && hasDockerfile ? "ready" : "blocked",
+        blockedReason: !hasDockerfile
+          ? "Registry publish requires a real built image."
+          : !exec.docker
+            ? "No Docker runtime available; registry publish is BLOCKED."
             : null,
       },
     );
@@ -1128,6 +1128,14 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
   let failed = false;
   let blocked = false;
 
+  const stageDependencies: Partial<Record<PipelineStageName, PipelineStageName[]>> = {
+    TESTING: ["BUILDING"],
+    DOCKERFILE_VALIDATION: ["DOCKERFILE_DETECTION"],
+    DOCKER_BUILD: ["DOCKERFILE_VALIDATION"],
+    IMAGE_INSPECTION: ["DOCKER_BUILD"],
+    IMAGE_SECURITY_SCAN: ["IMAGE_INSPECTION"],
+    REGISTRY_PUBLISH: ["DOCKER_BUILD", "IMAGE_INSPECTION", "IMAGE_SECURITY_SCAN"],
+  };
   for (const stage of plan.stages) {
     const runner = runners[stage.id];
     if (!runner) {
@@ -1141,7 +1149,23 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
       stageArtifacts = out.artifacts?.length ?? 0;
       return out;
     };
-    const rec = await engine.runStage(ctx, run, stage.id, wrapped);
+    const failedDependency = (stageDependencies[stage.id] ?? [])
+      .map((id) => results.find((r) => r.stageId === id))
+      .find((r) => r && (r.outcome === "FAILED" || r.outcome === "BLOCKED"));
+
+    const rec = failedDependency
+      ? await engine.runStage(ctx, run, stage.id, async () => {
+          const reason =
+            `blocked by ${failedDependency.stageId}=${failedDependency.outcome}` +
+            (failedDependency.blockedReason ? `: ${failedDependency.blockedReason}` : "");
+
+          return {
+            status: "BLOCKED",
+            blocked_reason: reason,
+            logs: `${stage.label} blocked: ${reason}`,
+          };
+        })
+      : await engine.runStage(ctx, run, stage.id, wrapped);
     const mapped = mapStage(rec, stage.label);
     mapped.artifacts = stageArtifacts;
     artifactCount += stageArtifacts;
