@@ -798,13 +798,19 @@ export class GitHubProvider implements GitProvider {
 
   async getPipelineStatus(_owner: string, _repo: string, _ref: string): Promise<CiRunStatus> {
     this.connected();
-    // Workflow run status requires the Actions API; report honestly.
-    throw blocked("github", "workflow run status is not available through the connected service");
+    // The GitHub Actions API addresses runs by external run id, not by
+    // (owner, repo, ref) — resolving "the latest run for ref" is ambiguous
+    // and can attach to an unrelated run. Real workflow status lives in
+    // GitHubActionsCICDProvider (provider id "github-actions") and is
+    // addressed by external_run_id through the CICDRunManager.
+    throw blocked("github", "workflow status requires an external run id — use GitHubActionsCICDProvider.getStatus(externalRunId) via CICDRunManager");
   }
 
   async getCommitStatus(_owner: string, _repo: string, _sha: string): Promise<string> {
     this.connected();
-    throw blocked("github", "commit status is not available through the connected service");
+    // Commit-status endpoints are not part of this provider's contract.
+    // Real per-run status is available via GitHubActionsCICDProvider.
+    throw blocked("github", "commit status is not part of this provider; use GitHubActionsCICDProvider for workflow run status");
   }
 }
 
