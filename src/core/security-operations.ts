@@ -1,4 +1,4 @@
-import { NexusEngine, nid } from "./db";
+import { NexusEngine, nid, sha256Hex } from "./db";
 import { EventService } from "./events";
 import { AuditService } from "./audit";
 import {
@@ -139,7 +139,6 @@ export class SecurityEvidenceIntegrityService {
   constructor(private engine: NexusEngine) {}
 
   async computeSha256(content: string): Promise<string> {
-    const { sha256Hex } = await import("./db");
     return sha256Hex(content);
   }
 
