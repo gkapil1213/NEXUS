@@ -70,7 +70,6 @@ import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 import { ReleaseRecoveryService } from "./release-recovery";
 import { ReleaseRecoveryExecutor } from "./release-recovery-executor";
-import * as os from "node:os";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -428,7 +427,7 @@ export class NexusKernel {
             docker: runtime.docker,
             smoke: runtime.smoke,
             svc: { events, audit },
-            workerId: "nexus-" + os.hostname() + "-" + process.pid,
+            workerId: "nexus-" + crypto.randomUUID(),
           });
           const rep = await executor.runOnce();
           this.step("recovery", "ok", "scanned=" + rep.scanned + " acted=" + rep.acted + " blocked=" + rep.blocked + " leaseHeld=" + rep.leaseHeld);
