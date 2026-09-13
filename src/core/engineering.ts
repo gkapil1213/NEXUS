@@ -23,6 +23,9 @@ import type { KernelServices } from "./kernel";
 import { ProjectDetector, SecurityScanner, SBOMService, buildPlanFrom, validateBuildPlan, PipelineEngine } from "./devops";
 import { createExecutor, getHostBridge, TokenBoundExecutor, DockerAdapter, TrivyAdapter } from "./runtime";
 import type { HostBridge, ProcessExecutor } from "./runtime";
+import type { ImageReference } from "./types";
+import { DockerRegistryProvider } from "./container-registry-provider";
+import { readRegistryConfig } from "./container-registry-config";
 import { createRuntimeCommandExecutor } from "./runtime-command-adapter";
 import { hasHostMaterialization, prepareHostWorkspace, cleanupHostWorkspace } from "./host-workspace";
 import { validateDockerfile } from "./dockerfile-validator";
@@ -308,6 +311,18 @@ function buildStages(
             : null,
       },
       {
+        id: "REGISTRY_PUBLISH",
+        label: "Registry publish",
+        description: "Publish the built image to the configured container registry with an immutable tag and record the authoritative digest.",
+        service: "ContainerRegistryProvider",
+        availability: exec.docker && hasDockerfile ? "ready" : "blocked",
+        blockedReason: !hasDockerfile
+          ? "Registry publish requires a real built image."
+          : !exec.docker
+            ? "No Docker runtime available; registry publish is BLOCKED."
+            : null,
+      },
+      {
         id: "IMAGE_SECURITY_SCAN",
         label: "Container scan",
         description: "Scan the image for vulnerabilities (Trivy native or via Docker).",
@@ -521,7 +536,11 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
     dockerfileSource: DockerfileSource | null;
     validationVerdict: DockerfileVerdict | null;
     builtImage: string | null;
-  } = { dockerfileSource: null, validationVerdict: null, builtImage: null };
+    /** Phase 106: registry-qualified target after a successful publish. */
+    registryRef: ImageReference | null;
+    /** Phase 106: authoritative sha256 digest from the registry (post-push). */
+    registryDigest: string | null;
+  } = { dockerfileSource: null, validationVerdict: null, builtImage: null, registryRef: null, registryDigest: null };
 
   return {
     DETECTING: async (): Promise<StageOutput> => {
@@ -889,6 +908,108 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
         evidence: evi,
       };
     },
+    REGISTRY_PUBLISH: async (): Promise<StageOutput> => {
+      if (!dockerState.builtImage) {
+        return { status: "BLOCKED", blocked_reason: "no built image from DOCKER_BUILD stage" };
+      }
+      if (!execDeps.runtimeExecutor || !execDeps.bridge) {
+        return { status: "BLOCKED", blocked_reason: "no host runtime executor / bridge available for registry publish" };
+      }
+
+      const cfg = readRegistryConfig();
+      if (!cfg.ok) {
+        return { status: "BLOCKED", blocked_reason: cfg.reason };
+      }
+
+      const localFull = dockerState.builtImage;
+      const colonIdx = localFull.lastIndexOf(":");
+      if (colonIdx <= 0) {
+        return { status: "BLOCKED", blocked_reason: "built image lacks an explicit tag" };
+      }
+      const localRepo = localFull.slice(0, colonIdx);
+      const localTag = localFull.slice(colonIdx + 1);
+      if (!localRepo || !localTag) {
+        return { status: "BLOCKED", blocked_reason: "built image ref is malformed" };
+      }
+      if (localTag === "latest") {
+        return { status: "BLOCKED", blocked_reason: "refusing to publish mutable ':latest' tag" };
+      }
+
+      const targetRepo = cfg.config.host + "/" + localRepo;
+      const targetFull = targetRepo + ":" + localTag;
+
+      const prepared = await prepareHostWorkspace(
+        { workspaces: execDeps.workspaces, bridge: execDeps.bridge },
+        execDeps.actor,
+        execDeps.workspaceId,
+      );
+      if (prepared.status === "BLOCKED") {
+        return { status: "BLOCKED", blocked_reason: prepared.reason };
+      }
+
+      const boundExec = new TokenBoundExecutor(execDeps.runtimeExecutor, prepared.token);
+      const docker = new DockerAdapter(boundExec);
+      const provider = new DockerRegistryProvider(docker);
+
+      const cleanup = async () => {
+        await cleanupHostWorkspace({ workspaces: execDeps.workspaces, bridge: execDeps.bridge }, prepared.token);
+      };
+
+      const tagRes = await docker.run({ kind: "tag", source: localFull, target: targetFull });
+      if (tagRes.status !== "SUCCEEDED" || tagRes.exit_code !== 0) {
+        await cleanup();
+        return {
+          status: tagRes.status === "BLOCKED" ? "BLOCKED" : "FAILED",
+          blocked_reason: tagRes.blocked_reason,
+          error: tagRes.status === "BLOCKED" ? null : "docker tag failed (exit " + tagRes.exit_code + "): " + (tagRes.stderr || "").slice(0, 200),
+        };
+      }
+
+      const auth = await provider.authenticate();
+      if (!auth.ok) {
+        await cleanup();
+        return { status: "BLOCKED", blocked_reason: auth.reason ?? "registry authentication blocked" };
+      }
+
+      const targetRef: ImageReference = { repository: targetRepo, tag: localTag, digest: null, full: targetFull };
+      const pushRes = await provider.push(targetRef);
+      if (!pushRes.ok) {
+        await cleanup();
+        return { status: "FAILED", error: pushRes.reason ?? "registry push failed" };
+      }
+
+      const pub = await provider.resolvePublishedDigest(targetRef);
+      await cleanup();
+      if (!pub.ok || !pub.digest || !pub.immutable_reference) {
+        return { status: "BLOCKED", blocked_reason: pub.reason ?? "no authoritative registry digest" };
+      }
+
+      dockerState.registryRef = { repository: targetRepo, tag: localTag, digest: pub.digest, full: targetFull };
+      dockerState.registryDigest = pub.digest;
+
+      const payload = JSON.stringify(
+        {
+          repository: targetRepo,
+          tag: localTag,
+          digest: pub.digest,
+          image: targetFull,
+          immutable_reference: pub.immutable_reference,
+        },
+        null,
+        2,
+      );
+
+      return {
+        status: "SUCCEEDED",
+        command: "docker push " + targetFull,
+        logs: "published " + targetFull + " as " + pub.immutable_reference,
+        artifacts: [{ kind: "IMAGE_DIGEST", name: "image-digest.json", content: payload }],
+        evidence: [
+          { type: "hash" as const, content: pub.digest, metadata: { stage: "REGISTRY_PUBLISH", immutable_reference: pub.immutable_reference } },
+        ],
+      };
+    },
+
     SECURITY_REVIEW: async (): Promise<StageOutput> => {
       const res = await scanner.staticScan(reader);
       return {

@@ -82,7 +82,7 @@ const WS_BODY_MAX_BYTES  = MAX_WS_TOTAL_BYTES + 1 * 1024 * 1024;
 /* Keep in exact sync with src/core/runtime.ts (TOOL_OPERATIONS + executables). */
 
 const TOOL_OPS = {
-  docker: ["version", "info", "build", "inspect", "run", "ps", "logs", "stop", "rm"],
+  docker: ["version", "info", "build", "inspect", "run", "ps", "logs", "stop", "rm", "tag", "push"],
   trivy: ["--version", "image", "filesystem"],
   git: ["--version", "status", "log", "rev-parse"],
   node: ["--version", "-e"],

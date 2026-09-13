@@ -795,6 +795,8 @@ export type PipelineStageName =
   | "DOCKER_BUILD"
   | "IMAGE_INSPECTION"
   | "IMAGE_SECURITY_SCAN"
+  // Phase 106 — registry publication (between container scan and SBOM)
+  | "REGISTRY_PUBLISH"
   | "SBOM_GENERATION"
   | "ARTIFACT_REGISTRATION";
 

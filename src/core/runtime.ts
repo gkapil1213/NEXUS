@@ -210,7 +210,7 @@ export function sanitizeArgs(args: string[]): string[] {
 
 /** Per-tool operation allowlists. Only these operations may ever be invoked. */
 export const TOOL_OPERATIONS: Record<AllowedTool, readonly string[]> = {
-  docker: ["version", "info", "build", "inspect", "run", "ps", "logs", "stop", "rm"],
+  docker: ["version", "info", "build", "inspect", "run", "ps", "logs", "stop", "rm", "tag", "push"],
   trivy: ["--version", "image", "filesystem"],
   git: ["--version", "status", "log", "rev-parse"],
   // `-e` is permitted ONLY with a registered trusted script (see TRUSTED_SCRIPTS).
@@ -421,7 +421,9 @@ export type DockerOp =
   | { kind: "ps"; filter?: string }
   | { kind: "logs"; container: string }
   | { kind: "stop"; container: string }
-  | { kind: "rm"; container: string; force?: boolean };
+  | { kind: "rm"; container: string; force?: boolean }
+  | { kind: "tag"; source: string; target: string }
+  | { kind: "push"; ref: string };
 
 export interface DockerResult {
   status: "SUCCEEDED" | "FAILED" | "BLOCKED";
@@ -464,6 +466,29 @@ export class DockerAdapter {
         return { tool: "docker", operation: "stop", args: [op.container] };
       case "rm":
         return { tool: "docker", operation: "rm", args: op.force ? ["-f", op.container] : [op.container] };
+      case "tag": {
+        // Phase 106: local-only tag operation. Reject shell metacharacters and
+        // forbidden ref shapes; never accepts arbitrary flags.
+        const src = op.source.trim();
+        const dst = op.target.trim();
+        if (!src || src.length > 300) throw Err.validation("INVALID_TAG_SOURCE", "tag source must be 1-300 chars");
+        if (!dst || dst.length > 300) throw Err.validation("INVALID_TAG_TARGET", "tag target must be 1-300 chars");
+        if (/[@\s]/.test(src) || /[@\s]/.test(dst)) throw Err.validation("INVALID_TAG", "tag refs must not contain '@' or whitespace");
+        if (src.startsWith("-") || dst.startsWith("-")) throw Err.validation("INVALID_TAG", "tag refs must not begin with '-'");
+        return { tool: "docker", operation: "tag", args: [src, dst], timeout_ms: 60_000 };
+      }
+      case "push": {
+        // Phase 106: push to a registry. The ref is a fully-qualified
+        // repository:tag. No flags are ever accepted from the caller; ':latest'
+        // is rejected here as a defense-in-depth check (the provider also
+        // validates).
+        const r = op.ref.trim();
+        if (!r || r.length > 300) throw Err.validation("INVALID_PUSH_REF", "push ref must be 1-300 chars");
+        if (/[@\s]/.test(r)) throw Err.validation("INVALID_PUSH_REF", "push ref must not contain '@' or whitespace");
+        if (r.startsWith("-")) throw Err.validation("INVALID_PUSH_REF", "push ref must not begin with '-'");
+        if (r.endsWith(":latest")) throw Err.validation("PUSH_LATEST_DENIED", "refusing to push mutable ':latest' tag");
+        return { tool: "docker", operation: "push", args: [r], timeout_ms: 300_000 };
+      }
     }
   }
 
