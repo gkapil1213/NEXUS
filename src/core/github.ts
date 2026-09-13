@@ -199,6 +199,21 @@ async function safeMessage(res: Response): Promise<string | null> {
 
 /* --------------------------------- service -------------------------------- */
 
+/** Phase 105: real GitHub Actions workflow run as returned by the REST API. */
+export interface GitHubWorkflowRun {
+  id: number;
+  name: string | null;
+  head_branch: string | null;
+  head_sha: string;
+  status: "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending" | null;
+  conclusion: "success" | "failure" | "neutral" | "cancelled" | "skipped" | "timed_out" | "action_required" | null;
+  created_at: string;
+  updated_at: string;
+  html_url: string;
+  event: string;
+  run_attempt: number;
+}
+
 export class GitHubService {
   private token: string | null = null;
   private identity: GitHubIdentity | null = null;
@@ -404,6 +419,80 @@ export class GitHubService {
     return { number: data.number, html_url: data.html_url, head: data.head.ref, base: data.base.ref, state: data.state };
   }
 
+  /* ---------- Phase 105: GitHub Actions API (real REST, no shell, no gh CLI) ---------- */
+
+  /** POST /repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches */
+  async dispatchWorkflow(opts: {
+    owner: string;
+    repo: string;
+    workflow: string;
+    ref: string;
+    inputs?: Record<string, string>;
+  }): Promise<void> {
+    const token = this.requireToken();
+    const encOwner = encodeURIComponent(opts.owner);
+    const encRepo = encodeURIComponent(opts.repo);
+    const encWorkflow = encodeURIComponent(opts.workflow);
+    await api<unknown>(`/repos/${encOwner}/${encRepo}/actions/workflows/${encWorkflow}/dispatches`, {
+      token,
+      method: "POST",
+      body: { ref: opts.ref, inputs: opts.inputs ?? {} },
+    });
+  }
+
+  /** GET /repos/{owner}/{repo}/actions/workflows/{workflow}/runs */
+  async listWorkflowRuns(opts: {
+    owner: string;
+    repo: string;
+    workflow: string;
+    event?: string;
+    branch?: string;
+    createdSinceIso?: string;
+    perPage?: number;
+  }): Promise<GitHubWorkflowRun[]> {
+    const token = this.requireToken();
+    const encOwner = encodeURIComponent(opts.owner);
+    const encRepo = encodeURIComponent(opts.repo);
+    const encWorkflow = encodeURIComponent(opts.workflow);
+    const qs = new URLSearchParams();
+    if (opts.event) qs.set("event", opts.event);
+    if (opts.branch) qs.set("branch", opts.branch);
+    if (opts.createdSinceIso) qs.set("created", ">=" + opts.createdSinceIso);
+    qs.set("per_page", String(Math.min(Math.max(opts.perPage ?? 20, 1), 100)));
+    const res = await api<{ workflow_runs: GitHubWorkflowRun[] }>(
+      `/repos/${encOwner}/${encRepo}/actions/workflows/${encWorkflow}/runs?${qs.toString()}`,
+      { token },
+    );
+    return res.data.workflow_runs ?? [];
+  }
+
+  /** GET /repos/{owner}/{repo}/actions/runs/{run_id} */
+  async getWorkflowRun(owner: string, repo: string, runId: string | number): Promise<GitHubWorkflowRun | null> {
+    const token = this.requireToken();
+    const encOwner = encodeURIComponent(owner);
+    const encRepo = encodeURIComponent(repo);
+    try {
+      const res = await api<GitHubWorkflowRun>(
+        `/repos/${encOwner}/${encRepo}/actions/runs/${encodeURIComponent(String(runId))}`,
+        { token },
+      );
+      return res.data;
+    } catch (e) {
+      if ((e as { code?: string }).code === "NOT_FOUND") return null;
+      throw e;
+    }
+  }
+
+  /** POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel */
+  async cancelWorkflowRun(owner: string, repo: string, runId: string | number): Promise<void> {
+    const token = this.requireToken();
+    const encOwner = encodeURIComponent(owner);
+    const encRepo = encodeURIComponent(repo);
+    await api<unknown>(
+      `/repos/${encOwner}/${encRepo}/actions/runs/${encodeURIComponent(String(runId))}/cancel`,
+      { token, method: "POST" },
+    );
+  }
   rateLimit(): RateLimit | null {
     return this.rate;
   }

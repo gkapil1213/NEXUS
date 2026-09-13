@@ -1,4 +1,4 @@
-﻿import { CICDProvider } from "./cicd-provider";
+import { CICDProvider, CICDStatusContext } from "./cicd-provider";
 import { CICDProviderRegistry } from "./cicd-provider-registry";
 
 export class CICDRunManager {
@@ -14,15 +14,15 @@ export class CICDRunManager {
     return provider.trigger(request);
   }
 
-  async getStatus(providerId: string, externalRunId: string): Promise<{ status: string; logs?: string; evidence?: any }> {
+  async getStatus(providerId: string, externalRunId: string, ctx?: CICDStatusContext): Promise<{ status: string; logs?: string; evidence?: any }> {
     const provider = this.registry.get(providerId);
     if (!provider) throw new Error(`Provider ${providerId} not found or disabled`);
-    return provider.getStatus(externalRunId);
+    return provider.getStatus(externalRunId, ctx);
   }
 
-  async cancel(providerId: string, externalRunId: string): Promise<void> {
+  async cancel(providerId: string, externalRunId: string, ctx?: CICDStatusContext): Promise<void> {
     const provider = this.registry.get(providerId);
     if (!provider) throw new Error(`Provider ${providerId} not found or disabled`);
-    await provider.cancel(externalRunId);
+    await provider.cancel(externalRunId, ctx);
   }
 }
