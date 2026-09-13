@@ -1238,6 +1238,14 @@ export interface CiPipelineRun {
   updated_at: number;
   error: SystemError | null;
   blocked_reason: string | null;
+  /** Phase 105 Pass 2: real external CI provider run id (null until dispatch accepted). */
+  external_run_id?: string | null;
+  /** Phase 105 Pass 2: canonical external run URL when the provider supplies one. */
+  external_url?: string | null;
+  /** Phase 105 Pass 2: workflow file dispatched against the external provider. */
+  workflow_file?: string | null;
+  /** Phase 105 Pass 2: real commit SHA the workflow was committed at. */
+  commit_sha?: string | null;
 }
 
 /** An audited git operation (branch/commit/PR creation, status fetch). */

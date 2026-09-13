@@ -30,7 +30,7 @@ function run(over: Partial<GitHubWorkflowRun>): GitHubWorkflowRun {
 }
 
 interface FakeConfig {
-  state?: { status: string; reason?: string | null };
+  state?: { connected: boolean; reason?: string | null };
   onDispatch?: (opts: any) => void | Promise<void>;
   listRuns?: (opts: any) => GitHubWorkflowRun[] | Promise<GitHubWorkflowRun[]>;
   getRun?: (owner: string, repo: string, id: string | number) => GitHubWorkflowRun | null | Promise<GitHubWorkflowRun | null>;
@@ -38,7 +38,7 @@ interface FakeConfig {
 }
 function fakeGithub(cfg: FakeConfig = {}): GitHubActionsClient {
   return {
-    state: () => cfg.state ?? { status: "connected", reason: null },
+    state: () => cfg.state ?? { connected: true },
     async dispatchWorkflow(opts) { if (cfg.onDispatch) await cfg.onDispatch(opts); },
     async listWorkflowRuns(opts) { return cfg.listRuns ? await cfg.listRuns(opts) : []; },
     async getWorkflowRun(o, r, id) { return cfg.getRun ? await cfg.getRun(o, r, id) : null; },
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
 
   // ---- Authentication (7-8) ----
   {
-    const p = new GitHubActionsCICDProvider(fakeGithub({ state: { status: "disconnected", reason: "no token" } }));
+    const p = new GitHubActionsCICDProvider(fakeGithub({ state: { connected: false, reason: "no token" } }));
     let threw = false;
     let msg = "";
     try { await p.trigger(validReq); } catch (e) { threw = true; msg = (e as Error).message; }
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
   }
   {
     const p = new GitHubActionsCICDProvider(fakeGithub({
-      state: { status: "disconnected", reason: "no token ghp_shouldnotleak0000000000000000000000" },
+      state: { connected: false, reason: "no token ghp_shouldnotleak0000000000000000000000" },
     }));
     let msg = "";
     try { await p.trigger(validReq); } catch (e) { msg = (e as Error).message; }

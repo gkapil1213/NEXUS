@@ -53,7 +53,11 @@ import {
   GitHubProvider,
   GitLabProvider,
   CiPipelineEngine,
+  type CiCicdBridge,
 } from "./cicd";
+import { CICDProviderRegistry } from "./cicd-provider-registry";
+import { CICDRunManager } from "./cicd-run-manager";
+import { GitHubActionsCICDProvider } from "./github-actions-cicd-provider";
 import { BrowserSandbox, FileAccessPolicy, WorkspaceService, DEFAULT_WORKSPACE_LIMITS } from "./workspace";
 import { RuntimeBridge, getHostBridge, TokenBoundExecutor, DockerAdapter, PlaywrightAdapter, SmokeTestService } from "./runtime";
 import { DeploymentHistoryService } from "./deployment-history";
@@ -303,7 +307,26 @@ export class NexusKernel {
         evidence,
         artifacts,
       });
-      const cicdEngine = new CiPipelineEngine({ engine, events, audit, evidence, artifacts, authz });
+      // Phase 105 Pass 2: register the real GitHub Actions provider only when
+      // a GitHub connection is actually established. When it is not, the
+      // bridge is undefined and the engine keeps its legacy (honest BLOCKED)
+      // behavior for remote runs. Kernel boot must never fail because the
+      // external CI capability is unavailable.
+      let cicdBridge: CiCicdBridge | undefined;
+      try {
+        if (github.state().connected) {
+          const cicdRegistry = new CICDProviderRegistry();
+          cicdRegistry.register(new GitHubActionsCICDProvider(github));
+          cicdBridge = {
+            registry: cicdRegistry,
+            manager: new CICDRunManager(cicdRegistry),
+            providerId: "github-actions",
+          };
+        }
+      } catch {
+        cicdBridge = undefined;
+      }
+      const cicdEngine = new CiPipelineEngine({ engine, events, audit, evidence, artifacts, authz, cicd: cicdBridge });
       const cicd = {
         agent: cicdAgent,
         validator: cicdValidator,

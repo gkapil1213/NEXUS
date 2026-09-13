@@ -58,6 +58,9 @@ import type {
   PipelineValidationResult,
   PipelineValidationVerdict,
 } from "./types";
+import type { CICDProviderRegistry } from "./cicd-provider-registry";
+import type { CICDRunManager } from "./cicd-run-manager";
+import { redactSecrets } from "./github-actions-cicd-provider";
 
 /* =============================== Branch policy ============================= */
 
@@ -915,6 +918,18 @@ export class StaticGitProvider implements GitProvider {
 
 /* ============================== CI pipeline engine ========================= */
 
+/**
+ * Phase 105 Pass 2: optional bridge to a real external CI provider.
+ * When present, CiPipelineEngine.startRun dispatches through the provider
+ * instead of taking the legacy synthetic RUNNING path. When absent, the
+ * engine behaves exactly as it did before Pass 2.
+ */
+export interface CiCicdBridge {
+  registry: CICDProviderRegistry;
+  manager: CICDRunManager;
+  providerId: string;
+}
+
 export interface CiServices {
   engine: NexusEngine;
   events: EventService;
@@ -922,6 +937,8 @@ export interface CiServices {
   evidence: EvidenceService;
   artifacts: ArtifactService;
   authz: AuthorizationService;
+  /** Phase 105 Pass 2: real external CI provider bridge (optional). */
+  cicd?: CiCicdBridge;
 }
 
 /** Legal CI run transitions. Terminal states cannot re-enter RUNNING without a
@@ -1054,7 +1071,182 @@ export class CiPipelineEngine {
     if (provider.kind === "static") {
       return this.transitionRun(run, "BLOCKED", ctx, "static provider fixture cannot execute a real pipeline run (STATIC_PROVIDER_TEST only)");
     }
+
+    // Phase 105 Pass 2: real external dispatch when a CICD bridge is wired.
+    if (this.svc.cicd && run.provider === "github") {
+      return this.startRunExternal(run, ctx);
+    }
+
+    // Legacy remote path — unchanged pre-Pass 2 behavior.
     return this.transitionRun(run, "RUNNING", ctx, null);
+  }
+
+  /**
+   * Phase 105 Pass 2: dispatch-first external execution path.
+   *
+   * Ordering is load-bearing. On a fresh QUEUED run with no external id:
+   *   1. require workflow_file + commit_sha (set by the commit step)
+   *   2. dispatch through the provider
+   *   3. persist external_run_id BEFORE transitioning to RUNNING
+   *   4. transition QUEUED -> RUNNING
+   * If the process dies after step 3 but before step 4, the next startRun
+   * sees a QUEUED run with an external_run_id and resumes without
+   * re-dispatching. Never dispatch twice for the same (execution, attempt).
+   */
+  private async startRunExternal(run: CiPipelineRun, ctx: CiContext): Promise<CiPipelineRun> {
+    const bridge = this.svc.cicd!;
+
+    // Already dispatched: resume without re-dispatching.
+    if (run.external_run_id) {
+      if (run.status === "QUEUED") {
+        return this.transitionRun(run, "RUNNING", ctx, null);
+      }
+      return run;
+    }
+
+    // Terminal states must not re-dispatch.
+    if (run.status !== "QUEUED") {
+      return run;
+    }
+
+    // Required lineage before dispatch.
+    if (!run.workflow_file) {
+      return this.transitionRun(run, "BLOCKED", ctx, "workflow_file missing — commit step must run before dispatch");
+    }
+    if (!run.commit_sha) {
+      return this.transitionRun(run, "BLOCKED", ctx, "commit_sha missing — real workflow commit required before dispatch");
+    }
+
+    const [owner, repo] = run.repository.split("/");
+    if (!owner || !repo) {
+      return this.transitionRun(run, "BLOCKED", ctx, "repository must be owner/repo");
+    }
+
+    await this.emit("pipeline.dispatch.started", ctx, {
+      run_id: run.id, owner, repo, ref: run.ref,
+      workflow_file: run.workflow_file, commit_sha: run.commit_sha,
+    });
+
+    let externalRunId: string;
+    try {
+      const res = await bridge.manager.trigger(bridge.providerId, {
+        owner, repo,
+        workflow: run.workflow_file,
+        ref: run.ref,
+        inputs: { execution_id: run.execution_id, attempt: String(run.attempt) },
+        expected_head_sha: run.commit_sha,
+      });
+      externalRunId = res.externalRunId;
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      const reason = redactSecrets(raw);
+      await this.audit(ctx, "pipeline.dispatch.blocked", "info", {
+        run_id: run.id, owner, repo, ref: run.ref, reason,
+      });
+      return this.transitionRun(run, "BLOCKED", ctx, reason);
+    }
+
+    if (!externalRunId || typeof externalRunId !== "string") {
+      await this.audit(ctx, "pipeline.dispatch.invalid-id", "error", {
+        run_id: run.id, owner, repo, ref: run.ref,
+      });
+      return this.transitionRun(run, "BLOCKED", ctx, "provider returned no external_run_id");
+    }
+
+    // Persist the external id BEFORE transitioning so a crash cannot lose
+    // the correlation and force a duplicate dispatch on restart.
+    run.external_run_id = externalRunId;
+    run.updated_at = Date.now();
+    await this.svc.engine.put("ci_pipeline_runs", run.id, run);
+
+    await this.emit("pipeline.dispatch.accepted", ctx, {
+      run_id: run.id, external_run_id: externalRunId, owner, repo, ref: run.ref,
+    });
+    await this.audit(ctx, "pipeline.dispatch.accepted", "allow", {
+      run_id: run.id, external_run_id: externalRunId, owner, repo, ref: run.ref,
+    });
+
+    return this.transitionRun(run, "RUNNING", ctx, null);
+  }
+
+  /**
+   * Phase 105 Pass 2: reconcile a run's status against the external provider.
+   * Never forces an illegal transition and never maps unknown -> success.
+   */
+  async pollRun(run: CiPipelineRun, ctx: CiContext): Promise<CiPipelineRun> {
+    if (!this.svc.cicd || !run.external_run_id) return run;
+    if (run.status === "SUCCEEDED" || run.status === "FAILED" || run.status === "BLOCKED" || run.status === "CANCELLED") {
+      return run;
+    }
+
+    const [owner, repo] = run.repository.split("/");
+    if (!owner || !repo) return run;
+
+    let result: { status: string; logs?: string; evidence?: any };
+    try {
+      result = await this.svc.cicd.manager.getStatus(this.svc.cicd.providerId, run.external_run_id, { owner, repo });
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      const reason = redactSecrets(raw);
+      await this.audit(ctx, "pipeline.poll.blocked", "info", {
+        run_id: run.id, external_run_id: run.external_run_id, reason,
+      });
+      if (isLegalCiTransition(run.status, "BLOCKED")) {
+        return this.transitionRun(run, "BLOCKED", ctx, reason);
+      }
+      return run;
+    }
+
+    const mapped = result.status as CiRunStatus;
+    if (mapped === run.status) return run;
+
+    if (!isLegalCiTransition(run.status, mapped)) {
+      await this.audit(ctx, "pipeline.poll.illegal-transition", "info", {
+        run_id: run.id, from: run.status, to: mapped,
+        external_run_id: run.external_run_id,
+      });
+      return run;
+    }
+
+    const reason = result.evidence ? redactSecrets(JSON.stringify(result.evidence)).slice(0, 500) : null;
+    return this.transitionRun(run, mapped, ctx, reason);
+  }
+
+  /**
+   * Phase 105 Pass 2: cancel the exact external run. Refuses without a
+   * persisted external_run_id and only transitions after the provider
+   * confirms the cancel operation.
+   */
+  async cancelRun(run: CiPipelineRun, ctx: CiContext): Promise<CiPipelineRun> {
+    if (!this.svc.cicd) {
+      return this.transitionRun(run, "BLOCKED", ctx, "no CICD bridge wired — cancellation unavailable");
+    }
+    if (!run.external_run_id) {
+      return this.transitionRun(run, "BLOCKED", ctx, "external_run_id missing — cannot target a specific external run");
+    }
+
+    const [owner, repo] = run.repository.split("/");
+    if (!owner || !repo) {
+      return this.transitionRun(run, "BLOCKED", ctx, "repository must be owner/repo for cancellation");
+    }
+
+    try {
+      await this.svc.cicd.manager.cancel(this.svc.cicd.providerId, run.external_run_id, { owner, repo });
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      const reason = redactSecrets(raw);
+      await this.audit(ctx, "pipeline.cancel.blocked", "info", {
+        run_id: run.id, external_run_id: run.external_run_id, reason,
+      });
+      return this.transitionRun(run, "BLOCKED", ctx, reason);
+    }
+
+    await this.audit(ctx, "pipeline.cancel.accepted", "allow", {
+      run_id: run.id, external_run_id: run.external_run_id,
+    });
+
+    if (!isLegalCiTransition(run.status, "CANCELLED")) return run;
+    return this.transitionRun(run, "CANCELLED", ctx, "cancelled at external provider");
   }
 
   /** Create (idempotently) a change request. Never auto-merged. */

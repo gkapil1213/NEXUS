@@ -15,7 +15,12 @@ import type { GitHubWorkflowRun } from "./github";
  * stub without constructing a full authenticated service.
  */
 export interface GitHubActionsClient {
-  state(): { status: string; reason?: string | null };
+  /**
+   * Structural subset of GitHubService.ConnectionState. `connected` is the
+   * authoritative signal; `reason` is optional and used only by test fakes
+   * to exercise the token-redaction path (the real service never populates it).
+   */
+  state(): { connected: boolean; reason?: string | null };
   dispatchWorkflow(opts: {
     owner: string;
     repo: string;
@@ -112,7 +117,7 @@ export class GitHubActionsCICDProvider implements CICDProvider {
 
   private ensureConnected(): void {
     const st = this.github.state();
-    if (st.status !== "connected") {
+    if (!st.connected) {
       throw new Error("BLOCKED: GitHub not connected — " + redactSecrets(st.reason ?? "no credential present"));
     }
   }
