@@ -400,13 +400,45 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
       fn: async () => {
         const p = await services.projects.create(ownerUser, { name: "phase1-evi" });
         created.projects.push(p.id);
+
         const e = await services.executions.createQueued(ownerUser, p.id, "evidence probe");
         created.executions.push(e.id);
-        const rec = await services.evidence.record(e.id, { type: "log", source: "REAL_EXECUTION", content: "deterministic content 123" });
-        assert(rec.hash === `sha256:${await sha256Hex("deterministic content 123")}`, "digest must be a real sha256 of the content");
+
+        const rec = await services.evidence.record(e.id, {
+          type: "log",
+          source: "REAL_EXECUTION",
+          content: "deterministic content 123",
+        });
+
+        assert(
+          rec.hash === `sha256:${await sha256Hex("deterministic content 123")}`,
+          "digest must be a real sha256 of the content"
+        );
+
         const ok = await services.evidence.verify(rec.id);
         assert(ok.ok, "untampered evidence must verify");
-        return `digest ${rec.hash.slice(0, 23)}…`;
+
+        const stored = await services.engine.get<any>("evidence", rec.id);
+        assert(stored, "persisted evidence record must exist");
+
+        await services.engine.put("evidence", rec.id, {
+          ...stored,
+          __content: "TAMPERED CONTENT",
+        });
+
+        const tampered = await services.evidence.verify(rec.id);
+
+        assert(
+          !tampered.ok,
+          "tampered evidence must fail digest verification"
+        );
+
+        assert(
+          tampered.expected !== tampered.actual,
+          "tampered evidence must produce a different actual digest"
+        );
+
+        return `tamper detected: ${tampered.expected.slice(0, 23)}...`;
       },
     },
     {
