@@ -535,21 +535,30 @@ async function main(): Promise<void> {
   // T36–T37  Phase 104 + worker-phase integrity
   // ============================================================
   {
-    const files = [
+    // Phase 104 contract files: must remain byte-identical.
+    const FROZEN = [
       "src/core/release-recovery.ts",
       "src/core/release-recovery-executor.ts",
       "src/core/release-recovery-inspection.ts",
       "src/core/release-deployment-intent.ts",
-      "src/core/deployment-release-bridge.ts",
       "src/core/execution-store.ts",
     ];
-    const allPresent = files.every((f) => existsSync(f));
-    let clean = false;
+    // Phase 104 file that Phase 107 extends additively: must be present, may
+    // differ by the sanctioned digest-override addendum only.
+    const EXTENDED = ["src/core/deployment-release-bridge.ts"];
+
+    const allPresent = [...FROZEN, ...EXTENDED].every((f) => existsSync(f));
+    let frozenClean = false;
     try {
-      const status = execSync("git status --short -- " + files.join(" "), { encoding: "utf8" });
-      clean = status.trim() === "";
-    } catch { clean = false; }
-    check("T36 Phase 104 files present and unchanged", allPresent && clean, "present=" + allPresent + " clean=" + clean);
+      const status = execSync("git status --short -- " + FROZEN.join(" "), { encoding: "utf8" });
+      frozenClean = status.trim() === "";
+    } catch { frozenClean = false; }
+
+    check(
+      "T36 Phase 104 frozen files present and unchanged; extended file present",
+      allPresent && frozenClean,
+      "present=" + allPresent + " frozenClean=" + frozenClean,
+    );
   }
   {
     let tracked = -1, onDisk = -1;

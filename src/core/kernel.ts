@@ -402,6 +402,10 @@ export class NexusKernel {
         artifacts,
         svc: { events, audit },
         intents: releaseIntents,
+        // Phase 107: enables the bridge to prefer the authoritative registry
+        // digest recorded by REGISTRY_PUBLISH (IMAGE_DIGEST artifact) over the
+        // caller-supplied imageDigest. Optional dep — falls through when absent.
+        engine,
       });
       const releaseEnforcement = new ProductionReleaseEnforcementService(
         securityApi,

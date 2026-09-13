@@ -16,6 +16,7 @@ import type {
   ReleaseExecutionOutcome,
 } from "./production-release-enforcement";
 import type { ReleaseDeploymentIntentService, ReleaseIntentInput } from "./release-deployment-intent";
+import type { NexusEngine } from "./db";
 
 export interface ReleaseDeploymentBridgeDeps {
   deployments: CanonicalDeploymentOrchestrator;
@@ -23,6 +24,9 @@ export interface ReleaseDeploymentBridgeDeps {
   svc: RuntimeBridgeServices;
   /** Phase 103 — when present, enables durable intent + lease. */
   intents?: ReleaseDeploymentIntentService;
+  /** Phase 107: engine access for artifact content lookup. Optional; when
+   *  absent, imageDigest overrides are disabled and behavior is unchanged. */
+  engine?: NexusEngine;
   /** Phase 103 — lease holder identity. Defaults to a per-call id. */
   workerId?: string;
 }
@@ -55,7 +59,44 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
         "artifact " + req.artifactId + " not registered under execution " + req.executionId,
       );
     }
-    if (bound.digest && req.imageDigest && bound.digest !== req.imageDigest) {
+    // Phase 107: prefer the authoritative registry digest recorded by
+    // REGISTRY_PUBLISH when an IMAGE_DIGEST artifact exists for this execution.
+    // Additive: no-op when engine is absent or no valid IMAGE_DIGEST artifact
+    // is found. On successful override, the legacy content-digest mismatch
+    // check is skipped (it compares the artifact's content sha256, not the
+    // registry image digest, so applying it after override would be wrong).
+    let digestOverridden = false;
+    if (this.deps.engine) {
+      const imageDigestArtifact = artifacts.find((a) => a.kind === "IMAGE_DIGEST");
+      if (imageDigestArtifact) {
+        try {
+          const rec = await this.deps.engine.get<{ __content?: string }>("artifacts", imageDigestArtifact.id);
+          if (rec?.__content) {
+            const parsed = JSON.parse(rec.__content) as { digest?: unknown };
+            if (typeof parsed.digest === "string" && /^sha256:[a-f0-9]{64}$/.test(parsed.digest)) {
+              if (parsed.digest !== req.imageDigest) {
+                await this.deps.svc.events.emit({
+                  type: "release.image_digest.resolved" as never,
+                  source: "ReleaseDeploymentBridge",
+                  execution_id: req.executionId,
+                  payload: {
+                    artifact_id: imageDigestArtifact.id,
+                    digest: parsed.digest,
+                    previous: req.imageDigest,
+                  },
+                });
+              }
+              req.imageDigest = parsed.digest;
+              digestOverridden = true;
+            }
+          }
+        } catch {
+          // Malformed content or engine failure — fall through to legacy check.
+        }
+      }
+    }
+
+    if (!digestOverridden && bound.digest && req.imageDigest && bound.digest !== req.imageDigest) {
       return blocked(
         "artifact digest mismatch: registered=" + bound.digest + " request=" + req.imageDigest,
       );

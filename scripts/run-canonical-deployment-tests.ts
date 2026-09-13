@@ -899,6 +899,185 @@ async function main() {
     check("T59 BLOCKED is terminal", p.action === "ALREADY_BLOCKED" && p.requiresDockerInspection === false, "action=" + p.action);
   }
 
+  // ============================ Phase 107 ============================
+  // IMAGE_DIGEST artifact override: when a valid IMAGE_DIGEST artifact with
+  // a well-formed registry digest is present for the execution, the bridge
+  // overrides caller-supplied imageDigest with the authoritative value.
+  // Additive; falls through to legacy behavior on absence or malformation.
+
+  // T81: valid IMAGE_DIGEST artifact overrides caller-supplied imageDigest
+  {
+    const sfx = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+    const execId = "exec-t81-" + sfx;
+    const artId = "art-t81-" + sfx;
+    const regDigest = "sha256:" + "c".repeat(64);
+    const callerDigest = "sha256:" + "d".repeat(64);
+
+    await engine.put("artifacts", artId, {
+      id: artId, execution_id: execId, kind: "IMAGE_DIGEST", name: "image-digest.json",
+      digest: "sha256:content", size: 0, location: "artifact://" + artId, created_at: Date.now(),
+      __content: JSON.stringify({
+        repository: "nexus/t81", tag: "v1", digest: regDigest,
+        image: "nexus/t81:v1", immutable_reference: "nexus/t81@" + regDigest,
+      }),
+    });
+
+    const seen: any[] = [];
+    const docker = mockDocker((op) => {
+      seen.push(op);
+      if (op.kind === "run") return { stdout: "container-t81\n" };
+      if (op.kind === "inspect" && op.image === "container-t81") {
+        return { stdout: JSON.stringify([{ Image: regDigest, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12450" }] } } }]) };
+      }
+      return undefined;
+    });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const artifactsStub: any = {
+      async list() {
+        return [{ id: artId, execution_id: execId, kind: "IMAGE_DIGEST", name: "image-digest.json",
+          digest: "sha256:content", size: 0, location: "artifact://" + artId, created_at: Date.now() }];
+      }
+    };
+    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactsStub, svc: fakeSvc, engine });
+    const res = await bridge.execute({
+      authorizationId: "auth-t81", releaseId: "rel-t81", artifactId: artId,
+      commitSha: "c-t81", environment: "production", projectId: "proj-t81", executionId: execId,
+      imageRepository: "nexus/t81", imageTag: "v1", imageId: regDigest,
+      imageDigest: callerDigest,
+      containerName: "t81-c", containerPort: 8080,
+    });
+    const runOp = seen.find((o) => o.kind === "run");
+    const used = runOp ? (runOp as any).image : null;
+    check("T81 IMAGE_DIGEST artifact overrides caller digest",
+      res.status === "DEPLOYED" && used === "nexus/t81@" + regDigest,
+      "status=" + res.status + " used=" + used);
+  }
+
+  // T82: malformed artifact content → no override, legacy behavior preserved
+  {
+    const sfx = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+    const execId = "exec-t82-" + sfx;
+    const artId = "art-t82-" + sfx;
+    const callerDigest = "sha256:" + "e".repeat(64);
+
+    await engine.put("artifacts", artId, {
+      id: artId, execution_id: execId, kind: "IMAGE_DIGEST", name: "image-digest.json",
+      digest: callerDigest, size: 0, location: "artifact://" + artId, created_at: Date.now(),
+      __content: JSON.stringify({ digest: "not-a-valid-digest" }),
+    });
+
+    const seen: any[] = [];
+    const docker = mockDocker((op) => {
+      seen.push(op);
+      if (op.kind === "run") return { stdout: "container-t82\n" };
+      if (op.kind === "inspect" && op.image === "container-t82") {
+        return { stdout: JSON.stringify([{ Image: callerDigest, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12451" }] } } }]) };
+      }
+      return undefined;
+    });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const artifactsStub: any = {
+      async list() {
+        return [{ id: artId, execution_id: execId, kind: "IMAGE_DIGEST", name: "image-digest.json",
+          digest: callerDigest, size: 0, location: "artifact://" + artId, created_at: Date.now() }];
+      }
+    };
+    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactsStub, svc: fakeSvc, engine });
+    const res = await bridge.execute({
+      authorizationId: "auth-t82", releaseId: "rel-t82", artifactId: artId,
+      commitSha: "c-t82", environment: "production", projectId: "proj-t82", executionId: execId,
+      imageRepository: "nexus/t82", imageTag: "v1", imageId: callerDigest,
+      imageDigest: callerDigest,
+      containerName: "t82-c", containerPort: 8080,
+    });
+    const runOp = seen.find((o) => o.kind === "run");
+    const used = runOp ? (runOp as any).image : null;
+    check("T82 malformed artifact content falls through, no override",
+      res.status === "DEPLOYED" && used === "nexus/t82@" + callerDigest,
+      "status=" + res.status + " used=" + used);
+  }
+
+  // T83: no IMAGE_DIGEST artifact → legacy behavior unchanged
+  {
+    const sfx = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+    const execId = "exec-t83-" + sfx;
+    const artId = "art-t83-" + sfx;
+    const callerDigest = "sha256:" + "f".repeat(64);
+
+    const seen: any[] = [];
+    const docker = mockDocker((op) => {
+      seen.push(op);
+      if (op.kind === "run") return { stdout: "container-t83\n" };
+      if (op.kind === "inspect" && op.image === "container-t83") {
+        return { stdout: JSON.stringify([{ Image: callerDigest, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12452" }] } } }]) };
+      }
+      return undefined;
+    });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const artifactsStub: any = {
+      async list() {
+        return [{ id: artId, execution_id: execId, kind: "DOCKER_IMAGE", name: "t83",
+          digest: callerDigest, size: 0, location: "artifact://" + artId, created_at: Date.now() }];
+      }
+    };
+    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactsStub, svc: fakeSvc, engine });
+    const res = await bridge.execute({
+      authorizationId: "auth-t83", releaseId: "rel-t83", artifactId: artId,
+      commitSha: "c-t83", environment: "production", projectId: "proj-t83", executionId: execId,
+      imageRepository: "nexus/t83", imageTag: "v1", imageId: callerDigest,
+      imageDigest: callerDigest,
+      containerName: "t83-c", containerPort: 8080,
+    });
+    const runOp = seen.find((o) => o.kind === "run");
+    const used = runOp ? (runOp as any).image : null;
+    check("T83 no IMAGE_DIGEST artifact — legacy behavior unchanged",
+      res.status === "DEPLOYED" && used === "nexus/t83@" + callerDigest,
+      "status=" + res.status + " used=" + used);
+  }
+
+  // T84: no engine dep — override disabled, legacy behavior preserved
+  {
+    const sfx = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+    const execId = "exec-t84-" + sfx;
+    const artId = "art-t84-" + sfx;
+    const callerDigest = "sha256:" + "9".repeat(64);
+
+    const seen: any[] = [];
+    const docker = mockDocker((op) => {
+      seen.push(op);
+      if (op.kind === "run") return { stdout: "container-t84\n" };
+      if (op.kind === "inspect" && op.image === "container-t84") {
+        return { stdout: JSON.stringify([{ Image: callerDigest, NetworkSettings: { Ports: { "8080/tcp": [{ HostPort: "12453" }] } } }]) };
+      }
+      return undefined;
+    });
+    const smoke = mockSmoke(() => okSmoke());
+    const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
+    const artifactsStub: any = {
+      async list() {
+        return [{ id: artId, execution_id: execId, kind: "IMAGE_DIGEST", name: "image-digest.json",
+          digest: callerDigest, size: 0, location: "artifact://" + artId, created_at: Date.now() }];
+      }
+    };
+    // No engine — override path disabled.
+    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactsStub, svc: fakeSvc });
+    const res = await bridge.execute({
+      authorizationId: "auth-t84", releaseId: "rel-t84", artifactId: artId,
+      commitSha: "c-t84", environment: "production", projectId: "proj-t84", executionId: execId,
+      imageRepository: "nexus/t84", imageTag: "v1", imageId: callerDigest,
+      imageDigest: callerDigest,
+      containerName: "t84-c", containerPort: 8080,
+    });
+    const runOp = seen.find((o) => o.kind === "run");
+    const used = runOp ? (runOp as any).image : null;
+    check("T84 no engine dep — override disabled, legacy behavior preserved",
+      res.status === "DEPLOYED" && used === "nexus/t84@" + callerDigest,
+      "status=" + res.status + " used=" + used);
+  }
+
   // ============================ Phase 104 ============================
   {
     const mkOrch = (d: any, s: any, svc: any = fakeSvc) => new CanonicalDeploymentOrchestrator(history, d, s, svc);
