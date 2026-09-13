@@ -6,16 +6,16 @@
  * mobile.
  */
 
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { NexusProvider, useNexus, type RouteName } from "./state";
 import { CONFIG } from "./core/config";
 import { Badge, Button, Field, Icon, TextInput, cx, type IconName } from "./ui";
-import { DashboardScreen } from "./screens/Dashboard";
-import { EngineeringWorkspaceScreen } from "./screens/EngineeringWorkspace";
-import { ProjectsScreen } from "./screens/Projects";
-import { ExecutionsScreen } from "./screens/Executions";
-import { AuditScreen } from "./screens/Audit";
-import { ControlPlaneScreen } from "./screens/ControlPlane";
+const DashboardScreen = lazy(() => import("./screens/Dashboard").then((m) => ({ default: m.DashboardScreen })));
+const EngineeringWorkspaceScreen = lazy(() => import("./screens/EngineeringWorkspace").then((m) => ({ default: m.EngineeringWorkspaceScreen })));
+const ProjectsScreen = lazy(() => import("./screens/Projects").then((m) => ({ default: m.ProjectsScreen })));
+const ExecutionsScreen = lazy(() => import("./screens/Executions").then((m) => ({ default: m.ExecutionsScreen })));
+const AuditScreen = lazy(() => import("./screens/Audit").then((m) => ({ default: m.AuditScreen })));
+const ControlPlaneScreen = lazy(() => import("./screens/ControlPlane").then((m) => ({ default: m.ControlPlaneScreen })));
 
 const NAV: { name: RouteName; label: string; icon: IconName }[] = [
   { name: "dashboard", label: "Dashboard", icon: "grid" },
@@ -239,14 +239,22 @@ function Shell() {
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 lg:px-8">
-          <div key={route} className="anim-fade">
-            {route === "dashboard" ? <DashboardScreen /> : null}
-            {route === "workspace" ? <EngineeringWorkspaceScreen /> : null}
-            {route === "projects" ? <ProjectsScreen /> : null}
-            {route === "executions" ? <ExecutionsScreen /> : null}
-            {route === "audit" ? <AuditScreen /> : null}
-            {route === "control" ? <ControlPlaneScreen /> : null}
-          </div>
+          <Suspense
+            fallback={
+              <div className="flex min-h-[240px] items-center justify-center">
+                <div className="font-mono text-xs text-dim">loading control-plane view...</div>
+              </div>
+            }
+          >
+            <div key={route} className="anim-fade">
+              {route === "dashboard" ? <DashboardScreen /> : null}
+              {route === "workspace" ? <EngineeringWorkspaceScreen /> : null}
+              {route === "projects" ? <ProjectsScreen /> : null}
+              {route === "executions" ? <ExecutionsScreen /> : null}
+              {route === "audit" ? <AuditScreen /> : null}
+              {route === "control" ? <ControlPlaneScreen /> : null}
+            </div>
+          </Suspense>
         </main>
 
         <footer className="border-t border-edge/50 px-4 py-3 lg:px-8">
