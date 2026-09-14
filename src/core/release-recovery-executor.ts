@@ -36,7 +36,11 @@ export interface ReleaseRecoveryExecutorDeps {
   /** Phase 119: independent verification after crash recovery. Called only when inspection finds
    *  the target immutable image already running. MUST NOT be implemented by re-invoking rollback. */
   verifyRecoveredRollback?: {
-    verify(intent: ReleaseDeploymentIntent): Promise<{
+    // Phase 120: context carries the inspected verification URL.
+    verify(intent: ReleaseDeploymentIntent, context?: {
+      stagingUrl?: string;
+      hostPort?: number;
+    }): Promise<{
       status: "VERIFIED" | "BLOCKED" | "VERIFICATION_FAILED";
       message: string;
     }>;
@@ -182,7 +186,24 @@ export class ReleaseRecoveryExecutor {
             report.blocked++;
             return;
           }
-          const ver = await this.deps.verifyRecoveredRollback.verify(fresh);
+          // Phase 120: verification URL comes from the actual inspected container mapping.
+          if (!inspection.hostPort) {
+            await this.markRecoveryRequired(fresh, "target image active but no mapped host port on inspect");
+            report.blocked++;
+            return;
+          }
+          const stagingUrl = "http://127.0.0.1:" + inspection.hostPort;
+          let ver;
+          try {
+            ver = await this.deps.verifyRecoveredRollback.verify(fresh, {
+              stagingUrl,
+              hostPort: inspection.hostPort,
+            });
+          } catch (e) {
+            await this.markRecoveryRequired(fresh, "recovery verification threw: " + ((e as Error).message ?? String(e)));
+            report.blocked++;
+            return;
+          }
           if (ver.status === "VERIFIED") {
             // Convention: rollback success terminates the intent as FAILED (the failed release stays failed).
             intents.transition(fresh.intentKey, "FAILED", { recoveryReason: "rollback verified after crash recovery" });

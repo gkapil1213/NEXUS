@@ -428,6 +428,24 @@ export class NexusKernel {
             smoke: runtime.smoke,
             svc: { events, audit },
             workerId: "nexus-" + crypto.randomUUID(),
+        verifyRecoveredRollback: {
+          async verify(intent: any, context?: { stagingUrl?: string; hostPort?: number }) {
+            if (!context?.stagingUrl) {
+              return { status: "BLOCKED" as const, message: "no verification URL available" };
+            }
+            try {
+              const r: any = await runtime.smoke.run({
+                execution_id: intent.executionId ?? null,
+                staging_url: context.stagingUrl,
+              });
+              if (r?.verdict === "PASS") return { status: "VERIFIED" as const, message: "health+smoke PASS" };
+              if (r?.verdict === "BLOCKED") return { status: "BLOCKED" as const, message: String(r.reason ?? "smoke blocked") };
+              return { status: "VERIFICATION_FAILED" as const, message: String(r?.reason ?? "smoke FAIL") };
+            } catch (e) {
+              return { status: "BLOCKED" as const, message: "verifier threw: " + ((e as Error).message ?? String(e)) };
+            }
+          },
+        },
           });
           const rep = await executor.runOnce();
           this.step("recovery", "ok", "scanned=" + rep.scanned + " acted=" + rep.acted + " blocked=" + rep.blocked + " leaseHeld=" + rep.leaseHeld);
