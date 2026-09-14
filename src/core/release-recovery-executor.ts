@@ -186,36 +186,94 @@ export class ReleaseRecoveryExecutor {
             report.blocked++;
             return;
           }
-          // Phase 120: verification URL comes from the actual inspected container mapping.
+          // Phase 121: durable evidence base for crash-recovery verification.
           if (!inspection.hostPort) {
             await this.markRecoveryRequired(fresh, "target image active but no mapped host port on inspect");
             report.blocked++;
             return;
           }
           const stagingUrl = "http://127.0.0.1:" + inspection.hostPort;
+
+          const evidenceBase = {
+            intentKey: fresh.intentKey,
+            intentKind: "ROLLBACK" as const,
+            executionId: fresh.executionId,
+            projectId: fresh.projectId,
+            releaseId: fresh.releaseId,
+            rollbackTargetReleaseId: fresh.rollbackTargetReleaseId ?? null,
+            artifactId: fresh.artifactId,
+            expectedArtifactDigest: fresh.artifactDigest,
+            expectedImageId: inspection.expectedImageId,
+            observedContainerId: inspection.containerId,
+            observedImageId: inspection.runningImageId,
+            hostPort: inspection.hostPort,
+            stagingUrl,
+            recoveryWorkerId: this.deps.workerId,
+            timestamp: Date.now(),
+          };
+
+          await this.deps.svc.events.emit({
+            type: "release.recovery.rollback.verification_started",
+            source: "ReleaseRecoveryExecutor",
+            execution_id: fresh.executionId,
+            payload: evidenceBase,
+          });
+
           let ver;
           try {
             ver = await this.deps.verifyRecoveredRollback.verify(fresh, {
               stagingUrl,
               hostPort: inspection.hostPort,
             });
-          } catch (e) {
-            await this.markRecoveryRequired(fresh, "recovery verification threw: " + ((e as Error).message ?? String(e)));
+          } catch (err) {
+            const errMsg = (err as Error).message ?? String(err);
+            await this.deps.svc.events.emit({
+              type: "release.recovery.rollback.verification_blocked",
+              source: "ReleaseRecoveryExecutor",
+              execution_id: fresh.executionId,
+              payload: { ...evidenceBase, verificationStatus: "EXCEPTION", reason: errMsg },
+            });
+            await this.markRecoveryRequired(fresh, "recovery verification threw: " + errMsg);
             report.blocked++;
             return;
           }
+
           if (ver.status === "VERIFIED") {
-            // Convention: rollback success terminates the intent as FAILED (the failed release stays failed).
+            await this.deps.svc.events.emit({
+              type: "release.recovery.rollback.verification_passed",
+              source: "ReleaseRecoveryExecutor",
+              execution_id: fresh.executionId,
+              payload: { ...evidenceBase, verificationStatus: "VERIFIED", reason: ver.message },
+            });
             intents.transition(fresh.intentKey, "FAILED", { recoveryReason: "rollback verified after crash recovery" });
             report.acted++;
-            await this.deps.svc.events.emit({ type: "release.recovery.rollback.verified", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey } });
+            await this.deps.svc.events.emit({
+              type: "release.recovery.rollback.verified",
+              source: "ReleaseRecoveryExecutor",
+              execution_id: fresh.executionId,
+              payload: { ...evidenceBase, verificationStatus: "VERIFIED", reason: ver.message },
+            });
             return;
           }
+
           if (ver.status === "BLOCKED") {
+            await this.deps.svc.events.emit({
+              type: "release.recovery.rollback.verification_blocked",
+              source: "ReleaseRecoveryExecutor",
+              execution_id: fresh.executionId,
+              payload: { ...evidenceBase, verificationStatus: "BLOCKED", reason: ver.message },
+            });
             await this.markRecoveryRequired(fresh, "recovery verification blocked: " + ver.message);
             report.blocked++;
             return;
           }
+
+          await this.deps.svc.events.emit({
+            type: "release.recovery.rollback.verification_failed",
+            source: "ReleaseRecoveryExecutor",
+            execution_id: fresh.executionId,
+            payload: { ...evidenceBase, verificationStatus: "VERIFICATION_FAILED", reason: ver.message },
+          });
           intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: ver.message });
           report.acted++;
           return;
