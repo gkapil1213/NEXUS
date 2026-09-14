@@ -41,6 +41,29 @@ export class ReleaseRecoveryService {
     const now = input.now ?? Date.now();
     const i = input.intent;
 
+      // Phase 119: rollback intents classify independently.
+      if ((i.intentKind ?? "DEPLOY") === "ROLLBACK") {
+        switch (i.status) {
+          case "DEPLOYMENT_INTENT_CREATED":
+          case "ROLLING_BACK":
+            return { intentKey: i.intentKey, action: "RESUME_ROLLBACK",
+              reason: "rollback intent active; recovery must inspect and resume rollback",
+              requiresDockerInspection: false };
+          case "RECOVERY_REQUIRED":
+            return { intentKey: i.intentKey, action: "RECOVERY_REQUIRED",
+              reason: "rollback intent requires operator review",
+              requiresDockerInspection: false };
+          case "FAILED":
+            return { intentKey: i.intentKey, action: "ALREADY_FAILED", reason: "rollback terminal", requiresDockerInspection: false };
+          case "BLOCKED":
+            return { intentKey: i.intentKey, action: "ALREADY_BLOCKED", reason: "rollback terminal", requiresDockerInspection: false };
+          default:
+            return { intentKey: i.intentKey, action: "RECOVERY_REQUIRED",
+              reason: "rollback intent unexpected state: " + i.status,
+              requiresDockerInspection: false };
+        }
+      }
+
     switch (i.status) {
       case "PENDING":
         return {

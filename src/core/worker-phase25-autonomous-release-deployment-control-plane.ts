@@ -41,6 +41,14 @@ export interface AutonomousReleaseDeploymentRequest {
   previousReleaseId?: string;
   executionStore?: ExecutionStore;
   workerId?: string;
+
+  // Phase 119: prior-release deployment context for the rollback intent.
+  previousContainerName?: string;
+  previousImageRepository?: string;
+  previousImageTag?: string;
+  previousImageId?: string;
+  previousImageDigest?: string;
+  previousContainerPort?: number;
 }
 
 // Phase 118 - canonical durable rollback path.
@@ -180,6 +188,29 @@ async function executeCanonicalDurableRollback(
     } as ExecutionJob;
     store.createJob(job);
     audit('ROLLBACK_REQUESTED', 'durable rollback job created', 'PROPOSED');
+
+    // Phase 119: create rollback intent so canonical recovery can find it.
+    const environment = String((plan as any).environment ?? '');
+    const rollbackIntentKey = 'rollback:' + previousReleaseId + ':' + environment;
+    store.createReleaseIntentIdempotent({
+      intentKey: rollbackIntentKey,
+      releaseId: previousReleaseId,
+      executionId: execution.executionId,
+      artifactId: targetArtifactId,
+      artifactDigest: targetArtifact.checksum,
+      commitSha: '',
+      environment,
+      projectId: null,
+      imageRepository: request.previousImageRepository ?? '',
+      imageTag: request.previousImageTag ?? '',
+      imageId: request.previousImageId ?? null,
+      imageDigest: request.previousImageDigest ?? '',
+      containerName: request.previousContainerName ?? '',
+      containerPort: request.previousContainerPort ?? 0,
+      intentKind: 'ROLLBACK',
+      rollbackTargetReleaseId: previousReleaseId,
+      rollbackJobId: job.id,
+    });
   }
 
   // --- 4. Lease ---

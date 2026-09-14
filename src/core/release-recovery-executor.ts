@@ -33,6 +33,14 @@ export interface ReleaseRecoveryExecutorDeps {
   workerId: string;
   leaseTtlMs?: number;
   rollback?: RollbackDelegate;
+  /** Phase 119: independent verification after crash recovery. Called only when inspection finds
+   *  the target immutable image already running. MUST NOT be implemented by re-invoking rollback. */
+  verifyRecoveredRollback?: {
+    verify(intent: ReleaseDeploymentIntent): Promise<{
+      status: "VERIFIED" | "BLOCKED" | "VERIFICATION_FAILED";
+      message: string;
+    }>;
+  };
 }
 export interface RecoveryActionRecord { intentKey: string; action: RecoveryAction; reason: string; }
 export interface RecoveryRunReport {
@@ -166,6 +174,32 @@ export class ReleaseRecoveryExecutor {
       if (inspection.verdict === "BLOCKED") { report.blocked++; report.blockedReasons.push({ intentKey: fresh.intentKey, reason: "rollback resume: inspection blocked" }); return; }
       if (inspection.verdict === "MISSING") { await this.markRecoveryRequired(fresh, "rollback resume: container missing"); report.blocked++; return; }
       if (inspection.verdict === "MATCHES_INTENT") {
+        const isRollbackKind = ((fresh as any).intentKind ?? "DEPLOY") === "ROLLBACK";
+        if (isRollbackKind) {
+          // Phase 119: target image already running. Do NOT invoke rollback again.
+          if (!this.deps.verifyRecoveredRollback) {
+            await this.markRecoveryRequired(fresh, "target image already active; recovery verification delegate unavailable");
+            report.blocked++;
+            return;
+          }
+          const ver = await this.deps.verifyRecoveredRollback.verify(fresh);
+          if (ver.status === "VERIFIED") {
+            // Convention: rollback success terminates the intent as FAILED (the failed release stays failed).
+            intents.transition(fresh.intentKey, "FAILED", { recoveryReason: "rollback verified after crash recovery" });
+            report.acted++;
+            await this.deps.svc.events.emit({ type: "release.recovery.rollback.verified", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey } });
+            return;
+          }
+          if (ver.status === "BLOCKED") {
+            await this.markRecoveryRequired(fresh, "recovery verification blocked: " + ver.message);
+            report.blocked++;
+            return;
+          }
+          intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: ver.message });
+          report.acted++;
+          return;
+        }
+        // Legacy DEPLOY-intent path — preserved for canonical suite T78.
         if (!this.deps.rollback) { intents.transition(fresh.intentKey, "BLOCKED", { failureReason: "rollback in flight; delegate unavailable" }); report.blocked++; return; }
         const result = await this.deps.rollback.rollback(fresh);
         intents.transition(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", { failureReason: result.message });

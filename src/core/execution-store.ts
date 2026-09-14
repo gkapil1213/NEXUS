@@ -43,6 +43,10 @@ export interface ReleaseDeploymentIntent {
   imageDigest: string;
   containerName: string;
   containerPort: number;
+    // Phase 119: discriminator + rollback linkage.
+    intentKind?: "DEPLOY" | "ROLLBACK";
+    rollbackTargetReleaseId?: string | null;
+    rollbackJobId?: string | null;
   status: ReleaseIntentStatus;
   deploymentId: string | null;
   failureReason: string | null;
@@ -504,28 +508,32 @@ export class ExecutionStore {
       INSERT OR IGNORE INTO release_deployment_intents (
         intent_key, release_id, execution_id, artifact_id, artifact_digest,
         commit_sha, environment, project_id, image_repository, image_tag, image_id,
+          intent_kind, rollback_target_release_id, rollback_job_id,
         image_digest, container_name, container_port, status, deployment_id,
         failure_reason, recovery_reason, leased_by, lease_expires_at,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DEPLOYMENT_INTENT_CREATED', NULL, NULL, NULL, NULL, NULL, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DEPLOYMENT_INTENT_CREATED', NULL, NULL, NULL, NULL, NULL, ?, ?)
     `).run(
-      input.intentKey,
-      input.releaseId,
-      input.executionId,
-      input.artifactId,
-      input.artifactDigest,
-      input.commitSha,
-      input.environment,
-      input.projectId ?? null,
-      input.imageRepository,
-      input.imageTag,
-      input.imageId,
-      input.imageDigest,
-      input.containerName,
-      input.containerPort,
-      now,
-      now,
-    );
+        input.intentKey,
+        input.releaseId,
+        input.executionId,
+        input.artifactId,
+        input.artifactDigest,
+        input.commitSha,
+        input.environment,
+        input.projectId ?? null,
+        input.imageRepository,
+        input.imageTag,
+        input.imageId,
+        input.intentKind ?? "DEPLOY",
+        input.rollbackTargetReleaseId ?? null,
+        input.rollbackJobId ?? null,
+        input.imageDigest,
+        input.containerName,
+        input.containerPort,
+        now,
+        now,
+      );
     const existing = this.getReleaseIntent(input.intentKey);
     if (!existing) throw new Error("release intent missing after INSERT OR IGNORE");
     return { intent: existing, created: (info.changes ?? 0) > 0 };
@@ -657,6 +665,9 @@ export class ExecutionStore {
       imageDigest: row.image_digest,
       containerName: row.container_name,
       containerPort: row.container_port,
+        intentKind: ((row.intent_kind ?? "DEPLOY") as "DEPLOY" | "ROLLBACK"),
+        rollbackTargetReleaseId: row.rollback_target_release_id ?? null,
+        rollbackJobId: row.rollback_job_id ?? null,
       status: row.status,
       deploymentId: row.deployment_id ?? null,
       failureReason: row.failure_reason ?? null,
@@ -973,4 +984,3 @@ export class ExecutionStore {
             maybeTx();
         }
     }}
-

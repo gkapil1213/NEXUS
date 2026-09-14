@@ -6,6 +6,10 @@
 import type { ExecutionStore, ReleaseDeploymentIntent, ReleaseIntentStatus } from "./execution-store";
 
 export interface ReleaseIntentInput {
+  // Phase 119: rollback linkage.
+  intentKind?: "DEPLOY" | "ROLLBACK";
+  rollbackTargetReleaseId?: string | null;
+  rollbackJobId?: string | null;
   releaseId: string;
   executionId: string;
   artifactId: string;
@@ -34,6 +38,15 @@ export class ReleaseDeploymentIntentService {
 
   /** Deterministic key binding every immutable input. Same logical deploy = same key. */
   computeKey(input: ReleaseIntentInput): string {
+    // Phase 119: rollback intents use a distinct key space.
+    if ((input.intentKind ?? "DEPLOY") === "ROLLBACK") {
+      return [
+        "rollback",
+        input.rollbackTargetReleaseId ?? "",
+        input.environment,
+        input.rollbackJobId ?? input.executionId,
+      ].join("|");
+    }
     return [
       "intent",
       input.releaseId,
@@ -71,6 +84,9 @@ export class ReleaseDeploymentIntentService {
       imageDigest: input.imageDigest,
       containerName: input.containerName,
       containerPort: input.containerPort,
+      intentKind: input.intentKind ?? "DEPLOY",
+      rollbackTargetReleaseId: input.rollbackTargetReleaseId ?? null,
+      rollbackJobId: input.rollbackJobId ?? null,
     });
   }
 
