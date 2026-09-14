@@ -29,6 +29,10 @@ export interface AutonomousReleaseDeploymentRequest {
   rolloutState: ProgressiveDeliveryState;
   healthInput: Parameters<typeof evaluateHealthGate>[0];
   rollbackSafetyInput: Parameters<typeof evaluateRollbackSafety>[0];
+
+  // Phase 117: rollback target must be explicit.
+  // The control plane must never infer a previous release/version.
+  previousVersion?: string;
 }
 
 export async function orchestrateReleaseDeployment(request: AutonomousReleaseDeploymentRequest) {
@@ -68,18 +72,214 @@ export async function orchestrateReleaseDeployment(request: AutonomousReleaseDep
   if (rollout.action === 'HALT') {
     const halt = createDeploymentHalt(execution.executionId, 'rollout halt');
     execution = transitionDeploymentExecution(execution, 'ROLLING_BACK');
-    const rollback = createRollbackExecution(execution.executionId, release.releaseId);
-    const rollbackSafety = evaluateRollbackSafety(request.rollbackSafetyInput);
-    if (!rollbackSafety.allowed) {
+
+    // Phase 117: rollback must have an explicit target.
+    // Never infer the previous release from the currently deployed release.
+    if (!request.previousVersion) {
+      auditEvents.push(createDeploymentAuditEvent({
+        tenantId: request.tenantId,
+        correlationId: request.correlationId,
+        eventType: 'ROLLBACK_FAILED',
+        reason: 'previous rollback target is not specified',
+        decision: 'FAILED'
+      }));
       execution = transitionDeploymentExecution(execution, 'FAILED');
-      return { status: 'FAILED', reason: rollbackSafety.reason, release, plan, execution, rollout, halt, rollback, auditEvents, evidence, lineage: { releaseId: release.releaseId, nodes: [] } };
+
+      return {
+        status: 'FAILED',
+        reason: 'previous rollback target is not specified',
+        release,
+        plan,
+        execution,
+        rollout,
+        halt,
+        auditEvents,
+        evidence,
+        lineage: { releaseId: release.releaseId, nodes: [] }
+      };
     }
-    const rollbackExec = transitionRollbackExecution(rollback, 'ROLLBACK_VALIDATING');
-    // In real implementation would execute rollback, verify, etc. We simulate success.
-    const verifiedRollback = transitionRollbackExecution(rollbackExec, 'ROLLED_BACK');
+
+    const rollback = createRollbackExecution(
+      execution.executionId,
+      request.previousVersion
+    );
+
+    const rollbackSafety = evaluateRollbackSafety(request.rollbackSafetyInput);
+
+    if (!rollbackSafety.allowed) {
+      const failedRollback = transitionRollbackExecution(
+        rollback,
+        'ROLLBACK_FAILED'
+      );
+      execution = transitionDeploymentExecution(execution, 'FAILED');
+
+      auditEvents.push(createDeploymentAuditEvent({
+        tenantId: request.tenantId,
+        correlationId: request.correlationId,
+        eventType: 'ROLLBACK_FAILED',
+        reason: rollbackSafety.reason,
+        decision: 'FAILED'
+      }));
+
+      return {
+        status: 'FAILED',
+        reason: rollbackSafety.reason,
+        release,
+        plan,
+        execution,
+        rollout,
+        halt,
+        rollback: failedRollback,
+        auditEvents,
+        evidence,
+        lineage: { releaseId: release.releaseId, nodes: [] }
+      };
+    }
+
+    let rollbackExec = transitionRollbackExecution(
+      rollback,
+      'ROLLBACK_VALIDATING'
+    );
+
+    rollbackExec = transitionRollbackExecution(
+      rollbackExec,
+      'ROLLBACK_EXECUTING'
+    );
+
+    const rollbackResult = await adapter.rollback(request.previousVersion);
+
+    if (!rollbackResult.success) {
+      const failedRollback = transitionRollbackExecution(
+        rollbackExec,
+        'ROLLBACK_FAILED'
+      );
+      execution = transitionDeploymentExecution(execution, 'FAILED');
+
+      auditEvents.push(createDeploymentAuditEvent({
+        tenantId: request.tenantId,
+        correlationId: request.correlationId,
+        eventType: 'ROLLBACK_FAILED',
+        reason: rollbackResult.reason,
+        decision: 'FAILED'
+      }));
+
+      return {
+        status: 'FAILED',
+        reason: rollbackResult.reason,
+        release,
+        plan,
+        execution,
+        rollout,
+        halt,
+        rollback: failedRollback,
+        auditEvents,
+        evidence,
+        lineage: { releaseId: release.releaseId, nodes: [] }
+      };
+    }
+
+    // A successful rollback command is not proof that the previous
+    // version is actually running and healthy.
+    rollbackExec = transitionRollbackExecution(
+      rollbackExec,
+      'ROLLBACK_VERIFYING'
+    );
+
+    if (!adapter.verifyRollback) {
+      const failedRollback = transitionRollbackExecution(
+        rollbackExec,
+        'ROLLBACK_FAILED'
+      );
+      execution = transitionDeploymentExecution(execution, 'FAILED');
+
+      auditEvents.push(createDeploymentAuditEvent({
+        tenantId: request.tenantId,
+        correlationId: request.correlationId,
+        eventType: 'ROLLBACK_FAILED',
+        reason: 'rollback verification is unavailable',
+        decision: 'FAILED'
+      }));
+
+      return {
+        status: 'FAILED',
+        reason: 'rollback verification is unavailable',
+        release,
+        plan,
+        execution,
+        rollout,
+        halt,
+        rollback: failedRollback,
+        auditEvents,
+        evidence,
+        lineage: { releaseId: release.releaseId, nodes: [] }
+      };
+    }
+
+    const rollbackVerification = await adapter.verifyRollback(
+      request.previousVersion
+    );
+
+    if (!rollbackVerification.verified) {
+      const reason = rollbackVerification.reasons.join('; ') ||
+        'rollback verification failed';
+
+      const failedRollback = transitionRollbackExecution(
+        rollbackExec,
+        'ROLLBACK_FAILED'
+      );
+      execution = transitionDeploymentExecution(execution, 'FAILED');
+
+      auditEvents.push(createDeploymentAuditEvent({
+        tenantId: request.tenantId,
+        correlationId: request.correlationId,
+        eventType: 'ROLLBACK_FAILED',
+        reason,
+        decision: 'FAILED'
+      }));
+
+      return {
+        status: 'FAILED',
+        reason,
+        release,
+        plan,
+        execution,
+        rollout,
+        halt,
+        rollback: failedRollback,
+        auditEvents,
+        evidence,
+        lineage: { releaseId: release.releaseId, nodes: [] }
+      };
+    }
+
+    // Only an independent positive verification permits ROLLED_BACK.
+    const verifiedRollback = transitionRollbackExecution(
+      rollbackExec,
+      'ROLLED_BACK'
+    );
     execution = transitionDeploymentExecution(execution, 'ROLLED_BACK');
-    auditEvents.push(createDeploymentAuditEvent({ tenantId: request.tenantId, correlationId: request.correlationId, eventType: 'ROLLBACK_COMPLETED', reason: 'rollout halt rollback', decision: 'ROLLED_BACK' }));
-    return { status: 'ROLLED_BACK', reason: 'rollout halt', release, plan, execution, rollout, halt, rollback: verifiedRollback, auditEvents, evidence, lineage: { releaseId: release.releaseId, nodes: [] } };
+
+    auditEvents.push(createDeploymentAuditEvent({
+      tenantId: request.tenantId,
+      correlationId: request.correlationId,
+      eventType: 'ROLLBACK_COMPLETED',
+      reason: 'rollout halt rollback verified',
+      decision: 'ROLLED_BACK'
+    }));
+
+    return {
+      status: 'ROLLED_BACK',
+      reason: 'rollout halt rollback verified',
+      release,
+      plan,
+      execution,
+      rollout,
+      halt,
+      rollback: verifiedRollback,
+      auditEvents,
+      evidence,
+      lineage: { releaseId: release.releaseId, nodes: [] }
+    };
   }
 
   // Health gate

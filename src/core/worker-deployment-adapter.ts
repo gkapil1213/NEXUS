@@ -9,6 +9,15 @@
   resume(): Promise<{ success: boolean; reason: string }>;
   promote(): Promise<{ success: boolean; reason: string }>;
   rollback(previousVersion: string): Promise<{ success: boolean; reason: string }>;
+
+  // Phase 117: optional independent rollback verification.
+  // An adapter that can truthfully verify a completed rollback (previous
+  // version actually running, target healthy, artifact intact) should
+  // implement this. The control plane will NOT transition to ROLLED_BACK
+  // unless this returns verified: true. An adapter that does not implement
+  // this is treated as cannot-verify and rollback fails closed to
+  // FAILED. See NEXUS Phase 117 sections 10, 11, 13.
+  verifyRollback?(previousVersion: string): Promise<{ verified: boolean; reasons: string[] }>;
 }
 
 export const unavailableDeploymentAdapter: DeploymentAdapter = {
@@ -22,4 +31,5 @@ export const unavailableDeploymentAdapter: DeploymentAdapter = {
   async resume() { return { success: false, reason: 'unavailable' }; },
   async promote() { return { success: false, reason: 'unavailable' }; },
   async rollback() { return { success: false, reason: 'unavailable' }; },
+  async verifyRollback() { return { verified: false, reasons: ['unavailable'] }; },
 };
