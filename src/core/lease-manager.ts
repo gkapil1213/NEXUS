@@ -40,13 +40,17 @@ export class LeaseManager {
     if (!lease || lease.status !== "ACTIVE") {
       throw new Error(`Lease ${leaseId} is not active`);
     }
-    if (lease.workerId !== workerId) {
-      throw new Error(`Lease ${leaseId} is owned by ${lease.workerId}, not ${workerId}`);
-    }
+    // Phase 127: expiry check must precede ownership check.  Otherwise a
+    // wrong-worker renewal on an expired lease throws "owned by" and leaves
+    // the row in (ACTIVE, expires_at < now), blocking reacquisition until
+    // the next recovery sweep.
     if (lease.expiresAt <= now) {
       lease.status = "EXPIRED";
       this.store.updateLease(lease);
       throw new Error(`Lease ${leaseId} already expired`);
+    }
+    if (lease.workerId !== workerId) {
+      throw new Error(`Lease ${leaseId} is owned by ${lease.workerId}, not ${workerId}`);
     }
 
     const renewedAt = now;

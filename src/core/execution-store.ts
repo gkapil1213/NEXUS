@@ -56,6 +56,31 @@ export interface ReleaseDeploymentIntent {
   createdAt: number;
   updatedAt: number;
 }
+// ---------- Phase 127: authoritative durable transitions ----------
+
+export type TransitionActor = "worker" | "recovery" | "system";
+
+export interface TransitionInput {
+  jobId: string;
+  actor: TransitionActor;
+  expectedStatus: ExecutionJob["status"];
+  newStatus: ExecutionJob["status"];
+  workerId?: string;
+  leaseId?: string;
+  reason?: string;
+  now?: number;
+  patch?: Partial<Pick<ExecutionJob,
+    | "currentLeaseId" | "retryPolicy" | "timeoutMs"
+    | "lastAttemptAt" | "nextAttemptAt"
+    | "cancellationRequested" | "cancellationAcknowledged">>;
+}
+
+export type TransitionResult =
+  | { ok: true;  applied: true;  status: ExecutionJob["status"]; idempotent: false }
+  | { ok: true;  applied: false; status: ExecutionJob["status"]; idempotent: true  }
+  | { ok: false;
+      reason: "WORKER_OWNERSHIP_LOST" | "STATE_MISMATCH" | "TERMINAL_STATE" | "JOB_NOT_FOUND";
+      currentStatus: ExecutionJob["status"] | null };
 export class ExecutionStore {
   constructor(private db: NexusEngine) {}
 
@@ -159,6 +184,147 @@ export class ExecutionStore {
       return { updated: false, reason: "WORKER_OWNERSHIP_LOST" };
     }
     return { updated: true };
+  }
+
+  /**
+   * Phase 127: single authoritative durable transition.
+   * State-machine legality + actor-role policy live in ExecutionEngine.applyTransition.
+   * This method is the DB-level concurrency boundary: expected-state CAS + ownership.
+   */
+  transitionExecution(input: TransitionInput): TransitionResult {
+    const now = input.now ?? Date.now();
+    const before = this.getJob(input.jobId);
+    if (!before) return { ok: false, reason: "JOB_NOT_FOUND", currentStatus: null };
+
+    // Phase 127: worker fencing MUST precede the idempotency shortcut.
+    // Otherwise a stale worker whose job already happens to be in newStatus
+    // would receive "idempotent success" without proving lease ownership.
+    if (input.actor === "worker") {
+      if (!input.leaseId || !input.workerId) {
+        return { ok: false, reason: "WORKER_OWNERSHIP_LOST", currentStatus: before.status };
+      }
+      const owned = this.db.prepare(`
+        SELECT 1 FROM execution_leases
+        WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+          AND status = 'ACTIVE' AND expires_at > ?
+      `).get(input.leaseId, input.workerId, input.jobId, now);
+      if (!owned) {
+        return { ok: false, reason: "WORKER_OWNERSHIP_LOST", currentStatus: before.status };
+      }
+    }
+
+    // Idempotent duplicate (safe now that ownership has been verified).
+    if (before.status === input.newStatus) {
+      return { ok: true, applied: false, status: before.status, idempotent: true };
+    }
+
+    // Terminal-state protection.
+    const TERMINAL: ExecutionJob["status"][] = ["SUCCEEDED", "CANCELLED", "DEAD_LETTER", "BLOCKED"];
+    if (TERMINAL.includes(input.expectedStatus) && input.expectedStatus !== input.newStatus) {
+      return { ok: false, reason: "TERMINAL_STATE", currentStatus: before.status };
+    }
+
+    const useOwner = input.actor === "worker" ? 1 : 0;
+    const p = input.patch ?? {};
+
+    // Atomic UPDATE + event, using the repository's existing SQLite
+    // transaction compatibility pattern (raw better-sqlite3 vs SQLiteEngine).
+    let updateResult: any = null;
+
+    const run = (): any => {
+      const r = this.db.prepare(`
+        UPDATE execution_jobs SET
+          status = ?, updated_at = ?,
+          current_lease_id          = COALESCE(?, current_lease_id),
+          retry_policy              = COALESCE(?, retry_policy),
+          timeout_ms                = COALESCE(?, timeout_ms),
+          last_attempt_at           = COALESCE(?, last_attempt_at),
+          next_attempt_at           = COALESCE(?, next_attempt_at),
+          cancellation_requested    = COALESCE(?, cancellation_requested),
+          cancellation_acknowledged = COALESCE(?, cancellation_acknowledged)
+        WHERE id = ? AND status = ?
+          AND (
+            ? = 0
+            OR EXISTS (
+              SELECT 1 FROM execution_leases
+              WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+                AND status = 'ACTIVE' AND expires_at > ?
+            )
+          )
+      `).run(
+        input.newStatus, now,
+        p.currentLeaseId === undefined ? null : (p.currentLeaseId ?? null),
+        p.retryPolicy === undefined ? null : (p.retryPolicy ? JSON.stringify(p.retryPolicy) : null),
+        p.timeoutMs === undefined ? null : (p.timeoutMs ?? null),
+        p.lastAttemptAt === undefined ? null : (p.lastAttemptAt ?? null),
+        p.nextAttemptAt === undefined ? null : (p.nextAttemptAt ?? null),
+        p.cancellationRequested === undefined ? null : (p.cancellationRequested ? 1 : 0),
+        p.cancellationAcknowledged === undefined ? null : (p.cancellationAcknowledged ? 1 : 0),
+        input.jobId, input.expectedStatus,
+        useOwner, input.leaseId ?? null, input.workerId ?? null, input.jobId, now
+      );
+
+      if (r.changes > 0) {
+        // Event insert is part of durable transition integrity: a failure
+        // here aborts the transaction and rolls back the state change.
+        this.addEvent({
+          eventId: `evt_${input.jobId}_${now}_${Math.random().toString(36).slice(2, 10)}`,
+          jobId: input.jobId,
+          eventType: `execution.transition.${input.newStatus.toLowerCase()}`,
+          payload: {
+            from: input.expectedStatus, to: input.newStatus, actor: input.actor,
+            reason: input.reason ?? null,
+            workerId: input.workerId ?? null, leaseId: input.leaseId ?? null,
+          },
+          createdAt: now,
+        });
+      }
+
+      updateResult = r;
+      return r;
+    };
+
+    let txThrew = false;
+    try {
+      const maybeTx: any = (this.db as any).transaction(run);
+      if (typeof maybeTx === "function") {
+        maybeTx();
+      }
+      // else: SQLiteEngine executed fn eagerly; closure already set updateResult.
+    } catch {
+      txThrew = true;
+      updateResult = null;
+    }
+
+    if (txThrew) {
+      // Event insertion failed; state rollback preserved consistency but the
+      // transition itself did not commit.  Reported as STATE_MISMATCH
+      // because TransitionResult has no dedicated EVENT_FAILED reason.
+      const cur = this.getJob(input.jobId);
+      return { ok: false, reason: "STATE_MISMATCH", currentStatus: cur?.status ?? null };
+    }
+
+    if (!updateResult || updateResult.changes === 0) {
+      const cur = this.getJob(input.jobId);
+      const currentStatus = cur?.status ?? null;
+      if (currentStatus === input.newStatus) {
+        return { ok: true, applied: false, status: currentStatus, idempotent: true };
+      }
+      if (input.actor === "worker" && currentStatus === input.expectedStatus) {
+        return { ok: false, reason: "WORKER_OWNERSHIP_LOST", currentStatus };
+      }
+      return { ok: false, reason: "STATE_MISMATCH", currentStatus };
+    }
+
+    return { ok: true, applied: true, status: input.newStatus, idempotent: false };
+  }
+  /** Phase 127 STEP 8: flag-only cancellation; never writes status. */
+  requestCancellation(jobId: string, now: number = Date.now()): boolean {
+    const result = this.db.prepare(`
+      UPDATE execution_jobs SET cancellation_requested = 1, updated_at = ?
+      WHERE id = ? AND status NOT IN ('SUCCEEDED', 'CANCELLED', 'DEAD_LETTER', 'BLOCKED')
+    `).run(now, jobId);
+    return result.changes > 0;
   }
 
   /**
@@ -389,7 +555,9 @@ export class ExecutionStore {
       return { acquired: true };
     } catch (err: any) {
       if (err.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed/i.test(err.message)) {
-        const existing = this.getActiveLeaseForJob(lease.jobId);
+        // Phase 127 STEP 5: exclude expired rows so a dead worker's stale
+        // ACTIVE lease does not block reacquisition until recovery sweeps.
+        const existing = this.getActiveNonExpiredLeaseForJob(lease.jobId, lease.acquiredAt);
         return { acquired: false, existingLease: existing };
       }
       throw err;
@@ -449,6 +617,13 @@ export class ExecutionStore {
     const row = this.db.prepare(
       "SELECT * FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE'"
     ).get(jobId);
+    return row ? this.mapLease(row) : undefined;
+  }
+
+  getActiveNonExpiredLeaseForJob(jobId: string, now: number = Date.now()): ExecutionLease | undefined {
+    const row = this.db.prepare(
+      "SELECT * FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE' AND expires_at > ?"
+    ).get(jobId, now);
     return row ? this.mapLease(row) : undefined;
   }
 

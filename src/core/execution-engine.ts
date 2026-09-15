@@ -62,6 +62,42 @@ export interface ExecutionDeps {
  * because the lease is no longer held by that worker.  The caller must
  * treat this as ownership loss, not a transient error.
  */
+export class ExecutionTransitionRejected extends Error {
+    constructor(
+        public readonly reason: string,
+        public readonly jobId: string,
+        public readonly expectedStatus: ExecutionJobStatus,
+        public readonly newStatus: ExecutionJobStatus,
+    ) {
+        super(`Transition rejected (${reason}): ${jobId} ${expectedStatus} -> ${newStatus}`);
+        this.name = "ExecutionTransitionRejected";
+    }
+}
+
+// Phase 127: local structural mirrors of execution-store.ts transition types.
+// TS structural typing makes these compatible with store.transitionExecution().
+type TransitionActor = "worker" | "recovery" | "system";
+type TransitionResult =
+    | { ok: true;  applied: true;  status: ExecutionJobStatus; idempotent: false }
+    | { ok: true;  applied: false; status: ExecutionJobStatus; idempotent: true  }
+    | { ok: false;
+        reason: "WORKER_OWNERSHIP_LOST" | "STATE_MISMATCH" | "TERMINAL_STATE" | "JOB_NOT_FOUND";
+        currentStatus: ExecutionJobStatus | null };
+type TransitionInput = {
+    jobId: string;
+    actor: TransitionActor;
+    expectedStatus: ExecutionJobStatus;
+    newStatus: ExecutionJobStatus;
+    workerId?: string;
+    leaseId?: string;
+    reason?: string;
+    now?: number;
+    patch?: Partial<Pick<ExecutionJob,
+        | "currentLeaseId" | "retryPolicy" | "timeoutMs"
+        | "lastAttemptAt" | "nextAttemptAt"
+        | "cancellationRequested" | "cancellationAcknowledged">>;
+};
+
 export class OwnershipLostError extends Error {
     constructor(
         public readonly jobId: string,
@@ -114,42 +150,113 @@ export class ExecutionEngine {
      *   3. write an audit record (best-effort)
      *   4. throw OwnershipLostError — deterministic, not silent
      */
-    private persistAsOwner(job: ExecutionJob, workerId: string, leaseId: string): void {
-        const result = this.store.updateJobAsOwner(job, workerId, leaseId);
-        if (result.updated) return;
+    private static readonly ACTOR_ALLOWED: Record<
+        TransitionActor,
+        Array<[ExecutionJobStatus, ExecutionJobStatus]>
+    > = {
+        worker: [
+            ["CLAIMED", "RUNNING"],
+            ["RUNNING", "VERIFYING"],
+            ["VERIFYING", "SUCCEEDED"],
+            ["VERIFYING", "FAILED"],
+            ["RUNNING", "FAILED"],
+            ["RUNNING", "CANCELLED"],
+            ["VERIFYING", "CANCELLED"],
+            ["RUNNING", "BLOCKED"],
+            ["CANCELLATION_REQUESTED", "RUNNING"],
+        ],
+        recovery: [
+            ["CLAIMED", "ORPHANED"],
+            ["RUNNING", "ORPHANED"],
+            ["VERIFYING", "ORPHANED"],
+            ["ORPHANED", "QUEUED"],
+            ["ORPHANED", "FAILED"],
+            ["ORPHANED", "DEAD_LETTER"],
+        ],
+        system: [
+            ["QUEUED", "CLAIMED"],
+            ["QUEUED", "BLOCKED"],
+            ["QUEUED", "CANCELLED"],
+            ["QUEUED", "CANCELLATION_REQUESTED"],
+            ["FAILED", "RETRY_SCHEDULED"],
+            ["FAILED", "DEAD_LETTER"],
+            ["RETRY_SCHEDULED", "QUEUED"],
+            ["RETRY_SCHEDULED", "CANCELLED"],
+            ["CANCELLATION_REQUESTED", "CANCELLED"],
+        ],
+    };
 
-        let obligationId = "unknown";
-        try {
-            const ob = this.store.writeOwnershipObligation({
-                jobId: job.id,
-                leaseId,
-                workerId,
-                reason: result.reason ?? "WORKER_OWNERSHIP_LOST",
-            });
-            obligationId = ob.obligationId;
-        } catch { /* obligation failure does not mask the ownership loss */ }
+    /**
+     * Phase 127: single entry point for every durable execution transition.
+     * Enforces, in order: state-machine legality, actor-role policy, and
+     * expected-state CAS + ownership fencing at the store.  On
+     * WORKER_OWNERSHIP_LOST writes a durable obligation.
+     */
+    private applyTransition(
+        jobId: string,
+        actor: TransitionActor,
+        expectedStatus: ExecutionJobStatus,
+        newStatus: ExecutionJobStatus,
+        workerId?: string,
+        leaseId?: string,
+        patch?: TransitionInput["patch"],
+        reason?: string,
+    ): TransitionResult {
+        if (!this.stateMachine.canTransition(expectedStatus, newStatus)) {
+            this.emitTransitionAudit(jobId, actor, expectedStatus, newStatus, "illegal_transition", workerId, leaseId, reason);
+            throw new ExecutionTransitionRejected("ILLEGAL_TRANSITION", jobId, expectedStatus, newStatus);
+        }
+        const allowed = ExecutionEngine.ACTOR_ALLOWED[actor] ?? [];
+        if (!allowed.some(([f, t]) => f === expectedStatus && t === newStatus)) {
+            this.emitTransitionAudit(jobId, actor, expectedStatus, newStatus, "actor_not_allowed", workerId, leaseId, reason);
+            throw new ExecutionTransitionRejected("ACTOR_NOT_ALLOWED", jobId, expectedStatus, newStatus);
+        }
 
-        try {
-            this.fireAndForget(this.deps.events?.emit({
-                type: "execution.ownership_lost",
-                source: "ExecutionEngine",
-                execution_id: job.id,
-                payload: { jobId: job.id, leaseId, workerId, obligationId },
-            }));
-        } catch { /* isolated */ }
+        const result = this.store.transitionExecution({
+            jobId, actor, expectedStatus, newStatus, workerId, leaseId, patch, reason,
+        });
 
+        if (result.ok) {
+            this.emitTransitionAudit(jobId, actor, expectedStatus, newStatus,
+                result.idempotent ? "idempotent" : "applied", workerId, leaseId, reason);
+            return result;
+        }
+
+        if (result.reason === "WORKER_OWNERSHIP_LOST") {
+            try {
+                this.store.writeOwnershipObligation({
+                    jobId,
+                    leaseId: leaseId ?? "unknown",
+                    workerId: workerId ?? "unknown",
+                    reason: reason ?? "TRANSITION_REJECTED",
+                });
+            } catch { /* obligation failure does not mask the loss */ }
+        }
+        this.emitTransitionAudit(jobId, actor, expectedStatus, newStatus,
+            result.reason.toLowerCase(), workerId, leaseId, reason);
+        throw new ExecutionTransitionRejected(result.reason, jobId, expectedStatus, newStatus);
+    }
+
+    private emitTransitionAudit(
+        jobId: string,
+        actor: TransitionActor,
+        from: ExecutionJobStatus,
+        to: ExecutionJobStatus,
+        result: string,
+        workerId?: string,
+        leaseId?: string,
+        reason?: string,
+    ): void {
         try {
             this.fireAndForget(this.deps.audit?.record({
-                actor: workerId,
-                action: "execution.ownership_lost",
+                actor: workerId ?? actor,
+                action: "execution.transition",
                 resource_type: "execution_job",
-                resource_id: job.id,
-                result: "blocked",
-                metadata: { leaseId, obligationId },
+                resource_id: jobId,
+                result,
+                metadata: { from, to, actor, leaseId: leaseId ?? null, reason: reason ?? null },
             }));
         } catch { /* isolated */ }
-
-        throw new OwnershipLostError(job.id, leaseId, workerId);
     }
 
     createJob(
@@ -186,10 +293,21 @@ export class ExecutionEngine {
             if (job.cancellationRequested) continue;
             try {
                 const lease = this.leaseManager.acquireLease(job.id, workerId, 60000);
+                try {
+                    this.applyTransition(
+                        job.id, "system", "QUEUED", "CLAIMED",
+                        workerId, lease.leaseId,
+                        { currentLeaseId: lease.leaseId },
+                        "LEASE_ACQUIRED"
+                    );
+                } catch (e) {
+                    // Compensating action: CLAIMED CAS failed → release the lease
+                    this.leaseManager.releaseLease(lease.leaseId);
+                    throw e;
+                }
                 job.status = "CLAIMED";
                 job.currentLeaseId = lease.leaseId;
                 job.updatedAt = Date.now();
-                this.store.updateJob(job);
                 this.workerRegistry.markBusy(workerId, job.id);
                 return { job, lease };
             } catch {
@@ -238,10 +356,9 @@ export class ExecutionEngine {
             throw new OwnershipLostError(job.id, leaseId, workerId);
         }
 
-        this.stateMachine.assertTransition(job.status, "RUNNING");
+        this.applyTransition(job.id, "worker", "CLAIMED", "RUNNING", workerId, leaseId, undefined, "WORKER_STARTED");
         job.status = "RUNNING";
         job.updatedAt = Date.now();
-        this.persistAsOwner(job, workerId, leaseId);
 
         const attemptNumber = this.store.listAttemptsForJob(jobId).length + 1;
         const attemptId = `attempt_${jobId}_${attemptNumber}`;
@@ -269,22 +386,39 @@ export class ExecutionEngine {
         if (this.deps.governance) {
             const decision = await this.deps.governance.evaluate(job);
             if (decision === "DENY" || decision === "FREEZE") {
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "BLOCKED",
+                    workerId, leaseId, undefined,
+                    decision === "FREEZE" ? "GOVERNANCE_FREEZE" : "GOVERNANCE_DENIED"
+                );
                 job.status = "BLOCKED";
                 job.updatedAt = Date.now();
-                this.persistAsOwner(job, workerId, leaseId);
                 this.leaseManager.releaseLease(leaseId);
-            job.currentLeaseId = undefined;
-        job.currentLeaseId = undefined;
+                job.currentLeaseId = undefined;
                 this.workerRegistry.markIdle(workerId);
                 return job;
             }
             if (decision === "APPROVAL_REQUIRED") {
-                job.status = "APPROVAL_REQUIRED" as any;
+                // Phase 127 STEP 7: execution has no APPROVAL_REQUIRED state.
+                // Map to BLOCKED with a distinct durable audit reason.
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "BLOCKED",
+                    workerId, leaseId, undefined, "GOVERNANCE_APPROVAL_REQUIRED"
+                );
+                job.status = "BLOCKED";
                 job.updatedAt = Date.now();
-                this.persistAsOwner(job, workerId, leaseId);
+                try {
+                    this.fireAndForget(this.deps.audit?.record({
+                        actor: workerId,
+                        action: "execution.approval_required",
+                        resource_type: "execution_job",
+                        resource_id: job.id,
+                        result: "blocked",
+                        metadata: { leaseId },
+                    }));
+                } catch { /* isolated */ }
                 this.leaseManager.releaseLease(leaseId);
-            job.currentLeaseId = undefined;
-        job.currentLeaseId = undefined;
+                job.currentLeaseId = undefined;
                 this.workerRegistry.markIdle(workerId);
                 return job;
             }
@@ -293,12 +427,14 @@ export class ExecutionEngine {
         if (this.deps.safety) {
             const safetyResult = await this.deps.safety.verify(job, workerId, leaseId);
             if (!safetyResult.safe) {
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "BLOCKED",
+                    workerId, leaseId, undefined, "SAFETY_VERIFY_FAILED"
+                );
                 job.status = "BLOCKED";
                 job.updatedAt = Date.now();
-                this.persistAsOwner(job, workerId, leaseId);
                 this.leaseManager.releaseLease(leaseId);
-            job.currentLeaseId = undefined;
-        job.currentLeaseId = undefined;
+                job.currentLeaseId = undefined;
                 this.workerRegistry.markIdle(workerId);
                 return job;
             }
@@ -329,10 +465,15 @@ export class ExecutionEngine {
             attempt.status = "CANCELLED";
             attempt.evidence = ["Execution cancelled after completion"];
             this.store.updateAttempt(attempt);
-            job.cancellationAcknowledged = true;
+            this.applyTransition(
+                job.id, "worker", "RUNNING", "CANCELLED",
+                workerId, leaseId,
+                { cancellationAcknowledged: true },
+                "POST_EXECUTION_CANCELLED"
+            );
             job.status = "CANCELLED";
+            job.cancellationAcknowledged = true;
             job.updatedAt = Date.now();
-            this.persistAsOwner(job, workerId, leaseId);
             this.leaseManager.releaseLease(leaseId);
             this.workerRegistry.markIdle(workerId);
             return job;
@@ -344,51 +485,65 @@ export class ExecutionEngine {
             this.store.updateAttempt(attempt);
 
             if (job.cancellationRequested) {
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "CANCELLED",
+                    workerId, leaseId,
+                    { cancellationAcknowledged: true },
+                    "FAILED_EXECUTION_CANCELLED"
+                );
                 job.status = "CANCELLED";
                 job.cancellationAcknowledged = true;
                 job.updatedAt = Date.now();
-                this.persistAsOwner(job, workerId, leaseId);
                 this.leaseManager.releaseLease(leaseId);
-            job.currentLeaseId = undefined;
-        job.currentLeaseId = undefined;
+                job.currentLeaseId = undefined;
                 this.workerRegistry.markIdle(workerId);
                 return job;
             }
 
+            let nextStatus: ExecutionJobStatus;
+            let nextAttemptAt: number | undefined;
             if (timedOut && job.retryPolicy) {
-                const nextAttempt = this.retryEngine.calculateNextAttempt(attemptNumber, job.retryPolicy, Date.now());
-                if (nextAttempt !== null) {
-                    job.status = "RETRY_SCHEDULED";
-                    job.nextAttemptAt = nextAttempt;
-                } else {
-                    job.status = "DEAD_LETTER";
-                }
+                const na = this.retryEngine.calculateNextAttempt(attemptNumber, job.retryPolicy, Date.now());
+                if (na !== null) { nextStatus = "RETRY_SCHEDULED"; nextAttemptAt = na; }
+                else { nextStatus = "DEAD_LETTER"; }
             } else if (job.retryPolicy && this.retryEngine.isRetryable(executionError || "Execution failed", job.retryPolicy)) {
-                const nextAttempt = this.retryEngine.calculateNextAttempt(attemptNumber, job.retryPolicy, Date.now());
-                if (nextAttempt !== null) {
-                    job.status = "RETRY_SCHEDULED";
-                    job.nextAttemptAt = nextAttempt;
-                } else {
-                    job.status = "DEAD_LETTER";
-                }
+                const na = this.retryEngine.calculateNextAttempt(attemptNumber, job.retryPolicy, Date.now());
+                if (na !== null) { nextStatus = "RETRY_SCHEDULED"; nextAttemptAt = na; }
+                else { nextStatus = "DEAD_LETTER"; }
             } else {
-                job.status = "DEAD_LETTER";
+                nextStatus = "DEAD_LETTER";
             }
+
+            // Phase 127: two-step to keep the state machine authoritative.
+            // RUNNING -> RETRY_SCHEDULED is NOT a legal transition; must go
+            // through FAILED first.
+            this.applyTransition(
+                job.id, "worker", "RUNNING", "FAILED",
+                workerId, leaseId, undefined, "EXECUTION_FAILED"
+            );
+            job.status = "FAILED";
             job.updatedAt = Date.now();
-            this.persistAsOwner(job, workerId, leaseId);
+
+            this.applyTransition(
+                job.id, "system", "FAILED", nextStatus,
+                undefined, undefined,
+                nextAttemptAt !== undefined ? { nextAttemptAt } : undefined,
+                nextStatus === "RETRY_SCHEDULED" ? "RETRY_SCHEDULED" : "DEAD_LETTER"
+            );
+            job.status = nextStatus;
+            if (nextAttemptAt !== undefined) job.nextAttemptAt = nextAttemptAt;
+            job.updatedAt = Date.now();
             this.leaseManager.releaseLease(leaseId);
             job.currentLeaseId = undefined;
-        job.currentLeaseId = undefined;
             this.workerRegistry.markIdle(workerId);
             return job;
         }
 
         let verificationSuccess = true;
         if (this.deps.verification) {
-            this.stateMachine.assertTransition(job.status, "VERIFYING");
+            this.applyTransition(job.id, "worker", "RUNNING", "VERIFYING", workerId, leaseId, undefined, "VERIFICATION_STARTED");
             job.status = "VERIFYING";
             job.updatedAt = Date.now();
-            this.persistAsOwner(job, workerId, leaseId);
 
             try {
                 verificationSuccess = await this.deps.verification(job, executionResult);
@@ -406,9 +561,13 @@ export class ExecutionEngine {
         attempt.completedAt = Date.now();
         this.store.updateAttempt(attempt);
 
-        job.status = attempt.status as ExecutionJobStatus;
+        const finalJobStatus = attempt.status as ExecutionJobStatus;
+        this.applyTransition(
+            job.id, "worker", "VERIFYING", finalJobStatus,
+            workerId, leaseId, undefined, "VERIFICATION_COMPLETE"
+        );
+        job.status = finalJobStatus;
         job.updatedAt = Date.now();
-        this.persistAsOwner(job, workerId, leaseId);
 
         this.leaseManager.releaseLease(leaseId);
         job.currentLeaseId = undefined;
@@ -592,9 +751,11 @@ export class ExecutionEngine {
     requestCancellation(jobId: string): ExecutionJob | undefined {
         const job = this.store.getJob(jobId);
         if (!job) return undefined;
-        job.cancellationRequested = true;
-        job.updatedAt = Date.now();
-        this.store.updateJob(job);
+        const ok = this.store.requestCancellation(jobId);
+        if (ok) {
+            job.cancellationRequested = true;
+            job.updatedAt = Date.now();
+        }
         return job;
     }
 }
