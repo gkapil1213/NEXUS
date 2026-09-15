@@ -84,9 +84,26 @@ function containsForbiddenKey(v: unknown, depth = 0): boolean {
 }
 
 export class ReleaseRecoveryEvidenceReconciler {
+  // Phase 123: per-intent promise chain serializes concurrent reconcile() calls
+  // on the same intentKey within this process so the read-check-write sequence
+  // cannot interleave and produce duplicate reconciliation events. Cross-process
+  // serialization is out of scope: the NEXUS kernel boots once per process and
+  // its recovery executor runs once per boot.
+  private static readonly chains = new Map<string, Promise<unknown>>();
+
   constructor(private readonly deps: ReconciliationDeps) {}
 
-  async reconcile(intentKey: string): Promise<ReconciliationResult> {
+  reconcile(intentKey: string): Promise<ReconciliationResult> {
+    const prev = ReleaseRecoveryEvidenceReconciler.chains.get(intentKey) ?? Promise.resolve();
+    const next = prev.then(
+      () => this.reconcileInner(intentKey),
+      () => this.reconcileInner(intentKey),
+    );
+    ReleaseRecoveryEvidenceReconciler.chains.set(intentKey, next.catch(() => undefined));
+    return next;
+  }
+
+  private async reconcileInner(intentKey: string): Promise<ReconciliationResult> {
     const now = Date.now();
     const intent = this.deps.intents.get(intentKey);
     if (!intent) {

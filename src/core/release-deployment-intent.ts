@@ -117,4 +117,8 @@ export class ReleaseDeploymentIntentService {
   listRecoverable(): ReleaseDeploymentIntent[] {
     return this.store.listRecoverableReleaseIntents();
   }
+  /** Phase 123: list intents by status. Reuses the durable store query. */
+  listByStatus(status: ReleaseIntentStatus): ReleaseDeploymentIntent[] {
+    return this.store.listReleaseIntentsByStatus(status);
+  }
 }

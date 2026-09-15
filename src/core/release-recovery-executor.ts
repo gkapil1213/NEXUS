@@ -45,6 +45,11 @@ export interface ReleaseRecoveryExecutorDeps {
       message: string;
     }>;
   };
+  /** Phase 123: post-run evidence reconciliation. Optional � when absent,
+   *  behavior is byte-for-byte identical to Phase 122. */
+  reconciler?: {
+    reconcile(intentKey: string): Promise<unknown>;
+  };
 }
 export interface RecoveryActionRecord { intentKey: string; action: RecoveryAction; reason: string; }
 export interface RecoveryRunReport {
@@ -72,6 +77,28 @@ export class ReleaseRecoveryExecutor {
         const reason = e instanceof Error ? e.message : String(e);
         report.blockedReasons.push({ intentKey: intent.intentKey, reason });
         await svc.events.emit({ type: "release.recovery.error", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, error: reason } });
+      }
+    }
+    // Phase 123: post-run evidence reconciliation for ROLLBACK-kind intents.
+    // Terminal states are not returned by listRecoverable(), so we scan them.
+    if (this.deps.reconciler) {
+      const seen = new Set<string>();
+      const terminalStatuses = ["FAILED", "VERIFICATION_FAILED", "RECOVERY_REQUIRED", "BLOCKED"] as const;
+      for (const status of terminalStatuses) {
+        for (const intent of intents.listByStatus(status)) {
+          const kind = ((intent as unknown as { intentKind?: string }).intentKind ?? "DEPLOY");
+          if (kind !== "ROLLBACK") continue;
+          if (seen.has(intent.intentKey)) continue;
+          seen.add(intent.intentKey);
+          try {
+            await this.deps.reconciler.reconcile(intent.intentKey);
+          } catch (e) {
+            report.blocked++;
+            const reason = e instanceof Error ? e.message : String(e);
+            report.blockedReasons.push({ intentKey: intent.intentKey, reason: "reconciliation failed: " + reason });
+            await svc.events.emit({ type: "release.recovery.error", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, error: "reconciliation failed: " + reason } });
+          }
+        }
       }
     }
     await svc.events.emit({ type: "release.recovery.completed", source: "ReleaseRecoveryExecutor", payload: { scanned: report.scanned, acted: report.acted, skipped: report.skipped, blocked: report.blocked, leaseHeld: report.leaseHeld } });
@@ -278,7 +305,7 @@ export class ReleaseRecoveryExecutor {
           report.acted++;
           return;
         }
-        // Legacy DEPLOY-intent path — preserved for canonical suite T78.
+        // Legacy DEPLOY-intent path â€” preserved for canonical suite T78.
         if (!this.deps.rollback) { intents.transition(fresh.intentKey, "BLOCKED", { failureReason: "rollback in flight; delegate unavailable" }); report.blocked++; return; }
         const result = await this.deps.rollback.rollback(fresh);
         intents.transition(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", { failureReason: result.message });
