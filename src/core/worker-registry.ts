@@ -1,8 +1,13 @@
 import { ExecutionStore } from "./execution-store";
 import { ExecutionWorker, WorkerStatus } from "./execution-models";
+import type { LeaseManager } from "./lease-manager";
 
 export class WorkerRegistry {
-  constructor(private store: ExecutionStore) {}
+  constructor(
+    private store: ExecutionStore,
+    // Phase 126: optional — required only when heartbeat is asked to renew a lease.
+    private leaseManager?: LeaseManager
+  ) {}
 
   register(worker: ExecutionWorker): void {
     if (this.store.getWorker(worker.workerId)) {
@@ -12,13 +17,37 @@ export class WorkerRegistry {
     }
   }
 
-  heartbeat(workerId: string, currentJobId?: string, now: number = Date.now()): void {
+  /**
+   * Phase 126: heartbeat optionally proves lease ownership before claiming health.
+   * If `opts.leaseId` is supplied and lease renewal fails, `lastHeartbeatAt` is
+   * NOT updated and the worker is NOT marked healthy.  Callers see an explicit
+   * ownership-loss result and must stop protected execution mutations.
+   */
+  heartbeat(
+    workerId: string,
+    currentJobId?: string,
+    opts?: { leaseId?: string; ttlMs?: number; now?: number }
+  ): { healthy: boolean; reason?: "WORKER_OWNERSHIP_LOST" | "LEASE_MANAGER_MISSING" } {
+    const now = opts?.now ?? Date.now();
     const worker = this.store.getWorker(workerId);
     if (!worker) throw new Error(`Worker ${workerId} not found`);
+
+    if (opts?.leaseId) {
+      if (!this.leaseManager) {
+        return { healthy: false, reason: "LEASE_MANAGER_MISSING" };
+      }
+      try {
+        this.leaseManager.renewLease(opts.leaseId, workerId, opts.ttlMs ?? 60000, now);
+      } catch {
+        return { healthy: false, reason: "WORKER_OWNERSHIP_LOST" };
+      }
+    }
+
     worker.lastHeartbeatAt = now;
     if (currentJobId !== undefined) worker.currentJobId = currentJobId;
     worker.status = currentJobId ? "BUSY" : "ONLINE";
     this.store.updateWorker(worker);
+    return { healthy: true };
   }
 
   markBusy(workerId: string, jobId: string): void {

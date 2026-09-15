@@ -117,6 +117,148 @@ export class ExecutionStore {
     );
   }
 
+  /**
+   * Phase 126: ownership-aware mutation.  Atomically verifies that the
+   * supplied leaseId is currently ACTIVE, unexpired, and owned by workerId
+   * before committing the job update.  A stale worker's write fails
+   * deterministically with WORKER_OWNERSHIP_LOST and mutates nothing.
+   */
+  updateJobAsOwner(
+    job: ExecutionJob,
+    workerId: string,
+    leaseId: string,
+    now: number = Date.now()
+  ): { updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
+    const result = this.db.prepare(`
+      UPDATE execution_jobs SET
+        payload = ?, status = ?, retry_policy = ?, timeout_ms = ?,
+        updated_at = ?, last_attempt_at = ?, next_attempt_at = ?,
+        current_lease_id = ?, cancellation_requested = ?, cancellation_acknowledged = ?
+      WHERE id = ?
+        AND EXISTS (
+          SELECT 1 FROM execution_leases
+          WHERE lease_id = ? AND worker_id = ? AND status = 'ACTIVE' AND expires_at > ?
+        )
+    `).run(
+      job.payload ? JSON.stringify(job.payload) : null,
+      job.status,
+      job.retryPolicy ? JSON.stringify(job.retryPolicy) : null,
+      job.timeoutMs ?? null,
+      now,
+      job.lastAttemptAt ?? null,
+      job.nextAttemptAt ?? null,
+      job.currentLeaseId ?? null,
+      job.cancellationRequested ? 1 : 0,
+      job.cancellationAcknowledged ? 1 : 0,
+      job.id,
+      leaseId,
+      workerId,
+      now
+    );
+    if (result.changes === 0) {
+      return { updated: false, reason: "WORKER_OWNERSHIP_LOST" };
+    }
+    return { updated: true };
+  }
+
+  /**
+   * Phase 126: durable ownership-loss obligation.
+   * Idempotent per (job_id, lease_id): repeated detection is a no-op.
+   */
+  writeOwnershipObligation(input: {
+    jobId: string;
+    leaseId: string;
+    workerId: string;
+    reason: string;
+    now?: number;
+  }): { obligationId: string; created: boolean } {
+    const now = input.now ?? Date.now();
+    const obligationId = `oblig_${input.jobId}_${input.leaseId}`;
+    try {
+      this.db.prepare(`
+        INSERT INTO execution_ownership_obligations (
+          obligation_id, job_id, lease_id, worker_id, reason, state, created_at
+        ) VALUES (?, ?, ?, ?, ?, 'OPEN', ?)
+      `).run(obligationId, input.jobId, input.leaseId, input.workerId, input.reason, now);
+      return { obligationId, created: true };
+    } catch (err: any) {
+      if (err.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed/i.test(err.message)) {
+        const existing = this.db.prepare(
+          `SELECT obligation_id FROM execution_ownership_obligations WHERE job_id = ? AND lease_id = ?`
+        ).get(input.jobId, input.leaseId) as { obligation_id: string } | undefined;
+        return { obligationId: existing?.obligation_id ?? obligationId, created: false };
+      }
+      throw err;
+    }
+  }
+
+  resolveOwnershipObligation(obligationId: string, resolution: string, now: number = Date.now()): boolean {
+    const result = this.db.prepare(`
+      UPDATE execution_ownership_obligations
+      SET state = 'RESOLVED', resolved_at = ?, resolution = ?
+      WHERE obligation_id = ? AND state = 'OPEN'
+    `).run(now, resolution, obligationId);
+    return result.changes > 0;
+  }
+
+  listOpenOwnershipObligations(): Array<{
+    obligationId: string; jobId: string; leaseId: string; workerId: string;
+    reason: string; createdAt: number;
+  }> {
+    const rows = this.db.prepare(
+      `SELECT * FROM execution_ownership_obligations WHERE state = 'OPEN' ORDER BY created_at ASC`
+    ).all() as any[];
+    return rows.map((r) => ({
+      obligationId: r.obligation_id,
+      jobId: r.job_id,
+      leaseId: r.lease_id,
+      workerId: r.worker_id,
+      reason: r.reason,
+      createdAt: r.created_at,
+    }));
+  }
+
+  /**
+   * Phase 126: atomic stale-recovery transition.
+   *
+   * Recovers a job from `expectedStatus` to `newStatus` ONLY IF the job is
+   * still in `expectedStatus` AND its current_lease_id is exactly
+   * `expectedLeaseId`.  If a new worker has taken over between the caller's
+   * read and this write, the WHERE clause matches zero rows and nothing is
+   * mutated.
+   *
+   * Returns true if the transition was applied, false if the job was
+   * concurrently re-owned or otherwise changed state.
+   */
+  recoverJobToStatus(
+    jobId: string,
+    expectedStatus: string,
+    newStatus: string,
+    expectedLeaseId: string | null,
+    patch: { nextAttemptAt?: number | null; now?: number } = {}
+  ): boolean {
+    const now = patch.now ?? Date.now();
+    const result = this.db.prepare(`
+      UPDATE execution_jobs SET
+        status = ?, updated_at = ?, next_attempt_at = ?, current_lease_id = NULL
+      WHERE id = ?
+        AND status = ?
+        AND (
+          (? IS NULL AND current_lease_id IS NULL)
+          OR current_lease_id = ?
+        )
+    `).run(
+      newStatus,
+      now,
+      patch.nextAttemptAt ?? null,
+      jobId,
+      expectedStatus,
+      expectedLeaseId,
+      expectedLeaseId
+    );
+    return result.changes > 0;
+  }
+
   listJobsByStatus(status: string): ExecutionJob[] {
     return this.db.prepare("SELECT * FROM execution_jobs WHERE status = ?").all(status).map(this.mapJob);
   }
@@ -268,6 +410,36 @@ export class ExecutionStore {
     );
   }
 
+  /**
+   * Phase 126: atomically renew a lease only while the caller still owns
+   * an unexpired ACTIVE lease. This closes the read/check/write race where
+   * another worker could acquire the job between getLease() and updateLease().
+   */
+  renewLeaseAsOwner(
+    leaseId: string,
+    workerId: string,
+    renewedAt: number,
+    expiresAt: number,
+    now: number
+  ): boolean {
+    const result = this.db.prepare(`
+      UPDATE execution_leases SET
+        renewed_at = ?,
+        expires_at = ?
+      WHERE lease_id = ?
+        AND worker_id = ?
+        AND status = 'ACTIVE'
+        AND expires_at > ?
+    `).run(
+      renewedAt,
+      expiresAt,
+      leaseId,
+      workerId,
+      now
+    );
+
+    return result.changes === 1;
+  }
   getLease(leaseId: string): ExecutionLease | undefined {
     const row = this.db.prepare("SELECT * FROM execution_leases WHERE lease_id = ?").get(leaseId);
     return row ? this.mapLease(row) : undefined;

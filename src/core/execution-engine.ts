@@ -22,6 +22,26 @@ function generateUUID(): string {
     const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
     return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }
+export interface ExecutionEventSink {
+    emit(e: {
+        type: string;
+        source?: string;
+        execution_id?: string | null;
+        payload?: Record<string, unknown>;
+    }): Promise<unknown> | unknown;
+}
+
+export interface ExecutionAuditSink {
+    record(e: {
+        actor: string;
+        action: string;
+        resource_type: string;
+        resource_id: string;
+        result?: string;
+        metadata?: Record<string, unknown>;
+    }): Promise<unknown> | unknown;
+}
+
 export interface ExecutionDeps {
     dispatchPort?: ExecutionDispatchPort;
     governance?: {
@@ -31,6 +51,26 @@ export interface ExecutionDeps {
         verify(job: ExecutionJob, workerId: string, leaseId: string): Promise<{ safe: boolean; reason?: string }>;
     };
     verification?: (job: ExecutionJob, result: any) => Promise<boolean>;
+    // Phase 126: optional durable telemetry sinks. Absence is tolerated;
+    // telemetry failure NEVER changes the actual execution outcome.
+    events?: ExecutionEventSink;
+    audit?: ExecutionAuditSink;
+}
+
+/**
+ * Phase 126: thrown when a worker's ownership-aware mutation is rejected
+ * because the lease is no longer held by that worker.  The caller must
+ * treat this as ownership loss, not a transient error.
+ */
+export class OwnershipLostError extends Error {
+    constructor(
+        public readonly jobId: string,
+        public readonly leaseId: string,
+        public readonly workerId: string,
+    ) {
+        super(`WORKER_OWNERSHIP_LOST: job=${jobId} lease=${leaseId} worker=${workerId}`);
+        this.name = "OwnershipLostError";
+    }
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string): Promise<T> {
@@ -53,6 +93,64 @@ export class ExecutionEngine {
         private retryEngine: RetryEngine,
         private deps: ExecutionDeps = {}
     ) {}
+
+    /** Fire-and-forget a possibly-async telemetry call; swallow any failure. */
+    private fireAndForget(p: unknown): void {
+        if (p && typeof (p as { then?: unknown }).then === "function") {
+            (p as Promise<unknown>).catch(() => { /* telemetry failure isolated */ });
+        }
+    }
+
+    /**
+     * Phase 126: ownership-aware state mutation.
+     *
+     * Every post-claim status change goes through here.  If the supplied
+     * lease is no longer ACTIVE/owned by this worker, the database update
+     * affects zero rows — we do NOT overwrite the new owner's state.
+     *
+     * On ownership loss we:
+     *   1. write a durable ownership-loss obligation (idempotent per job+lease)
+     *   2. emit `execution.ownership_lost` (best-effort)
+     *   3. write an audit record (best-effort)
+     *   4. throw OwnershipLostError — deterministic, not silent
+     */
+    private persistAsOwner(job: ExecutionJob, workerId: string, leaseId: string): void {
+        const result = this.store.updateJobAsOwner(job, workerId, leaseId);
+        if (result.updated) return;
+
+        let obligationId = "unknown";
+        try {
+            const ob = this.store.writeOwnershipObligation({
+                jobId: job.id,
+                leaseId,
+                workerId,
+                reason: result.reason ?? "WORKER_OWNERSHIP_LOST",
+            });
+            obligationId = ob.obligationId;
+        } catch { /* obligation failure does not mask the ownership loss */ }
+
+        try {
+            this.fireAndForget(this.deps.events?.emit({
+                type: "execution.ownership_lost",
+                source: "ExecutionEngine",
+                execution_id: job.id,
+                payload: { jobId: job.id, leaseId, workerId, obligationId },
+            }));
+        } catch { /* isolated */ }
+
+        try {
+            this.fireAndForget(this.deps.audit?.record({
+                actor: workerId,
+                action: "execution.ownership_lost",
+                resource_type: "execution_job",
+                resource_id: job.id,
+                result: "blocked",
+                metadata: { leaseId, obligationId },
+            }));
+        } catch { /* isolated */ }
+
+        throw new OwnershipLostError(job.id, leaseId, workerId);
+    }
 
     createJob(
         jobType: string,
@@ -106,16 +204,44 @@ export class ExecutionEngine {
         if (!job) throw new Error(`Job ${jobId} not found`);
 
         if (!this.leaseManager.validateLease(leaseId, workerId)) {
-            job.status = "ORPHANED";
-            job.updatedAt = Date.now();
-            this.store.updateJob(job);
-            throw new Error("Lease lost or invalid");
+            // Phase 126: ownership already lost.  Do NOT clobber the job row —
+            // another worker may now own it.  Record the durable obligation,
+            // emit telemetry, and throw a typed error so callers can react.
+            let obligationId = "unknown";
+            try {
+                const ob = this.store.writeOwnershipObligation({
+                    jobId: job.id,
+                    leaseId,
+                    workerId,
+                    reason: "LEASE_LOST_AT_EXECUTE",
+                });
+                obligationId = ob.obligationId;
+            } catch { /* isolated */ }
+            try {
+                this.fireAndForget(this.deps.events?.emit({
+                    type: "execution.ownership_lost",
+                    source: "ExecutionEngine",
+                    execution_id: job.id,
+                    payload: { jobId: job.id, leaseId, workerId, obligationId, phase: "execute_precheck" },
+                }));
+            } catch { /* isolated */ }
+            try {
+                this.fireAndForget(this.deps.audit?.record({
+                    actor: workerId,
+                    action: "execution.ownership_lost",
+                    resource_type: "execution_job",
+                    resource_id: job.id,
+                    result: "blocked",
+                    metadata: { leaseId, obligationId, phase: "execute_precheck" },
+                }));
+            } catch { /* isolated */ }
+            throw new OwnershipLostError(job.id, leaseId, workerId);
         }
 
         this.stateMachine.assertTransition(job.status, "RUNNING");
         job.status = "RUNNING";
         job.updatedAt = Date.now();
-        this.store.updateJob(job);
+        this.persistAsOwner(job, workerId, leaseId);
 
         const attemptNumber = this.store.listAttemptsForJob(jobId).length + 1;
         const attemptId = `attempt_${jobId}_${attemptNumber}`;
@@ -145,7 +271,7 @@ export class ExecutionEngine {
             if (decision === "DENY" || decision === "FREEZE") {
                 job.status = "BLOCKED";
                 job.updatedAt = Date.now();
-                this.store.updateJob(job);
+                this.persistAsOwner(job, workerId, leaseId);
                 this.leaseManager.releaseLease(leaseId);
             job.currentLeaseId = undefined;
         job.currentLeaseId = undefined;
@@ -155,7 +281,7 @@ export class ExecutionEngine {
             if (decision === "APPROVAL_REQUIRED") {
                 job.status = "APPROVAL_REQUIRED" as any;
                 job.updatedAt = Date.now();
-                this.store.updateJob(job);
+                this.persistAsOwner(job, workerId, leaseId);
                 this.leaseManager.releaseLease(leaseId);
             job.currentLeaseId = undefined;
         job.currentLeaseId = undefined;
@@ -169,7 +295,7 @@ export class ExecutionEngine {
             if (!safetyResult.safe) {
                 job.status = "BLOCKED";
                 job.updatedAt = Date.now();
-                this.store.updateJob(job);
+                this.persistAsOwner(job, workerId, leaseId);
                 this.leaseManager.releaseLease(leaseId);
             job.currentLeaseId = undefined;
         job.currentLeaseId = undefined;
@@ -206,7 +332,7 @@ export class ExecutionEngine {
             job.cancellationAcknowledged = true;
             job.status = "CANCELLED";
             job.updatedAt = Date.now();
-            this.store.updateJob(job);
+            this.persistAsOwner(job, workerId, leaseId);
             this.leaseManager.releaseLease(leaseId);
             this.workerRegistry.markIdle(workerId);
             return job;
@@ -221,7 +347,7 @@ export class ExecutionEngine {
                 job.status = "CANCELLED";
                 job.cancellationAcknowledged = true;
                 job.updatedAt = Date.now();
-                this.store.updateJob(job);
+                this.persistAsOwner(job, workerId, leaseId);
                 this.leaseManager.releaseLease(leaseId);
             job.currentLeaseId = undefined;
         job.currentLeaseId = undefined;
@@ -249,7 +375,7 @@ export class ExecutionEngine {
                 job.status = "DEAD_LETTER";
             }
             job.updatedAt = Date.now();
-            this.store.updateJob(job);
+            this.persistAsOwner(job, workerId, leaseId);
             this.leaseManager.releaseLease(leaseId);
             job.currentLeaseId = undefined;
         job.currentLeaseId = undefined;
@@ -262,7 +388,7 @@ export class ExecutionEngine {
             this.stateMachine.assertTransition(job.status, "VERIFYING");
             job.status = "VERIFYING";
             job.updatedAt = Date.now();
-            this.store.updateJob(job);
+            this.persistAsOwner(job, workerId, leaseId);
 
             try {
                 verificationSuccess = await this.deps.verification(job, executionResult);
@@ -282,7 +408,7 @@ export class ExecutionEngine {
 
         job.status = attempt.status as ExecutionJobStatus;
         job.updatedAt = Date.now();
-        this.store.updateJob(job);
+        this.persistAsOwner(job, workerId, leaseId);
 
         this.leaseManager.releaseLease(leaseId);
         job.currentLeaseId = undefined;
@@ -291,25 +417,175 @@ export class ExecutionEngine {
         return job;
     }
 
+    /**
+     * Phase 126: stale-execution recovery.
+     *
+     * A recovered expired lease is NOT automatically safe to retry.  For
+     * each affected execution we:
+     *   1. emit `execution.lease.expired`
+     *   2. transition to ORPHANED (the only valid state from RUNNING/CLAIMED/VERIFYING)
+     *   3. write a durable ownership-loss obligation (idempotent per job+lease)
+     *   4. classify as RECOVERABLE (retryPolicy AND ORPHANED->QUEUED valid)
+     *      or RECOVERY_REQUIRED (anything else)
+     *   5. re-queue only the RECOVERABLE class
+     *   6. emit `execution.recovery_completed` or `execution.recovery_required`
+     *   7. write an audit record for the recovery action
+     *
+     * Terminal states are never touched.  The obligation write is idempotent,
+     * so repeated detection converges on one row.
+     */
     recoverStaleJobs(now: number = Date.now()): void {
         const expiredLeases = this.leaseManager.recoverExpiredLeases(now);
         for (const lease of expiredLeases) {
+            try {
+                this.fireAndForget(this.deps.events?.emit({
+                    type: "execution.lease.expired",
+                    source: "ExecutionEngine",
+                    execution_id: lease.jobId,
+                    payload: {
+                        jobId: lease.jobId,
+                        leaseId: lease.leaseId,
+                        workerId: lease.workerId,
+                        expiredAt: lease.expiresAt,
+                    },
+                }));
+            } catch { /* isolated */ }
+
             const job = this.store.getJob(lease.jobId);
-            if (job && (job.status === "RUNNING" || job.status === "CLAIMED" || job.status === "VERIFYING")) {
-                job.status = "ORPHANED";
-                job.updatedAt = now;
-                this.store.updateJob(job);
-                if (job.retryPolicy) {
-                    job.status = "RETRY_SCHEDULED";
-                    job.nextAttemptAt = now;
-                    this.store.updateJob(job);
-                }
+            if (!job) continue;
+
+            // Terminal states are never resurrected.
+            if (
+                job.status === "SUCCEEDED" ||
+                job.status === "FAILED" ||
+                job.status === "CANCELLED" ||
+                job.status === "DEAD_LETTER"
+            ) {
+                continue;
             }
+
+            // Only jobs that could have been owned can be orphaned.
+            if (job.status !== "RUNNING" && job.status !== "CLAIMED" && job.status !== "VERIFYING") {
+                continue;
+            }
+
+            // Atomic: only applies if the job is still in its observed status
+            // AND still owned by the same lease.  If a new worker took over
+            // between recoverExpiredLeases() and here, this is a no-op.
+            const orphaned = this.store.recoverJobToStatus(
+                job.id,
+                job.status,
+                "ORPHANED",
+                job.currentLeaseId ?? null,
+                { now }
+            );
+            if (!orphaned) {
+                // Another owner appeared concurrently — skip recovery for this
+                // job.  The obligation was already written above; it remains
+                // OPEN for the new owner or an operator to resolve.
+                continue;
+            }
+            job.status = "ORPHANED";
+            job.updatedAt = now;
+            job.currentLeaseId = undefined;
+
+            let obligationId = "unknown";
+            try {
+                const ob = this.store.writeOwnershipObligation({
+                    jobId: job.id,
+                    leaseId: lease.leaseId,
+                    workerId: lease.workerId,
+                    reason: "LEASE_EXPIRED",
+                    now,
+                });
+                obligationId = ob.obligationId;
+            } catch { /* obligation failure does not stop recovery */ }
+
+            const canRetry =
+                !!job.retryPolicy &&
+                this.stateMachine.canTransition("ORPHANED", "QUEUED");
+
+            if (canRetry) {
+                const requeued = this.store.recoverJobToStatus(
+                    job.id,
+                    "ORPHANED",
+                    "QUEUED",
+                    null,
+                    { nextAttemptAt: now, now }
+                );
+                if (!requeued) {
+                    // Another writer got in — leave as ORPHANED and let the
+                    // next recovery cycle pick it up.  No fake SUCCESS.
+                    continue;
+                }
+                job.status = "QUEUED";
+                job.nextAttemptAt = now;
+                job.currentLeaseId = undefined;
+                job.updatedAt = now;
+                try {
+                    this.fireAndForget(this.deps.events?.emit({
+                        type: "execution.recovery_completed",
+                        source: "ExecutionEngine",
+                        execution_id: job.id,
+                        payload: {
+                            jobId: job.id,
+                            leaseId: lease.leaseId,
+                            workerId: lease.workerId,
+                            obligationId,
+                            classification: "RECOVERABLE",
+                            newStatus: "QUEUED",
+                        },
+                    }));
+                } catch { /* isolated */ }
+            } else {
+                try {
+                    this.fireAndForget(this.deps.events?.emit({
+                        type: "execution.recovery_required",
+                        source: "ExecutionEngine",
+                        execution_id: job.id,
+                        payload: {
+                            jobId: job.id,
+                            leaseId: lease.leaseId,
+                            workerId: lease.workerId,
+                            obligationId,
+                            classification: "RECOVERY_REQUIRED",
+                        },
+                    }));
+                } catch { /* isolated */ }
+            }
+
+            try {
+                this.fireAndForget(this.deps.audit?.record({
+                    actor: "system",
+                    action: "execution.stale_recovered",
+                    resource_type: "execution_job",
+                    resource_id: job.id,
+                    result: canRetry ? "ok" : "blocked",
+                    metadata: {
+                        leaseId: lease.leaseId,
+                        workerId: lease.workerId,
+                        obligationId,
+                        classification: canRetry ? "RECOVERABLE" : "RECOVERY_REQUIRED",
+                    },
+                }));
+            } catch { /* isolated */ }
         }
+
         const lostWorkers = this.workerRegistry.detectLostWorkers(now, 120000);
         for (const worker of lostWorkers) {
             worker.status = "LOST";
             this.store.updateWorker(worker);
+            try {
+                this.fireAndForget(this.deps.events?.emit({
+                    type: "execution.worker_lost",
+                    source: "ExecutionEngine",
+                    payload: {
+                        workerId: worker.workerId,
+                        lastHeartbeatAt: worker.lastHeartbeatAt ?? null,
+                        detectedAt: now,
+                    },
+                }));
+            } catch { /* isolated */ }
         }
     }
 

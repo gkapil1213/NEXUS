@@ -30,19 +30,41 @@ export class LeaseManager {
     throw new Error(`Lease acquisition failed for job ${jobId}`);
   }
 
-  renewLease(leaseId: string, ttlMs: number, now: number = Date.now()): ExecutionLease {
+  /**
+   * Phase 126: renewing requires caller to prove ownership.
+   * A worker that no longer owns the lease receives an explicit error
+   * rather than silently renewing another worker's lease.
+   */
+  renewLease(leaseId: string, workerId: string, ttlMs: number, now: number = Date.now()): ExecutionLease {
     const lease = this.store.getLease(leaseId);
     if (!lease || lease.status !== "ACTIVE") {
       throw new Error(`Lease ${leaseId} is not active`);
+    }
+    if (lease.workerId !== workerId) {
+      throw new Error(`Lease ${leaseId} is owned by ${lease.workerId}, not ${workerId}`);
     }
     if (lease.expiresAt <= now) {
       lease.status = "EXPIRED";
       this.store.updateLease(lease);
       throw new Error(`Lease ${leaseId} already expired`);
     }
-    lease.renewedAt = now;
-    lease.expiresAt = now + ttlMs;
-    this.store.updateLease(lease);
+
+    const renewedAt = now;
+    const expiresAt = now + ttlMs;
+    const renewed = this.store.renewLeaseAsOwner(
+      leaseId,
+      workerId,
+      renewedAt,
+      expiresAt,
+      now
+    );
+
+    if (!renewed) {
+      throw new Error(`Lease ${leaseId} ownership was lost during renewal`);
+    }
+
+    lease.renewedAt = renewedAt;
+    lease.expiresAt = expiresAt;
     return lease;
   }
 
