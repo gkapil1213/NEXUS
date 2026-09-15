@@ -1,10 +1,10 @@
 /**
- * NEXUS Phase 1 Ã¢â‚¬â€ NexusKernel.
+ * NEXUS Phase 1 — NexusKernel.
  *
  * The platform foundation: initializes persistence, events, audit, agents,
  * services and orchestration in a strict order, tracks boot steps for the
  * UI, and fails loudly (never partially-silently) when a subsystem cannot
- * start. Contains no business logic Ã¢â‚¬â€ that lives in services and agents.
+ * start. Contains no business logic — that lives in services and agents.
  */
 import { AuditService } from "./audit";
 import { AgentRegistry, InspectorAgent } from "./agents";
@@ -86,17 +86,17 @@ export interface KernelServices {
   sessions: SessionService;
   secrets: SecretProvider;
   github: GitHubService;
-  // Phase 2 Pass 1 Ã¢â‚¬â€ centralized authorization + identity lifecycle.
+  // Phase 2 Pass 1 — centralized authorization + identity lifecycle.
   authz: AuthorizationService;
   identity: IdentityService;
-  // Phase 2 Pass 2 Ã¢â‚¬â€ secure agent execution & execution policy.
+  // Phase 2 Pass 2 — secure agent execution & execution policy.
   agentPolicy: AgentPolicyEngine;
   execPolicy: ExecutionPolicyEngine;
   agentExec: AgentExecutionService;
-  // Phase 2 Pass 3 Ã¢â‚¬â€ workspace isolation & sandbox.
+  // Phase 2 Pass 3 — workspace isolation & sandbox.
   workspaces: WorkspaceService;
   sandbox: ExecutionSandbox;
-  // Phase 3 Pass 3 Ã¢â‚¬â€ CI/CD pipeline + Git provider foundation.
+  // Phase 3 Pass 3 — CI/CD pipeline + Git provider foundation.
   cicd: {
     agent: PipelineAgent;
     validator: PipelineValidator;
@@ -104,7 +104,7 @@ export interface KernelServices {
     gitlab: GitLabProvider;
     engine: CiPipelineEngine;
   };
-  // Phase 3 Pass 5 Ã¢â‚¬â€ runtime bridge (process execution + Docker/Trivy/Playwright).
+  // Phase 3 Pass 5 — runtime bridge (process execution + Docker/Trivy/Playwright).
   runtime: RuntimeBridge;
   // Canonical deployment orchestration: real Docker container + real
   // health/smoke verification + rollback against previous KNOWN_GOOD.
@@ -269,16 +269,16 @@ export class NexusKernel {
       }
       this.step("orchestration", "ok", "deterministic path assembled");
 
-      // Phase 2 Pass 1 Ã¢â‚¬â€ centralized authorization + identity lifecycle.
+      // Phase 2 Pass 1 — centralized authorization + identity lifecycle.
       const authz = new AuthorizationService(audit);
       const identity = new IdentityService(engine, authz, audit);
 
-      // Phase 2 Pass 2 Ã¢â‚¬â€ secure agent execution & execution policy.
+      // Phase 2 Pass 2 — secure agent execution & execution policy.
       const agentPolicy = new AgentPolicyEngine();
       const execPolicy = new ExecutionPolicyEngine(registry, authz, agentPolicy);
       const agentExec = new AgentExecutionService({ engine, registry, authz, agentPolicy, execPolicy, audit, events });
 
-      // Phase 2 Pass 3 Ã¢â‚¬â€ workspace isolation & sandbox (logical boundary;
+      // Phase 2 Pass 3 — workspace isolation & sandbox (logical boundary;
       // BrowserSandbox.isolationReport() states the true isolation level).
       const filePolicy = new FileAccessPolicy();
       const workspaces = new WorkspaceService({
@@ -292,7 +292,7 @@ export class NexusKernel {
       const sandbox: ExecutionSandbox = new BrowserSandbox(workspaces);
       agentExec.attachSandbox(workspaces);
 
-      // Phase 3 Pass 3 Ã¢â‚¬â€ CI/CD pipeline + Git provider foundation. The GitHub
+      // Phase 3 Pass 3 — CI/CD pipeline + Git provider foundation. The GitHub
       // provider wraps the same GitHubService instance (connection on demand);
       // remote operations stay honestly BLOCKED until a token is connected.
       const github = new GitHubService();
@@ -335,7 +335,7 @@ export class NexusKernel {
         engine: cicdEngine,
       };
 
-      // Phase 3 Pass 5 Ã¢â‚¬â€ runtime bridge. Detects process-execution capability
+      // Phase 3 Pass 5 — runtime bridge. Detects process-execution capability
       // honestly: BLOCKED in the managed browser workspace, AVAILABLE only after
       // real probes when a host bridge is injected. Emits events + audit.
       this.step("runtime", "running");
@@ -573,7 +573,7 @@ export class NexusKernel {
       latency_ms: null,
     });
 
-    // GitHub is an optional integration Ã¢â‚¬â€ unconnected is a valid, honest state.
+    // GitHub is an optional integration — unconnected is a valid, honest state.
     const gh = this.services.github.state();
     const rate = gh.rate;
     subsystems.push({
@@ -581,7 +581,7 @@ export class NexusKernel {
       status: gh.connected ? "healthy" : "degraded",
       detail: gh.connected
         ? `connected as @${gh.identity?.login}${rate ? ` Ã‚Â· rate ${rate.remaining}/${rate.limit}` : ""}`
-        : "not connected Ã¢â‚¬â€ optional integration (token held in memory only)",
+        : "not connected — optional integration (token held in memory only)",
       latency_ms: null,
     });
 
@@ -658,7 +658,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
         });
         throw Err.auth(
           user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
-          `account is ${user.status} Ã¢â‚¬â€ authentication refused`,
+          `account is ${user.status} — authentication refused`,
         );
       }
       const session = await services.sessions.issue(user.id);
@@ -682,7 +682,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
       if (user.status !== "active") {
         throw Err.auth(
           user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
-          `account is ${user.status} Ã¢â‚¬â€ authentication refused`,
+          `account is ${user.status} — authentication refused`,
         );
       }
       return { user: toPublicUser(user), session };
