@@ -45,7 +45,7 @@ export interface ReleaseRecoveryExecutorDeps {
       message: string;
     }>;
   };
-  /** Phase 123: post-run evidence reconciliation. Optional � when absent,
+  /** Phase 123: post-run evidence reconciliation. Optional — when absent,
    *  behavior is byte-for-byte identical to Phase 122. */
   reconciler?: {
     reconcile(intentKey: string): Promise<unknown>;
@@ -316,7 +316,7 @@ export class ReleaseRecoveryExecutor {
           report.acted++;
           return;
         }
-        // Legacy DEPLOY-intent path â€” preserved for canonical suite T78.
+        // Legacy DEPLOY-intent path — preserved for canonical suite T78.
         if (!this.deps.rollback) { intents.transition(fresh.intentKey, "BLOCKED", { failureReason: "rollback in flight; delegate unavailable" }); report.blocked++; return; }
         const result = await this.deps.rollback.rollback(fresh);
         intents.transition(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", { failureReason: result.message });
