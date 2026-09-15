@@ -67,6 +67,8 @@ export interface ReleaseRecoverySupervisorDeps {
 
 const SOURCE = "ReleaseRecoverySupervisor";
 
+type SupervisorTrigger = "scheduled" | "manual" | "final";
+
 export class ReleaseRecoverySupervisor {
   private readonly deps: ReleaseRecoverySupervisorDeps;
   private state: RecoverySupervisorState = "STOPPED";
@@ -98,29 +100,42 @@ export class ReleaseRecoverySupervisor {
     if (this.state === "RUNNING" || this.state === "STARTING") {
       return;
     }
+    if (this.state === "STOPPING") {
+      throw new Error("ReleaseRecoverySupervisor: cannot start while STOPPING");
+    }
     this.state = "STARTING";
-    await this.deps.svc.events.emit({
-      type: "release.recovery.supervisor.started",
-      source: SOURCE,
-      payload: { workerId: this.deps.workerId, intervalMs: this.deps.intervalMs },
-    });
+    try {
+      await this.safeEmit("release.recovery.supervisor.started", {
+        workerId: this.deps.workerId,
+        intervalMs: this.deps.intervalMs,
+      });
 
-    this.timer = setInterval(() => {
-      void this.tick();
-    }, this.deps.intervalMs);
-    (this.timer as unknown as { unref?: () => void }).unref?.();
+      this.timer = setInterval(() => {
+        void this.tick();
+      }, this.deps.intervalMs);
+      (this.timer as unknown as { unref?: () => void }).unref?.();
 
-    this.startedAt = Date.now();
-    this.state = "RUNNING";
+      this.startedAt = Date.now();
+      this.state = "RUNNING";
 
-    await this.deps.svc.audit.record({
-      actor: this.deps.workerId,
-      action: "release.recovery.supervisor.start",
-      resource_type: "release_recovery_supervisor",
-      resource_id: this.deps.workerId,
-      result: "ok",
-      metadata: { intervalMs: this.deps.intervalMs },
-    });
+      await this.safeAudit({
+        actor: this.deps.workerId,
+        action: "release.recovery.supervisor.start",
+        resource_type: "release_recovery_supervisor",
+        resource_id: this.deps.workerId,
+        result: "ok",
+        metadata: { intervalMs: this.deps.intervalMs },
+      });
+    } catch (e) {
+      if (this.timer !== null) {
+        clearInterval(this.timer);
+        this.timer = null;
+      }
+      this.startedAt = null;
+      this.lastError = ReleaseRecoverySupervisor.normalizeError(e);
+      this.state = "FAILED";
+      throw e;
+    }
   }
 
   async stop(options?: { finalPass?: boolean }): Promise<void> {
@@ -129,38 +144,51 @@ export class ReleaseRecoverySupervisor {
     }
     this.state = "STOPPING";
 
+    // Cleanup timer first. Never leave a scheduler alive regardless of any
+    // subsequent failure (active run, final pass, telemetry).
     if (this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
     }
 
+    // Wait for any active run to finish before considering a final pass.
     if (this.inFlight) {
       try {
         await this.inFlight;
       } catch {
-        // inFlight never rejects by construction
+        // Outcome already recorded on status; not a stop failure.
       }
     }
 
+    let finalPassError: unknown = null;
     if (options?.finalPass) {
-      await this.runGuarded("final");
+      try {
+        await this.runGuarded("final");
+      } catch (e) {
+        finalPassError = e;
+      }
     }
 
     this.startedAt = null;
-    this.state = "STOPPED";
+    this.state = finalPassError ? "FAILED" : "STOPPED";
 
-    await this.deps.svc.events.emit({
-      type: "release.recovery.supervisor.stopped",
-      source: SOURCE,
-      payload: { workerId: this.deps.workerId, finalPass: !!options?.finalPass },
+    await this.safeEmit("release.recovery.supervisor.stopped", {
+      workerId: this.deps.workerId,
+      finalPass: !!options?.finalPass,
+      finalPassFailed: finalPassError !== null,
     });
-    await this.deps.svc.audit.record({
+    await this.safeAudit({
       actor: this.deps.workerId,
       action: "release.recovery.supervisor.stop",
       resource_type: "release_recovery_supervisor",
       resource_id: this.deps.workerId,
-      result: "ok",
-      metadata: { finalPass: !!options?.finalPass },
+      result: finalPassError ? "blocked" : "ok",
+      metadata: finalPassError
+        ? {
+            finalPass: true,
+            error: ReleaseRecoverySupervisor.normalizeError(finalPassError),
+          }
+        : { finalPass: !!options?.finalPass },
     });
   }
 
@@ -186,95 +214,138 @@ export class ReleaseRecoverySupervisor {
     };
   }
 
+  // --- internals ---
+
   private async tick(): Promise<void> {
     if (this.state !== "RUNNING") return;
     if (this.inFlight) {
       this.skippedTicks++;
-      await this.deps.svc.events.emit({
-        type: "release.recovery.supervisor.tick_skipped",
-        source: SOURCE,
-        payload: {
-          workerId: this.deps.workerId,
-          skippedTicks: this.skippedTicks,
-        },
+      await this.safeEmit("release.recovery.supervisor.tick_skipped", {
+        workerId: this.deps.workerId,
+        skippedTicks: this.skippedTicks,
       });
       return;
     }
-    await this.runGuarded("scheduled");
+    try {
+      await this.runGuarded("scheduled");
+    } catch {
+      // Failure already recorded on status; scheduling continues.
+    }
   }
 
-  private async runGuarded(trigger: "scheduled" | "manual" | "final"): Promise<RecoveryRunReport> {
+  private runGuarded(trigger: SupervisorTrigger): Promise<RecoveryRunReport> {
     if (this.inFlight) {
       return this.inFlight;
     }
     const startedAt = Date.now();
     this.lastRunAt = startedAt;
 
-    await this.deps.svc.events.emit({
-      type: "release.recovery.supervisor.run_started",
-      source: SOURCE,
-      payload: { workerId: this.deps.workerId, trigger, startedAt },
-    });
-
-    const promise = (async () => {
-      try {
-        const report = await this.deps.executor.runOnce();
-        this.lastRunResult = report;
-        this.lastError = null;
-        this.consecutiveFailures = 0;
-        return report;
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        this.lastError = message;
-        this.consecutiveFailures++;
-        throw e;
-      }
-    })();
-
-    this.inFlight = promise.finally(() => {
-      this.lastRunDurationMs = Date.now() - startedAt;
+    const p = this.executeOnce(trigger, startedAt).finally(() => {
       this.inFlight = null;
+      this.lastRunDurationMs = Date.now() - startedAt;
+    });
+    this.inFlight = p;
+    // Attach a no-op handler so the canonical promise is never considered
+    // unhandled even if a caller detaches. The real caller still observes
+    // the rejection via its own await.
+    p.catch(() => {
+      /* recorded via status */
+    });
+    return p;
+  }
+
+  private async executeOnce(
+    trigger: SupervisorTrigger,
+    startedAt: number,
+  ): Promise<RecoveryRunReport> {
+    await this.safeEmit("release.recovery.supervisor.run_started", {
+      workerId: this.deps.workerId,
+      trigger,
+      startedAt,
     });
 
+    let report: RecoveryRunReport;
     try {
-      const report = await promise;
-      await this.deps.svc.events.emit({
-        type: "release.recovery.supervisor.run_completed",
-        source: SOURCE,
-        payload: {
-          workerId: this.deps.workerId,
-          trigger,
-          durationMs: this.lastRunDurationMs,
-          scanned: report.scanned,
-          acted: report.acted,
-          skipped: report.skipped,
-          blocked: report.blocked,
-          leaseHeld: report.leaseHeld,
-        },
-      });
-      return report;
+      report = await this.deps.executor.runOnce();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      await this.deps.svc.events.emit({
-        type: "release.recovery.supervisor.run_failed",
-        source: SOURCE,
-        payload: {
-          workerId: this.deps.workerId,
-          trigger,
-          durationMs: this.lastRunDurationMs,
-          error: message,
-          consecutiveFailures: this.consecutiveFailures,
-        },
+      const msg = ReleaseRecoverySupervisor.normalizeError(e);
+      this.lastError = msg;
+      this.consecutiveFailures++;
+      await this.safeEmit("release.recovery.supervisor.run_failed", {
+        workerId: this.deps.workerId,
+        trigger,
+        durationMs: Date.now() - startedAt,
+        error: msg,
+        consecutiveFailures: this.consecutiveFailures,
       });
-      await this.deps.svc.audit.record({
+      await this.safeAudit({
         actor: this.deps.workerId,
         action: "release.recovery.supervisor.run_failed",
         resource_type: "release_recovery_supervisor",
         resource_id: this.deps.workerId,
         result: "blocked",
-        metadata: { trigger, error: message, consecutiveFailures: this.consecutiveFailures },
+        metadata: {
+          trigger,
+          error: msg,
+          consecutiveFailures: this.consecutiveFailures,
+        },
       });
       throw e;
+    }
+
+    this.lastRunResult = report;
+    this.lastError = null;
+    this.consecutiveFailures = 0;
+    await this.safeEmit("release.recovery.supervisor.run_completed", {
+      workerId: this.deps.workerId,
+      trigger,
+      durationMs: Date.now() - startedAt,
+      scanned: report.scanned,
+      acted: report.acted,
+      skipped: report.skipped,
+      blocked: report.blocked,
+      leaseHeld: report.leaseHeld,
+    });
+    return report;
+  }
+
+  /**
+   * Normalize an unknown thrown value into a short, safe diagnostic string.
+   * Preserves error class name (useful for triage) and message, without
+   * dumping arbitrary structured data that might contain credentials.
+   */
+  private static normalizeError(e: unknown): string {
+    if (e instanceof Error) {
+      const name = e.constructor?.name || "Error";
+      return `${name}: ${e.message}`;
+    }
+    if (typeof e === "string") return e;
+    return "unknown error";
+  }
+
+  private async safeEmit(
+    type: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.deps.svc.events.emit({ type, source: SOURCE, payload });
+    } catch {
+      // Telemetry failure is isolated; recovery outcome remains authoritative.
+    }
+  }
+
+  private async safeAudit(input: {
+    actor: string;
+    action: string;
+    resource_type: string;
+    resource_id: string;
+    result?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    try {
+      await this.deps.svc.audit.record(input);
+    } catch {
+      // Telemetry failure is isolated.
     }
   }
 }
