@@ -23,6 +23,12 @@ export const CONFIG: {
     enabled: boolean;
     port: number;
   };
+  // Phase 125: durable recovery supervisor. Opt-in, like gateway.
+  // kernel.boot() never starts background recovery automatically.
+  recovery: {
+    enabled: boolean;
+    intervalMs: number;
+  };
 } = {
   env: "DEVELOPMENT",
   version: "0.1.0",
@@ -38,6 +44,10 @@ export const CONFIG: {
   gateway: {
     enabled: false,
     port: 0,
+  },
+  recovery: {
+    enabled: false,
+    intervalMs: 30_000,
   },
 };
 
@@ -60,6 +70,10 @@ export function safeConfigView(): Record<string, unknown> {
     gateway: {
       enabled: CONFIG.gateway.enabled,
       port: CONFIG.gateway.port,
+    },
+    recovery: {
+      enabled: CONFIG.recovery.enabled,
+      intervalMs: CONFIG.recovery.intervalMs,
     },
     issues: [...CONFIG.issues],
   };
