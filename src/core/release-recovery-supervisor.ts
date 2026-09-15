@@ -315,12 +315,39 @@ export class ReleaseRecoverySupervisor {
    * dumping arbitrary structured data that might contain credentials.
    */
   private static normalizeError(e: unknown): string {
+    let raw: string;
     if (e instanceof Error) {
       const name = e.constructor?.name || "Error";
-      return `${name}: ${e.message}`;
+      raw = `${name}: ${e.message}`;
+    } else if (typeof e === "string") {
+      raw = e;
+    } else {
+      return "unknown error";
     }
-    if (typeof e === "string") return e;
-    return "unknown error";
+
+    // Redact obvious credential / token patterns before any telemetry write.
+    let s = raw;
+    s = s.replace(
+      /\bAuthorization\s*:\s*Bearer\s+[A-Za-z0-9._~+/=-]+/gi,
+      "Authorization: Bearer [REDACTED]",
+    );
+    s = s.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]");
+    s = s.replace(
+      /\b(access_token|refresh_token|id_token|token|password|passwd|pwd|api_key|apikey|secret|client_secret)\s*[=:]\s*[^\s,;&"']+/gi,
+      "$1=[REDACTED]",
+    );
+    // URL-style credentials: scheme://user:pass@host
+    s = s.replace(
+      /([a-z][a-z0-9+.\-]*:\/\/)[^:@\s/]+:[^@\s/]+@/gi,
+      "$1[REDACTED]@",
+    );
+
+    const MAX = 500;
+    if (s.length > MAX) {
+      const tail = "...[truncated]";
+      s = s.slice(0, MAX - tail.length) + tail;
+    }
+    return s;
   }
 
   private async safeEmit(
