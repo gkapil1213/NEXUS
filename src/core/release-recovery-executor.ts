@@ -45,7 +45,7 @@ export interface ReleaseRecoveryExecutorDeps {
       message: string;
     }>;
   };
-  /** Phase 123: post-run evidence reconciliation. Optional — when absent,
+  /** Phase 123: post-run evidence reconciliation. Optional ï¿½ when absent,
    *  behavior is byte-for-byte identical to Phase 122. */
   reconciler?: {
     reconcile(intentKey: string): Promise<unknown>;
@@ -90,18 +90,29 @@ export class ReleaseRecoveryExecutor {
           if (kind !== "ROLLBACK") continue;
           if (seen.has(intent.intentKey)) continue;
           seen.add(intent.intentKey);
+          // Phase 124: reconciliation writes durable state (reconciled event +
+          // audit record). Lease-gate it exactly like every other mutating
+          // path in this executor so two workers cannot both reconcile the
+          // same intent. If the lease is held, skip; the obligation stays
+          // durable and is rediscovered on the next runOnce().
+          const reconcileLease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+          if (!reconcileLease.acquired) {
+            report.leaseHeld++;
+            await svc.events.emit({ type: "release.recovery.lease.held", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, holder: reconcileLease.holder, expiresAt: reconcileLease.expiresAt, phase: "reconcile" } });
+            continue;
+          }
           try {
-            await this.deps.reconciler.reconcile(intent.intentKey);
-          } catch (e) {
+            await this.deps.reconciler.reconcile(intent.intentKey);          } catch (e) {
             report.blocked++;
             const reason = e instanceof Error ? e.message : String(e);
             report.blockedReasons.push({ intentKey: intent.intentKey, reason: "reconciliation failed: " + reason });
             await svc.events.emit({ type: "release.recovery.error", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, error: "reconciliation failed: " + reason } });
+          } finally {
+            intents.releaseLease(intent.intentKey, this.deps.workerId);
           }
         }
       }
-    }
-    await svc.events.emit({ type: "release.recovery.completed", source: "ReleaseRecoveryExecutor", payload: { scanned: report.scanned, acted: report.acted, skipped: report.skipped, blocked: report.blocked, leaseHeld: report.leaseHeld } });
+    }    await svc.events.emit({ type: "release.recovery.completed", source: "ReleaseRecoveryExecutor", payload: { scanned: report.scanned, acted: report.acted, skipped: report.skipped, blocked: report.blocked, leaseHeld: report.leaseHeld } });
     return report;
   }
 
