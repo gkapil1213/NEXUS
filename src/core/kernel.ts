@@ -69,8 +69,9 @@ import { ProductionReleaseEnforcementService } from "./production-release-enforc
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 import { ReleaseRecoveryService } from "./release-recovery";
-import { ReleaseRecoveryExecutor } from "./release-recovery-executor";
+import { ReleaseRecoveryExecutor, type RecoveryRunReport } from "./release-recovery-executor";
 import { ReleaseRecoveryEvidenceReconciler } from "./release-recovery-evidence-reconciliation";
+import { ReleaseRecoverySupervisor, type RecoverySupervisorStatus } from "./release-recovery-supervisor";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -145,6 +146,12 @@ export class NexusKernel {
   remoteWorkerStore?: RemoteWorkerStore;
   workerAuthStore?: SqliteWorkerAuthStore;
   private gatewayStarted = false;
+  // Phase 125: lifecycle-managed recovery supervisor. Populated in boot() only
+  // when durable recovery infrastructure was constructed. Opt-in via
+  // CONFIG.recovery.enabled at explicit startRecoverySupervisor() time.
+  recoveryExecutor?: ReleaseRecoveryExecutor;
+  recoverySupervisor?: ReleaseRecoverySupervisor;
+  recoveryWorkerId?: string;
 
   private step(id: string, status: BootStep["status"], detail: string | null = null): void {
     const s = this.steps.find((x) => x.id === id);
@@ -421,6 +428,7 @@ export class NexusKernel {
         this.step("recovery", "running");
         try {
           const recoveryWorkerId = "nexus-" + crypto.randomUUID();
+          this.recoveryWorkerId = recoveryWorkerId;
           const executor = new ReleaseRecoveryExecutor({
             intents: releaseIntents,
             recovery: new ReleaseRecoveryService(),
@@ -455,6 +463,7 @@ export class NexusKernel {
               },
             },
           });
+          this.recoveryExecutor = executor;
           const rep = await executor.runOnce();
           this.step("recovery", "ok", "scanned=" + rep.scanned + " acted=" + rep.acted + " blocked=" + rep.blocked + " leaseHeld=" + rep.leaseHeld);
         } catch (e) {
@@ -532,6 +541,60 @@ export class NexusKernel {
     if (!this.gatewayStarted || !this.workerGateway) return;
     await this.workerGateway.stop();
     this.gatewayStarted = false;
+  }
+
+  /**
+   * Start periodic durable recovery. Opt-in via CONFIG.recovery.enabled.
+   *
+   * Deliberately NOT called by boot(). Ordinary browser/test boot must never
+   * start a background timer. Server-mode callers set CONFIG.recovery.enabled
+   * = true and then call this method explicitly. Repeated calls are safe
+   * no-ops once RUNNING.
+   */
+  async startRecoverySupervisor(): Promise<void> {
+    if (!CONFIG.recovery.enabled) return;
+    if (!this.recoveryExecutor || !this.recoveryWorkerId) {
+      throw Err.startup(
+        "RECOVERY_NOT_WIRED",
+        "kernel did not construct a ReleaseRecoveryExecutor (requires sqlite persistence and a durable intent store)",
+      );
+    }
+    if (!this.recoverySupervisor) {
+      this.recoverySupervisor = new ReleaseRecoverySupervisor({
+        executor: this.recoveryExecutor,
+        svc: { events: this.services.events, audit: this.services.audit },
+        workerId: this.recoveryWorkerId,
+        intervalMs: CONFIG.recovery.intervalMs,
+      });
+    }
+    await this.recoverySupervisor.start();
+  }
+
+  /** Stop the recovery supervisor. Idempotent. */
+  async stopRecoverySupervisor(options?: { finalPass?: boolean }): Promise<void> {
+    if (!this.recoverySupervisor) return;
+    await this.recoverySupervisor.stop(options);
+  }
+
+  /** Execute exactly one recovery cycle, respecting the supervisor's no-overlap guard. */
+  async runRecoveryNow(): Promise<RecoveryRunReport | null> {
+    if (this.recoverySupervisor) return this.recoverySupervisor.runNow();
+    if (this.recoveryExecutor) return this.recoveryExecutor.runOnce();
+    return null;
+  }
+
+  /** Supervisor lifecycle status, or null when no supervisor has been constructed. */
+  getRecoverySupervisorStatus(): RecoverySupervisorStatus | null {
+    return this.recoverySupervisor?.status() ?? null;
+  }
+
+  /**
+   * Orderly kernel shutdown. Stops background lifecycle services in reverse
+   * order of their start. Idempotent. The final recovery pass is opt-in.
+   */
+  async shutdown(options?: { finalRecoveryPass?: boolean }): Promise<void> {
+    await this.stopRecoverySupervisor({ finalPass: options?.finalRecoveryPass ?? false });
+    await this.stopGateway();
   }
 
   /** Real health: probes each subsystem; never reports healthy when a probe fails. */
