@@ -37,6 +37,8 @@ import type { WsReader, PipelineContext, PipelineServices, StageRunner, StageOut
 import { detectCapabilities, executableHere } from "./capabilities";
 import type { CapabilityReport } from "./capabilities";
 import { nid } from "./db";
+import type { ExecutionStore } from "./execution-store";
+import type { ExecutionJob } from "./execution-models";
 import { toSystemError } from "./errors";
 import type {
   Project,
@@ -436,6 +438,9 @@ export interface EngRunResult {
   blocked: number;
   recovery: string[];
   artifacts: number;
+  // Phase 131: durable execution job identity bound to this run.
+  // Null when the sqlite execution store is unavailable.
+  durableJobId: string | null;
 }
 
 function toPipelineServices(svc: KernelServices): PipelineServices {
@@ -1083,12 +1088,56 @@ function buildRecovery(stages: EngStageResult[]): string[] {
  * drives the existing devops PipelineEngine across the plan's stages. Honesty:
  * any stage without a real runtime is BLOCKED, never PASSED.
  */
+/**
+ * Phase 131: bind a durable ExecutionJob identity to a single engineering
+ * execution. Idempotent by `engineering:${executionId}`. Returns the job id
+ * or null if the sqlite store is unavailable (honest, not fabricated).
+ */
+export function bindDurableEngineeringJob(
+  store: ExecutionStore,
+  executionId: string,
+  payload: { projectId: string; workspaceId: string; intentRaw: string },
+): string | null {
+  const idempotencyKey = "engineering:" + executionId;
+  const existing = store.getJobByIdempotencyKey(idempotencyKey);
+  if (existing) return existing.id;
+
+  const now = Date.now();
+  const job: ExecutionJob = {
+    id: nid("engjob"),
+    idempotencyKey,
+    jobType: "engineering",
+    payload: { kind: "engineering", executionId, ...payload },
+    status: "QUEUED",
+    createdAt: now,
+    updatedAt: now,
+    cancellationRequested: false,
+    cancellationAcknowledged: false,
+  };
+  try {
+    store.createJob(job);
+    return job.id;
+  } catch (err: any) {
+    if (err?.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed/i.test(err?.message)) {
+      const raced = store.getJobByIdempotencyKey(idempotencyKey);
+      return raced?.id ?? null;
+    }
+    throw err;
+  }
+}
 export async function executePlan(svc: KernelServices, actor: Actor, plan: EngineeringPlan): Promise<EngRunResult> {
   // 1. Real execution via the existing orchestrator (audited + evented). This
   //    performs authorization (execution:create), runs the inspector agent and
   //    records evidence/artifacts. Throws on denial — never bypassed.
   const submitted = await svc.orchestrator.submit(actor, plan.project.id, plan.intent.raw);
   const execution = submitted.execution;
+  const durableJobId: string | null = svc.executionStore
+    ? bindDurableEngineeringJob(svc.executionStore, execution.id, {
+        projectId: plan.project.id,
+        workspaceId: plan.workspaceId,
+        intentRaw: plan.intent.raw,
+      })
+    : null;
 
   // 2. Drive the existing devops pipeline against the plan's live workspace.
   const psvc = toPipelineServices(svc);
@@ -1191,6 +1240,7 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
     blocked: results.filter((r) => r.outcome === "BLOCKED").length,
     recovery: buildRecovery(results),
     artifacts: artifactCount,
+    durableJobId,
   };
 }
 

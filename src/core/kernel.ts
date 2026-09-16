@@ -114,6 +114,11 @@ export interface KernelServices {
   // Consumes ProductionReleaseEnforcementService with a ReleaseDeploymentBridge
   // provider; enforcement BLOCKED/FAIL prevents Docker run.
   releaseEnforcement: ProductionReleaseEnforcementService;
+  // Phase 131: durable execution identity + release intents for the
+  // engineering execution path. Both are undefined when the sqlite
+  // engine is unavailable; callers must handle that honestly.
+  executionStore: ExecutionStore | undefined;
+  releaseIntents: ReleaseDeploymentIntentService | undefined;
 }
 
 const BOOT_ORDER = [
@@ -498,6 +503,9 @@ export class NexusKernel {
         runtime,
         deployments,
         releaseEnforcement,
+        // Phase 131: exposed for the engineering execution path.
+        executionStore: this.executionStore,
+        releaseIntents,
       };
 
       this.status = "ready";

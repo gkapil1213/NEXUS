@@ -12,7 +12,8 @@
     "test:backup-restore": "tsx scripts/test-backup-restore.ts",
     "test:graceful-shutdown": "tsx scripts/test-graceful-shutdown.ts",
       "test:phase129": "tsx scripts/test-phase129-execution-integration.ts",
-      "test:phase130": "tsx scripts/test-phase130-release-deployment.ts"
+      "test:phase130": "tsx scripts/test-phase130-release-deployment.ts",
+      "test:phase131": "tsx scripts/test-phase131-end-to-end-integration.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
