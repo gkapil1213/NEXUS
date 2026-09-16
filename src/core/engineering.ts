@@ -1,21 +1,21 @@
 /**
- * NEXUS — AI Engineering Workspace orchestration layer.
+ * NEXUS â€” AI Engineering Workspace orchestration layer.
  *
  * This module is an ORCHESTRATION LAYER only. It composes the existing
  * Phase 1/2/3 services and never reimplements them:
  *
- *   intent parsing      → deterministic, rule-based (no fake "AI")
- *   plan model/preview  → real ProjectDetector + build-plan validation + capability probes
- *   authorization       → existing AuthorizationService (via orchestrator + workspace)
- *   agent orchestration → existing NexusOrchestrator
- *   workspace/sandbox   → existing WorkspaceService (isolated, TTL, path policy)
- *   build/devops        → existing PipelineEngine + SecurityScanner + SBOMService
- *   events / audit      → existing EventService / AuditService
- *   artifacts/evidence  → existing ArtifactService / EvidenceService
+ *   intent parsing      â†’ deterministic, rule-based (no fake "AI")
+ *   plan model/preview  â†’ real ProjectDetector + build-plan validation + capability probes
+ *   authorization       â†’ existing AuthorizationService (via orchestrator + workspace)
+ *   agent orchestration â†’ existing NexusOrchestrator
+ *   workspace/sandbox   â†’ existing WorkspaceService (isolated, TTL, path policy)
+ *   build/devops        â†’ existing PipelineEngine + SecurityScanner + SBOMService
+ *   events / audit      â†’ existing EventService / AuditService
+ *   artifacts/evidence  â†’ existing ArtifactService / EvidenceService
  *
  * RUNTIME TRUTH: build/test execution needs a command runtime that the browser
  * sandbox does not provide. Those stages are reported BLOCKED with the real
- * reason — they are NEVER reported PASSED. Detection, static security review
+ * reason â€” they are NEVER reported PASSED. Detection, static security review
  * and source SBOM genuinely execute in-browser against real workspace files.
  */
 
@@ -89,7 +89,7 @@ const STOPWORDS = new Set([
   "build", "make", "create", "me", "i", "want", "need", "please", "app", "application", "system", "platform",
 ]);
 
-/** Deterministic intent parser. Rule-based extraction — no fabricated AI. */
+/** Deterministic intent parser. Rule-based extraction â€” no fabricated AI. */
 export function parseIntent(raw: string): EngineeringIntent {
   const text = raw.trim();
   const lower = text.toLowerCase();
@@ -135,6 +135,10 @@ export interface EngineeringPlan {
   stages: EngineeringPlanStage[];
   readyCount: number;
   blockedCount: number;
+  // Phase 131b: git target for CI dispatch. Optional - when absent,
+  // the CI handoff returns BLOCKED rather than fabricating a dispatch.
+  repository?: string;
+  ref?: string;
   createdAt: number;
 }
 
@@ -161,7 +165,7 @@ function workspaceReader(svc: KernelServices, actor: Actor, wsId: string): WsRea
 }
 
 /** Real starting scaffold written into the isolated workspace. Content is
- *  derived from the parsed intent — this is actual code the pipeline then
+ *  derived from the parsed intent â€” this is actual code the pipeline then
  *  detects, scans and bills of-materials. Nothing here is a fake result. */
 function scaffoldProject(intent: EngineeringIntent): [string, string][] {
   const name = intent.subject.replace(/[^a-z0-9]+/gi, "-").toLowerCase().replace(/^-+|-+$/g, "") || "nexus-build";
@@ -240,10 +244,10 @@ function buildStages(
       id: "BUILDING",
       label: "Build",
       description: "Run the allow-listed build command against the workspace.",
-      service: "PipelineEngine · CommandExecutor",
+      service: "PipelineEngine Â· CommandExecutor",
       availability: hasExecutor && validation.ok ? "ready" : "blocked",
       blockedReason: !hasExecutor
-        ? "No command runtime in this browser sandbox — build execution requires a host shell or CI runner."
+        ? "No command runtime in this browser sandbox â€” build execution requires a host shell or CI runner."
         : !validation.ok
           ? `Build plan rejected: ${validation.rejected.join("; ")}`
           : null,
@@ -252,10 +256,10 @@ function buildStages(
       id: "TESTING",
       label: "Test",
       description: "Run the detected test command and capture pass/fail counts.",
-      service: "PipelineEngine · CommandExecutor",
+      service: "PipelineEngine Â· CommandExecutor",
       availability: hasExecutor && validation.ok ? "ready" : "blocked",
       blockedReason: !hasExecutor
-        ? "No command runtime in this browser sandbox — test execution requires a host shell or CI runner."
+        ? "No command runtime in this browser sandbox â€” test execution requires a host shell or CI runner."
         : !validation.ok
           ? "Build plan rejected; tests cannot be scheduled."
           : null,
@@ -297,7 +301,7 @@ function buildStages(
         blockedReason: !hasDockerfile
           ? "Docker build requires a valid Dockerfile."
           : !exec.docker
-            ? "Docker daemon is unavailable in this runtime — container build is BLOCKED, never simulated."
+            ? "Docker daemon is unavailable in this runtime â€” container build is BLOCKED, never simulated."
             : null,
       },
       {
@@ -321,7 +325,7 @@ function buildStages(
         blockedReason: !hasDockerfile
           ? "Image scan requires a real built image."
           : !exec.docker
-            ? "No container scanner runtime available — scan is BLOCKED, never faked."
+            ? "No container scanner runtime available â€” scan is BLOCKED, never faked."
             : null,
       },
       {
@@ -346,7 +350,7 @@ function buildStages(
       description: "Generate a CycloneDX bill of materials from real dependency manifests.",
       service: "SBOMService (devops)",
       availability: hasDeps ? "ready" : "blocked",
-      blockedReason: hasDeps ? null : "No dependency manifest (package.json / requirements.txt) detected — nothing to enumerate.",
+      blockedReason: hasDeps ? null : "No dependency manifest (package.json / requirements.txt) detected â€” nothing to enumerate.",
     },
     {
       id: "ARTIFACT_REGISTRATION",
@@ -370,7 +374,7 @@ export async function generatePlan(
   actor: Actor,
   project: Project,
   intent: EngineeringIntent,
-  opts: { scaffold: boolean },
+  opts: { scaffold: boolean; repository?: string; ref?: string },
 ): Promise<EngineeringPlan> {
   const planId = nid("plan");
 
@@ -407,6 +411,8 @@ export async function generatePlan(
     stages,
     readyCount,
     blockedCount: stages.length - readyCount,
+    repository: opts.repository,
+    ref: opts.ref,
     createdAt: Date.now(),
   };
 }
@@ -441,6 +447,13 @@ export interface EngRunResult {
   // Phase 131: durable execution job identity bound to this run.
   // Null when the sqlite execution store is unavailable.
   durableJobId: string | null;
+  // Phase 131b: CI/CD handoff result. Null when no deploy signal was present.
+  ci: {
+    runId: string;
+    status: string;
+    externalRunId: string | null;
+    blockedReason: string | null;
+  } | null;
 }
 
 function toPipelineServices(svc: KernelServices): PipelineServices {
@@ -536,7 +549,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
   const detector = new ProjectDetector();
   const scanner = new SecurityScanner();
   const sbom = new SBOMService();
-  // Docker pipeline closure state — set by earlier stages, read by later ones.
+  // Docker pipeline closure state â€” set by earlier stages, read by later ones.
   const dockerState: {
     dockerfileSource: DockerfileSource | null;
     validationVerdict: DockerfileVerdict | null;
@@ -553,7 +566,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
       return {
         status: "SUCCEEDED",
         command: null,
-        logs: `detected language=${det.language} runtime=${det.runtime ?? "—"} pm=${det.package_manager ?? "—"} files=[${det.evidence.join(", ")}]`,
+        logs: `detected language=${det.language} runtime=${det.runtime ?? "â€”"} pm=${det.package_manager ?? "â€”"} files=[${det.evidence.join(", ")}]`,
         evidence: [{ type: "report" as const, content: JSON.stringify(det, null, 2), metadata: { stage: "DETECTING" } }],
       };
     },
@@ -1039,7 +1052,7 @@ function stageRunners(reader: WsReader, detection: DetectionResult, projectName:
     },
     ARTIFACT_REGISTRATION: async (): Promise<StageOutput> => {
       // Register a real build manifest (actual detection snapshot) so artifact
-      // integrity has genuine content to digest — never a placeholder.
+      // integrity has genuine content to digest â€” never a placeholder.
       const manifest = JSON.stringify(
         {
           project: projectName,
@@ -1075,7 +1088,7 @@ function buildRecovery(stages: EngStageResult[]): string[] {
         recovery.push(`${s.label}: ${s.blockedReason ?? "unavailable in this environment."}`);
       }
     } else if (s.outcome === "FAILED") {
-      recovery.push(`${s.label}: ${s.detail ?? "stage failed"} — fix the finding and re-run.`);
+      recovery.push(`${s.label}: ${s.detail ?? "stage failed"} â€” fix the finding and re-run.`);
     }
   }
   if (!recovery.length) recovery.push("All executable stages passed. No action required.");
@@ -1125,10 +1138,53 @@ export function bindDurableEngineeringJob(
     throw err;
   }
 }
+/**
+ * Phase 131b: CI/CD handoff decision. Pure with respect to plan/verdict.
+ * Returns the CI result and the (possibly downgraded) verdict. Never fabricates
+ * a dispatch: BLOCKED when the engine is absent or the plan has no git target.
+ */
+export async function handoffToCI(
+  cicd: KernelServices["cicd"] | undefined,
+  ctx: PipelineContext,
+  plan: EngineeringPlan,
+  verdict: EngVerdict,
+): Promise<{ ci: {
+  runId: string;
+  status: string;
+  externalRunId: string | null;
+  blockedReason: string | null;
+} | null; verdict: EngVerdict }> {
+  let ci: { runId: string; status: string; externalRunId: string | null; blockedReason: string | null } | null = null;
+  if (verdict !== "PASSED" || !plan.intent.signals.some((s) => s.id === "deploy")) {
+    return { ci, verdict };
+  }
+  if (!cicd) {
+    ci = { runId: "", status: "BLOCKED", externalRunId: null, blockedReason: "no CI/CD engine wired in this runtime" };
+    return { ci, verdict: "BLOCKED" };
+  }
+  if (!plan.repository || !plan.ref) {
+    ci = { runId: "", status: "BLOCKED", externalRunId: null, blockedReason: "no repository/ref configured on plan" };
+    return { ci, verdict: "BLOCKED" };
+  }
+  try {
+    const submitted = await cicd.engine.submitRun(ctx, "github", plan.repository, plan.ref);
+    const started = await cicd.engine.startRun(submitted.run, ctx, cicd.github);
+    ci = {
+      runId: started.id,
+      status: started.status,
+      externalRunId: (started as any).external_run_id ?? null,
+      blockedReason: started.blocked_reason ?? null,
+    };
+    return { ci, verdict: started.status === "BLOCKED" ? "BLOCKED" : verdict };
+  } catch (e) {
+    ci = { runId: "", status: "BLOCKED", externalRunId: null, blockedReason: "CI handoff threw: " + (e as Error).message };
+    return { ci, verdict: "BLOCKED" };
+  }
+}
 export async function executePlan(svc: KernelServices, actor: Actor, plan: EngineeringPlan): Promise<EngRunResult> {
   // 1. Real execution via the existing orchestrator (audited + evented). This
   //    performs authorization (execution:create), runs the inspector agent and
-  //    records evidence/artifacts. Throws on denial — never bypassed.
+  //    records evidence/artifacts. Throws on denial â€” never bypassed.
   const submitted = await svc.orchestrator.submit(actor, plan.project.id, plan.intent.raw);
   const execution = submitted.execution;
   const durableJobId: string | null = svc.executionStore
@@ -1224,7 +1280,14 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
   }
 
   const passed = results.filter((r) => r.outcome === "PASSED").length;
-  const verdict: EngVerdict = failed ? "FAILED" : blocked ? "BLOCKED" : passed === results.length ? "PASSED" : "BLOCKED";
+  let verdict: EngVerdict = failed ? "FAILED" : blocked ? "BLOCKED" : passed === results.length ? "PASSED" : "BLOCKED";
+
+  // Phase 131b: CI/CD handoff. Only after every stage genuinely PASSED and
+  // only when the intent asked for deploy. Honest BLOCKED when the CI engine
+  // is absent or the plan has no git target. Never fabricates a dispatch.
+  const _handoff = await handoffToCI(svc.cicd, ctx, plan, verdict);
+  const ci = _handoff.ci;
+  verdict = _handoff.verdict;
 
   const finalStatus = verdict === "FAILED" ? "FAILED" : verdict === "PASSED" ? "COMPLETED" : "BLOCKED";
   await engine.setRunStatus(run, finalStatus, ctx, verdict === "BLOCKED" ? "one or more required stages are unavailable in this runtime" : null);
@@ -1241,6 +1304,7 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
     recovery: buildRecovery(results),
     artifacts: artifactCount,
     durableJobId,
+    ci,
   };
 }
 
