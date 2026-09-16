@@ -121,4 +121,30 @@ export class ReleaseDeploymentIntentService {
   listByStatus(status: ReleaseIntentStatus): ReleaseDeploymentIntent[] {
     return this.store.listReleaseIntentsByStatus(status);
   }
+
+  /**
+   * Phase 130: check for another intent in the same environment that is still
+   * non-terminal. Used by ReleaseDeploymentBridge to prevent concurrent
+   * deployments to the same environment. `excludeIntentKey` is the caller's
+   * own intent key (which may itself be non-terminal at check time).
+   */
+  hasActiveIntentForEnvironment(environment: string, excludeIntentKey: string): boolean {
+    const nonTerminal: ReleaseIntentStatus[] = [
+      'PENDING',
+      'AUTHORIZED',
+      'DEPLOYMENT_INTENT_CREATED',
+      'DEPLOYING',
+      'HEALTH_CHECKING',
+      'SMOKE_TESTING',
+      'ROLLING_BACK',
+      'RECOVERY_REQUIRED',
+    ];
+    for (const s of nonTerminal) {
+      const list = this.store.listReleaseIntentsByStatus(s);
+      for (const i of list) {
+        if (i.environment === environment && i.intentKey !== excludeIntentKey) return true;
+      }
+    }
+    return false;
+  }
 }

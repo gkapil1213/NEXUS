@@ -206,6 +206,16 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
       };
     }
     try {
+      // Phase 130: prevent concurrent deployments to the same environment.
+      if (intents.hasActiveIntentForEnvironment(req.environment, intent.intentKey)) {
+        return {
+          status: "BLOCKED",
+          message:
+            "concurrent deployment already active in environment " + req.environment
+            + " - retry after it reaches a terminal state",
+          deploymentId: null,
+        };
+      }
       intents.transition(intent.intentKey, "DEPLOYING");
 
       await this.deps.svc.events.emit({

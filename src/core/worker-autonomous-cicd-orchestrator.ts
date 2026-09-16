@@ -3,6 +3,7 @@ import { createPipelineDefinition, validatePipelineDefinition } from './worker-p
 import { PipelineExecution, PipelineExecutionStatus } from './worker-pipeline-execution';
 import { createStageExecution, StageExecution } from './worker-stage-execution';
 import { StageExecutionStoreAdapter } from './stage-execution-store-adapter';
+import type { ProductionReleaseEnforcementService } from './production-release-enforcement';
 import { ExecutionStore } from './execution-store';
 import { ExecutionJob, ExecutionJobStatus } from './execution-models';
 import { LeaseManager } from './lease-manager';
@@ -41,6 +42,21 @@ export interface CICDRequest {
   workerId?: string;
   leaseTtlMs?: number;
   releaseVersion?: string;
+  // Phase 130: optional production deployment integration. When absent,
+  // orchestrateCICD returns COMPLETED with deployed=false.
+  releaseEnforcement?: ProductionReleaseEnforcementService;
+  deployment?: {
+    environment: string;
+    projectId: string | null;
+    artifactId: string;
+    artifactDigest: string;
+    imageRepository: string;
+    imageTag: string;
+    imageId: string | null;
+    containerName: string;
+    containerPort: number;
+    approval: any;
+  };
 }
 
 function jobStatusToPipelineStatus(s: ExecutionJobStatus): PipelineExecutionStatus {
@@ -429,6 +445,69 @@ export async function orchestrateCICD(request: CICDRequest) {
   }
   rc = transitionReleaseCandidate(rc, 'PROMOTED');
 
+  // 12b. Phase 130: optional production deployment integration.
+  let deployment: any = null;
+  let deployed = false;
+  if (request.releaseEnforcement && request.deployment) {
+    const d = request.deployment;
+    let authResult;
+    try {
+      authResult = await request.releaseEnforcement.requestRelease({
+        releaseId: rc.releaseCandidateId,
+        executionId: pipelineJob.id,
+        artifactId: d.artifactId,
+        artifactDigest: d.artifactDigest,
+        commitSha: request.revision,
+        environment: d.environment,
+        approval: d.approval,
+        projectId: d.projectId ?? undefined,
+        imageRepository: d.imageRepository,
+        imageTag: d.imageTag,
+        imageId: d.imageId ?? undefined,
+        containerName: d.containerName,
+        containerPort: d.containerPort,
+      });
+    } catch (e: any) {
+      const reason = 'release authorization threw: ' + (e && e.message ? e.message : 'unknown');
+      failPipeline(reason, 'BLOCKED');
+      return { status: 'BLOCKED' as const, reason, blockedReason: 'RELEASE_AUTHORIZATION_ERROR', pipeline, execution, stages, artifact, rc, risk, auditEvents, evidence };
+    }
+    if (authResult.status !== 'AUTHORIZED' || !authResult.authorization) {
+      const reason = (authResult.reasons && authResult.reasons.length > 0)
+        ? authResult.reasons.join('; ')
+        : 'release not authorized';
+      const isApproval = /approval/i.test(reason);
+      failPipeline(reason, 'BLOCKED');
+      return { status: 'BLOCKED' as const, reason, blockedReason: isApproval ? 'APPROVAL_REQUIRED' : 'RELEASE_NOT_AUTHORIZED', pipeline, execution, stages, artifact, rc, risk, auditEvents, evidence };
+    }
+    let deployResult;
+    try {
+      deployResult = await request.releaseEnforcement.executeRelease(
+        authResult.authorization.authorizationId,
+        rc.releaseCandidateId,
+        d.artifactId,
+        request.revision,
+        d.environment,
+      );
+    } catch (e: any) {
+      const reason = 'deployment execution threw: ' + (e && e.message ? e.message : 'unknown');
+      failPipeline(reason, 'FAILED');
+      return { status: 'FAILED' as const, reason, pipeline, execution, stages, artifact, rc, risk, auditEvents, evidence };
+    }
+    deployment = deployResult;
+    if (deployResult.status === 'DEPLOYED') {
+      deployed = true;
+    } else if (deployResult.status === 'BLOCKED') {
+      const reason = deployResult.message || 'deployment blocked';
+      failPipeline(reason, 'BLOCKED');
+      return { status: 'BLOCKED' as const, reason, blockedReason: 'DEPLOYMENT_BLOCKED', pipeline, execution, stages, artifact, rc, risk, deployment, auditEvents, evidence };
+    } else {
+      const reason = deployResult.message || ('deployment status=' + deployResult.status);
+      failPipeline(reason, 'FAILED');
+      return { status: 'FAILED' as const, reason, pipeline, execution, stages, artifact, rc, risk, deployment, auditEvents, evidence };
+    }
+  }
+
   // 13. Pipeline RUNNING -> SUCCEEDED via authoritative transition (Â§12)
   const doneT = request.store.transitionExecution({
     jobId: pipelineJob.id,
@@ -457,5 +536,5 @@ export async function orchestrateCICD(request: CICDRequest) {
   try { request.leaseManager.releaseLease(pipelineLease.leaseId); } catch { /* already released */ }
   heldLeases.length = 0;
 
-  return { status: 'COMPLETED' as const, pipeline, execution, stages, artifact, rc, risk, changeCategory, cmdResult, auditEvents, evidence, lineage };
+  return { status: 'COMPLETED' as const, pipeline, execution, stages, artifact, rc, risk, changeCategory, cmdResult, auditEvents, evidence, lineage, deployment, deployed };
 }
