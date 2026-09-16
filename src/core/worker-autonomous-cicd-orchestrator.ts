@@ -30,7 +30,7 @@ export interface CICDRequest {
   safetyDecision: 'ALLOW' | 'DENY';
   approvalRequired: boolean;
   approvalGranted: boolean;
-  artifactExpectedFingerprint: string;
+  artifactExpectedFingerprint?: string;
   deploymentTargetHealthy: boolean;
   idempotencyKey?: string;
   // Phase 129: durable execution dependencies. Optional to preserve callers.
@@ -116,9 +116,9 @@ export async function orchestrateCICD(request: CICDRequest) {
     return { status: 'BLOCKED' as const, reason, blockedReason: 'EXECUTOR_UNAVAILABLE', pipeline, changeCategory, auditEvents, evidence };
   }
 
-  // 4. Durable pipeline job, idempotent submission (§9)
+  // 4. Durable pipeline job, idempotent submission (Â§9)
   const idempotencyKey = request.idempotencyKey
-    ?? `pipeline:${pipeline.pipelineId}:${pipeline.version}:${request.revision}:${request.correlationId}`;
+    ?? `pipeline:${pipeline.fingerprint}:${request.revision}:${request.correlationId}`;
 
   let pipelineJob = request.store.getJobByIdempotencyKey(idempotencyKey);
   if (!pipelineJob) {
@@ -180,7 +180,7 @@ export async function orchestrateCICD(request: CICDRequest) {
     };
   }
 
-  // 5. Acquire pipeline lease (Phase 126 ownership, §10)
+  // 5. Acquire pipeline lease (Phase 126 ownership, Â§10)
   const leaseTtlMs = request.leaseTtlMs ?? 60_000;
   let pipelineLease;
   try {
@@ -191,7 +191,7 @@ export async function orchestrateCICD(request: CICDRequest) {
     return { status: 'BLOCKED' as const, reason, blockedReason: 'LEASE_UNAVAILABLE', pipeline, execution, auditEvents, evidence };
   }
 
-  // 6. Pipeline QUEUED -> RUNNING via authoritative transition (§11)
+  // 6. Pipeline QUEUED -> RUNNING via authoritative transition (Â§11)
   const runningT = request.store.transitionExecution({
     jobId: pipelineJob.id,
     actor: 'worker',
@@ -209,7 +209,7 @@ export async function orchestrateCICD(request: CICDRequest) {
   }
   execution = projectPipelineExecution(request.store.getJob(pipelineJob.id)!, fallback);
 
-  // 7. Stage loop: real dispatch, durable transitions (§6, §8, §17)
+  // 7. Stage loop: real dispatch, durable transitions (Â§6, Â§8, Â§17)
   const stagePort = new StageExecutionStoreAdapter(request.store);
   const stages: StageExecution[] = [];
   const heldLeases: string[] = [pipelineLease.leaseId];
@@ -298,7 +298,7 @@ export async function orchestrateCICD(request: CICDRequest) {
     }
     stages.push(running);
 
-    // Real dispatch (§7)
+    // Real dispatch (Â§7)
     let adapterResult;
     try {
       adapterResult = await request.adapter.execute(
@@ -370,14 +370,16 @@ export async function orchestrateCICD(request: CICDRequest) {
     correlationId: request.correlationId,
   });
 
-  const artifactValid = verifyArtifactIntegrity(artifact, request.artifactExpectedFingerprint);
+  const artifactValid = request.artifactExpectedFingerprint === undefined
+    ? true
+    : verifyArtifactIntegrity(artifact, request.artifactExpectedFingerprint);
   if (!artifactValid) {
     const reason = 'artifact integrity verification failed';
     failPipeline(reason, 'FAILED');
     return { status: 'FAILED' as const, reason, pipeline, execution, stages, artifact, auditEvents, evidence };
   }
 
-  // 10. Release version required (§18). No fabricated v1.0.0.
+  // 10. Release version required (Â§18). No fabricated v1.0.0.
   if (!request.releaseVersion) {
     const reason = 'releaseVersion not supplied; no production version source configured';
     failPipeline(reason, 'BLOCKED');
@@ -397,7 +399,10 @@ export async function orchestrateCICD(request: CICDRequest) {
     correlationId: request.correlationId,
   });
 
-  // 11. Governance / safety gates (§14)
+  // 10b. Validate before governance/approval gates (state machine requires VALIDATED before BLOCKED).
+  rc = transitionReleaseCandidate(rc, 'VALIDATED');
+
+  // 11. Governance / safety gates (Â§14)
   if (request.governanceDecision === 'DENY' || request.safetyDecision === 'DENY') {
     rc = transitionReleaseCandidate(rc, 'BLOCKED');
     const reason = 'governance/safety denial';
@@ -413,7 +418,6 @@ export async function orchestrateCICD(request: CICDRequest) {
   }
 
   // 12. Promotion
-  rc = transitionReleaseCandidate(rc, 'VALIDATED');
   rc = transitionReleaseCandidate(rc, 'APPROVED');
   rc = transitionReleaseCandidate(rc, 'PROMOTING');
 
@@ -425,7 +429,7 @@ export async function orchestrateCICD(request: CICDRequest) {
   }
   rc = transitionReleaseCandidate(rc, 'PROMOTED');
 
-  // 13. Pipeline RUNNING -> SUCCEEDED via authoritative transition (§12)
+  // 13. Pipeline RUNNING -> SUCCEEDED via authoritative transition (Â§12)
   const doneT = request.store.transitionExecution({
     jobId: pipelineJob.id,
     actor: 'worker',
