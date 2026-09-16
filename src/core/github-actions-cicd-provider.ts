@@ -7,7 +7,7 @@
 // fabricates an external run id and NEVER maps an unknown state to success.
 
 import type { CICDProvider, CICDStatusContext } from "./cicd-provider";
-import type { GitHubWorkflowRun } from "./github";
+import type { GitHubWorkflowRun, GitHubWorkflowArtifact } from "./github";
 
 /**
  * Structural subset of GitHubService required by this provider. The real
@@ -39,6 +39,8 @@ export interface GitHubActionsClient {
   }): Promise<GitHubWorkflowRun[]>;
   getWorkflowRun(owner: string, repo: string, runId: string | number): Promise<GitHubWorkflowRun | null>;
   cancelWorkflowRun(owner: string, repo: string, runId: string | number): Promise<void>;
+  listWorkflowRunArtifacts(opts: { owner: string; repo: string; runId: string | number; perPage?: number }): Promise<GitHubWorkflowArtifact[]>;
+  downloadWorkflowRunArtifact(opts: { owner: string; repo: string; artifactId: string | number; maxBytes?: number }): Promise<Buffer>;
 }
 
 export interface GitHubActionsRequest {
@@ -232,6 +234,67 @@ export class GitHubActionsCICDProvider implements CICDProvider {
       throw new Error("BLOCKED: cancel requires owner and repo context for GitHub Actions");
     }
     await this.github.cancelWorkflowRun(ctx.owner, ctx.repo, externalRunId);
+  }
+
+  /**
+   * Phase 132: list artifacts for the exact external run.
+   */
+  async listArtifacts(
+    externalRunId: string,
+    ctx?: CICDStatusContext,
+  ): Promise<GitHubWorkflowArtifact[]> {
+    this.ensureConnected();
+    if (!ctx?.owner || !ctx?.repo) {
+      throw new Error("BLOCKED: listArtifacts requires owner and repo context for GitHub Actions");
+    }
+    if (!externalRunId || typeof externalRunId !== "string") {
+      throw new Error("BLOCKED: listArtifacts requires a non-empty externalRunId");
+    }
+    return this.github.listWorkflowRunArtifacts({
+      owner: ctx.owner,
+      repo: ctx.repo,
+      runId: externalRunId,
+    });
+  }
+
+  /**
+   * Phase 132: download a specific artifact bound to the exact run.
+   * Never follows arbitrary URLs; uses the GitHubService authenticated boundary.
+   */
+  async downloadArtifact(
+    externalRunId: string,
+    artifactId: string | number,
+    ctx?: CICDStatusContext,
+    maxBytes?: number,
+  ): Promise<Buffer> {
+    this.ensureConnected();
+    if (!ctx?.owner || !ctx?.repo) {
+      throw new Error("BLOCKED: downloadArtifact requires owner and repo context for GitHub Actions");
+    }
+    if (!externalRunId || typeof externalRunId !== "string") {
+      throw new Error("BLOCKED: downloadArtifact requires a non-empty externalRunId");
+    }
+    if (artifactId === undefined || artifactId === null || String(artifactId).length === 0) {
+      throw new Error("BLOCKED: downloadArtifact requires a non-empty artifactId");
+    }
+    const artifacts = await this.github.listWorkflowRunArtifacts({
+      owner: ctx.owner,
+      repo: ctx.repo,
+      runId: externalRunId,
+    });
+    const match = artifacts.find((a) => String(a.id) === String(artifactId));
+    if (!match) {
+      throw new Error("BLOCKED: artifact does not belong to the given external run");
+    }
+    if (match.expired) {
+      throw new Error("BLOCKED: GitHub reports the artifact as expired");
+    }
+    return this.github.downloadWorkflowRunArtifact({
+      owner: ctx.owner,
+      repo: ctx.repo,
+      artifactId,
+      maxBytes,
+    });
   }
 }
 

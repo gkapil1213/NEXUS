@@ -180,6 +180,53 @@ async function api<T>(path: string, opts: ApiOptions): Promise<ApiResult<T>> {
   return { data, rate };
 }
 
+async function apiRaw(
+  path: string,
+  opts: { token: string; maxBytes: number },
+): Promise<Buffer> {
+  const base = (CONFIG as unknown as { githubApi?: string }).githubApi ?? "https://api.github.com";
+  let res: Response;
+  try {
+    res = await fetch(base + path, {
+      method: "GET",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: "Bearer " + opts.token,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      redirect: "follow",
+    });
+  } catch (e) {
+    throw Err.runtime("NETWORK_UNAVAILABLE", "GitHub artifact download unreachable (" + ((e as Error).message ?? "fetch failed") + ")");
+  }
+  if (res.status === 401) throw Err.auth("GITHUB_UNAUTHORIZED", "GitHub rejected the token (401) during artifact download.");
+  if (res.status === 403) throw Err.denied("GITHUB_FORBIDDEN", "GitHub denied artifact download (403).");
+  if (res.status === 404) throw Err.notFound("GITHUB_NOT_FOUND", "artifact or run not found (404).");
+  if (!res.ok) throw Err.runtime("GITHUB_ERROR", "GitHub artifact download error " + res.status);
+  if (!res.body) throw Err.runtime("GITHUB_NO_BODY", "GitHub artifact response had no body.");
+
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const r = await reader.read();
+      if (r.done) break;
+      if (r.value) {
+        total += r.value.byteLength;
+        if (total > opts.maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw Err.runtime("GITHUB_ARTIFACT_TOO_LARGE", "artifact exceeded " + opts.maxBytes + " bytes");
+        }
+        chunks.push(r.value);
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* ignore */ }
+  }
+  return Buffer.concat(chunks.map((c) => Buffer.from(c)));
+}
+
 function readRate(res: Response): RateLimit | null {
   const limit = Number(res.headers.get("x-ratelimit-limit"));
   const remaining = Number(res.headers.get("x-ratelimit-remaining"));
@@ -212,6 +259,19 @@ export interface GitHubWorkflowRun {
   html_url: string;
   event: string;
   run_attempt: number;
+}
+
+/** Phase 132: GitHub Actions artifact record from the REST API. */
+export interface GitHubWorkflowArtifact {
+  id: number;
+  name: string;
+  size_in_bytes: number;
+  expired: boolean;
+  archive_download_url: string;
+  created_at: string;
+  updated_at: string;
+  expires_at: string | null;
+  workflow_run: { id: number } | null;
 }
 
 export class GitHubService {
@@ -495,5 +555,48 @@ export class GitHubService {
   }
   rateLimit(): RateLimit | null {
     return this.rate;
+  }
+
+  /* -------- Phase 132: workflow artifacts -------- */
+
+  /** GET /repos/{owner}/{repo}/actions/runs/{run_id}/artifacts */
+  async listWorkflowRunArtifacts(opts: {
+    owner: string;
+    repo: string;
+    runId: string | number;
+    perPage?: number;
+  }): Promise<GitHubWorkflowArtifact[]> {
+    const token = this.requireToken();
+    const encOwner = encodeURIComponent(opts.owner);
+    const encRepo = encodeURIComponent(opts.repo);
+    const encRun = encodeURIComponent(String(opts.runId));
+    const perPage = Math.min(Math.max(opts.perPage ?? 50, 1), 100);
+    const res = await api<{ total_count: number; artifacts: GitHubWorkflowArtifact[] }>(
+      "/repos/" + encOwner + "/" + encRepo + "/actions/runs/" + encRun + "/artifacts?per_page=" + perPage,
+      { token },
+    );
+    this.rate = res.rate ?? this.rate;
+    return Array.isArray(res.data?.artifacts) ? res.data.artifacts : [];
+  }
+
+  /**
+   * GET /repos/{owner}/{repo}/actions/artifacts/{artifact_id}/zip
+   * Returns raw archive bytes. Caller is responsible for safe extraction.
+   */
+  async downloadWorkflowRunArtifact(opts: {
+    owner: string;
+    repo: string;
+    artifactId: string | number;
+    maxBytes?: number;
+  }): Promise<Buffer> {
+    const token = this.requireToken();
+    const encOwner = encodeURIComponent(opts.owner);
+    const encRepo = encodeURIComponent(opts.repo);
+    const encArt = encodeURIComponent(String(opts.artifactId));
+    const maxBytes = opts.maxBytes ?? 20 * 1024 * 1024;
+    return apiRaw(
+      "/repos/" + encOwner + "/" + encRepo + "/actions/artifacts/" + encArt + "/zip",
+      { token, maxBytes },
+    );
   }
 }

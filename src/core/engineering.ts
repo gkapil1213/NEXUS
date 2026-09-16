@@ -1197,6 +1197,36 @@ export async function handoffToCI(
       externalRunId: (started as any).external_run_id ?? null,
       blockedReason: started.blocked_reason ?? null,
     };
+
+    // Phase 132: register a durable reconciliation row as soon as an external
+    // run id is persisted. This is what lets a restarted process resume
+    // polling without redispatching.
+    const extId = ci.externalRunId;
+    const startedAny = started as { commit_sha?: string; workflow_file?: string };
+    const reconciler = (cicd as unknown as {
+      reconciliation?: { ensure: (i: Record<string, unknown>) => unknown };
+    }).reconciliation;
+    if (
+      reconciler &&
+      extId &&
+      started.status !== "BLOCKED" &&
+      started.status !== "FAILED" &&
+      started.status !== "CANCELLED"
+    ) {
+      try {
+        reconciler.ensure({
+          runId: started.id,
+          executionId: ctx.execution_id,
+          projectId: ctx.project_id,
+          providerId: "github-actions",
+          externalRunId: extId,
+          repository: plan.repository,
+          commitSha: startedAny.commit_sha ?? plan.commitSha ?? "",
+          workflowFile: startedAny.workflow_file ?? null,
+        });
+      } catch { /* non-fatal: reconciler can recover on next tick */ }
+    }
+
     return { ci, verdict: started.status === "BLOCKED" ? "BLOCKED" : verdict };
   } catch (e) {
     ci = { runId: "", status: "BLOCKED", externalRunId: null, blockedReason: "CI handoff threw: " + (e as Error).message };
@@ -1265,6 +1295,30 @@ export async function handoffToRelease(
 
   if (!imageDigest || !imageRepository || !imageTag || !artifactId) {
     return blocked("no IMAGE_DIGEST artifact produced by REGISTRY_PUBLISH", "NO_REGISTRY_DIGEST");
+  }
+
+  // Phase 132: verify the IMAGE_DIGEST artifact is backed by an authoritative
+  // reconciliation binding for THIS execution. Only enforced when the
+  // reconciliation service is wired (preserves Phase 131 test contract).
+  const artifactReconciler = (svc.cicd as unknown as {
+    artifactReconciler?: { findBindingForExecutionDigest?: (e: string, d: string) => unknown };
+  } | undefined)?.artifactReconciler;
+  if (artifactReconciler?.findBindingForExecutionDigest) {
+    const binding = artifactReconciler.findBindingForExecutionDigest(executionId, imageDigest) as {
+      commit_sha: string; image_repository: string; image_digest: string;
+    } | undefined;
+    if (!binding) {
+      return blocked("IMAGE_DIGEST artifact has no Phase 132 reconciliation binding", "CI_DIGEST_NOT_RECONCILED");
+    }
+    if (binding.commit_sha !== plan.commitSha) {
+      return blocked("reconciled digest commit does not match plan commit", "CI_DIGEST_COMMIT_MISMATCH");
+    }
+    if (binding.image_repository !== imageRepository) {
+      return blocked("reconciled digest repository does not match IMAGE_DIGEST artifact", "CI_DIGEST_REPO_MISMATCH");
+    }
+    if (binding.image_digest !== imageDigest) {
+      return blocked("reconciled digest does not match IMAGE_DIGEST artifact digest", "CI_DIGEST_MISMATCH");
+    }
   }
 
   // Approval must be bound to the exact artifact we are about to deploy.

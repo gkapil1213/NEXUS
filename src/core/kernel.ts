@@ -68,6 +68,8 @@ import { ProductionReleaseDecisionService } from "./production-release-decision"
 import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
+import { CicdReconciliationService } from "./cicd-reconciliation.service";
+import { CiArtifactReconciliationService } from "./ci-artifact-reconciliation.service";
 import { ReleaseRecoveryService } from "./release-recovery";
 import { ReleaseRecoveryExecutor, type RecoveryRunReport } from "./release-recovery-executor";
 import { ReleaseRecoveryEvidenceReconciler } from "./release-recovery-evidence-reconciliation";
@@ -339,6 +341,33 @@ export class NexusKernel {
         cicdBridge = undefined;
       }
       const cicdEngine = new CiPipelineEngine({ engine, events, audit, evidence, artifacts, authz, cicd: cicdBridge });
+
+      // Phase 132: construct durable CI artifact + reconciliation services.
+      // Only wired when the SQLite execution store and the CI/CD bridge exist.
+      const _phase132Db = (this as unknown as { executionStore?: { db?: unknown } }).executionStore?.db ?? null;
+      const _phase132ArtifactReconciler: CiArtifactReconciliationService | undefined =
+        (_phase132Db && cicdBridge)
+          ? ((): CiArtifactReconciliationService | undefined => {
+              const ghProvider = cicdBridge.registry.get(cicdBridge.providerId);
+              if (!(ghProvider instanceof GitHubActionsCICDProvider)) return undefined;
+              return new CiArtifactReconciliationService(
+                _phase132Db as never,
+                artifacts,
+                ghProvider,
+              );
+            })()
+          : undefined;
+      const _phase132Reconciler: CicdReconciliationService | undefined =
+        (_phase132Db && _phase132ArtifactReconciler)
+          ? new CicdReconciliationService(
+              _phase132Db as never,
+              cicdEngine,
+              engine as never,
+              _phase132ArtifactReconciler,
+              events as never,
+              audit as never,
+            )
+          : undefined;
       const cicd = {
         agent: cicdAgent,
         validator: cicdValidator,
@@ -346,6 +375,10 @@ export class NexusKernel {
         gitlab: new GitLabProvider(),
         engine: cicdEngine,
       };
+
+      // Phase 132: attach durable CI reconciler (optional; present only when SQLite store is wired).
+      (cicd as Record<string, unknown>).reconciliation = _phase132Reconciler;
+      (cicd as Record<string, unknown>).artifactReconciler = _phase132ArtifactReconciler;
 
       // Phase 3 Pass 5 — runtime bridge. Detects process-execution capability
       // honestly: BLOCKED in the managed browser workspace, AVAILABLE only after
