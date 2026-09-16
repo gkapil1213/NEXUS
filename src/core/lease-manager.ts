@@ -92,6 +92,7 @@ export class LeaseManager {
       lease.releasedAt = now;
       lease.status = "RELEASED";
       this.store.updateLease(lease);
+      this.store.clearJobLeaseByLeaseId(leaseId);
     }
   }
 

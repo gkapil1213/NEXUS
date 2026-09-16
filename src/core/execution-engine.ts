@@ -156,6 +156,7 @@ export class ExecutionEngine {
     > = {
         worker: [
             ["CLAIMED", "RUNNING"],
+            ["RUNNING", "SUCCEEDED"],
             ["RUNNING", "VERIFYING"],
             ["VERIFYING", "SUCCEEDED"],
             ["VERIFYING", "FAILED"],
@@ -219,6 +220,19 @@ export class ExecutionEngine {
         if (result.ok) {
             this.emitTransitionAudit(jobId, actor, expectedStatus, newStatus,
                 result.idempotent ? "idempotent" : "applied", workerId, leaseId, reason);
+                this.fireAndForget(this.deps.events?.emit({
+                    type: `execution.transition.${newStatus.toLowerCase()}`,
+                    source: "ExecutionEngine",
+                    execution_id: jobId,
+                    payload: {
+                        from: expectedStatus,
+                        to: newStatus,
+                        actor,
+                        workerId: workerId ?? null,
+                        leaseId: leaseId ?? null,
+                        reason: reason ?? null,
+                    },
+                }));
             return result;
         }
 
@@ -539,36 +553,107 @@ export class ExecutionEngine {
             return job;
         }
 
-        let verificationSuccess = true;
+        // ==============================================================
+        // Phase 128: canonical completion lifecycle.
+        //
+        //   verification configured:  RUNNING -> VERIFYING -> SUCCEEDED
+        //                                                    \-> FAILED -> RETRY/DEAD
+        //   no verification:          RUNNING -> SUCCEEDED
+        //
+        // Every durable transition goes through this.applyTransition(...).
+        // No state cast. No invalid VERIFYING -> SUCCEEDED from RUNNING.
+        // Success attempt is persisted only AFTER the authoritative
+        // RUNNING/VERIFYING -> SUCCEEDED transition has been applied,
+        // so ownership loss cannot persist a false SUCCEEDED attempt.
+        // ==============================================================
+
         if (this.deps.verification) {
-            this.applyTransition(job.id, "worker", "RUNNING", "VERIFYING", workerId, leaseId, undefined, "VERIFICATION_STARTED");
+            this.applyTransition(
+                job.id, "worker", "RUNNING", "VERIFYING",
+                workerId, leaseId, undefined, "VERIFICATION_STARTED"
+            );
             job.status = "VERIFYING";
             job.updatedAt = Date.now();
 
+            let verificationSuccess = true;
             try {
                 verificationSuccess = await this.deps.verification(job, executionResult);
             } catch (err: any) {
                 verificationSuccess = false;
                 attempt.error = `Verification failed: ${err.message}`;
             }
-            attempt.status = verificationSuccess ? "SUCCEEDED" : "FAILED";
-            attempt.evidence = [verificationSuccess ? "Verification succeeded" : "Verification failed"];
-        } else {
-            attempt.status = "SUCCEEDED";
-            attempt.evidence = ["Execution succeeded (verification not configured)"];
+
+            if (verificationSuccess) {
+                // Durable transition FIRST — ownership loss must not
+                // persist a false SUCCEEDED attempt.
+                this.applyTransition(
+                    job.id, "worker", "VERIFYING", "SUCCEEDED",
+                    workerId, leaseId, undefined, "VERIFICATION_SUCCEEDED"
+                );
+                attempt.status = "SUCCEEDED";
+                attempt.evidence = ["Verification succeeded"];
+                attempt.completedAt = Date.now();
+                this.store.updateAttempt(attempt);
+
+                job.status = "SUCCEEDED";
+                job.updatedAt = Date.now();
+                this.leaseManager.releaseLease(leaseId);
+                job.currentLeaseId = undefined;
+                this.workerRegistry.markIdle(workerId);
+                return job;
+            }
+
+            // Verification failed -> FAILED -> existing retry/dead-letter policy.
+            attempt.status = "FAILED";
+            attempt.error = attempt.error ?? "Verification failed";
+            attempt.completedAt = Date.now();
+            this.store.updateAttempt(attempt);
+
+            let nextStatus: ExecutionJobStatus;
+            let nextAttemptAt: number | undefined;
+            if (job.retryPolicy && this.retryEngine.isRetryable(attempt.error, job.retryPolicy)) {
+                const na = this.retryEngine.calculateNextAttempt(attemptNumber, job.retryPolicy, Date.now());
+                if (na !== null) { nextStatus = "RETRY_SCHEDULED"; nextAttemptAt = na; }
+                else { nextStatus = "DEAD_LETTER"; }
+            } else {
+                nextStatus = "DEAD_LETTER";
+            }
+
+            this.applyTransition(
+                job.id, "worker", "VERIFYING", "FAILED",
+                workerId, leaseId, undefined, "VERIFICATION_FAILED"
+            );
+            job.status = "FAILED";
+            job.updatedAt = Date.now();
+
+            this.applyTransition(
+                job.id, "system", "FAILED", nextStatus,
+                undefined, undefined,
+                nextAttemptAt !== undefined ? { nextAttemptAt } : undefined,
+                nextStatus === "RETRY_SCHEDULED" ? "RETRY_SCHEDULED" : "DEAD_LETTER"
+            );
+            job.status = nextStatus;
+            if (nextAttemptAt !== undefined) job.nextAttemptAt = nextAttemptAt;
+            job.updatedAt = Date.now();
+            this.leaseManager.releaseLease(leaseId);
+            job.currentLeaseId = undefined;
+            this.workerRegistry.markIdle(workerId);
+            return job;
         }
 
+        // No verification configured: direct RUNNING -> SUCCEEDED.
+        // Do NOT fabricate a VERIFYING transition.
+        this.applyTransition(
+            job.id, "worker", "RUNNING", "SUCCEEDED",
+            workerId, leaseId, undefined, "EXECUTION_COMPLETE_NO_VERIFICATION"
+        );
+        attempt.status = "SUCCEEDED";
+        attempt.evidence = ["Execution succeeded (verification not configured)"];
         attempt.completedAt = Date.now();
         this.store.updateAttempt(attempt);
 
-        const finalJobStatus = attempt.status as ExecutionJobStatus;
-        this.applyTransition(
-            job.id, "worker", "VERIFYING", finalJobStatus,
-            workerId, leaseId, undefined, "VERIFICATION_COMPLETE"
-        );
-        job.status = finalJobStatus;
+        job.status = "SUCCEEDED";
         job.updatedAt = Date.now();
-
         this.leaseManager.releaseLease(leaseId);
         job.currentLeaseId = undefined;
         this.workerRegistry.markIdle(workerId);

@@ -21,76 +21,9 @@ import { MigrationRunner } from "../src/core/migration-runner";
 const rawDb = new Database(":memory:");
 const db = SQLiteEngine.fromDatabase(rawDb);
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS execution_jobs (
-    id TEXT PRIMARY KEY,
-    idempotency_key TEXT UNIQUE,
-    job_type TEXT,
-    payload TEXT,
-    status TEXT,
-    retry_policy TEXT,
-    timeout_ms INTEGER,
-    created_at INTEGER,
-    updated_at INTEGER,
-    last_attempt_at INTEGER,
-    next_attempt_at INTEGER,
-    current_lease_id TEXT,
-    cancellation_requested INTEGER,
-    cancellation_acknowledged INTEGER
-);
-CREATE TABLE IF NOT EXISTS execution_attempts (
-    id TEXT PRIMARY KEY,
-    job_id TEXT,
-    attempt_number INTEGER,
-    status TEXT,
-    worker_id TEXT,
-    lease_id TEXT,
-    started_at INTEGER,
-    completed_at INTEGER,
-    error TEXT,
-    evidence TEXT,
-    created_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS execution_workers (
-    worker_id TEXT PRIMARY KEY,
-    hostname TEXT,
-    capabilities TEXT,
-    status TEXT,
-    last_heartbeat_at INTEGER,
-    current_job_id TEXT,
-    registered_at INTEGER
-);
-CREATE TABLE IF NOT EXISTS execution_leases (
-    lease_id TEXT PRIMARY KEY,
-    job_id TEXT,
-    worker_id TEXT,
-    acquired_at INTEGER,
-    expires_at INTEGER,
-    renewed_at INTEGER,
-    released_at INTEGER,
-    status TEXT,
-    UNIQUE(job_id, status)
-);
-CREATE TABLE IF NOT EXISTS remote_dispatches (
-    dispatch_id TEXT PRIMARY KEY,
-    job_id TEXT NOT NULL,
-    attempt_id TEXT NOT NULL,
-    worker_id TEXT NOT NULL,
-    lease_id TEXT NOT NULL,
-    idempotency_key TEXT NOT NULL UNIQUE,
-    status TEXT NOT NULL,
-    external_provider_id TEXT,
-    request TEXT,
-    result TEXT,
-    error TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (job_id) REFERENCES execution_jobs(id),
-    FOREIGN KEY (attempt_id) REFERENCES execution_attempts(id),
-    FOREIGN KEY (worker_id) REFERENCES execution_workers(worker_id),
-    FOREIGN KEY (lease_id) REFERENCES execution_leases(lease_id)
-);
-`);
+const migrationsDir = join(process.cwd(), "src", "db", "migrations");
+const migrationRunner = new MigrationRunner(rawDb, migrationsDir);
+migrationRunner.run();
 
 const store = new ExecutionStore(db);
 const workerRegistry = new WorkerRegistry(store);
@@ -106,7 +39,10 @@ const engine = new ExecutionEngine(store, workerRegistry, leaseManager, retryEng
 
 function resetDb() {
     db.exec(`
+        DELETE FROM remote_execution_results;
         DELETE FROM remote_dispatches;
+        DELETE FROM execution_ownership_obligations;
+        DELETE FROM execution_events;
         DELETE FROM execution_attempts;
         DELETE FROM execution_leases;
         DELETE FROM execution_jobs;
@@ -198,7 +134,9 @@ async function testVerificationFailure() {
     const job = failingEngine.createJob("node", { args: ["-e", "console.log('verify-fail')"] }, "idem-verify-fail");
     const claim = failingEngine.claimNextJob("worker-1");
     const resultJob = await failingEngine.executeJob("worker-1", claim.job.id, claim.lease.leaseId);
-    assert(resultJob.status === "FAILED", "Verification failure leads to FAILED");
+    assert(resultJob.status === "DEAD_LETTER", "Verification failure reaches DEAD_LETTER without retry policy");
+    const attempts = store.listAttemptsForJob(job.id);
+    assert(attempts[attempts.length - 1].status === "FAILED", "Verification failure records FAILED attempt");
 }
 async function testRetry() {
     resetDb();
@@ -514,3 +452,6 @@ async function run() {
 }
 
 run().catch(err => { console.error(err); process.exit(1); });
+
+
+

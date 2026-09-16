@@ -99,12 +99,12 @@ export class ExecutionStore {
       job.payload ? JSON.stringify(job.payload) : null,
       job.status,
       job.retryPolicy ? JSON.stringify(job.retryPolicy) : null,
-      job.timeoutMs,
+      job.timeoutMs ?? null,
       job.createdAt,
       job.updatedAt,
-      job.lastAttemptAt,
-      job.nextAttemptAt,
-      job.currentLeaseId,
+      job.lastAttemptAt ?? null,
+      job.nextAttemptAt ?? null,
+      job.currentLeaseId ?? null,
       job.cancellationRequested ? 1 : 0,
       job.cancellationAcknowledged ? 1 : 0
     );
@@ -131,11 +131,11 @@ export class ExecutionStore {
       job.payload ? JSON.stringify(job.payload) : null,
       job.status,
       job.retryPolicy ? JSON.stringify(job.retryPolicy) : null,
-      job.timeoutMs,
+      job.timeoutMs ?? null,
       job.updatedAt,
-      job.lastAttemptAt,
-      job.nextAttemptAt,
-      job.currentLeaseId,
+      job.lastAttemptAt ?? null,
+      job.nextAttemptAt ?? null,
+      job.currentLeaseId ?? null,
       job.cancellationRequested ? 1 : 0,
       job.cancellationAcknowledged ? 1 : 0,
       job.id
@@ -631,6 +631,19 @@ export class ExecutionStore {
     return this.db.prepare(
       "SELECT * FROM execution_leases WHERE status = 'ACTIVE' AND expires_at <= ?"
     ).all(now).map(this.mapLease);
+  }
+
+  /**
+   * Clears the job's current_lease_id if it still points at the given
+   * (released/expired) lease.  Called from LeaseManager.releaseLease so the
+   * durable job row matches the in-memory state after release.  CAS on the
+   * previous lease id ensures a concurrent new claim is never clobbered.
+   */
+  clearJobLeaseByLeaseId(leaseId: string): void {
+    this.db.prepare(`
+      UPDATE execution_jobs SET current_lease_id = NULL
+      WHERE current_lease_id = ?
+    `).run(leaseId);
   }
 
   // ---------- Artifacts ----------
