@@ -15,7 +15,8 @@
       "test:phase130": "tsx scripts/test-phase130-release-deployment.ts",
       "test:phase131": "tsx scripts/test-phase131-end-to-end-integration.ts",
     "test:phase132": "tsx scripts/test-phase132-ci-reconciliation.ts",
-    "test:phase133": "tsx scripts/test-phase133-scheduler.ts"
+    "test:phase133": "tsx scripts/test-phase133-scheduler.ts",
+    "test:phase134": "tsx scripts/test-phase134-durable-ci-ownership.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
