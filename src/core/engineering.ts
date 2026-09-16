@@ -139,6 +139,21 @@ export interface EngineeringPlan {
   // the CI handoff returns BLOCKED rather than fabricating a dispatch.
   repository?: string;
   ref?: string;
+  // Phase 131c: release/deploy context. All optional - when absent,
+  // the release handoff returns BLOCKED rather than fabricating.
+  environment?: string;
+  commitSha?: string;
+  containerName?: string;
+  containerPort?: number;
+  approval?: {
+    releaseId: string;
+    artifactId: string;
+    artifactDigest: string;
+    environment: string;
+    approver: string;
+    approvedAt: string;
+    status: "APPROVED" | "REJECTED" | "PENDING";
+  };
   createdAt: number;
 }
 
@@ -452,6 +467,13 @@ export interface EngRunResult {
     runId: string;
     status: string;
     externalRunId: string | null;
+    blockedReason: string | null;
+  } | null;
+  // Phase 131c: release/deploy handoff. Null when not attempted.
+  deployment: {
+    status: string;
+    message: string;
+    deploymentId: string | null;
     blockedReason: string | null;
   } | null;
 }
@@ -1181,6 +1203,128 @@ export async function handoffToCI(
     return { ci, verdict: "BLOCKED" };
   }
 }
+export interface ReleaseHandoff {
+  status: string;
+  message: string;
+  deploymentId: string | null;
+  blockedReason: string | null;
+}
+
+/**
+ * Phase 131c: release + deploy handoff. Requires CI to have reached SUCCEEDED,
+ * a plan-supplied approval bound to the exact artifact/digest, and a real
+ * IMAGE_DIGEST artifact produced by REGISTRY_PUBLISH. Never fabricates any of
+ * these. Returns BLOCKED with the honest reason when a prerequisite is absent.
+ */
+export async function handoffToRelease(
+  svc: KernelServices,
+  plan: EngineeringPlan,
+  executionId: string,
+  ciStatus: string | null,
+  verdict: EngVerdict,
+): Promise<{ deployment: ReleaseHandoff | null; verdict: EngVerdict }> {
+  const blocked = (msg: string, code: string): { deployment: ReleaseHandoff; verdict: EngVerdict } => ({
+    deployment: { status: "BLOCKED", message: msg, deploymentId: null, blockedReason: code },
+    verdict: "BLOCKED",
+  });
+
+  if (verdict !== "PASSED" || !plan.intent.signals.some((s) => s.id === "deploy")) {
+    return { deployment: null, verdict };
+  }
+  if (!svc.releaseEnforcement) {
+    return blocked("no release enforcement service wired", "NO_RELEASE_ENFORCEMENT");
+  }
+  if (ciStatus !== "SUCCEEDED") {
+    return blocked("CI has not reached terminal SUCCEEDED (status=" + (ciStatus ?? "null") + ")", "CI_NOT_SUCCESSFUL");
+  }
+  if (!plan.environment) return blocked("no environment configured on plan", "NO_ENVIRONMENT");
+  if (!plan.commitSha) return blocked("no commitSha configured on plan", "NO_COMMIT_SHA");
+  if (!plan.approval || plan.approval.status !== "APPROVED") {
+    return blocked("approval missing or not APPROVED", "APPROVAL_REQUIRED");
+  }
+
+  // Read the IMAGE_DIGEST artifact produced by REGISTRY_PUBLISH. Never fabricate.
+  let imageDigest: string | null = null;
+  let imageRepository: string | null = null;
+  let imageTag: string | null = null;
+  let artifactId: string | null = null;
+  try {
+    const list = await svc.artifacts.list(executionId);
+    const imgArt = list.find((a: any) => a.kind === "IMAGE_DIGEST");
+    if (imgArt) {
+      artifactId = imgArt.id;
+      const rec = await (svc.engine as any).get("artifacts", imgArt.id) as { __content?: string } | undefined;
+      if (rec?.__content) {
+        const parsed = JSON.parse(rec.__content) as { digest?: unknown; repository?: unknown; tag?: unknown };
+        if (typeof parsed.digest === "string") imageDigest = parsed.digest;
+        if (typeof parsed.repository === "string") imageRepository = parsed.repository;
+        if (typeof parsed.tag === "string") imageTag = parsed.tag;
+      }
+    }
+  } catch { /* fall through to BLOCKED */ }
+
+  if (!imageDigest || !imageRepository || !imageTag || !artifactId) {
+    return blocked("no IMAGE_DIGEST artifact produced by REGISTRY_PUBLISH", "NO_REGISTRY_DIGEST");
+  }
+
+  // Approval must be bound to the exact artifact we are about to deploy.
+  const ap = plan.approval;
+  if (ap.artifactId !== artifactId || ap.artifactDigest !== imageDigest || ap.environment !== plan.environment) {
+    return blocked("approval is not bound to this artifact/digest/environment", "APPROVAL_MISMATCH");
+  }
+
+  // requestRelease
+  let auth: any;
+  try {
+    auth = await svc.releaseEnforcement.requestRelease({
+      releaseId: executionId,
+      executionId,
+      artifactId,
+      artifactDigest: imageDigest,
+      commitSha: plan.commitSha,
+      environment: plan.environment,
+      approval: ap as any,
+      projectId: plan.project.id,
+      imageRepository,
+      imageTag,
+      imageId: undefined,
+      containerName: plan.containerName ?? "nexus-app",
+      containerPort: plan.containerPort ?? 8080,
+    });
+  } catch (e) {
+    const msg = "requestRelease threw: " + ((e as Error).message ?? String(e));
+    return { deployment: { status: "FAIL", message: msg, deploymentId: null, blockedReason: null }, verdict: "FAILED" };
+  }
+  if (auth.status !== "AUTHORIZED" || !auth.authorization) {
+    const reason = (auth.reasons && auth.reasons.length > 0) ? auth.reasons.join("; ") : "release not authorized";
+    return blocked(reason, "RELEASE_NOT_AUTHORIZED");
+  }
+
+  // executeRelease
+  let dep: any;
+  try {
+    dep = await svc.releaseEnforcement.executeRelease(
+      auth.authorization.authorizationId,
+      executionId,
+      artifactId,
+      plan.commitSha,
+      plan.environment,
+    );
+  } catch (e) {
+    const msg = "executeRelease threw: " + ((e as Error).message ?? String(e));
+    return { deployment: { status: "FAIL", message: msg, deploymentId: null, blockedReason: null }, verdict: "FAILED" };
+  }
+
+  const deployment: ReleaseHandoff = {
+    status: dep.status,
+    message: dep.message ?? "",
+    deploymentId: dep.deploymentId ?? null,
+    blockedReason: dep.status === "BLOCKED" ? (dep.message ?? "deployment blocked") : null,
+  };
+  if (dep.status === "DEPLOYED") return { deployment, verdict };
+  if (dep.status === "BLOCKED")   return { deployment, verdict: "BLOCKED" };
+  return { deployment, verdict: "FAILED" };
+}
 export async function executePlan(svc: KernelServices, actor: Actor, plan: EngineeringPlan): Promise<EngRunResult> {
   // 1. Real execution via the existing orchestrator (audited + evented). This
   //    performs authorization (execution:create), runs the inspector agent and
@@ -1289,6 +1433,11 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
   const ci = _handoff.ci;
   verdict = _handoff.verdict;
 
+  // Phase 131c: release + deploy handoff.
+  const _releaseHandoff = await handoffToRelease(svc, plan, execution.id, ci?.status ?? null, verdict);
+  const deployment = _releaseHandoff.deployment;
+  verdict = _releaseHandoff.verdict;
+
   const finalStatus = verdict === "FAILED" ? "FAILED" : verdict === "PASSED" ? "COMPLETED" : "BLOCKED";
   await engine.setRunStatus(run, finalStatus, ctx, verdict === "BLOCKED" ? "one or more required stages are unavailable in this runtime" : null);
 
@@ -1305,6 +1454,7 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
     artifacts: artifactCount,
     durableJobId,
     ci,
+    deployment,
   };
 }
 
