@@ -33,15 +33,26 @@ function makeFakeTimers() {
     scheduleCount: 0,
     delays: [] as number[],
     clearedCount: 0,
+    // Regression counters for the Phase 133b timer-lifecycle bug:
+    // the scheduler must NEVER call setInterval.
+    timeoutCalls: 0,
+    intervalCalls: 0,
   };
-  const setIntervalFake = (fn: () => void, ms: number): ScheduledHandle => {
+  const setTimeoutFake = (fn: () => void, ms: number): ScheduledHandle => {
+    state.timeoutCalls += 1;
     const h: ScheduledHandle = { fn, ms, cancelled: false };
     state.scheduled = h;
     state.scheduleCount += 1;
     state.delays.push(ms);
     return h;
   };
-  const clearIntervalFake = (h: unknown): void => {
+  // Trap: if the scheduler ever calls setInterval, the regression test fails.
+  // Return a cancelled handle so the scheduler does not actually crash.
+  const setIntervalTrap = (fn: () => void, ms: number): ScheduledHandle => {
+    state.intervalCalls += 1;
+    return { fn, ms, cancelled: true };
+  };
+  const clearTimeoutFake = (h: unknown): void => {
     state.clearedCount += 1;
     if (h && typeof h === "object") (h as ScheduledHandle).cancelled = true;
     if (state.scheduled === h) state.scheduled = null;
@@ -52,12 +63,11 @@ function makeFakeTimers() {
     if (!h || h.cancelled) return false;
     state.scheduled = null;
     h.fn();
-    // Let microtasks flush, then one macrotask turn for setImmediate-based awaits.
     for (let i = 0; i < 8; i++) await Promise.resolve();
     await new Promise((r) => setTimeout(r, 0));
     return true;
   };
-  return { state, setInterval: setIntervalFake, clearInterval: clearIntervalFake, fire };
+  return { state, setTimeout: setTimeoutFake, clearTimeout: clearTimeoutFake, setIntervalTrap, fire };
 }
 
 /* ------------------------------- drain fakes ------------------------------ */
@@ -81,7 +91,7 @@ async function T01(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatResolves(calls), {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   eq("T01", s.isRunning(), true, "start() sets running=true");
@@ -94,7 +104,7 @@ async function T02(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatResolves(calls), {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   await t.fire();
@@ -106,7 +116,7 @@ async function T03(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatResolves(calls), {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   await t.fire();
@@ -119,7 +129,7 @@ async function T04(): Promise<void> {
   const hung = drainThatHangs();
   const s = new CicdReconciliationScheduler(hung.drain, {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   // Kick off a tick without a timer, then try a second concurrently.
   const first = s.tickNow();
@@ -136,7 +146,7 @@ async function T05(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatRejects(calls), {
     intervalMs: 1_000, jitterMs: 0, maxBackoffMs: 100_000, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   await t.fire();
@@ -153,7 +163,7 @@ async function T06(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatRejects(calls), {
     intervalMs: 1_000, jitterMs: 0, maxBackoffMs: 5_000, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   for (let i = 0; i < 6; i++) await t.fire();
@@ -166,7 +176,7 @@ async function T07(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatResolves(calls), {
     intervalMs: 1_000, jitterMs: 400, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
     random: () => 0.5,
   });
   s.start();
@@ -180,7 +190,7 @@ async function T08(): Promise<void> {
   const hung = drainThatHangs();
   const s = new CicdReconciliationScheduler(hung.drain, {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   const firing = t.fire();
@@ -198,7 +208,7 @@ async function T09(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatResolves(calls), {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   await s.stop();
@@ -212,7 +222,7 @@ async function T10(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatResolves(calls), {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   s.start();
@@ -226,7 +236,7 @@ async function T11(): Promise<void> {
   const errors: unknown[] = [];
   const s = new CicdReconciliationScheduler(drainThatRejects(calls, "BOOM"), {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
     onError: (e) => { errors.push(e); },
   });
   s.start();
@@ -246,7 +256,7 @@ async function T12(): Promise<void> {
   };
   const s = new CicdReconciliationScheduler(drain, {
     intervalMs: 1_000, jitterMs: 0, maxBackoffMs: 100_000, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   await t.fire();
@@ -264,7 +274,7 @@ async function T13(): Promise<void> {
     { reconcileOpen: async () => { calls.n += 1; t.state.now += 42; return []; } },
     {
       intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-      setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+      setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
     },
   );
   s.start();
@@ -279,7 +289,7 @@ async function T14(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatResolves(calls), {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   await s.stop();
@@ -294,7 +304,7 @@ async function T15(): Promise<void> {
   const calls = { n: 0 };
   const s = new CicdReconciliationScheduler(drainThatResolves(calls), {
     intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   // Manual tick outside the scheduler — should run even if not started.
   const r = await s.tickNow();
@@ -311,7 +321,7 @@ async function T16(): Promise<void> {
   };
   const s = new CicdReconciliationScheduler(drain, {
     intervalMs: 1_000, jitterMs: 0, maxBackoffMs: 100_000, now: () => t.state.now,
-    setInterval: t.setInterval as never, clearInterval: t.clearInterval as never,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
   });
   s.start();
   await t.fire();
@@ -325,13 +335,43 @@ async function T16(): Promise<void> {
      "backoff returns to intervalMs after a successful tick");
 }
 
+async function T17(): Promise<void> {
+  // Regression test for the Phase 133 timer-lifecycle bug:
+  // the scheduler must use one-shot setTimeout semantics, never setInterval.
+  // If this regresses, state.intervalCalls will be > 0 and the test fails.
+  const t = makeFakeTimers();
+  const calls = { n: 0 };
+  const s = new CicdReconciliationScheduler(drainThatResolves(calls), {
+    intervalMs: 1_000, jitterMs: 0, now: () => t.state.now,
+    setTimeout: t.setTimeout as never, clearTimeout: t.clearTimeout as never,
+  });
+  // Also inject the trap by monkey-patching the fake to record intervalCalls
+  // if the scheduler bypasses opts and reaches for global setInterval.
+  const origGlobal = (globalThis as { setInterval?: unknown }).setInterval;
+  let globalIntervalCalls = 0;
+  try {
+    (globalThis as { setInterval?: unknown }).setInterval = () => { globalIntervalCalls++; return 0; };
+    s.start();
+    await t.fire();
+    await t.fire();
+    await t.fire();
+  } finally {
+    (globalThis as { setInterval?: unknown }).setInterval = origGlobal;
+  }
+  eq("T17", globalIntervalCalls, 0,
+     "scheduler never falls through to global setInterval");
+  eq("T17", t.state.scheduleCount > 0, true,
+     "scheduler scheduled at least one one-shot timer");
+  await s.stop();
+}
+
 /* ---------------------------------- runner -------------------------------- */
 
 async function main(): Promise<void> {
   console.log("Phase 133 — scheduler tests");
   await T01(); await T02(); await T03(); await T04(); await T05();
   await T06(); await T07(); await T08(); await T09(); await T10();
-  await T11(); await T12(); await T13(); await T14(); await T15(); await T16();
+  await T11(); await T12(); await T13(); await T14(); await T15(); await T16(); await T17();
 
   console.log("");
   console.log("passed: " + passed + "  failed: " + failed);

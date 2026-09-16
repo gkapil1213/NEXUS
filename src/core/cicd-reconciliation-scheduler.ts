@@ -14,6 +14,19 @@ export interface ReconciliationDrain {
   reconcileOpen(): Promise<unknown>;
 }
 
+/**
+ * Phase 134: optional durable ownership. When supplied, every tick first
+ * ensures we hold the singleton scheduler ownership; a tick that cannot
+ * acquire or renew ownership does NOT call the drain. release() is invoked
+ * from stop() as a best-effort cleanup.
+ */
+export interface SchedulerOwnership {
+  ensureOwned(): Promise<{ owned: boolean; reason?: string }>;
+  release(): Promise<void>;
+  workerIdValue?(): string;
+  currentLeaseId?(): string | null;
+}
+
 export interface SchedulerOptions {
   /** Base interval between ticks (ms). Default 30_000. */
   intervalMs?: number;
@@ -25,19 +38,30 @@ export interface SchedulerOptions {
   onError?: (e: unknown) => void;
   /** Injectable clock — returns ms epoch. Default Date.now. */
   now?: () => number;
-  /** Injectable timer. Default global setInterval. */
-  setInterval?: (fn: () => void, ms: number) => unknown;
-  /** Injectable clearer. Default global clearInterval. */
-  clearInterval?: (h: unknown) => void;
+  /**
+   * Injectable one-shot timer. Default global setTimeout.
+   *
+   * NOTE: this MUST be setTimeout, not setInterval. scheduleNext() treats the
+   * handle as one-shot — the callback drops the reference and the .finally()
+   * reschedules. Using setInterval here would create orphan intervals.
+   */
+  setTimeout?: (fn: () => void, ms: number) => unknown;
+  /** Injectable clearer for the one-shot timer. Default global clearTimeout. */
+  clearTimeout?: (h: unknown) => void;
   /** Injectable random in [0, 1). Default Math.random. */
   random?: () => number;
+  /** Phase 134: durable ownership gate. When present, ticks require ownership. */
+  ownership?: SchedulerOwnership;
+  /** Phase 134: called whenever a tick is skipped because ownership was not held. */
+  onTickSkippedNoOwnership?: (reason: string) => void;
 }
 
 export interface TickResult {
   ran: boolean;
-  reason?: "already-running" | "stopped" | "coalesced";
+  reason?: "already-running" | "stopped" | "coalesced" | "no-ownership";
   durationMs?: number;
   error?: string;
+  ownershipReason?: string;
 }
 
 export class CicdReconciliationScheduler {
@@ -45,8 +69,8 @@ export class CicdReconciliationScheduler {
   private readonly jitterMs: number;
   private readonly maxBackoffMs: number;
   private readonly now: () => number;
-  private readonly setI: (fn: () => void, ms: number) => unknown;
-  private readonly clearI: (h: unknown) => void;
+  private readonly setTimeoutFn: (fn: () => void, ms: number) => unknown;
+  private readonly clearTimeoutFn: (h: unknown) => void;
   private readonly random: () => number;
   private readonly onError: (e: unknown) => void;
 
@@ -58,6 +82,10 @@ export class CicdReconciliationScheduler {
   private lastTickDurationMs = 0;
   private lastError: string | null = null;
   private startedAt: number | null = null;
+  private readonly ownership?: SchedulerOwnership;
+  private readonly onTickSkippedNoOwnership?: (reason: string) => void;
+  private skippedNoOwnership = 0;
+  private ownsForStatus = false;
 
   constructor(
     private readonly drain: ReconciliationDrain,
@@ -67,10 +95,12 @@ export class CicdReconciliationScheduler {
     this.jitterMs = Math.max(0, opts.jitterMs ?? 5_000);
     this.maxBackoffMs = Math.max(this.intervalMs, opts.maxBackoffMs ?? 900_000);
     this.now = opts.now ?? Date.now;
-    this.setI = opts.setInterval ?? ((fn, ms) => setInterval(fn, ms));
-    this.clearI = opts.clearInterval ?? ((h) => clearInterval(h as ReturnType<typeof setInterval>));
+    this.setTimeoutFn = opts.setTimeout ?? ((fn, ms) => setTimeout(fn, ms));
+    this.clearTimeoutFn = opts.clearTimeout ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
     this.random = opts.random ?? Math.random;
     this.onError = opts.onError ?? (() => {});
+    this.ownership = opts.ownership;
+    this.onTickSkippedNoOwnership = opts.onTickSkippedNoOwnership;
   }
 
   isRunning(): boolean {
@@ -89,6 +119,9 @@ export class CicdReconciliationScheduler {
     lastTickDurationMs: number;
     lastError: string | null;
     startedAt: number | null;
+    skippedNoOwnership: number;
+    owner: boolean;
+    workerId: string | null;
   } {
     return {
       running: this.running,
@@ -98,6 +131,9 @@ export class CicdReconciliationScheduler {
       lastTickDurationMs: this.lastTickDurationMs,
       lastError: this.lastError,
       startedAt: this.startedAt,
+      skippedNoOwnership: this.skippedNoOwnership,
+      owner: !this.ownership || this.ownsForStatus,
+      workerId: this.ownership?.workerIdValue?.() ?? null,
     };
   }
 
@@ -109,22 +145,26 @@ export class CicdReconciliationScheduler {
     this.scheduleNext(0);
   }
 
-  /** Graceful stop: awaits any in-flight tick, then releases the timer. */
+  /** Graceful stop: awaits any in-flight tick, then releases the timer + ownership. */
   async stop(): Promise<void> {
     if (!this.running && this.timerHandle === null && this.inFlight === null) return;
     this.running = false;
     if (this.timerHandle !== null) {
-      this.clearI(this.timerHandle);
+      this.clearTimeoutFn(this.timerHandle);
       this.timerHandle = null;
     }
     if (this.inFlight) {
       try { await this.inFlight; } catch { /* never throw from stop */ }
     }
+    if (this.ownership) {
+      try { await this.ownership.release(); } catch { /* best-effort */ }
+    }
+    this.ownsForStatus = false;
   }
 
   /**
-   * Run one tick immediately, respecting single-flight. Safe to call
-   * externally (e.g. tests, or a manual "reconcile now" API).
+   * Run one tick immediately. Ownership-gated when ownership is configured.
+   * Never bypasses ownership. Safe to call externally (manual "reconcile now").
    */
   async tickNow(): Promise<TickResult> {
     if (this.inFlight) {
@@ -132,6 +172,28 @@ export class CicdReconciliationScheduler {
     }
     const started = this.now();
     this.lastTickStartedAt = started;
+
+    if (this.ownership) {
+      let state: { owned: boolean; reason?: string };
+      try {
+        state = await this.ownership.ensureOwned();
+      } catch (e) {
+        state = {
+          owned: false,
+          reason: "ownership-call-threw:" + String((e as Error).message ?? e).slice(0, 120),
+        };
+      }
+      if (!state.owned) {
+        this.skippedNoOwnership++;
+        this.ownsForStatus = false;
+        const dur = this.now() - started;
+        this.lastTickDurationMs = dur;
+        try { this.onTickSkippedNoOwnership?.(state.reason ?? "unknown"); } catch { /* best-effort */ }
+        return { ran: false, reason: "no-ownership", durationMs: dur, ownershipReason: state.reason };
+      }
+      this.ownsForStatus = true;
+    }
+
     const p = this.runTick(started);
     this.inFlight = p;
     try {
@@ -139,6 +201,11 @@ export class CicdReconciliationScheduler {
     } finally {
       this.inFlight = null;
     }
+  }
+
+  /** Phase 134: ownership-gated alias for tickNow(). Never bypasses ownership. */
+  async runNow(): Promise<TickResult> {
+    return this.tickNow();
   }
 
   private async runTick(started: number): Promise<TickResult> {
@@ -166,10 +233,10 @@ export class CicdReconciliationScheduler {
       ? explicitDelayMs
       : this.nextDelay();
     if (this.timerHandle !== null) {
-      this.clearI(this.timerHandle);
+      this.clearTimeoutFn(this.timerHandle);
       this.timerHandle = null;
     }
-    this.timerHandle = this.setI(() => {
+    this.timerHandle = this.setTimeoutFn(() => {
       this.timerHandle = null;
       if (!this.running) return;
       void this.tickNow().finally(() => {

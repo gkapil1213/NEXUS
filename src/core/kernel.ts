@@ -68,9 +68,10 @@ import { ProductionReleaseDecisionService } from "./production-release-decision"
 import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
-import { CicdReconciliationService } from "./cicd-reconciliation.service";
-import { CicdReconciliationScheduler } from "./cicd-reconciliation-scheduler";
-import { CiArtifactReconciliationService } from "./ci-artifact-reconciliation.service";
+import type { CicdReconciliationService } from "./cicd-reconciliation.service";
+import type { CicdReconciliationScheduler } from "./cicd-reconciliation-scheduler";
+import type { CiReconciliationOwnershipService } from "./ci-reconciliation-ownership.service";
+import type { CiArtifactReconciliationService } from "./ci-artifact-reconciliation.service";
 import { ReleaseRecoveryService } from "./release-recovery";
 import { ReleaseRecoveryExecutor, type RecoveryRunReport } from "./release-recovery-executor";
 import { ReleaseRecoveryEvidenceReconciler } from "./release-recovery-evidence-reconciliation";
@@ -346,12 +347,31 @@ export class NexusKernel {
       // Phase 132: construct durable CI artifact + reconciliation services.
       // Only wired when the SQLite execution store and the CI/CD bridge exist.
       const _phase132Db = (this as unknown as { executionStore?: { db?: unknown } }).executionStore?.db ?? null;
+
+      // Phase 132/133/134 modules are dynamically imported so Node-only deps
+      // (node:crypto, node:zlib) never reach the browser bundle. Mirrors the
+      // WorkerGateway pattern elsewhere in this method. Loaded only when the
+      // SQLite store exists (Node runtime).
+      let CiArtifactReconciliationServiceCtor: (typeof import("./ci-artifact-reconciliation.service"))["CiArtifactReconciliationService"] | undefined;
+      let CicdReconciliationServiceCtor: (typeof import("./cicd-reconciliation.service"))["CicdReconciliationService"] | undefined;
+      let CicdReconciliationSchedulerCtor: (typeof import("./cicd-reconciliation-scheduler"))["CicdReconciliationScheduler"] | undefined;
+      let CiReconciliationOwnershipServiceCtor: (typeof import("./ci-reconciliation-ownership.service"))["CiReconciliationOwnershipService"] | undefined;
+      if (_phase132Db) {
+        const artSpec = "./ci-artifact-reconciliation.service";
+        const svcSpec = "./cicd-reconciliation.service";
+        const schedSpec = "./cicd-reconciliation-scheduler";
+        const ownSpec = "./ci-reconciliation-ownership.service";
+        CiArtifactReconciliationServiceCtor = (await import(/* @vite-ignore */ artSpec)).CiArtifactReconciliationService;
+        CicdReconciliationServiceCtor = (await import(/* @vite-ignore */ svcSpec)).CicdReconciliationService;
+        CicdReconciliationSchedulerCtor = (await import(/* @vite-ignore */ schedSpec)).CicdReconciliationScheduler;
+        CiReconciliationOwnershipServiceCtor = (await import(/* @vite-ignore */ ownSpec)).CiReconciliationOwnershipService;
+      }
       const _phase132ArtifactReconciler: CiArtifactReconciliationService | undefined =
         (_phase132Db && cicdBridge)
           ? ((): CiArtifactReconciliationService | undefined => {
               const ghProvider = cicdBridge.registry.get(cicdBridge.providerId);
               if (!(ghProvider instanceof GitHubActionsCICDProvider)) return undefined;
-              return new CiArtifactReconciliationService(
+              return new (CiArtifactReconciliationServiceCtor!)(
                 _phase132Db as never,
                 artifacts,
                 ghProvider,
@@ -360,7 +380,7 @@ export class NexusKernel {
           : undefined;
       const _phase132Reconciler: CicdReconciliationService | undefined =
         (_phase132Db && _phase132ArtifactReconciler)
-          ? new CicdReconciliationService(
+          ? new (CicdReconciliationServiceCtor!)(
               _phase132Db as never,
               cicdEngine,
               engine as never,
@@ -381,14 +401,28 @@ export class NexusKernel {
       (cicd as Record<string, unknown>).reconciliation = _phase132Reconciler;
       (cicd as Record<string, unknown>).artifactReconciler = _phase132ArtifactReconciler;
 
-      // Phase 133: start the durable reconciliation scheduler when the
-      // reconciler exists. Bounded interval + jitter + exponential backoff;
-      // drains open rows via reconcileOpen(). Stopped by shutdown().
-      if (_phase132Reconciler) {
-        const scheduler = new CicdReconciliationScheduler(_phase132Reconciler);
+      // Phase 133/134: start the durable reconciliation scheduler when the
+      // reconciler exists. Bounded one-shot scheduling + jitter + exponential
+      // backoff; drains open rows via reconcileOpen(). Stopped by shutdown().
+      //
+      // Phase 134: durable cross-instance ownership. Only the current owner
+      // performs reconciliation. A crashed owner's lease expires and another
+      // instance safely takes over. Distinct table so execution_leases
+      // semantics are untouched.
+      if (_phase132Reconciler && _phase132Db) {
+        const cicdWorkerId = "nexus-cicd-scheduler-" + crypto.randomUUID();
+        const ownership = new (CiReconciliationOwnershipServiceCtor!)(
+          _phase132Db as never,
+          cicdWorkerId,
+          events as never,
+          audit as never,
+        );
+        const scheduler = new (CicdReconciliationSchedulerCtor!)(_phase132Reconciler, { ownership });
         this.cicdScheduler = scheduler;
+        this.cicdOwnership = ownership;
         scheduler.start();
         (cicd as Record<string, unknown>).scheduler = scheduler;
+        (cicd as Record<string, unknown>).ownership = ownership;
       }
 
       // Phase 3 Pass 5 — runtime bridge. Detects process-execution capability
@@ -646,6 +680,9 @@ export class NexusKernel {
    */
   /** Phase 133: durable CI reconciliation scheduler (undefined when SQLite store isn't wired). */
   private cicdScheduler?: CicdReconciliationScheduler;
+
+  /** Phase 134: durable cross-instance ownership for the CI reconciliation scheduler. */
+  private cicdOwnership?: CiReconciliationOwnershipService;
 
   async shutdown(options?: { finalRecoveryPass?: boolean }): Promise<void> {
     await this.stopCicdReconciliationScheduler();
