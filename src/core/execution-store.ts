@@ -72,7 +72,8 @@ export interface TransitionInput {
   patch?: Partial<Pick<ExecutionJob,
     | "currentLeaseId" | "retryPolicy" | "timeoutMs"
     | "lastAttemptAt" | "nextAttemptAt"
-    | "cancellationRequested" | "cancellationAcknowledged">>;
+    | "cancellationRequested" | "cancellationAcknowledged"
+    | "payload">>;
 }
 
 export type TransitionResult =
