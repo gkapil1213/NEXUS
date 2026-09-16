@@ -69,6 +69,7 @@ import { ProductionReleaseEnforcementService } from "./production-release-enforc
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 import { CicdReconciliationService } from "./cicd-reconciliation.service";
+import { CicdReconciliationScheduler } from "./cicd-reconciliation-scheduler";
 import { CiArtifactReconciliationService } from "./ci-artifact-reconciliation.service";
 import { ReleaseRecoveryService } from "./release-recovery";
 import { ReleaseRecoveryExecutor, type RecoveryRunReport } from "./release-recovery-executor";
@@ -380,6 +381,16 @@ export class NexusKernel {
       (cicd as Record<string, unknown>).reconciliation = _phase132Reconciler;
       (cicd as Record<string, unknown>).artifactReconciler = _phase132ArtifactReconciler;
 
+      // Phase 133: start the durable reconciliation scheduler when the
+      // reconciler exists. Bounded interval + jitter + exponential backoff;
+      // drains open rows via reconcileOpen(). Stopped by shutdown().
+      if (_phase132Reconciler) {
+        const scheduler = new CicdReconciliationScheduler(_phase132Reconciler);
+        this.cicdScheduler = scheduler;
+        scheduler.start();
+        (cicd as Record<string, unknown>).scheduler = scheduler;
+      }
+
       // Phase 3 Pass 5 — runtime bridge. Detects process-execution capability
       // honestly: BLOCKED in the managed browser workspace, AVAILABLE only after
       // real probes when a host bridge is injected. Emits events + audit.
@@ -633,9 +644,20 @@ export class NexusKernel {
    * Orderly kernel shutdown. Stops background lifecycle services in reverse
    * order of their start. Idempotent. The final recovery pass is opt-in.
    */
+  /** Phase 133: durable CI reconciliation scheduler (undefined when SQLite store isn't wired). */
+  private cicdScheduler?: CicdReconciliationScheduler;
+
   async shutdown(options?: { finalRecoveryPass?: boolean }): Promise<void> {
+    await this.stopCicdReconciliationScheduler();
     await this.stopRecoverySupervisor({ finalPass: options?.finalRecoveryPass ?? false });
     await this.stopGateway();
+  }
+
+  /** Phase 133: stop the CI reconciliation scheduler; never throws. Idempotent. */
+  private async stopCicdReconciliationScheduler(): Promise<void> {
+    if (!this.cicdScheduler) return;
+    try { await this.cicdScheduler.stop(); } catch { /* shutdown must not throw */ }
+    this.cicdScheduler = undefined;
   }
 
   /** Real health: probes each subsystem; never reports healthy when a probe fails. */
