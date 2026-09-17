@@ -331,31 +331,6 @@ export class ExecutionEngine {
         return null;
     }
 
-
-    /**
-     * Phase 136: called when a worker-authoritative attempt write is fenced out.
-     * Records a durable ownership obligation and emits audit/events — WITHOUT
-     * mutating authoritative execution state.
-     */
-    private recordAttemptOwnershipLoss(jobId: string, leaseId: string, workerId: string, reason: string): void {
-        try { this.store.writeOwnershipObligation({ jobId, leaseId, workerId, reason }); } catch { /* isolated */ }
-        try {
-            this.fireAndForget(this.deps.events?.emit({
-                type: "execution.ownership_lost",
-                source: "ExecutionEngine",
-                execution_id: jobId,
-                payload: { jobId, leaseId, workerId, reason, phase: "attempt_write" },
-            }));
-        } catch { /* isolated */ }
-        try {
-            this.fireAndForget(this.deps.audit?.record({
-                actor: workerId, action: "execution.ownership_lost",
-                resource_type: "execution_job", resource_id: jobId,
-                result: "blocked",
-                metadata: { leaseId, reason, phase: "attempt_write" },
-            }));
-        } catch { /* isolated */ }
-    }
     async executeJob(workerId: string, jobId: string, leaseId: string): Promise<ExecutionJob> {
         const job = this.store.getJob(jobId);
         if (!job) throw new Error(`Job ${jobId} not found`);
@@ -411,11 +386,7 @@ export class ExecutionEngine {
             startedAt: Date.now(),
             createdAt: Date.now(),
         };
-        const attCreateRes = this.store.createAttemptAsOwner(attempt, leaseId, workerId);
-        if (!attCreateRes.created) {
-            this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_CREATE_OWNERSHIP_LOST");
-            throw new OwnershipLostError(job.id, leaseId, workerId);
-        }
+        this.store.createAttempt(attempt);
 
         const request: ExecutionAdapterRequest = {
             operation: job.jobType,
@@ -505,19 +476,15 @@ export class ExecutionEngine {
         attempt.completedAt = Date.now();
 
         if (job.cancellationRequested) {
+            attempt.status = "CANCELLED";
+            attempt.evidence = ["Execution cancelled after completion"];
+            this.store.updateAttempt(attempt);
             this.applyTransition(
                 job.id, "worker", "RUNNING", "CANCELLED",
                 workerId, leaseId,
                 { cancellationAcknowledged: true },
                 "POST_EXECUTION_CANCELLED"
             );
-            attempt.status = "CANCELLED";
-            attempt.evidence = ["Execution cancelled after completion"];
-            attempt.completedAt = Date.now();
-            const attResCancelPost = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-            if (!attResCancelPost.updated) {
-                this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_CANCELLED");
-            }
             job.status = "CANCELLED";
             job.cancellationAcknowledged = true;
             job.updatedAt = Date.now();
@@ -527,7 +494,26 @@ export class ExecutionEngine {
         }
 
         if (!executionResult || !executionResult.success) {
-            // Phase 136: compute retry outcome BEFORE any attempt write.
+            attempt.status = "FAILED";
+            attempt.error = executionError || "Execution failed";
+            this.store.updateAttempt(attempt);
+
+            if (job.cancellationRequested) {
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "CANCELLED",
+                    workerId, leaseId,
+                    { cancellationAcknowledged: true },
+                    "FAILED_EXECUTION_CANCELLED"
+                );
+                job.status = "CANCELLED";
+                job.cancellationAcknowledged = true;
+                job.updatedAt = Date.now();
+                this.leaseManager.releaseLease(leaseId);
+                job.currentLeaseId = undefined;
+                this.workerRegistry.markIdle(workerId);
+                return job;
+            }
+
             let nextStatus: ExecutionJobStatus;
             let nextAttemptAt: number | undefined;
             if (timedOut && job.retryPolicy) {
@@ -542,43 +528,15 @@ export class ExecutionEngine {
                 nextStatus = "DEAD_LETTER";
             }
 
-            if (job.cancellationRequested) {
-                this.applyTransition(
-                    job.id, "worker", "RUNNING", "CANCELLED",
-                    workerId, leaseId,
-                    { cancellationAcknowledged: true },
-                    "FAILED_EXECUTION_CANCELLED"
-                );
-                attempt.status = "CANCELLED";
-                attempt.error = executionError || "Execution failed";
-                attempt.completedAt = Date.now();
-                const attResFailCancel = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-                if (!attResFailCancel.updated) {
-                    this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_FAILED_CANCELLED");
-                }
-                job.status = "CANCELLED";
-                job.cancellationAcknowledged = true;
-                job.updatedAt = Date.now();
-                this.leaseManager.releaseLease(leaseId);
-                job.currentLeaseId = undefined;
-                this.workerRegistry.markIdle(workerId);
-                return job;
-            }
-
+            // Phase 127: two-step to keep the state machine authoritative.
+            // RUNNING -> RETRY_SCHEDULED is NOT a legal transition; must go
+            // through FAILED first.
             this.applyTransition(
                 job.id, "worker", "RUNNING", "FAILED",
                 workerId, leaseId, undefined, "EXECUTION_FAILED"
             );
             job.status = "FAILED";
             job.updatedAt = Date.now();
-
-            attempt.status = "FAILED";
-            attempt.error = executionError || "Execution failed";
-            attempt.completedAt = Date.now();
-            const attResFail = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-            if (!attResFail.updated) {
-                this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_FAILED");
-            }
 
             this.applyTransition(
                 job.id, "system", "FAILED", nextStatus,
@@ -635,10 +593,7 @@ export class ExecutionEngine {
                 attempt.status = "SUCCEEDED";
                 attempt.evidence = ["Verification succeeded"];
                 attempt.completedAt = Date.now();
-                const attResVok = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-                if (!attResVok.updated) {
-                    this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_VERIFICATION_SUCCEEDED");
-                }
+                this.store.updateAttempt(attempt);
 
                 job.status = "SUCCEEDED";
                 job.updatedAt = Date.now();
@@ -648,11 +603,15 @@ export class ExecutionEngine {
                 return job;
             }
 
-            // Phase 136: compute outcome FIRST, transition FIRST, fenced attempt write.
-            const verifErrMsg = attempt.error ?? "Verification failed";
+            // Verification failed -> FAILED -> existing retry/dead-letter policy.
+            attempt.status = "FAILED";
+            attempt.error = attempt.error ?? "Verification failed";
+            attempt.completedAt = Date.now();
+            this.store.updateAttempt(attempt);
+
             let nextStatus: ExecutionJobStatus;
             let nextAttemptAt: number | undefined;
-            if (job.retryPolicy && this.retryEngine.isRetryable(verifErrMsg, job.retryPolicy)) {
+            if (job.retryPolicy && this.retryEngine.isRetryable(attempt.error, job.retryPolicy)) {
                 const na = this.retryEngine.calculateNextAttempt(attemptNumber, job.retryPolicy, Date.now());
                 if (na !== null) { nextStatus = "RETRY_SCHEDULED"; nextAttemptAt = na; }
                 else { nextStatus = "DEAD_LETTER"; }
@@ -667,13 +626,6 @@ export class ExecutionEngine {
             job.status = "FAILED";
             job.updatedAt = Date.now();
 
-            attempt.status = "FAILED";
-            attempt.error = verifErrMsg;
-            attempt.completedAt = Date.now();
-            const attResVf = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-            if (!attResVf.updated) {
-                this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_VERIFICATION_FAILED");
-            }
             this.applyTransition(
                 job.id, "system", "FAILED", nextStatus,
                 undefined, undefined,
@@ -698,10 +650,7 @@ export class ExecutionEngine {
         attempt.status = "SUCCEEDED";
         attempt.evidence = ["Execution succeeded (verification not configured)"];
         attempt.completedAt = Date.now();
-        const attResNv = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-        if (!attResNv.updated) {
-            this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_NO_VERIFICATION");
-        }
+        this.store.updateAttempt(attempt);
 
         job.status = "SUCCEEDED";
         job.updatedAt = Date.now();

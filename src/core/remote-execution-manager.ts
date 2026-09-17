@@ -38,12 +38,21 @@ export class RemoteExecutionManager {
             if (this.store) {
                 const fresh = this.store.getRemoteDispatch(record.dispatchId);
                 if (fresh) {
-                    const updated: RemoteDispatchRecord = {
-                        ...fresh,
-                        status: finalStatus,
-                        updatedAt: Date.now(),
-                    };
-                    this.store.upsertRemoteDispatch(updated);
+                    // Phase 136: do not overwrite a terminal status written by
+                    // the authoritative worker while this control-plane sweep
+                    // awaited the provider.
+                    const isTerminal =
+                        fresh.status === "COMPLETED" ||
+                        fresh.status === "FAILED" ||
+                        fresh.status === "CANCELLED";
+                    if (!isTerminal) {
+                        const updated: RemoteDispatchRecord = {
+                            ...fresh,
+                            status: finalStatus,
+                            updatedAt: Date.now(),
+                        };
+                        this.store.upsertRemoteDispatch(updated);
+                    }
                 }
             }
         }

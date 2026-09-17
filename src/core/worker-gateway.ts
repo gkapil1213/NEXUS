@@ -209,7 +209,13 @@ export class WorkerGateway {
         };
 
         // Atomic persist
-        this.executionStore.persistRemoteExecutionResultAndDispatch(durableResult, updatedDispatch);
+        const persist = this.executionStore.persistRemoteExecutionResultAndDispatchAsOwner(
+          durableResult,
+          updatedDispatch,
+          result.leaseId,
+          result.workerId || workerId,
+        );
+        if (!persist.persisted) { throw new Error("ownership_lost"); }
         return { type: "JOB_RESULT_ACK" };
       }
       case "JOB_CANCEL":

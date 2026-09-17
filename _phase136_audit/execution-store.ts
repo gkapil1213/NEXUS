@@ -458,100 +458,6 @@ export class ExecutionStore {
     );
   }
 
-  /**
-   * Phase 136: worker-authoritative attempt creation. Fenced by the same
-   * lease invariant used by transitionExecution and updateJobAsOwner:
-   * the INSERT is rejected unless the caller holds an ACTIVE, unexpired
-   * lease for (lease_id, worker_id, job_id). A stale worker receives
-   * WORKER_OWNERSHIP_LOST and no attempt row is written.
-   */
-  createAttemptAsOwner(
-    attempt: ExecutionAttempt,
-    leaseId: string,
-    workerId: string,
-    now: number = Date.now(),
-  ): { created: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
-    const owned = this.db.prepare(`
-      SELECT 1 FROM execution_leases
-      WHERE lease_id = ? AND worker_id = ? AND job_id = ?
-        AND status = 'ACTIVE' AND expires_at > ?
-    `).get(leaseId, workerId, attempt.jobId, now);
-    if (!owned) {
-      return { created: false, reason: "WORKER_OWNERSHIP_LOST" };
-    }
-    try {
-      this.db.prepare(`
-        INSERT INTO execution_attempts (
-          id, job_id, attempt_number, status, worker_id, lease_id,
-          started_at, completed_at, error, evidence, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        attempt.id,
-        attempt.jobId,
-        attempt.attemptNumber,
-        attempt.status,
-        attempt.workerId,
-        attempt.leaseId,
-        attempt.startedAt,
-        attempt.completedAt,
-        attempt.error,
-        attempt.evidence ? JSON.stringify(attempt.evidence) : null,
-        attempt.createdAt,
-      );
-      return { created: true };
-    } catch (err: unknown) {
-      const e = err as { code?: string; message?: string };
-      if (
-        e.code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
-        /UNIQUE constraint failed/i.test(e.message ?? "")
-      ) {
-        return { created: false };
-      }
-      throw err;
-    }
-  }
-
-  /**
-   * Phase 136: worker-authoritative attempt update. WHERE clause carries the
-   * same EXISTS(ACTIVE, unexpired, matching lease_id+worker_id+job_id) as
-   * updateJobAsOwner and transitionExecution. A stale worker's UPDATE matches
-   * zero rows and no attempt evidence is committed.
-   */
-  updateAttemptAsOwner(
-    attempt: ExecutionAttempt,
-    leaseId: string,
-    workerId: string,
-    now: number = Date.now(),
-  ): { updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
-    const result = this.db.prepare(`
-      UPDATE execution_attempts SET
-        status = ?, worker_id = ?, lease_id = ?, started_at = ?,
-        completed_at = ?, error = ?, evidence = ?
-      WHERE id = ?
-        AND EXISTS (
-          SELECT 1 FROM execution_leases
-          WHERE lease_id = ? AND worker_id = ? AND job_id = ?
-            AND status = 'ACTIVE' AND expires_at > ?
-        )
-    `).run(
-      attempt.status,
-      attempt.workerId,
-      attempt.leaseId,
-      attempt.startedAt,
-      attempt.completedAt,
-      attempt.error,
-      attempt.evidence ? JSON.stringify(attempt.evidence) : null,
-      attempt.id,
-      leaseId,
-      workerId,
-      attempt.jobId,
-      now,
-    );
-    return result.changes > 0
-      ? { updated: true }
-      : { updated: false, reason: "WORKER_OWNERSHIP_LOST" };
-  }
-
   updateAttempt(attempt: ExecutionAttempt): void {
     this.db.prepare(`
       UPDATE execution_attempts SET
@@ -742,34 +648,6 @@ export class ExecutionStore {
   }
 
   // ---------- Artifacts ----------
-  /**
-   * Phase 136: worker-authoritative artifact registration. Requires the
-   * caller to hold an ACTIVE, unexpired lease matching (lease_id, worker_id,
-   * job_id). A stale worker is rejected and no artifact row is written.
-   * System/recovery callers that do not carry a worker lease continue to use
-   * the unfenced addArtifact().
-   */
-  addArtifactAsOwner(
-    artifact: ArtifactRecord,
-    leaseId: string,
-    workerId: string,
-    now: number = Date.now(),
-  ): { added: boolean; reason?: "WORKER_OWNERSHIP_LOST" | "JOB_ID_REQUIRED" } {
-    if (!artifact.jobId) {
-      return { added: false, reason: "JOB_ID_REQUIRED" };
-    }
-    const owned = this.db.prepare(`
-      SELECT 1 FROM execution_leases
-      WHERE lease_id = ? AND worker_id = ? AND job_id = ?
-        AND status = 'ACTIVE' AND expires_at > ?
-    `).get(leaseId, workerId, artifact.jobId, now);
-    if (!owned) {
-      return { added: false, reason: "WORKER_OWNERSHIP_LOST" };
-    }
-    this.addArtifact(artifact);
-    return { added: true };
-  }
-
   addArtifact(artifact: ArtifactRecord): void {
     this.db.prepare(`
       INSERT INTO execution_artifacts (
@@ -1230,34 +1108,7 @@ export class ExecutionStore {
   }
 
     // ---------- Remote Dispatches ----------
-    /**
-   * Phase 136: worker-authoritative remote result + dispatch persist. The
-   * lease fence is evaluated before delegating to the existing transactional
-   * persist path. In a single-connection better-sqlite3 process no await can
-   * interleave between the check and the write, so this is atomic in practice.
-   * A stale worker receives WORKER_OWNERSHIP_LOST and neither the result row
-   * nor the dispatch update is committed.
-   */
-  persistRemoteExecutionResultAndDispatchAsOwner(
-    result: RemoteExecutionResult,
-    dispatch: RemoteDispatchRecord,
-    leaseId: string,
-    workerId: string,
-    now: number = Date.now(),
-  ): { persisted: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
-    const owned = this.db.prepare(`
-      SELECT 1 FROM execution_leases
-      WHERE lease_id = ? AND worker_id = ? AND job_id = ?
-        AND status = 'ACTIVE' AND expires_at > ?
-    `).get(leaseId, workerId, result.jobId, now);
-    if (!owned) {
-      return { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
-    }
-    this.persistRemoteExecutionResultAndDispatch(result, dispatch);
-    return { persisted: true };
-  }
-
-  addRemoteDispatch(record: RemoteDispatchRecord): void {
+    addRemoteDispatch(record: RemoteDispatchRecord): void {
         this.db.prepare(`
             INSERT INTO remote_dispatches (
                 dispatch_id, job_id, attempt_id, worker_id, lease_id,
