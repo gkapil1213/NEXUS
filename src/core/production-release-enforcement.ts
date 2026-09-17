@@ -1,4 +1,5 @@
 import { SecurityApi } from "./security-api";
+import type { ExecutionStore, StoredProductionAuthorization } from "./execution-store";
 import { SecurityReleaseGate } from "./security-release-gate";
 import {
   ProductionReleaseDecisionService,
@@ -102,6 +103,7 @@ export class ProductionReleaseEnforcementService {
     private gate: SecurityReleaseGate,
     private decisionService: ProductionReleaseDecisionService,
     private provider?: ReleaseExecutionProvider,
+    private store?: ExecutionStore,
   ) {}
 
   async requestRelease(params: ReleaseRequestParams): Promise<AuthorizationResult> {
@@ -162,6 +164,29 @@ export class ProductionReleaseEnforcementService {
     };
 
     this.authorizations.set(authorization.authorizationId, authorization);
+    // Phase 138: mirror to durable store when available. Read path prefers durable.
+    this.store?.createProductionAuthorization({
+      authorizationId: authorization.authorizationId,
+      releaseId: authorization.releaseId,
+      artifactId: authorization.artifactId,
+      artifactDigest: authorization.artifactDigest,
+      commitSha: authorization.commitSha,
+      environment: authorization.environment,
+      securityDecisionId: authorization.securityDecisionId,
+      approvalId: authorization.approvalId,
+      executionId: authorization.executionId ?? null,
+      projectId: authorization.projectId ?? null,
+      imageRepository: authorization.imageRepository ?? null,
+      imageTag: authorization.imageTag ?? null,
+      imageId: authorization.imageId ?? null,
+      containerName: authorization.containerName ?? null,
+      containerPort: authorization.containerPort ?? null,
+      issuedAt: authorization.issuedAt,
+      expiresAt: authorization.expiresAt,
+      consumedAt: null,
+      consumedByAttemptId: null,
+      revokedAt: null,
+    });
     return {
       status: "AUTHORIZED",
       authorization,
@@ -177,7 +202,33 @@ export class ProductionReleaseEnforcementService {
     commitSha: string,
     environment: string,
   ): Promise<AuthorizationResult> {
-    const auth = this.authorizations.get(authorizationId);
+    // Phase 138: prefer durable record when present. Falls back to the in-memory
+    // Map only for authorizations issued before the store was wired (legacy path).
+    const durable = this.store?.getProductionAuthorization(authorizationId);
+    const auth: ProductionExecutionAuthorization | undefined = durable
+      ? {
+          authorizationId: durable.authorizationId,
+          releaseId: durable.releaseId,
+          artifactId: durable.artifactId,
+          commitSha: durable.commitSha,
+          environment: durable.environment,
+          securityDecisionId: durable.securityDecisionId,
+          approvalId: durable.approvalId,
+          issuedAt: durable.issuedAt,
+          expiresAt: durable.expiresAt,
+          consumed: durable.consumedAt !== null,
+          consumedByAttemptId: durable.consumedByAttemptId,
+          revoked: durable.revokedAt !== null,
+          artifactDigest: durable.artifactDigest,
+          projectId: durable.projectId ?? undefined,
+          executionId: durable.executionId ?? undefined,
+          imageRepository: durable.imageRepository ?? undefined,
+          imageTag: durable.imageTag ?? undefined,
+          imageId: durable.imageId ?? undefined,
+          containerName: durable.containerName ?? undefined,
+          containerPort: durable.containerPort ?? undefined,
+        }
+      : this.authorizations.get(authorizationId);
     if (!auth) {
       return { status: "BLOCKED", blockers: ["Authorization not found"], reasons: ["Authorization not found"] };
     }
@@ -234,9 +285,20 @@ export class ProductionReleaseEnforcementService {
     const auth = authResult.authorization;
     const attemptKey = this.computeAttemptKey(releaseId, artifactId, commitSha, environment);
     if (!auth.consumed) {
-      auth.consumed = true;
-      auth.consumedByAttemptId = attemptKey;
-      this.authorizations.set(auth.authorizationId, auth);
+      if (this.store) {
+        const cas = this.store.consumeProductionAuthorization(authorizationId, attemptKey);
+        if (!cas.consumed && cas.consumedByAttemptId !== attemptKey) {
+          return {
+            status: "BLOCKED",
+            message: "Authorization already consumed by a different attempt",
+            providerAvailable: this.provider !== undefined,
+          };
+        }
+      } else {
+        auth.consumed = true;
+        auth.consumedByAttemptId = attemptKey;
+        this.authorizations.set(auth.authorizationId, auth);
+      }
     }
 
     // No provider wired → fail closed (Phase 101 / Phase 4 Pass 6 behavior preserved).

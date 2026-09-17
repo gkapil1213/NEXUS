@@ -12,6 +12,30 @@ import {
   ExecutionEvent,
 } from "./execution-models";
 
+/* -------- Phase 138: durable production execution authorization -------- */
+
+export interface StoredProductionAuthorization {
+  authorizationId: string;
+  releaseId: string;
+  artifactId: string;
+  artifactDigest: string;
+  commitSha: string;
+  environment: string;
+  securityDecisionId: string;
+  approvalId: string;
+  executionId: string | null;
+  projectId: string | null;
+  imageRepository: string | null;
+  imageTag: string | null;
+  imageId: string | null;
+  containerName: string | null;
+  containerPort: number | null;
+  issuedAt: string;
+  expiresAt: string;
+  consumedAt: string | null;
+  consumedByAttemptId: string | null;
+  revokedAt: string | null;
+}
 /* -------- Phase 103: durable release deployment intent -------- */
 
 export type ReleaseIntentStatus =
@@ -1134,6 +1158,130 @@ export class ExecutionStore {
     return (rows as any[]).map((r) => this.mapReleaseIntent(r));
   }
 
+  /* -------- Phase 138: durable production execution authorizations -------- */
+
+  private ensureAuthorizationTable(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS production_execution_authorizations (
+        authorization_id TEXT PRIMARY KEY,
+        release_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        artifact_digest TEXT NOT NULL,
+        commit_sha TEXT NOT NULL,
+        environment TEXT NOT NULL,
+        security_decision_id TEXT NOT NULL,
+        approval_id TEXT NOT NULL,
+        execution_id TEXT,
+        project_id TEXT,
+        image_repository TEXT,
+        image_tag TEXT,
+        image_id TEXT,
+        container_name TEXT,
+        container_port INTEGER,
+        issued_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT,
+        consumed_by_attempt_id TEXT,
+        revoked_at TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_prod_auth_release_env
+        ON production_execution_authorizations(release_id, environment);
+      CREATE INDEX IF NOT EXISTS idx_prod_auth_consumed_by
+        ON production_execution_authorizations(consumed_by_attempt_id);
+      CREATE INDEX IF NOT EXISTS idx_prod_auth_expires
+        ON production_execution_authorizations(expires_at);
+    `);
+  }
+
+  createProductionAuthorization(auth: StoredProductionAuthorization): void {
+    this.ensureAuthorizationTable();
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT OR IGNORE INTO production_execution_authorizations (
+        authorization_id, release_id, artifact_id, artifact_digest, commit_sha,
+        environment, security_decision_id, approval_id, execution_id, project_id,
+        image_repository, image_tag, image_id, container_name, container_port,
+        issued_at, expires_at, consumed_at, consumed_by_attempt_id, revoked_at,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      auth.authorizationId, auth.releaseId, auth.artifactId, auth.artifactDigest,
+      auth.commitSha, auth.environment, auth.securityDecisionId, auth.approvalId,
+      auth.executionId, auth.projectId, auth.imageRepository, auth.imageTag,
+      auth.imageId, auth.containerName, auth.containerPort, auth.issuedAt,
+      auth.expiresAt, auth.consumedAt, auth.consumedByAttemptId, auth.revokedAt,
+      now, now,
+    );
+  }
+
+  getProductionAuthorization(authorizationId: string): StoredProductionAuthorization | undefined {
+    this.ensureAuthorizationTable();
+    const row = this.db.prepare(
+      "SELECT * FROM production_execution_authorizations WHERE authorization_id = ?"
+    ).get(authorizationId);
+    return row ? this.mapProductionAuthorization(row) : undefined;
+  }
+
+  consumeProductionAuthorization(
+    authorizationId: string,
+    attemptId: string,
+    now: Date = new Date(),
+  ): { consumed: boolean; consumedAt: string | null; consumedByAttemptId: string | null } {
+    this.ensureAuthorizationTable();
+    const iso = now.toISOString();
+    const info = this.db.prepare(`
+      UPDATE production_execution_authorizations SET
+        consumed_at = COALESCE(consumed_at, ?),
+        consumed_by_attempt_id = COALESCE(consumed_by_attempt_id, ?),
+        updated_at = ?
+      WHERE authorization_id = ?
+        AND (consumed_at IS NULL OR consumed_by_attempt_id = ?)
+    `).run(iso, attemptId, Date.now(), authorizationId, attemptId);
+    const fresh = this.getProductionAuthorization(authorizationId);
+    return {
+      consumed: (info.changes ?? 0) > 0,
+      consumedAt: fresh?.consumedAt ?? null,
+      consumedByAttemptId: fresh?.consumedByAttemptId ?? null,
+    };
+  }
+
+  revokeProductionAuthorization(authorizationId: string, now: Date = new Date()): boolean {
+    this.ensureAuthorizationTable();
+    const info = this.db.prepare(`
+      UPDATE production_execution_authorizations SET
+        revoked_at = COALESCE(revoked_at, ?),
+        updated_at = ?
+      WHERE authorization_id = ?
+    `).run(now.toISOString(), Date.now(), authorizationId);
+    return (info.changes ?? 0) > 0;
+  }
+
+  private mapProductionAuthorization(row: any): StoredProductionAuthorization {
+    return {
+      authorizationId: row.authorization_id,
+      releaseId: row.release_id,
+      artifactId: row.artifact_id,
+      artifactDigest: row.artifact_digest,
+      commitSha: row.commit_sha,
+      environment: row.environment,
+      securityDecisionId: row.security_decision_id,
+      approvalId: row.approval_id,
+      executionId: row.execution_id ?? null,
+      projectId: row.project_id ?? null,
+      imageRepository: row.image_repository ?? null,
+      imageTag: row.image_tag ?? null,
+      imageId: row.image_id ?? null,
+      containerName: row.container_name ?? null,
+      containerPort: row.container_port ?? null,
+      issuedAt: row.issued_at,
+      expiresAt: row.expires_at,
+      consumedAt: row.consumed_at ?? null,
+      consumedByAttemptId: row.consumed_by_attempt_id ?? null,
+      revokedAt: row.revoked_at ?? null,
+    };
+  }
   private mapReleaseIntent(row: any): ReleaseDeploymentIntent {
     return {
       intentKey: row.intent_key,

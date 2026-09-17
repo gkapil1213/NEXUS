@@ -503,6 +503,7 @@ export class NexusKernel {
         securityGate,
         releaseDecision,
         releaseBridge,
+        this.executionStore,
       );
 
       // Phase 104: durable release recovery. Runs once at boot, only when
