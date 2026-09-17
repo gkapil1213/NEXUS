@@ -169,16 +169,16 @@ export class ReleaseRecoveryExecutor {
       const inspection = await inspectIntentContainer(fresh, this.deps.docker);
       if (inspection.verdict === "BLOCKED") { await this.markRecoveryRequired(fresh, "inspection blocked: " + inspection.reason); report.blocked++; return; }
       if (inspection.verdict === "MISSING") { await this.markRecoveryRequired(fresh, "container missing on resume verification"); report.blocked++; return; }
-      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "identity mismatch on resume: expected " + inspection.expectedImageId + " got " + inspection.runningImageId }); report.acted++; return; }
+      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "identity mismatch on resume: expected " + inspection.expectedImageId + " got " + inspection.runningImageId, reconciledAt: Date.now() }); report.acted++; return; }
       if (!inspection.hostPort) { await this.markRecoveryRequired(fresh, "no host port on inspect"); report.blocked++; return; }
       const stagingUrl = "http://127.0.0.1:" + inspection.hostPort;
       const smokeResult = await this.deps.smoke.run({ staging_url: stagingUrl, execution_id: fresh.executionId });
       if (smokeResult.verdict === "PASS") {
-        intents.transition(fresh.intentKey, "KNOWN_GOOD", { deploymentId: fresh.deploymentId });
+        intents.transition(fresh.intentKey, "KNOWN_GOOD", { deploymentId: fresh.deploymentId, reconciledAt: Date.now() });
         report.acted++;
         await this.deps.svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, deploymentId: fresh.deploymentId } });
       } else if (smokeResult.verdict === "BLOCKED") { await this.markRecoveryRequired(fresh, "smoke blocked on resume"); report.blocked++; }
-      else { intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "smoke failed on resume" }); report.acted++; }
+      else { intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "smoke failed on resume", reconciledAt: Date.now() }); report.acted++; }
     } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
   }
 
