@@ -197,7 +197,7 @@ function bridgeExecutor(bridge: HostBridge): ProcessExecutor {
     check('F2 TokenBoundExecutor injects token when absent', p1.workspace_token === 'tok_A', 'token=' + p1.workspace_token);
     const r2 = await tbe.run({ tool: 'node', operation: '--version', args: [], workspace_token: 'tok_B' } as any);
     const p2 = JSON.parse(r2.stdout);
-    check('F3 TokenBoundExecutor preserves explicit token', p2.workspace_token === 'tok_B', 'token=' + p2.workspace_token);
+    check('F3 TokenBoundExecutor rejects explicit token override', p2.workspace_token === 'tok_A', 'token=' + p2.workspace_token);
   }
   {
     const bridge = recordingBridge();

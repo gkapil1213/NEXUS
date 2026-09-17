@@ -316,7 +316,7 @@ export class TokenBoundExecutor implements ProcessExecutor {
   run(cmd: AllowlistedCommand): Promise<ExecResult> {
     return this.inner.run({
       ...cmd,
-      workspace_token: cmd.workspace_token ?? this.workspaceToken,
+      workspace_token: this.workspaceToken,
     });
   }
 }
