@@ -216,7 +216,10 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
           deploymentId: null,
         };
       }
-      intents.transition(intent.intentKey, "DEPLOYING");
+      intents.transition(intent.intentKey, "DEPLOYING", {
+        provider: "canonical-deployment-orchestrator",
+        startedAt: Date.now(),
+      });
 
       await this.deps.svc.events.emit({
         type: "release.deployment_started" as never,
@@ -260,7 +263,13 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
 
       const dep = outcome.deployment;
       if (dep.status === "KNOWN_GOOD") {
-        intents.transition(intent.intentKey, "KNOWN_GOOD", { deploymentId: dep.id });
+        intents.transition(intent.intentKey, "KNOWN_GOOD", {
+          deploymentId: dep.id,
+          provider: "canonical-deployment-orchestrator",
+          providerStatus: dep.status,
+          providerDeploymentId: dep.id,
+          completedAt: Date.now(),
+        });
         await this.deps.svc.audit.record({
           actor: "system",
           action: "release.deployed",
@@ -286,6 +295,10 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
         intents.transition(intent.intentKey, "BLOCKED", {
           deploymentId: dep.id,
           failureReason: dep.failure_reason ?? "deployment blocked",
+          provider: "canonical-deployment-orchestrator",
+          providerStatus: dep.status,
+          providerDeploymentId: dep.id,
+          completedAt: Date.now(),
         });
         return {
           status: "BLOCKED",
@@ -296,6 +309,10 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
       intents.transition(intent.intentKey, "FAILED", {
         deploymentId: dep.id,
         failureReason: dep.failure_reason ?? ("deployment status=" + dep.status),
+        provider: "canonical-deployment-orchestrator",
+        providerStatus: dep.status,
+        providerDeploymentId: dep.id,
+        completedAt: Date.now(),
       });
       return {
         status: "FAIL",

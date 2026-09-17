@@ -97,7 +97,7 @@ export class ReleaseDeploymentIntentService {
   transition(
     intentKey: string,
     status: ReleaseIntentStatus,
-    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null } = {},
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null } = {},
   ): ReleaseDeploymentIntent | undefined {
     return this.store.updateReleaseIntentStatus(intentKey, status, patch);
   }

@@ -69,6 +69,12 @@ export interface ReleaseDeploymentIntent {
   imageDigest: string;
   containerName: string;
   containerPort: number;
+  // Phase 138: provider execution identity and result.
+  provider?: string | null;
+  providerStatus?: string | null;
+  providerDeploymentId?: string | null;
+  startedAt?: number | null;
+  completedAt?: number | null;
     // Phase 119: discriminator + rollback linkage.
     intentKind?: "DEPLOY" | "ROLLBACK";
     rollbackTargetReleaseId?: string | null;
@@ -1057,7 +1063,7 @@ export class ExecutionStore {
   updateReleaseIntentStatus(
     intentKey: string,
     status: ReleaseIntentStatus,
-    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null } = {},
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null } = {},
   ): ReleaseDeploymentIntent | undefined {
     this.ensureIntentTable();
     const now = Date.now();
@@ -1067,6 +1073,11 @@ export class ExecutionStore {
         deployment_id = COALESCE(?, deployment_id),
         failure_reason = COALESCE(?, failure_reason),
         recovery_reason = COALESCE(?, recovery_reason),
+        provider = COALESCE(?, provider),
+        provider_status = COALESCE(?, provider_status),
+        provider_deployment_id = COALESCE(?, provider_deployment_id),
+        started_at = COALESCE(?, started_at),
+        completed_at = COALESCE(?, completed_at),
         updated_at = ?
       WHERE intent_key = ?
     `).run(
@@ -1074,6 +1085,11 @@ export class ExecutionStore {
       patch.deploymentId ?? null,
       patch.failureReason ?? null,
       patch.recoveryReason ?? null,
+      patch.provider ?? null,
+      patch.providerStatus ?? null,
+      patch.providerDeploymentId ?? null,
+      patch.startedAt ?? null,
+      patch.completedAt ?? null,
       now,
       intentKey,
     );
@@ -1305,6 +1321,11 @@ export class ExecutionStore {
       deploymentId: row.deployment_id ?? null,
       failureReason: row.failure_reason ?? null,
       recoveryReason: row.recovery_reason ?? null,
+      provider: row.provider ?? null,
+      providerStatus: row.provider_status ?? null,
+      providerDeploymentId: row.provider_deployment_id ?? null,
+      startedAt: row.started_at ?? null,
+      completedAt: row.completed_at ?? null,
       leasedBy: row.leased_by ?? null,
       leaseExpiresAt: row.lease_expires_at ?? null,
       createdAt: row.created_at,
