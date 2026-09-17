@@ -1,4 +1,4 @@
-﻿# Phase 137 context 20260917-130258
+# Phase 137 context 20260917-130258
 Repo: C:\Users\pc\NEXUS
 
 ===== FILE: src/core/remote-execution-manager.ts =====
@@ -4427,4 +4427,3 @@ void main().catch((err) => {
   console.error("\nFATAL:", err);
   process.exitCode = 1;
 });
-

@@ -604,5 +604,3 @@ void main().catch((err) => {
   console.error("\nFATAL:", err);
   process.exitCode = 1;
 });
-
-

@@ -1,4 +1,4 @@
-﻿# Phase 137 context 20260917-130100
+# Phase 137 context 20260917-130100
 Repo: C:\Users\pc\NEXUS
 
 ===== FILE: src/core/remote-execution-manager.ts =====
@@ -4866,4 +4866,3 @@ src/core/worker-gateway.ts:460:      workerId,
 src/core/worker-gateway.ts:468:  async cancelJob(workerId: string, jobId: string): Promise<void> {
 src/core/worker-gateway.ts:474:      workerId,
 src/core/worker-transport-messages.ts:21:  workerId?: string;
-
