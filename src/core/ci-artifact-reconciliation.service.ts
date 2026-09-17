@@ -6,9 +6,17 @@
 //
 // The remote CI digest comes only from the artifact produced by the GitHub
 // Actions workflow — never from the local container runtime.
+//
+// Phase 135: the mutation pair (ArtifactService.register + INSERT into
+// ci_image_digest_bindings) is fenced against the Phase 134 durable ownership
+// row. A stale worker that loses ownership during the provider awaits cannot
+// write authoritative evidence; it returns SKIPPED_NO_OWNERSHIP and writes
+// nothing authoritative.
 
 import type { ArtifactService } from "./services";
+import { ArtifactRegistrationFencedError } from "./services";
 import type { GitHubActionsCICDProvider } from "./github-actions-cicd-provider";
+import type { FencingContext } from "./ci-reconciliation-ownership.service";
 import {
   NEXUS_IMAGE_DIGEST_ARTIFACT_NAME,
   validateCiArtifact,
@@ -43,7 +51,8 @@ export type ReconcileOutcome =
       bindingId: string;
       githubArtifactId: string;
     }
-  | { state: "BLOCKED"; reason: string; githubArtifactId?: string };
+  | { state: "BLOCKED"; reason: string; githubArtifactId?: string }
+  | { state: "SKIPPED_NO_OWNERSHIP"; reason: string };
 
 export interface CiImageDigestBinding {
   binding_id: string;
@@ -62,6 +71,17 @@ export interface CiImageDigestBinding {
   created_at: number;
 }
 
+/**
+ * Phase 135: minimal structural contract for the durable ownership record.
+ * CiReconciliationOwnershipService satisfies it structurally. Optional so a
+ * Phase 132 unit harness can omit ownership and behave exactly as before.
+ */
+export interface ArtifactOwnershipGate {
+  currentFence?(): FencingContext | null;
+  isOwnedNowSync?(): boolean;
+  workerIdValue?(): string;
+}
+
 const MAX_COMPRESSED_ARTIFACT_BYTES = 20 * 1024 * 1024;
 const MAX_UNCOMPRESSED_ARTIFACT_BYTES = 5 * 1024 * 1024;
 
@@ -77,6 +97,7 @@ export class CiArtifactReconciliationService {
     private readonly db: SqliteDb,
     private readonly artifacts: ArtifactService,
     private readonly githubProvider: GitHubActionsCICDProvider,
+    private readonly ownership?: ArtifactOwnershipGate,
   ) {}
 
   findBinding(executionId: string, runId: string, imageDigest: string): CiImageDigestBinding | undefined {
@@ -90,6 +111,18 @@ export class CiArtifactReconciliationService {
     return this.db.prepare(
       "SELECT * FROM ci_image_digest_bindings WHERE execution_id = ? AND image_digest = ?"
     ).get(executionId, imageDigest) as CiImageDigestBinding | undefined;
+  }
+
+  private isOwnedNow(): boolean {
+    if (!this.ownership) return true;
+    if (this.ownership.isOwnedNowSync) return this.ownership.isOwnedNowSync();
+    // No sync check exposed — treat the gate as advisory only. Production
+    // always supplies CiReconciliationOwnershipService which implements it.
+    return true;
+  }
+
+  private currentFence(): FencingContext | null {
+    return this.ownership?.currentFence?.() ?? null;
   }
 
   async reconcile(input: ReconcileInput): Promise<ReconcileOutcome> {
@@ -162,6 +195,12 @@ export class CiArtifactReconciliationService {
       return { state: "BLOCKED", reason: "DIGEST_CONFLICT_WITH_EXISTING_BINDING", githubArtifactId: String(chosen.id) };
     }
 
+    // Phase 135: synchronous ownership check immediately before the mutation
+    // pair. Provider awaits above may have spanned a lease loss + takeover.
+    if (!this.isOwnedNow()) {
+      return { state: "SKIPPED_NO_OWNERSHIP", reason: "ownership-lost-before-artifact-register" };
+    }
+
     const content = JSON.stringify(a);
     let ref: Awaited<ReturnType<ArtifactService["register"]>>;
     try {
@@ -169,31 +208,65 @@ export class CiArtifactReconciliationService {
         kind: "IMAGE_DIGEST",
         name: NEXUS_IMAGE_DIGEST_ARTIFACT_NAME,
         content,
+        canWrite: () => this.isOwnedNow(),
       });
     } catch (e) {
+      if (e instanceof ArtifactRegistrationFencedError || (e as { code?: string }).code === "ARTIFACT_REGISTRATION_FENCED") {
+        return { state: "SKIPPED_NO_OWNERSHIP", reason: "ownership-lost-during-artifact-register" };
+      }
       return { state: "BLOCKED", reason: "ARTIFACT_REGISTER_FAILED:" + String((e as Error).message ?? e).slice(0, 200), githubArtifactId: String(chosen.id) };
     }
 
     const bindingId = "cidb_" + input.runId + "_" + a.image_digest.slice(7, 23);
     const now = Date.now();
+    const fence = this.currentFence();
+
+    let changes = 0;
     try {
-      this.db.prepare(
-        "INSERT INTO ci_image_digest_bindings (" +
-        "binding_id, execution_id, project_id, run_id, provider_id, " +
-        "external_run_id, repository, commit_sha, image_repository, " +
-        "image_tag, image_digest, immutable_reference, nexus_artifact_id, created_at" +
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(
-        bindingId, input.executionId, input.projectId, input.runId, input.providerId,
-        input.externalRunId, input.repository, input.commitSha, a.image_repository,
-        a.image_tag, a.image_digest, a.immutable_reference, ref.id, now,
-      );
+      if (fence) {
+        const r = this.db.prepare(
+          "INSERT INTO ci_image_digest_bindings (" +
+          "binding_id, execution_id, project_id, run_id, provider_id, " +
+          "external_run_id, repository, commit_sha, image_repository, " +
+          "image_tag, image_digest, immutable_reference, nexus_artifact_id, created_at" +
+          ") SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? " +
+          "WHERE EXISTS (SELECT 1 FROM ci_reconciliation_worker_ownership " +
+          "WHERE ownership_id = ? AND worker_id = ? AND lease_id = ? " +
+          "AND state = 'ACTIVE' AND expires_at > ?)"
+        ).run(
+          bindingId, input.executionId, input.projectId, input.runId, input.providerId,
+          input.externalRunId, input.repository, input.commitSha, a.image_repository,
+          a.image_tag, a.image_digest, a.immutable_reference, ref.id, now,
+          fence.ownershipId, fence.workerId, fence.leaseId, fence.now(),
+        ) as { changes: number };
+        changes = r.changes;
+      } else {
+        const r = this.db.prepare(
+          "INSERT INTO ci_image_digest_bindings (" +
+          "binding_id, execution_id, project_id, run_id, provider_id, " +
+          "external_run_id, repository, commit_sha, image_repository, " +
+          "image_tag, image_digest, immutable_reference, nexus_artifact_id, created_at" +
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          bindingId, input.executionId, input.projectId, input.runId, input.providerId,
+          input.externalRunId, input.repository, input.commitSha, a.image_repository,
+          a.image_tag, a.image_digest, a.immutable_reference, ref.id, now,
+        ) as { changes: number };
+        changes = r.changes;
+      }
     } catch (e) {
       const race = this.findBinding(input.executionId, input.runId, a.image_digest);
       if (!race) {
         return { state: "BLOCKED", reason: "BINDING_WRITE_FAILED:" + String((e as Error).message ?? e).slice(0, 200), githubArtifactId: String(chosen.id) };
       }
       return { state: "REGISTERED", artifact: a, nexusArtifactId: race.nexus_artifact_id, bindingId: race.binding_id, githubArtifactId: String(chosen.id) };
+    }
+
+    if (fence && changes === 0) {
+      // Fenced at binding time. The IMAGE_DIGEST artifact was registered but
+      // no authoritative binding was written. This is a non-authoritative
+      // orphan; a future authoritative owner will re-run this path.
+      return { state: "SKIPPED_NO_OWNERSHIP", reason: "ownership-lost-at-binding-insert" };
     }
 
     return {

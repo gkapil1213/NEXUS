@@ -366,6 +366,10 @@ export class NexusKernel {
         CicdReconciliationSchedulerCtor = (await import(/* @vite-ignore */ schedSpec)).CicdReconciliationScheduler;
         CiReconciliationOwnershipServiceCtor = (await import(/* @vite-ignore */ ownSpec)).CiReconciliationOwnershipService;
       }
+      let _phase135Ownership: CiReconciliationOwnershipService | undefined;
+      if (_phase132Db && CiReconciliationOwnershipServiceCtor) {
+      }
+
       const _phase132ArtifactReconciler: CiArtifactReconciliationService | undefined =
         (_phase132Db && cicdBridge)
           ? ((): CiArtifactReconciliationService | undefined => {
@@ -375,6 +379,7 @@ export class NexusKernel {
                 _phase132Db as never,
                 artifacts,
                 ghProvider,
+                _phase135Ownership,
               );
             })()
           : undefined;
@@ -387,6 +392,7 @@ export class NexusKernel {
               _phase132ArtifactReconciler,
               events as never,
               audit as never,
+              _phase135Ownership,
             )
           : undefined;
       const cicd = {
@@ -409,20 +415,13 @@ export class NexusKernel {
       // performs reconciliation. A crashed owner's lease expires and another
       // instance safely takes over. Distinct table so execution_leases
       // semantics are untouched.
-      if (_phase132Reconciler && _phase132Db) {
-        const cicdWorkerId = "nexus-cicd-scheduler-" + crypto.randomUUID();
-        const ownership = new (CiReconciliationOwnershipServiceCtor!)(
-          _phase132Db as never,
-          cicdWorkerId,
-          events as never,
-          audit as never,
-        );
-        const scheduler = new (CicdReconciliationSchedulerCtor!)(_phase132Reconciler, { ownership });
+      if (_phase132Reconciler && _phase132Db && _phase135Ownership) {
+        const scheduler = new (CicdReconciliationSchedulerCtor!)(_phase132Reconciler, { ownership: _phase135Ownership });
         this.cicdScheduler = scheduler;
-        this.cicdOwnership = ownership;
+        this.cicdOwnership = _phase135Ownership;
         scheduler.start();
         (cicd as Record<string, unknown>).scheduler = scheduler;
-        (cicd as Record<string, unknown>).ownership = ownership;
+        (cicd as Record<string, unknown>).ownership = _phase135Ownership;
       }
 
       // Phase 3 Pass 5 — runtime bridge. Detects process-execution capability

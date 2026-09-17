@@ -1,16 +1,32 @@
 // src/core/cicd-reconciliation.service.ts
 //
-// Phase 132: durable driver for the asynchronous CI lifecycle. Reads open
-// reconciliation rows from SQLite, drives the EXISTING CiPipelineEngine.pollRun
-// loop, and on SUCCEEDED invokes the artifact reconciler. Idempotent by
-// (provider_id, external_run_id). Never redispatches when an external run id
-// already exists — that invariant is enforced by CiPipelineEngine.startRunExternal.
+// Phase 132: durable driver for the asynchronous CI lifecycle.
+//
+// Phase 135: EVERY authoritative mutation is fenced with an atomic SQL CAS
+// against the Phase 134 ownership row. A stale worker (lease lost, taken over
+// by another instance) that resumes after a delayed provider response cannot
+// mutate authoritative reconciliation state. Its UPDATE ... WHERE ... AND
+// EXISTS (valid-ownership) reports changes === 0 and the write is rejected
+// with a deterministic fencing outcome. The row is left untouched.
 
 import type { CiPipelineEngine, CiContext } from "./cicd";
 import type { Actor } from "./services";
 import type { CiArtifactReconciliationService, SqliteDb } from "./ci-artifact-reconciliation.service";
+import type { FencingContext, OwnershipFailureReason } from "./ci-reconciliation-ownership.service";
 
-/** Loose engine interface — only what we call on the NexusEngine store. */
+/**
+ * Phase 135: minimal structural contract this service needs from the Phase
+ * 134 ownership record. CiReconciliationOwnershipService satisfies it
+ * structurally. The fence (currentFence) is optional so that a Phase 132
+ * test harness that does not wire ownership continues to work unfenced.
+ */
+export interface ReconciliationOwnershipGate {
+  ensureOwned(): Promise<{ owned: boolean; reason?: OwnershipFailureReason }>;
+  currentFence?(): FencingContext | null;
+  workerIdValue?(): string;
+  currentLeaseId?(): string | null;
+}
+
 export interface EngineLookup {
   get<T>(collection: string, id: string): Promise<T | undefined>;
 }
@@ -89,9 +105,23 @@ export interface ReconcileOnceResult {
   blockedReason: string | null;
   ciStatus: string | null;
   attempts: number;
+  /**
+   * Phase 135: true when an authoritative write was rejected because the SQL
+   * CAS proved this worker is no longer the current owner. Distinct from
+   * CI failure: no state='BLOCKED' write occurred, no CI_TERMINAL reason was
+   * fabricated, and the row's durable state is unchanged.
+   */
+  fenced?: boolean;
+  fenceReason?: string;
 }
 
 const SYSTEM_ACTOR = "system:ci-reconciliation@nexus.local";
+const SOURCE = "CicdReconciliationService";
+
+const FENCE_CLAUSE =
+  " AND EXISTS (SELECT 1 FROM ci_reconciliation_worker_ownership " +
+  "WHERE ownership_id = ? AND worker_id = ? AND lease_id = ? " +
+  "AND state = 'ACTIVE' AND expires_at > ?)";
 
 export class CicdReconciliationService {
   constructor(
@@ -101,6 +131,12 @@ export class CicdReconciliationService {
     private readonly artifactReconciler: CiArtifactReconciliationService,
     private readonly events: EmitterLike,
     private readonly audit: AuditorLike,
+    /**
+     * Phase 135: optional durable-ownership gate. When supplied, every
+     * authoritative write is executed with the SQL CAS fence. When omitted
+     * (Phase 132 unit tests), the service behaves exactly as before.
+     */
+    private readonly ownership?: ReconciliationOwnershipGate,
   ) {}
 
   private mapRow(r: Record<string, unknown>): CiReconciliationRow {
@@ -174,6 +210,61 @@ export class CicdReconciliationService {
     return rows.map((r) => this.mapRow(r));
   }
 
+  /**
+   * Phase 135: atomic fenced UPDATE. Returns { fenced:true } when the SQL CAS
+   * proves we are no longer the current owner. Never writes when fenced.
+   */
+  private runFencedUpdate(
+    baseSql: string,
+    baseParams: unknown[],
+  ): { fenced: boolean; changes: number } {
+    const fence = this.ownership?.currentFence?.() ?? null;
+    if (!fence) {
+      const r = this.db.prepare(baseSql).run(...baseParams) as { changes: number };
+      return { fenced: false, changes: r.changes };
+    }
+    const sql = baseSql + FENCE_CLAUSE;
+    const r = this.db.prepare(sql).run(
+      ...baseParams,
+      fence.ownershipId,
+      fence.workerId,
+      fence.leaseId,
+      fence.now(),
+    ) as { changes: number };
+    return { fenced: r.changes === 0, changes: r.changes };
+  }
+
+  private async emitFenced(runId: string, phase: string): Promise<void> {
+    const workerId = this.ownership?.workerIdValue?.() ?? null;
+    try {
+      await this.events.emit({
+        type: "ci.reconciliation.fenced",
+        source: SOURCE,
+        execution_id: "",
+        payload: { run_id: runId, phase, workerId, reason: "ownership-lost" },
+      });
+    } catch { /* observability is best-effort */ }
+  }
+
+  private fencedResult(
+    runId: string,
+    ciStatus: string | null,
+    phase: string,
+  ): ReconcileOnceResult {
+    void this.emitFenced(runId, phase);
+    // Refetch so the reported state is the current durable state, which may
+    // have advanced past the snapshot taken at the top of reconcileOnce.
+    const fresh = this.byRunId(runId);
+    return {
+      state: fresh?.state ?? "PENDING",
+      blockedReason: fresh?.blocked_reason ?? null,
+      ciStatus,
+      attempts: fresh?.attempts ?? 0,
+      fenced: true,
+      fenceReason: "ownership-lost:" + phase,
+    };
+  }
+
   async reconcileOnce(runId: string): Promise<ReconcileOnceResult> {
     const row = this.byRunId(runId);
     if (!row) throw new Error("no reconciliation row for run " + runId);
@@ -208,26 +299,33 @@ export class CicdReconciliationService {
     }
 
     if (polled.status === "QUEUED" || polled.status === "RUNNING") {
-      this.db.prepare(
-        "UPDATE ci_artifact_reconciliations SET attempts = ?, updated_at = ? WHERE run_id = ?"
-      ).run(nextAttempts, Date.now(), runId);
+      const r = this.runFencedUpdate(
+        "UPDATE ci_artifact_reconciliations SET attempts = ?, updated_at = ? WHERE run_id = ?",
+        [nextAttempts, Date.now(), runId],
+      );
+      if (r.fenced) return this.fencedResult(runId, polled.status, "ATTEMPTS_BUMP");
       return { state: "PENDING", blockedReason: null, ciStatus: polled.status, attempts: nextAttempts };
     }
 
     if (polled.status === "SUCCEEDED") {
-      this.db.prepare(
-        "UPDATE ci_artifact_reconciliations SET state = 'ARTIFACT_VALIDATING', attempts = ?, updated_at = ? WHERE run_id = ?"
-      ).run(nextAttempts, Date.now(), runId);
+      // Fenced transition PENDING -> ARTIFACT_VALIDATING.
+      const r1 = this.runFencedUpdate(
+        "UPDATE ci_artifact_reconciliations SET state = 'ARTIFACT_VALIDATING', attempts = ?, updated_at = ? WHERE run_id = ?",
+        [nextAttempts, Date.now(), runId],
+      );
+      if (r1.fenced) return this.fencedResult(runId, "SUCCEEDED", "ARTIFACT_VALIDATING");
 
       try {
         await this.events.emit({
           type: "ci.reconciliation.succeeded",
-          source: "CicdReconciliationService",
+          source: SOURCE,
           execution_id: row.execution_id,
           payload: { run_id: row.run_id, external_run_id: row.external_run_id },
         });
-      } catch { /* observability is best-effort */ }
+      } catch { /* best-effort */ }
 
+      // The artifact reconciler fences its own mutation pair with the same
+      // durable ownership row. On fence loss it returns SKIPPED_NO_OWNERSHIP.
       const outcome = await this.artifactReconciler.reconcile({
         runId: row.run_id,
         executionId: row.execution_id,
@@ -238,29 +336,36 @@ export class CicdReconciliationService {
         commitSha: row.commit_sha,
       });
 
+      if (outcome.state === "SKIPPED_NO_OWNERSHIP") {
+        return this.fencedResult(runId, "SUCCEEDED", "ARTIFACT_RECONCILE");
+      }
+
       if (outcome.state !== "REGISTERED") {
         return this.block(runId, outcome.reason, nextAttempts + 1, outcome.githubArtifactId);
       }
 
-      this.db.prepare(
+      // Fenced terminal REGISTERED write.
+      const r3 = this.runFencedUpdate(
         "UPDATE ci_artifact_reconciliations SET " +
         "state = 'REGISTERED', " +
         "github_artifact_id = ?, github_artifact_name = ?, " +
         "image_repository = ?, image_tag = ?, image_digest = ?, " +
         "immutable_reference = ?, registered_artifact_id = ?, " +
         "attempts = ?, updated_at = ?, completed_at = ? " +
-        "WHERE run_id = ?"
-      ).run(
-        outcome.githubArtifactId, "nexus-image-digest.json",
-        outcome.artifact.image_repository, outcome.artifact.image_tag, outcome.artifact.image_digest,
-        outcome.artifact.immutable_reference, outcome.nexusArtifactId,
-        nextAttempts, Date.now(), Date.now(), runId,
+        "WHERE run_id = ?",
+        [
+          outcome.githubArtifactId, "nexus-image-digest.json",
+          outcome.artifact.image_repository, outcome.artifact.image_tag, outcome.artifact.image_digest,
+          outcome.artifact.immutable_reference, outcome.nexusArtifactId,
+          nextAttempts, Date.now(), Date.now(), runId,
+        ],
       );
+      if (r3.fenced) return this.fencedResult(runId, "SUCCEEDED", "REGISTERED");
 
       try {
         await this.events.emit({
           type: "ci.image_digest.bound",
-          source: "CicdReconciliationService",
+          source: SOURCE,
           execution_id: row.execution_id,
           payload: {
             run_id: row.run_id,
@@ -310,37 +415,69 @@ export class CicdReconciliationService {
     return out;
   }
 
-  private block(runId: string, reason: string, attempts: number, githubArtifactId?: string): ReconcileOnceResult {
+  private async block(runId: string, reason: string, attempts: number, githubArtifactId?: string): Promise<ReconcileOnceResult> {
+    const row = this.byRunId(runId);
     const now = Date.now();
-    this.db.prepare(
+    const r = this.runFencedUpdate(
       "UPDATE ci_artifact_reconciliations SET " +
       "state = 'BLOCKED', blocked_reason = ?, last_error = ?, " +
       "github_artifact_id = COALESCE(?, github_artifact_id), " +
       "attempts = ?, updated_at = ?, completed_at = ? " +
-      "WHERE run_id = ?"
-    ).run(reason, reason, githubArtifactId ?? null, attempts, now, now, runId);
+      "WHERE run_id = ?",
+      [reason, reason, githubArtifactId ?? null, attempts, now, now, runId],
+    );
 
-    this.events.emit({
-      type: "ci.reconciliation.blocked",
-      source: "CicdReconciliationService",
-      execution_id: "",
-      payload: { run_id: runId, reason },
-    }).catch(() => {});
+    // Phase 135 section 7: a fence failure is NOT a CI failure. Do not write
+    // BLOCKED and do not claim the remote CI run failed. Return the fenced
+    // outcome so the caller can observe a distinct machine-readable state.
+    if (r.fenced) {
+      return {
+        state: row?.state ?? "PENDING",
+        blockedReason: null,
+        ciStatus: null,
+        attempts: row?.attempts ?? attempts - 1,
+        fenced: true,
+        fenceReason: "ownership-lost:BLOCK_WRITE:" + reason,
+      };
+    }
+
+    try {
+      await this.events.emit({
+        type: "ci.reconciliation.blocked",
+        source: SOURCE,
+        execution_id: "",
+        payload: { run_id: runId, reason },
+      });
+    } catch { /* best-effort */ }
 
     return { state: "BLOCKED", blockedReason: reason, ciStatus: null, attempts };
   }
 
-  private retry(runId: string, reason: string, attempts: number): ReconcileOnceResult {
-    this.db.prepare(
-      "UPDATE ci_artifact_reconciliations SET last_error = ?, attempts = ?, updated_at = ? WHERE run_id = ?"
-    ).run(reason, attempts, Date.now(), runId);
+  private async retry(runId: string, reason: string, attempts: number): Promise<ReconcileOnceResult> {
+    const row = this.byRunId(runId);
+    const r = this.runFencedUpdate(
+      "UPDATE ci_artifact_reconciliations SET last_error = ?, attempts = ?, updated_at = ? WHERE run_id = ?",
+      [reason, attempts, Date.now(), runId],
+    );
+    if (r.fenced) {
+      return {
+        state: row?.state ?? "PENDING",
+        blockedReason: null,
+        ciStatus: null,
+        attempts: row?.attempts ?? attempts - 1,
+        fenced: true,
+        fenceReason: "ownership-lost:RETRY_WRITE:" + reason,
+      };
+    }
 
-    this.events.emit({
-      type: "ci.reconciliation.retry",
-      source: "CicdReconciliationService",
-      execution_id: "",
-      payload: { run_id: runId, reason, attempts },
-    }).catch(() => {});
+    try {
+      await this.events.emit({
+        type: "ci.reconciliation.retry",
+        source: SOURCE,
+        execution_id: "",
+        payload: { run_id: runId, reason, attempts },
+      });
+    } catch { /* best-effort */ }
 
     return { state: "PENDING", blockedReason: null, ciStatus: null, attempts };
   }

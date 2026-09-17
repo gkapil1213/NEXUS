@@ -273,33 +273,14 @@ export class EvidenceService {
 
 /* ------------------------------ ArtifactService ---------------------------- */
 
-export class ArtifactRegistrationFencedError extends Error {
-  readonly code = "ARTIFACT_REGISTRATION_FENCED";
-  constructor(message = "artifact registration fenced: current worker is no longer the authoritative owner") {
-    super(message);
-    this.name = "ArtifactRegistrationFencedError";
-  }
-}
-
 export class ArtifactService {
   constructor(private ctx: ServiceContext) {}
 
   /** Register an artifact from REAL content — the digest is computed from the
    *  actual bytes, never invented. */
-  async register(
-    executionId: string,
-    input: { kind: string; name: string; content: string; canWrite?: () => boolean },
-  ): Promise<ArtifactReference> {
-    if (input.canWrite && !input.canWrite()) {
-      throw new ArtifactRegistrationFencedError();
-    }
+  async register(executionId: string, input: { kind: string; name: string; content: string }): Promise<ArtifactReference> {
     const digest = await digestOf(input.content);
     const id = nid("art");
-    // Phase 135: re-check the fence after the async digest computation,
-    // immediately before the durable write.
-    if (input.canWrite && !input.canWrite()) {
-      throw new ArtifactRegistrationFencedError();
-    }
     const ref: ArtifactReference = {
       id,
       execution_id: executionId,

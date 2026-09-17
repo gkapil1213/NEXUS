@@ -10,8 +10,10 @@
 //   - Graceful stop: awaits in-flight tick, prevents any further scheduling.
 //   - Deterministic for tests via injectable clock + timer factories.
 
+import type { FencingContext } from "./ci-reconciliation-ownership.service";
+
 export interface ReconciliationDrain {
-  reconcileOpen(): Promise<unknown>;
+  reconcileOpen(fence?: FencingContext): Promise<unknown>;
 }
 
 /**
@@ -22,6 +24,7 @@ export interface ReconciliationDrain {
  */
 export interface SchedulerOwnership {
   ensureOwned(): Promise<{ owned: boolean; reason?: string }>;
+  currentFence?(): FencingContext | null;
   release(): Promise<void>;
   workerIdValue?(): string;
   currentLeaseId?(): string | null;
@@ -210,7 +213,8 @@ export class CicdReconciliationScheduler {
 
   private async runTick(started: number): Promise<TickResult> {
     try {
-      await this.drain.reconcileOpen();
+      const fence = this.ownership?.currentFence?.() ?? undefined;
+      await this.drain.reconcileOpen(fence);
       this.consecutiveFailures = 0;
       this.lastError = null;
       const dur = this.now() - started;

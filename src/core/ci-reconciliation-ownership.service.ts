@@ -77,6 +77,13 @@ export interface OwnershipInspection {
   expiresAt: number | null;
 }
 
+export interface FencingContext {
+  ownershipId: string;
+  workerId: string;
+  leaseId: string;
+  now: () => number;
+}
+
 export interface OwnershipServiceOptions {
   ttlMs?: number;
   now?: () => number;
@@ -121,6 +128,35 @@ export class CiReconciliationOwnershipService {
   workerIdValue(): string { return this.workerId; }
   currentLeaseId(): string | null { return this.localLeaseId; }
   currentTtlMs(): number { return this.ttlMs; }
+
+  currentOwnershipId(): string { return CI_RECONCILIATION_OWNERSHIP_ID; }
+
+  /**
+   * Phase 135: synchronous ownership check used by callers that must fence a
+   * durable mutation immediately before it happens (ArtifactService.register).
+   * Returns true only when this instance currently holds an ACTIVE, unexpired
+   * lease on the singleton ownership row.
+   */
+  isOwnedNowSync(): boolean {
+    if (!this.localLeaseId) return false;
+    const t = this.now();
+    const row = this.db.prepare(
+      "SELECT 1 FROM ci_reconciliation_worker_ownership " +
+      "WHERE ownership_id = ? AND worker_id = ? AND lease_id = ? " +
+      "AND state = 'ACTIVE' AND expires_at > ?"
+    ).get(CI_RECONCILIATION_OWNERSHIP_ID, this.workerId, this.localLeaseId, t);
+    return row !== undefined;
+  }
+
+  currentFence(): FencingContext | null {
+    if (!this.localLeaseId) return null;
+    return {
+      ownershipId: CI_RECONCILIATION_OWNERSHIP_ID,
+      workerId: this.workerId,
+      leaseId: this.localLeaseId,
+      now: this.now,
+    };
+  }
   lastOwnershipError(): string | null { return this.lastErr; }
 
   /**
