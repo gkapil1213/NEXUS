@@ -75,6 +75,7 @@ export interface ReleaseDeploymentIntent {
   providerDeploymentId?: string | null;
   startedAt?: number | null;
   completedAt?: number | null;
+  reconciledAt?: number | null;
     // Phase 119: discriminator + rollback linkage.
     intentKind?: "DEPLOY" | "ROLLBACK";
     rollbackTargetReleaseId?: string | null;
@@ -1063,7 +1064,7 @@ export class ExecutionStore {
   updateReleaseIntentStatus(
     intentKey: string,
     status: ReleaseIntentStatus,
-    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null } = {},
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null } = {},
   ): ReleaseDeploymentIntent | undefined {
     this.ensureIntentTable();
     const now = Date.now();
@@ -1078,6 +1079,7 @@ export class ExecutionStore {
         provider_deployment_id = COALESCE(?, provider_deployment_id),
         started_at = COALESCE(?, started_at),
         completed_at = COALESCE(?, completed_at),
+        reconciled_at = COALESCE(?, reconciled_at),
         updated_at = ?
       WHERE intent_key = ?
     `).run(
@@ -1090,6 +1092,7 @@ export class ExecutionStore {
       patch.providerDeploymentId ?? null,
       patch.startedAt ?? null,
       patch.completedAt ?? null,
+      patch.reconciledAt ?? null,
       now,
       intentKey,
     );
@@ -1326,6 +1329,7 @@ export class ExecutionStore {
       providerDeploymentId: row.provider_deployment_id ?? null,
       startedAt: row.started_at ?? null,
       completedAt: row.completed_at ?? null,
+      reconciledAt: row.reconciled_at ?? null,
       leasedBy: row.leased_by ?? null,
       leaseExpiresAt: row.lease_expires_at ?? null,
       createdAt: row.created_at,

@@ -352,13 +352,13 @@ export class ReleaseRecoveryExecutor {
     const status = outcome.deployment.status;
     const deploymentId = outcome.deployment.id;
     if (status === "KNOWN_GOOD") {
-      intents.transition(intent.intentKey, "KNOWN_GOOD", { deploymentId });
+      intents.transition(intent.intentKey, "KNOWN_GOOD", { deploymentId, providerStatus: status, reconciledAt: Date.now() });
       report.acted++;
       await svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId } });
       return;
     }
-    if (status === "BLOCKED") { intents.transition(intent.intentKey, "BLOCKED", { deploymentId, failureReason: "deployment blocked" }); report.blocked++; return; }
-    intents.transition(intent.intentKey, "FAILED", { deploymentId, failureReason: "deployment failed" });
+    if (status === "BLOCKED") { intents.transition(intent.intentKey, "BLOCKED", { deploymentId, failureReason: "deployment blocked", providerStatus: status, reconciledAt: Date.now() }); report.blocked++; return; }
+    intents.transition(intent.intentKey, "FAILED", { deploymentId, failureReason: "deployment failed", providerStatus: status, reconciledAt: Date.now() });
     report.acted++;
   }
 
@@ -390,7 +390,7 @@ export class ReleaseRecoveryExecutor {
   }
 
   private async markRecoveryRequired(intent: ReleaseDeploymentIntent, reason: string): Promise<void> {
-    this.deps.intents.transition(intent.intentKey, "RECOVERY_REQUIRED", { recoveryReason: reason });
+    this.deps.intents.transition(intent.intentKey, "RECOVERY_REQUIRED", { recoveryReason: reason, providerStatus: "UNKNOWN", reconciledAt: Date.now() });
     await this.deps.svc.audit.record({ actor: this.deps.workerId, action: "release.recovery.required", resource_type: "release_deployment_intent", resource_id: intent.intentKey, result: "info", metadata: { reason } });
   }
 }
