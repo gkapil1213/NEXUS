@@ -3,7 +3,10 @@ import { createPipelineDefinition, validatePipelineDefinition } from './worker-p
 import { PipelineExecution, PipelineExecutionStatus } from './worker-pipeline-execution';
 import { createStageExecution, StageExecution } from './worker-stage-execution';
 import { StageExecutionStoreAdapter } from './stage-execution-store-adapter';
-import type { ProductionReleaseEnforcementService } from './production-release-enforcement';
+import type {
+  ProductionReleaseEnforcementService,
+  DeploymentResult,
+} from './production-release-enforcement';
 import { ExecutionStore } from './execution-store';
 import { ExecutionJob, ExecutionJobStatus } from './execution-models';
 import { LeaseManager } from './lease-manager';
@@ -103,7 +106,21 @@ function projectPipelineExecution(job: ExecutionJob, fallback: {
   };
 }
 
-export async function orchestrateCICD(request: CICDRequest) {
+type AuditEvent       = ReturnType<typeof createProductionAuditEvent>;
+type Evidence         = ReturnType<typeof createProductionEvidence>;
+type Pipeline         = ReturnType<typeof createPipelineDefinition>;
+type Artifact         = ReturnType<typeof createArtifact>;
+type ReleaseCandidate = ReturnType<typeof createReleaseCandidate>;
+type ReleaseRisk      = ReturnType<typeof classifyReleaseRisk>;
+
+export type CICDResult =
+  | { status: 'INVALID'; reason: string; pipeline: Pipeline; auditEvents: AuditEvent[]; evidence: Evidence[] }
+  | { status: 'BLOCKED'; reason: string; blockedReason: string; pipeline: Pipeline; changeCategory?: string; execution?: PipelineExecution; stages?: StageExecution[]; artifact?: Artifact; rc?: ReleaseCandidate; risk?: ReleaseRisk; deployment?: DeploymentResult | null; auditEvents: AuditEvent[]; evidence: Evidence[] }
+  | { status: 'ALREADY_TERMINAL'; reason: string; terminalStatus: string; pipeline: Pipeline; execution: PipelineExecution; auditEvents: AuditEvent[]; evidence: Evidence[] }
+  | { status: 'FAILED'; reason: string; pipeline: Pipeline; execution?: PipelineExecution; stages?: StageExecution[]; artifact?: Artifact; rc?: ReleaseCandidate; risk?: ReleaseRisk; deployment?: DeploymentResult | null; auditEvents: AuditEvent[]; evidence: Evidence[] }
+  | { status: 'COMPLETED'; pipeline: Pipeline; execution: PipelineExecution; stages: StageExecution[]; artifact: Artifact; rc: ReleaseCandidate; risk: ReleaseRisk; changeCategory: string; cmdResult: CommandResult; lineage: ProductionLineage; deployment: DeploymentResult | null; deployed: boolean; auditEvents: AuditEvent[]; evidence: Evidence[] };
+
+export async function orchestrateCICD(request: CICDRequest): Promise<CICDResult> {
   const auditEvents: ReturnType<typeof createProductionAuditEvent>[] = [];
   const evidence: ReturnType<typeof createProductionEvidence>[] = [];
 
@@ -190,7 +207,8 @@ export async function orchestrateCICD(request: CICDRequest) {
   if (pipelineJob.status === 'SUCCEEDED' || pipelineJob.status === 'FAILED'
       || pipelineJob.status === 'CANCELLED' || pipelineJob.status === 'DEAD_LETTER') {
     return {
-      status: pipelineJob.status === 'SUCCEEDED' ? ('COMPLETED' as const) : ('FAILED' as const),
+      status: 'ALREADY_TERMINAL' as const,
+      terminalStatus: pipelineJob.status,
       reason: `pipeline already terminal: ${pipelineJob.status}`,
       pipeline, execution, auditEvents, evidence,
     };
@@ -423,14 +441,14 @@ export async function orchestrateCICD(request: CICDRequest) {
     rc = transitionReleaseCandidate(rc, 'BLOCKED');
     const reason = 'governance/safety denial';
     failPipeline(reason, 'BLOCKED');
-    return { status: 'BLOCKED' as const, reason, pipeline, execution, stages, artifact, rc, risk, auditEvents, evidence };
+    return { status: 'BLOCKED' as const, reason, blockedReason: 'RELEASE_NOT_AUTHORIZED', pipeline, execution, stages, artifact, rc, risk, auditEvents, evidence };
   }
 
   if (request.approvalRequired && !request.approvalGranted) {
     rc = transitionReleaseCandidate(rc, 'BLOCKED');
     const reason = 'approval required';
     failPipeline(reason, 'BLOCKED');
-    return { status: 'BLOCKED' as const, reason, pipeline, execution, stages, artifact, rc, risk, auditEvents, evidence };
+    return { status: 'BLOCKED' as const, reason, blockedReason: 'APPROVAL_REQUIRED', pipeline, execution, stages, artifact, rc, risk, auditEvents, evidence };
   }
 
   // 12. Promotion
@@ -446,7 +464,7 @@ export async function orchestrateCICD(request: CICDRequest) {
   rc = transitionReleaseCandidate(rc, 'PROMOTED');
 
   // 12b. Phase 130: optional production deployment integration.
-  let deployment: any = null;
+  let deployment: DeploymentResult | null = null;
   let deployed = false;
   if (request.releaseEnforcement && request.deployment) {
     const d = request.deployment;
@@ -480,7 +498,7 @@ export async function orchestrateCICD(request: CICDRequest) {
       failPipeline(reason, 'BLOCKED');
       return { status: 'BLOCKED' as const, reason, blockedReason: isApproval ? 'APPROVAL_REQUIRED' : 'RELEASE_NOT_AUTHORIZED', pipeline, execution, stages, artifact, rc, risk, auditEvents, evidence };
     }
-    let deployResult;
+    let deployResult: DeploymentResult;
     try {
       deployResult = await request.releaseEnforcement.executeRelease(
         authResult.authorization.authorizationId,
