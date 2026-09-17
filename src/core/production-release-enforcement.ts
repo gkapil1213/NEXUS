@@ -17,6 +17,9 @@ export interface ProductionExecutionAuthorization {
   issuedAt: string;
   expiresAt: string;
   consumed: boolean;
+  // Phase 138: which attempt consumed this authorization. Same-attempt retries
+  // may resume; different-attempt retries are replay.
+  consumedByAttemptId?: string | null;
   revoked: boolean;
   // Phase 102: immutable digest bound at authorization time.
   artifactDigest: string;
@@ -200,14 +203,13 @@ export class ProductionReleaseEnforcementService {
       return { status: "BLOCKED", blockers: ["Authorization binding mismatch"], reasons: ["Authorization binding mismatch"] };
     }
 
-    // Check replay
-    if (auth.consumed) {
-      return { status: "BLOCKED", blockers: ["Authorization already consumed"], reasons: ["Authorization replay detected"] };
+    // Phase 138: consumption is deferred to executeRelease so a crash between
+    // authorization and provider invocation does not burn the authorization
+    // for a same-attempt retry. Different-attempt reuse remains blocked.
+    const attemptKey = this.computeAttemptKey(releaseId, artifactId, commitSha, environment);
+    if (auth.consumed && auth.consumedByAttemptId !== attemptKey) {
+      return { status: "BLOCKED", blockers: ["Authorization already consumed by a different attempt"], reasons: ["Authorization replay detected"] };
     }
-
-    // Mark as consumed to prevent reuse
-    auth.consumed = true;
-    this.authorizations.set(auth.authorizationId, auth);
 
     return { status: "AUTHORIZED", authorization: auth, blockers: [], reasons: [] };
   }
@@ -228,10 +230,14 @@ export class ProductionReleaseEnforcementService {
       };
     }
 
-    // Mark consumed (replay protection)
+    // Phase 138: consume on the provider-invocation boundary, bound to the attempt.
     const auth = authResult.authorization;
-    auth.consumed = true;
-    this.authorizations.set(auth.authorizationId, auth);
+    const attemptKey = this.computeAttemptKey(releaseId, artifactId, commitSha, environment);
+    if (!auth.consumed) {
+      auth.consumed = true;
+      auth.consumedByAttemptId = attemptKey;
+      this.authorizations.set(auth.authorizationId, auth);
+    }
 
     // No provider wired → fail closed (Phase 101 / Phase 4 Pass 6 behavior preserved).
     if (!this.provider) {
@@ -266,5 +272,15 @@ export class ProductionReleaseEnforcementService {
       provider: "canonical-deployment-orchestrator",
       deploymentId: outcome.deploymentId ?? undefined,
     };
+  }
+
+  /** Phase 138: deterministic attempt key bound to an authorization. */
+  private computeAttemptKey(
+    releaseId: string,
+    artifactId: string,
+    commitSha: string,
+    environment: string,
+  ): string {
+    return [releaseId, artifactId, commitSha, environment].join("|");
   }
 }
