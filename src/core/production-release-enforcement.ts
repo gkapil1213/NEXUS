@@ -201,6 +201,7 @@ export class ProductionReleaseEnforcementService {
     artifactId: string,
     commitSha: string,
     environment: string,
+    attemptId: string,
   ): Promise<AuthorizationResult> {
     // Phase 138: prefer durable record when present. Falls back to the in-memory
     // Map only for authorizations issued before the store was wired (legacy path).
@@ -257,8 +258,7 @@ export class ProductionReleaseEnforcementService {
     // Phase 138: consumption is deferred to executeRelease so a crash between
     // authorization and provider invocation does not burn the authorization
     // for a same-attempt retry. Different-attempt reuse remains blocked.
-    const attemptKey = this.computeAttemptKey(releaseId, artifactId, commitSha, environment);
-    if (auth.consumed && auth.consumedByAttemptId !== attemptKey) {
+    if (auth.consumed && auth.consumedByAttemptId !== attemptId) {
       return { status: "BLOCKED", blockers: ["Authorization already consumed by a different attempt"], reasons: ["Authorization replay detected"] };
     }
 
@@ -271,8 +271,47 @@ export class ProductionReleaseEnforcementService {
     artifactId: string,
     commitSha: string,
     environment: string,
+    attemptId: string | null,
   ): Promise<DeploymentResult> {
-    const authResult = await this.authorizeExecution(authorizationId, releaseId, artifactId, commitSha, environment);
+    if (!attemptId || attemptId.length === 0) {
+      return {
+        status: "BLOCKED",
+        message: "Durable execution attempt identity is required for production release execution",
+        providerAvailable: this.provider !== undefined,
+      };
+    }
+    if (!this.store) {
+      return {
+        status: "BLOCKED",
+        message: "Durable execution attempt identity cannot be validated: no durable store available",
+        providerAvailable: this.provider !== undefined,
+      };
+    }
+    const attempt = this.store.getAttempt(attemptId);
+    if (!attempt) {
+      return {
+        status: "BLOCKED",
+        message: "Attempt identity is not a durable ExecutionAttempt: " + attemptId,
+        providerAvailable: this.provider !== undefined,
+      };
+    }
+    const attemptJob = this.store.getJob(attempt.jobId);
+    if (!attemptJob) {
+      return {
+        status: "BLOCKED",
+        message: "Attempt's execution job is not durable: " + attempt.jobId,
+        providerAvailable: this.provider !== undefined,
+      };
+    }
+    const jobExecutionId = (attemptJob as { payload?: { executionId?: string } }).payload?.executionId;
+    if (jobExecutionId !== releaseId) {
+      return {
+        status: "BLOCKED",
+        message: "Attempt " + attemptId + " does not belong to execution " + releaseId,
+        providerAvailable: this.provider !== undefined,
+      };
+    }
+    const authResult = await this.authorizeExecution(authorizationId, releaseId, artifactId, commitSha, environment, attemptId);
     if (authResult.status !== "AUTHORIZED" || !authResult.authorization) {
       return {
         status: authResult.status === "FAIL" ? "FAIL" : "BLOCKED",
@@ -283,11 +322,10 @@ export class ProductionReleaseEnforcementService {
 
     // Phase 138: consume on the provider-invocation boundary, bound to the attempt.
     const auth = authResult.authorization;
-    const attemptKey = this.computeAttemptKey(releaseId, artifactId, commitSha, environment);
     if (!auth.consumed) {
       if (this.store) {
-        const cas = this.store.consumeProductionAuthorization(authorizationId, attemptKey);
-        if (!cas.consumed && cas.consumedByAttemptId !== attemptKey) {
+        const cas = this.store.consumeProductionAuthorization(authorizationId, attemptId);
+        if (!cas.consumed && cas.consumedByAttemptId !== attemptId) {
           return {
             status: "BLOCKED",
             message: "Authorization already consumed by a different attempt",
@@ -296,7 +334,7 @@ export class ProductionReleaseEnforcementService {
         }
       } else {
         auth.consumed = true;
-        auth.consumedByAttemptId = attemptKey;
+        auth.consumedByAttemptId = attemptId;
         this.authorizations.set(auth.authorizationId, auth);
       }
     }
@@ -336,13 +374,4 @@ export class ProductionReleaseEnforcementService {
     };
   }
 
-  /** Phase 138: deterministic attempt key bound to an authorization. */
-  private computeAttemptKey(
-    releaseId: string,
-    artifactId: string,
-    commitSha: string,
-    environment: string,
-  ): string {
-    return [releaseId, artifactId, commitSha, environment].join("|");
-  }
 }

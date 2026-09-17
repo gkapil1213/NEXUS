@@ -1363,6 +1363,7 @@ export async function handoffToRelease(
       artifactId,
       plan.commitSha,
       plan.environment,
+      null,
     );
   } catch (e) {
     const msg = "executeRelease threw: " + ((e as Error).message ?? String(e));

@@ -1,0 +1,5 @@
+﻿src/core/cicd-run-models.ts:9:  | "TIMED_OUT"
+src/core/worker-pipeline-execution.ts:5:export type PipelineExecutionStatus = 'QUEUED' | 'RUNNING' | 'PAUSED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'TIMED_OUT';
+src/core/worker-pipeline-execution.ts:24:  RUNNING: ['PAUSED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT'],
+src/core/worker-pipeline-execution.ts:29:  TIMED_OUT: [],
+src/core/worker-telemetry.ts:25:  | "JOB_TIMED_OUT"

@@ -1,0 +1,856 @@
+﻿/**
+ * NEXUS Phase 1 â€” NexusKernel.
+ *
+ * The platform foundation: initializes persistence, events, audit, agents,
+ * services and orchestration in a strict order, tracks boot steps for the
+ * UI, and fails loudly (never partially-silently) when a subsystem cannot
+ * start. Contains no business logic â€” that lives in services and agents.
+ */
+import { AuditService } from "./audit";
+import { AgentRegistry, InspectorAgent } from "./agents";
+import { CONFIG, configBlocked, safeConfigView } from "./config";
+import { openEngine, probeEngine, nid, type NexusEngine } from "./db";
+import { Err, NexusError } from "./errors";
+import { EventService } from "./events";
+import { NexusOrchestrator } from "./orchestration";
+import { ArtifactService, ExecutionService, EvidenceService, ProjectService, type ServiceContext } from "./services";
+import {
+  AuthorizationService,
+  IdentityService,
+  LocalSecretProvider,
+  SessionService,
+  createUserRecord,
+  toPublicUser,
+  verifyPassword,
+  type SecretProvider,
+} from "./security";
+import { GitHubService } from "./github";
+import { ExecutionStore } from "./execution-store";
+import { DispatchService } from "./dispatch-service";
+import { ExecutionEngine, type ExecutionDeps } from "./execution-engine";
+import { WorkerRegistry } from "./worker-registry";
+import { LeaseManager } from "./lease-manager";
+import { RetryEngine } from "./retry-engine";
+import { JobDispatcher } from "./job-dispatcher";
+import { RemoteWorkerStore } from "./remote-worker-store";
+import { RemoteWorkerRegistry } from "./remote-worker-registry";
+import { WorkerAuthentication } from "./worker-authentication";
+import type { WorkerGateway } from "./worker-gateway";
+import type { RemoteExecutionAdapter } from "./remote-execution-adapter";
+import { SqliteWorkerAuthStore } from "./sqlite-worker-auth-store";
+import { ExecutionAdapterRegistry } from "./execution-adapter-registry";
+import { RemoteExecutionManager } from "./remote-execution-manager";
+import { SkippedEnvironmentRemoteAdapter } from "./skipped-environment-adapter";
+import { SkippedEnvironmentExecutionAdapter } from "./skipped-environment-execution-adapter";
+import type { ExecutionAdapterRequest } from "./execution-adapter";
+import { AgentPolicyEngine, ExecutionPolicyEngine, AgentExecutionService } from "./execution-policy";
+import { ProjectDetector } from "./devops";
+import {
+  PipelineAgent,
+  PipelineValidator,
+  GitHubActionsGenerator,
+  GitLabCIGenerator,
+  GitHubProvider,
+  GitLabProvider,
+  CiPipelineEngine,
+  type CiCicdBridge,
+} from "./cicd";
+import { CICDProviderRegistry } from "./cicd-provider-registry";
+import { CICDRunManager } from "./cicd-run-manager";
+import { GitHubActionsCICDProvider } from "./github-actions-cicd-provider";
+import { BrowserSandbox, FileAccessPolicy, WorkspaceService, DEFAULT_WORKSPACE_LIMITS } from "./workspace";
+import { RuntimeBridge, getHostBridge, TokenBoundExecutor, DockerAdapter, PlaywrightAdapter, SmokeTestService } from "./runtime";
+import { DeploymentHistoryService } from "./deployment-history";
+import { CanonicalDeploymentOrchestrator } from "./deployment-orchestrator";
+import { SecurityApi } from "./security-api";
+import { SecurityReleaseGate } from "./security-release-gate";
+import { ProductionReleaseDecisionService } from "./production-release-decision";
+import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
+import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
+import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
+import type { CicdReconciliationService } from "./cicd-reconciliation.service";
+import type { CicdReconciliationScheduler } from "./cicd-reconciliation-scheduler";
+import type { CiReconciliationOwnershipService } from "./ci-reconciliation-ownership.service";
+import type { CiArtifactReconciliationService } from "./ci-artifact-reconciliation.service";
+import { ReleaseRecoveryService } from "./release-recovery";
+import { ReleaseRecoveryExecutor, type RecoveryRunReport } from "./release-recovery-executor";
+import { ReleaseRecoveryEvidenceReconciler } from "./release-recovery-evidence-reconciliation";
+import { ReleaseRecoverySupervisor, type RecoverySupervisorStatus } from "./release-recovery-supervisor";
+import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
+
+export interface KernelServices {
+  engine: NexusEngine;
+  events: EventService;
+  audit: AuditService;
+  registry: AgentRegistry;
+  orchestrator: NexusOrchestrator;
+  projects: ProjectService;
+  executions: ExecutionService;
+  evidence: EvidenceService;
+  artifacts: ArtifactService;
+  sessions: SessionService;
+  secrets: SecretProvider;
+  github: GitHubService;
+  // Phase 2 Pass 1 â€” centralized authorization + identity lifecycle.
+  authz: AuthorizationService;
+  identity: IdentityService;
+  // Phase 2 Pass 2 â€” secure agent execution & execution policy.
+  agentPolicy: AgentPolicyEngine;
+  execPolicy: ExecutionPolicyEngine;
+  agentExec: AgentExecutionService;
+  // Phase 2 Pass 3 â€” workspace isolation & sandbox.
+  workspaces: WorkspaceService;
+  sandbox: ExecutionSandbox;
+  // Phase 3 Pass 3 â€” CI/CD pipeline + Git provider foundation.
+  cicd: {
+    agent: PipelineAgent;
+    validator: PipelineValidator;
+    github: GitHubProvider;
+    gitlab: GitLabProvider;
+    engine: CiPipelineEngine;
+  };
+  // Phase 3 Pass 5 â€” runtime bridge (process execution + Docker/Trivy/Playwright).
+  runtime: RuntimeBridge;
+  // Canonical deployment orchestration: real Docker container + real
+  // health/smoke verification + rollback against previous KNOWN_GOOD.
+  deployments: CanonicalDeploymentOrchestrator;
+  // Phase 102: production release control plane wired to canonical deployment.
+  // Consumes ProductionReleaseEnforcementService with a ReleaseDeploymentBridge
+  // provider; enforcement BLOCKED/FAIL prevents Docker run.
+  releaseEnforcement: ProductionReleaseEnforcementService;
+  // Phase 131: durable execution identity + release intents for the
+  // engineering execution path. Both are undefined when the sqlite
+  // engine is unavailable; callers must handle that honestly.
+  executionStore: ExecutionStore | undefined;
+  releaseIntents: ReleaseDeploymentIntentService | undefined;
+}
+
+const BOOT_ORDER = [
+  ["config", "validate configuration"],
+  ["persistence", "open persistence engine"],
+  ["events", "start event system"],
+  ["audit", "attach audit trail"],
+  ["secrets", "initialize secret provider"],
+  ["agents", "register agent framework"],
+  ["orchestration", "assemble orchestration"],
+  ["runtime", "detect execution runtime"],
+  ["recovery", "recover in-flight releases"],
+] as const;
+
+export class NexusKernel {
+  readonly steps: BootStep[] = BOOT_ORDER.map(([id, label]) => ({ id, label, status: "pending", detail: null }));
+  services!: KernelServices;
+  status: "booting" | "ready" | "failed" = "booting";
+  failure: NexusError | null = null;
+  executionEngine?: ExecutionEngine;
+  jobDispatcher?: JobDispatcher;
+  remoteWorkerRegistry?: RemoteWorkerRegistry;
+  remoteExecutionManager?: RemoteExecutionManager;
+  executionAdapterRegistry?: ExecutionAdapterRegistry;
+  // Server-side Worker Gateway. Populated in boot() only when running under
+  // Vite SSR (import.meta.env.SSR). Ordinary browser boot leaves this undefined.
+  workerGateway?: WorkerGateway;
+  // The exact same durable stores the runtime uses. Exposed for callers/tests.
+  executionStore?: ExecutionStore;
+  remoteWorkerStore?: RemoteWorkerStore;
+  workerAuthStore?: SqliteWorkerAuthStore;
+  private gatewayStarted = false;
+  // Phase 125: lifecycle-managed recovery supervisor. Populated in boot() only
+  // when durable recovery infrastructure was constructed. Opt-in via
+  // CONFIG.recovery.enabled at explicit startRecoverySupervisor() time.
+  recoveryExecutor?: ReleaseRecoveryExecutor;
+  recoverySupervisor?: ReleaseRecoverySupervisor;
+  recoveryWorkerId?: string;
+
+  private step(id: string, status: BootStep["status"], detail: string | null = null): void {
+    const s = this.steps.find((x) => x.id === id);
+    if (s) {
+      s.status = status;
+      s.detail = detail;
+    }
+  }
+
+  /** Boot in enforced order. Any failure aborts startup with a structured error. */
+  async boot(): Promise<KernelServices> {
+    try {
+      // 1. config
+      this.step("config", "running");
+      if (configBlocked()) {
+        throw Err.startup("CONFIG_INVALID", `configuration validation failed: ${CONFIG.issues.join("; ")}`);
+      }
+      this.step("config", "ok", `${CONFIG.env} Ãƒâ€šÃ‚Â· v${CONFIG.version}`);
+
+      // 2. persistence
+      this.step("persistence", "running");
+      const engine = await openEngine();
+      const latency = await probeEngine(engine).catch(() => null);
+      if (latency === null) {
+        this.step("persistence", "fail", "probe failed");
+        throw Err.startup("PERSISTENCE_FAILED", "persistence engine failed its round-trip probe");
+      }
+      this.step("persistence", "ok", `${engine.kind} Ãƒâ€šÃ‚Â· ${latency}ms`);
+
+      // 3. events
+      this.step("events", "running");
+      const events = new EventService(engine);
+      await events.init();
+      this.step("events", "ok", "append-only sequence resumed");
+
+      // 4. audit
+      this.step("audit", "running");
+      const audit = new AuditService(engine);
+      await audit.probe();
+      this.step("audit", "ok", "immutable ledger attached");
+
+      // 5. secrets
+      this.step("secrets", "running");
+      const secrets = new LocalSecretProvider(engine);
+      this.step("secrets", "ok", "local provider (references only)");
+
+      // 6. agents
+      this.step("agents", "running");
+      const registry = new AgentRegistry();
+      registry.register(new InspectorAgent());
+      this.step("agents", "ok", `${registry.count()} agent(s)`);
+
+      // 7. orchestration
+      this.step("orchestration", "running");
+      const svcCtx: ServiceContext = { engine, events, audit };
+      const projects = new ProjectService(svcCtx);
+      const executions = new ExecutionService(svcCtx);
+      const evidence = new EvidenceService(svcCtx);
+      const artifacts = new ArtifactService(svcCtx);
+      const orchestrator = new NexusOrchestrator({ engine, events, audit, registry, projects, executions, evidence, artifacts });
+      // Wire execution stack (production)
+      if (engine.kind === "sqlite") {
+        const rawDb = (engine as any).getDatabase();
+        if (rawDb) {
+                    const executionStore = new ExecutionStore(rawDb);
+          const workerRegistry = new WorkerRegistry(executionStore);
+          const leaseManager = new LeaseManager(executionStore);
+          const retryEngine = new RetryEngine();
+
+          const remoteWorkerStore = new RemoteWorkerStore(rawDb);
+          const authStore = new SqliteWorkerAuthStore(rawDb);
+          const workerAuthentication = new WorkerAuthentication(authStore);
+          const remoteWorkerRegistry = new RemoteWorkerRegistry(remoteWorkerStore, workerAuthentication);
+
+          const adapterRegistry = new ExecutionAdapterRegistry();
+          adapterRegistry.register(new SkippedEnvironmentExecutionAdapter());
+
+          // Server-only Worker Gateway. worker-gateway.ts imports Node's
+          // "http" module and must not appear in the browser bundle. The
+          // import.meta.env.SSR guard lets Vite tree-shake this entire branch
+          // out of browser builds; dynamic imports keep the module lazy so the
+          // browser never resolves it.
+          let workerGateway: WorkerGateway | undefined;
+          let remoteAdapter: RemoteExecutionAdapter;
+          if (typeof process !== "undefined" && !!process.versions?.node) {
+            const gatewaySpec = "./worker-gateway";
+            const adapterSpec = "./worker-gateway-remote-adapter";
+            const sessionStoreSpec = "./worker-session-store";
+            const { WorkerGateway: GatewayCtor } = await import(/* @vite-ignore */ gatewaySpec);
+            const { WorkerGatewayRemoteExecutionAdapter: AdapterCtor } = await import(/* @vite-ignore */ adapterSpec);
+            const { WorkerSessionStore } = await import(/* @vite-ignore */ sessionStoreSpec);
+            const sessionStore = new WorkerSessionStore(engine);
+            const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore);
+            workerGateway = gw;
+            remoteAdapter = new AdapterCtor(gw);
+          } else {
+            // Non-SSR: kernel cannot run worker gateway. This branch is only
+            // reached under runtimes where db.ts already refused to open
+            // SQLite; fail closed rather than fake remote execution.
+            throw Err.startup("GATEWAY_UNAVAILABLE", "WorkerGateway requires Vite SSR runtime");
+          }
+          const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore);
+          const jobDispatcher = new JobDispatcher(workerRegistry, remoteExecutionManager, executionStore, leaseManager);
+          const dispatchService = new DispatchService(jobDispatcher, remoteExecutionManager, executionStore);
+          // Phase 137: late-wire the honest dispatch cancel into the worker gateway.
+          if (workerGateway) { workerGateway.attachDispatchService(dispatchService); }
+
+          const executionDeps: ExecutionDeps = {
+            dispatchPort: dispatchService,
+          };
+          const executionEngine = new ExecutionEngine(executionStore, workerRegistry, leaseManager, retryEngine, executionDeps);
+
+          this.executionEngine = executionEngine;
+          this.jobDispatcher = jobDispatcher;
+          this.remoteWorkerRegistry = remoteWorkerRegistry;
+          this.remoteExecutionManager = remoteExecutionManager;
+          this.executionAdapterRegistry = adapterRegistry;
+          this.workerGateway = workerGateway;
+          this.executionStore = executionStore;
+          this.remoteWorkerStore = remoteWorkerStore;
+          this.workerAuthStore = authStore;
+
+        }
+      }
+      this.step("orchestration", "ok", "deterministic path assembled");
+
+      // Phase 2 Pass 1 â€” centralized authorization + identity lifecycle.
+      const authz = new AuthorizationService(audit);
+      const identity = new IdentityService(engine, authz, audit);
+
+      // Phase 2 Pass 2 â€” secure agent execution & execution policy.
+      const agentPolicy = new AgentPolicyEngine();
+      const execPolicy = new ExecutionPolicyEngine(registry, authz, agentPolicy);
+      const agentExec = new AgentExecutionService({ engine, registry, authz, agentPolicy, execPolicy, audit, events });
+
+      // Phase 2 Pass 3 â€” workspace isolation & sandbox (logical boundary;
+      // BrowserSandbox.isolationReport() states the true isolation level).
+      const filePolicy = new FileAccessPolicy();
+      const workspaces = new WorkspaceService({
+        engine,
+        authz,
+        audit,
+        events,
+        policy: filePolicy,
+        limits: DEFAULT_WORKSPACE_LIMITS,
+      });
+      const sandbox: ExecutionSandbox = new BrowserSandbox(workspaces);
+      agentExec.attachSandbox(workspaces);
+
+      // Phase 3 Pass 3 â€” CI/CD pipeline + Git provider foundation. The GitHub
+      // provider wraps the same GitHubService instance (connection on demand);
+      // remote operations stay honestly BLOCKED until a token is connected.
+      const github = new GitHubService();
+      const cicdValidator = new PipelineValidator();
+      const cicdAgent = new PipelineAgent({
+        detector: new ProjectDetector(),
+        github: new GitHubActionsGenerator(),
+        gitlab: new GitLabCIGenerator(),
+        validator: cicdValidator,
+        events,
+        audit,
+        evidence,
+        artifacts,
+      });
+      // Phase 105 Pass 2: register the real GitHub Actions provider only when
+      // a GitHub connection is actually established. When it is not, the
+      // bridge is undefined and the engine keeps its legacy (honest BLOCKED)
+      // behavior for remote runs. Kernel boot must never fail because the
+      // external CI capability is unavailable.
+      let cicdBridge: CiCicdBridge | undefined;
+      try {
+        if (github.state().connected) {
+          const cicdRegistry = new CICDProviderRegistry();
+          cicdRegistry.register(new GitHubActionsCICDProvider(github));
+          cicdBridge = {
+            registry: cicdRegistry,
+            manager: new CICDRunManager(cicdRegistry),
+            providerId: "github-actions",
+          };
+        }
+      } catch {
+        cicdBridge = undefined;
+      }
+      const cicdEngine = new CiPipelineEngine({ engine, events, audit, evidence, artifacts, authz, cicd: cicdBridge });
+
+      // Phase 132: construct durable CI artifact + reconciliation services.
+      // Only wired when the SQLite execution store and the CI/CD bridge exist.
+      const _phase132Db = (this as unknown as { executionStore?: { db?: unknown } }).executionStore?.db ?? null;
+
+      // Phase 132/133/134 modules are dynamically imported so Node-only deps
+      // (node:crypto, node:zlib) never reach the browser bundle. Mirrors the
+      // WorkerGateway pattern elsewhere in this method. Loaded only when the
+      // SQLite store exists (Node runtime).
+      let CiArtifactReconciliationServiceCtor: (typeof import("./ci-artifact-reconciliation.service"))["CiArtifactReconciliationService"] | undefined;
+      let CicdReconciliationServiceCtor: (typeof import("./cicd-reconciliation.service"))["CicdReconciliationService"] | undefined;
+      let CicdReconciliationSchedulerCtor: (typeof import("./cicd-reconciliation-scheduler"))["CicdReconciliationScheduler"] | undefined;
+      let CiReconciliationOwnershipServiceCtor: (typeof import("./ci-reconciliation-ownership.service"))["CiReconciliationOwnershipService"] | undefined;
+      if (_phase132Db) {
+        const artSpec = "./ci-artifact-reconciliation.service";
+        const svcSpec = "./cicd-reconciliation.service";
+        const schedSpec = "./cicd-reconciliation-scheduler";
+        const ownSpec = "./ci-reconciliation-ownership.service";
+        CiArtifactReconciliationServiceCtor = (await import(/* @vite-ignore */ artSpec)).CiArtifactReconciliationService;
+        CicdReconciliationServiceCtor = (await import(/* @vite-ignore */ svcSpec)).CicdReconciliationService;
+        CicdReconciliationSchedulerCtor = (await import(/* @vite-ignore */ schedSpec)).CicdReconciliationScheduler;
+        CiReconciliationOwnershipServiceCtor = (await import(/* @vite-ignore */ ownSpec)).CiReconciliationOwnershipService;
+      }
+      let _phase135Ownership: CiReconciliationOwnershipService | undefined;
+      if (_phase132Db && CiReconciliationOwnershipServiceCtor) {
+      }
+
+      const _phase132ArtifactReconciler: CiArtifactReconciliationService | undefined =
+        (_phase132Db && cicdBridge)
+          ? ((): CiArtifactReconciliationService | undefined => {
+              const ghProvider = cicdBridge.registry.get(cicdBridge.providerId);
+              if (!(ghProvider instanceof GitHubActionsCICDProvider)) return undefined;
+              return new (CiArtifactReconciliationServiceCtor!)(
+                _phase132Db as never,
+                artifacts,
+                ghProvider,
+                _phase135Ownership,
+              );
+            })()
+          : undefined;
+      const _phase132Reconciler: CicdReconciliationService | undefined =
+        (_phase132Db && _phase132ArtifactReconciler)
+          ? new (CicdReconciliationServiceCtor!)(
+              _phase132Db as never,
+              cicdEngine,
+              engine as never,
+              _phase132ArtifactReconciler,
+              events as never,
+              audit as never,
+              _phase135Ownership,
+            )
+          : undefined;
+      const cicd = {
+        agent: cicdAgent,
+        validator: cicdValidator,
+        github: new GitHubProvider(github),
+        gitlab: new GitLabProvider(),
+        engine: cicdEngine,
+      };
+
+      // Phase 132: attach durable CI reconciler (optional; present only when SQLite store is wired).
+      (cicd as Record<string, unknown>).reconciliation = _phase132Reconciler;
+      (cicd as Record<string, unknown>).artifactReconciler = _phase132ArtifactReconciler;
+
+      // Phase 133/134: start the durable reconciliation scheduler when the
+      // reconciler exists. Bounded one-shot scheduling + jitter + exponential
+      // backoff; drains open rows via reconcileOpen(). Stopped by shutdown().
+      //
+      // Phase 134: durable cross-instance ownership. Only the current owner
+      // performs reconciliation. A crashed owner's lease expires and another
+      // instance safely takes over. Distinct table so execution_leases
+      // semantics are untouched.
+      if (_phase132Reconciler && _phase132Db && _phase135Ownership) {
+        const scheduler = new (CicdReconciliationSchedulerCtor!)(_phase132Reconciler, { ownership: _phase135Ownership });
+        this.cicdScheduler = scheduler;
+        this.cicdOwnership = _phase135Ownership;
+        scheduler.start();
+        (cicd as Record<string, unknown>).scheduler = scheduler;
+        (cicd as Record<string, unknown>).ownership = _phase135Ownership;
+      }
+
+      // Phase 3 Pass 5 â€” runtime bridge. Detects process-execution capability
+      // honestly: BLOCKED in the managed browser workspace, AVAILABLE only after
+      // real probes when a host bridge is injected. Emits events + audit.
+      this.step("runtime", "running");
+      const runtime = new RuntimeBridge({ events, audit });
+      await runtime.detect().catch(() => undefined);
+      this.step("runtime", "ok", `${runtime.kind()} Ãƒâ€šÃ‚Â· docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
+
+      // Canonical deployment orchestration â€” uses the same RuntimeBridge
+      // (docker + smoke) and the same NexusEngine (via DeploymentHistoryService).
+      const deploymentHistory = new DeploymentHistoryService(engine);
+      const deployments = new CanonicalDeploymentOrchestrator(
+        deploymentHistory,
+        runtime.docker,
+        runtime.smoke,
+        { events, audit },
+        // Runtime binder: materializes a workspace token and wraps a
+        // fresh DockerAdapter + SmokeTestService around it. The shared
+        // RuntimeBridge.executor is never mutated.
+        async () => {
+          const bridge = getHostBridge();
+          if (!bridge || typeof bridge.materializeWorkspace !== "function" || typeof bridge.cleanupWorkspace !== "function") {
+            throw new Error("host bridge does not implement workspace materialization");
+          }
+          let token = nid("dep").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 128);
+          if (token.length < 4) token = (token + "deploy").slice(0, 128);
+          await bridge.materializeWorkspace({
+            token,
+            files: [{ path: ".nexus-deployment-probe", content: "NEXUS deployment workspace" }],
+          });
+          const boundExec = new TokenBoundExecutor(runtime.executor, token);
+          const boundDocker = new DockerAdapter(boundExec);
+          const boundPlaywright = new PlaywrightAdapter(boundExec);
+          const boundSmoke = new SmokeTestService(boundExec, boundPlaywright, { events, audit });
+          return {
+            docker: boundDocker,
+            smoke: boundSmoke,
+            cleanup: async () => {
+              try { await bridge.cleanupWorkspace!(token); } catch { /* honest no-op */ }
+            },
+          };
+        },
+      );
+
+      // Phase 102: production release control plane wired to canonical
+      // deployment. releaseEnforcement.requestRelease() runs the existing
+      // ProductionReleaseDecisionService (security gate + approval + digest
+      // match). executeRelease() dispatches through ReleaseDeploymentBridge,
+      // which verifies artifact binding, rejects :latest, and only then calls
+      // CanonicalDeploymentOrchestrator.deploy().
+      const securityApi = new SecurityApi(engine);
+      const securityGate = new SecurityReleaseGate(securityApi);
+      const releaseDecision = new ProductionReleaseDecisionService(securityApi, securityGate);
+
+      // Phase 103: durable release intent + lease state lives in the same
+      // SQLite ExecutionStore used by the execution runtime. Optional â€”
+      // when the sqlite engine is unavailable, the bridge falls back to the
+      // legacy Phase 102 path (no durable intent, no crash recovery).
+      const releaseIntents = this.executionStore
+        ? new ReleaseDeploymentIntentService(this.executionStore)
+        : undefined;
+
+      const releaseBridge = new ReleaseDeploymentBridge({
+        deployments,
+        artifacts,
+        svc: { events, audit },
+        intents: releaseIntents,
+        // Phase 107: enables the bridge to prefer the authoritative registry
+        // digest recorded by REGISTRY_PUBLISH (IMAGE_DIGEST artifact) over the
+        // caller-supplied imageDigest. Optional dep â€” falls through when absent.
+        engine,
+      });
+      const releaseEnforcement = new ProductionReleaseEnforcementService(
+        securityApi,
+        securityGate,
+        releaseDecision,
+        releaseBridge,
+      );
+
+      // Phase 104: durable release recovery. Runs once at boot, only when
+      // the SQLite ExecutionStore exists. When it does not, recovery state
+      // cannot exist either - skip cleanly rather than invent one.
+      if (this.executionStore && releaseIntents) {
+        this.step("recovery", "running");
+        try {
+          const recoveryWorkerId = "nexus-" + crypto.randomUUID();
+          this.recoveryWorkerId = recoveryWorkerId;
+          const executor = new ReleaseRecoveryExecutor({
+            intents: releaseIntents,
+            recovery: new ReleaseRecoveryService(),
+            orchestrator: deployments,
+            history: deploymentHistory,
+            docker: runtime.docker,
+            smoke: runtime.smoke,
+            svc: { events, audit },
+            workerId: recoveryWorkerId,
+            reconciler: new ReleaseRecoveryEvidenceReconciler({
+              intents: releaseIntents,
+              events,
+              audit,
+              workerId: recoveryWorkerId,
+            }),
+            verifyRecoveredRollback: {
+              async verify(intent: any, context?: { stagingUrl?: string; hostPort?: number }) {
+                if (!context?.stagingUrl) {
+                  return { status: "BLOCKED" as const, message: "no verification URL available" };
+                }
+                try {
+                  const r: any = await runtime.smoke.run({
+                    execution_id: intent.executionId ?? null,
+                    staging_url: context.stagingUrl,
+                  });
+                  if (r?.verdict === "PASS") return { status: "VERIFIED" as const, message: "health+smoke PASS" };
+                  if (r?.verdict === "BLOCKED") return { status: "BLOCKED" as const, message: String(r.reason ?? "smoke blocked") };
+                  return { status: "VERIFICATION_FAILED" as const, message: String(r?.reason ?? "smoke FAIL") };
+                } catch (e) {
+                  return { status: "BLOCKED" as const, message: "verifier threw: " + ((e as Error).message ?? String(e)) };
+                }
+              },
+            },
+          });
+          this.recoveryExecutor = executor;
+          const rep = await executor.runOnce();
+          this.step("recovery", "ok", "scanned=" + rep.scanned + " acted=" + rep.acted + " blocked=" + rep.blocked + " leaseHeld=" + rep.leaseHeld);
+        } catch (e) {
+          this.step("recovery", "fail", e instanceof Error ? e.message : String(e));
+        }
+      } else {
+        this.step("recovery", "ok", "skipped: durable intent store unavailable");
+      }
+
+      this.services = {
+        engine,
+        events,
+        audit,
+        registry,
+        orchestrator,
+        projects,
+        executions,
+        evidence,
+        artifacts,
+        sessions: new SessionService(engine),
+        secrets,
+        authz,
+        identity,
+        agentPolicy,
+        execPolicy,
+        agentExec,
+        workspaces,
+        sandbox,
+        // Optional integration: no boot dependency, connects on demand.
+        github,
+        cicd,
+        runtime,
+        deployments,
+        releaseEnforcement,
+        // Phase 131: exposed for the engineering execution path.
+        executionStore: this.executionStore,
+        releaseIntents,
+      };
+
+      this.status = "ready";
+      await audit.record({
+        actor: "system",
+        action: "kernel.boot",
+        resource_type: "platform",
+        resource_id: "nexus",
+        result: "info",
+        metadata: { version: CONFIG.version, env: CONFIG.env, engine: engine.kind },
+      });
+      return this.services;
+    } catch (e) {
+      this.status = "failed";
+      this.failure = e instanceof NexusError ? e : Err.startup("STARTUP_FAILED", (e as Error).message ?? "startup failed");
+      const running = this.steps.find((s) => s.status === "running");
+      if (running) this.step(running.id, "fail", this.failure.message);
+      throw this.failure;
+    }
+  }
+
+  /**
+   * Start the Worker Gateway HTTP listener.
+   *
+   * Deliberately NOT called by boot(). Ordinary browser/test boot must never
+   * open a TCP port. Server-mode callers set CONFIG.gateway.enabled = true
+   * and then call this method explicitly. Repeated calls are safe no-ops.
+   */
+  async startGateway(): Promise<void> {
+    if (!CONFIG.gateway.enabled) return;
+    if (!this.workerGateway) {
+      throw Err.startup("GATEWAY_NOT_WIRED", "kernel did not construct a WorkerGateway (requires Vite SSR runtime and sqlite persistence)");
+    }
+    if (this.gatewayStarted) return;
+    await this.workerGateway.start();
+    this.gatewayStarted = true;
+  }
+
+  /** Stop the Worker Gateway if it was started. Idempotent. */
+  async stopGateway(): Promise<void> {
+    if (!this.gatewayStarted || !this.workerGateway) return;
+    await this.workerGateway.stop();
+    this.gatewayStarted = false;
+  }
+
+  /**
+   * Start periodic durable recovery. Opt-in via CONFIG.recovery.enabled.
+   *
+   * Deliberately NOT called by boot(). Ordinary browser/test boot must never
+   * start a background timer. Server-mode callers set CONFIG.recovery.enabled
+   * = true and then call this method explicitly. Repeated calls are safe
+   * no-ops once RUNNING.
+   */
+  async startRecoverySupervisor(): Promise<void> {
+    if (!CONFIG.recovery.enabled) return;
+    if (!this.recoveryExecutor || !this.recoveryWorkerId) {
+      throw Err.startup(
+        "RECOVERY_NOT_WIRED",
+        "kernel did not construct a ReleaseRecoveryExecutor (requires sqlite persistence and a durable intent store)",
+      );
+    }
+    if (!this.recoverySupervisor) {
+      this.recoverySupervisor = new ReleaseRecoverySupervisor({
+        executor: this.recoveryExecutor,
+        svc: { events: this.services.events, audit: this.services.audit },
+        workerId: this.recoveryWorkerId,
+        intervalMs: CONFIG.recovery.intervalMs,
+      });
+    }
+    await this.recoverySupervisor.start();
+  }
+
+  /** Stop the recovery supervisor. Idempotent. */
+  async stopRecoverySupervisor(options?: { finalPass?: boolean }): Promise<void> {
+    if (!this.recoverySupervisor) return;
+    await this.recoverySupervisor.stop(options);
+  }
+
+  /** Execute exactly one recovery cycle, respecting the supervisor's no-overlap guard. */
+  async runRecoveryNow(): Promise<RecoveryRunReport | null> {
+    if (this.recoverySupervisor) return this.recoverySupervisor.runNow();
+    if (this.recoveryExecutor) return this.recoveryExecutor.runOnce();
+    return null;
+  }
+
+  /** Supervisor lifecycle status, or null when no supervisor has been constructed. */
+  getRecoverySupervisorStatus(): RecoverySupervisorStatus | null {
+    return this.recoverySupervisor?.status() ?? null;
+  }
+
+  /**
+   * Orderly kernel shutdown. Stops background lifecycle services in reverse
+   * order of their start. Idempotent. The final recovery pass is opt-in.
+   */
+  /** Phase 133: durable CI reconciliation scheduler (undefined when SQLite store isn't wired). */
+  private cicdScheduler?: CicdReconciliationScheduler;
+
+  /** Phase 134: durable cross-instance ownership for the CI reconciliation scheduler. */
+  private cicdOwnership?: CiReconciliationOwnershipService;
+
+  async shutdown(options?: { finalRecoveryPass?: boolean }): Promise<void> {
+    await this.stopCicdReconciliationScheduler();
+    await this.stopRecoverySupervisor({ finalPass: options?.finalRecoveryPass ?? false });
+    await this.stopGateway();
+  }
+
+  /** Phase 133: stop the CI reconciliation scheduler; never throws. Idempotent. */
+  private async stopCicdReconciliationScheduler(): Promise<void> {
+    if (!this.cicdScheduler) return;
+    try { await this.cicdScheduler.stop(); } catch { /* shutdown must not throw */ }
+    this.cicdScheduler = undefined;
+  }
+
+  /** Real health: probes each subsystem; never reports healthy when a probe fails. */
+  async health(): Promise<HealthReport> {
+    const subsystems: SubsystemHealth[] = [];
+
+    const dbT0 = performance.now();
+    let dbOk = false;
+    try {
+      await probeEngine(this.services.engine);
+      dbOk = true;
+    } catch {
+      dbOk = false;
+    }
+    subsystems.push({
+      name: "database",
+      status: dbOk ? "healthy" : "blocked",
+      detail: dbOk ? `${this.services.engine.kind} round-trip ok` : "probe failed",
+      latency_ms: dbOk ? Math.round((performance.now() - dbT0) * 10) / 10 : null,
+    });
+
+    const eventsOk = await this.services.events.probe();
+    subsystems.push({ name: "events", status: eventsOk ? "healthy" : "blocked", detail: eventsOk ? "append-only store readable" : "unreadable", latency_ms: null });
+
+    const auditOk = await this.services.audit.probe();
+    subsystems.push({ name: "audit", status: auditOk ? "healthy" : "blocked", detail: auditOk ? "ledger readable" : "unreadable", latency_ms: null });
+
+    subsystems.push({
+      name: "agents",
+      status: this.services.registry.count() > 0 ? "healthy" : "degraded",
+      detail: `${this.services.registry.count()} agent(s) registered`,
+      latency_ms: null,
+    });
+
+    subsystems.push({
+      name: "config",
+      status: configBlocked() ? "blocked" : CONFIG.issues.length > 0 ? "degraded" : "healthy",
+      detail: CONFIG.issues.length > 0 ? CONFIG.issues[0] : `${CONFIG.env} validated`,
+      latency_ms: null,
+    });
+
+    // GitHub is an optional integration â€” unconnected is a valid, honest state.
+    const gh = this.services.github.state();
+    const rate = gh.rate;
+    subsystems.push({
+      name: "github",
+      status: gh.connected ? "healthy" : "degraded",
+      detail: gh.connected
+        ? `connected as @${gh.identity?.login}${rate ? ` Ãƒâ€šÃ‚Â· rate ${rate.remaining}/${rate.limit}` : ""}`
+        : "not connected â€” optional integration (token held in memory only)",
+      latency_ms: null,
+    });
+
+    const overall = subsystems.some((s) => s.status === "blocked") ? "blocked" : subsystems.some((s) => s.status === "degraded") ? "degraded" : "healthy";
+    return { status: overall, subsystems, version: CONFIG.version, engine: this.services.engine.kind, timestamp: Date.now() };
+  }
+
+  configView(): Record<string, unknown> {
+    return safeConfigView();
+  }
+}
+
+/* ------------------------- auth convenience (Phase 1) ---------------------- */
+
+export interface AuthApi {
+  bootstrapFirstUser(email: string, name: string, password: string): Promise<{ user: PublicUser; session: Session }>;
+  login(email: string, password: string): Promise<{ user: PublicUser; session: Session }>;
+  logout(token: string): Promise<void>;
+  validate(token: string | null): Promise<{ user: PublicUser; session: Session }>;
+  hasUsers(): Promise<boolean>;
+}
+
+export function createAuthApi(services: KernelServices): AuthApi {
+  const findUserByEmail = async (email: string): Promise<User | undefined> => {
+    const users = await services.engine.all<User>("users");
+    return users.find((u) => u.email === email.toLowerCase());
+  };
+
+  return {
+    async hasUsers() {
+      return (await services.engine.all<User>("users")).length > 0;
+    },
+
+    async bootstrapFirstUser(email, name, password) {
+      if (await this.hasUsers()) {
+        throw Err.conflict("ALREADY_INITIALIZED", "platform identity already initialized");
+      }
+      const user = await createUserRecord({ email, name, password, role: "OWNER" });
+      await services.engine.put("users", user.id, user);
+      await services.audit.record({
+        actor: user.email,
+        action: "platform.bootstrap",
+        resource_type: "user",
+        resource_id: user.id,
+        result: "allow",
+        metadata: { role: "OWNER" }, // no credential material
+      });
+      const session = await services.sessions.issue(user.id);
+      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", result: "allow" });
+      return { user: toPublicUser(user), session };
+    },
+
+    async login(email, password) {
+      const user = await findUserByEmail(email);
+      if (!user || !(await verifyPassword(user, password))) {
+        await services.audit.record({
+          actor: email.toLowerCase(),
+          action: "auth.login_failed",
+          resource_type: "session",
+          resource_id: "-",
+          result: "deny",
+        });
+        throw Err.auth("INVALID_CREDENTIALS", "invalid email or password");
+      }
+      if (user.status !== "active") {
+        // Status-aware rejection: suspended and disabled are distinct states.
+        await services.audit.record({
+          actor: user.email,
+          action: "auth.login_failed",
+          resource_type: "session",
+          resource_id: "-",
+          result: "deny",
+          metadata: { reason: `account is ${user.status}` },
+        });
+        throw Err.auth(
+          user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
+          `account is ${user.status} â€” authentication refused`,
+        );
+      }
+      const session = await services.sessions.issue(user.id);
+      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", result: "allow" });
+      return { user: toPublicUser(user), session };
+    },
+
+    async logout(token) {
+      const session = await services.engine.get<Session>("sessions", token);
+      await services.sessions.revoke(token);
+      if (session) {
+        const user = await services.engine.get<User>("users", session.user_id);
+        await services.audit.record({ actor: user?.email ?? "unknown", action: "auth.logout", resource_type: "session", resource_id: token.slice(0, 8) + "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", result: "info" });
+      }
+    },
+
+    async validate(token) {
+      const session = await services.sessions.validate(token);
+      const user = await services.engine.get<User>("users", session.user_id);
+      if (!user) throw Err.auth("INVALID_SESSION", "session user no longer exists");
+      if (user.status !== "active") {
+        throw Err.auth(
+          user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
+          `account is ${user.status} â€” authentication refused`,
+        );
+      }
+      return { user: toPublicUser(user), session };
+    },
+  };
+}
+

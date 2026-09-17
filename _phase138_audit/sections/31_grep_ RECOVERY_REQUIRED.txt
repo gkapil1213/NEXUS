@@ -1,0 +1,64 @@
+﻿src/core/deployment-release-bridge.ts:8:// RECOVERY_REQUIRED message so the caller must run recovery first.
+src/core/deployment-release-bridge.ts:132:   * intents return BLOCKED with a RECOVERY_REQUIRED marker; caller must
+src/core/deployment-release-bridge.ts:182:      // SMOKE_TESTING, ROLLING_BACK, RECOVERY_REQUIRED, VERIFICATION_FAILED,
+src/core/deployment-release-bridge.ts:188:          + " ΓÇö RECOVERY_REQUIRED (run ReleaseRecoveryService before retrying)",
+src/core/execution-engine.ts:755:     *      or RECOVERY_REQUIRED (anything else)
+src/core/execution-engine.ts:1002:                            classification: "RECOVERY_REQUIRED",
+src/core/execution-engine.ts:1019:                        classification: canRetry ? "RECOVERABLE" : "RECOVERY_REQUIRED",
+src/core/execution-store.ts:29:  | "RECOVERY_REQUIRED";
+src/core/execution-store.ts:1129:      WHERE status IN ('PENDING','AUTHORIZED','DEPLOYMENT_INTENT_CREATED','DEPLOYING','HEALTH_CHECKING','SMOKE_TESTING','VERIFICATION_FAILED','ROLLING_BACK','RECOVERY_REQUIRED')
+src/core/release-deployment-intent.ts:140:      'RECOVERY_REQUIRED',
+src/core/release-recovery-evidence-reconciliation.ts:6:// RECOVERY_REQUIRED.
+src/core/release-recovery-evidence-reconciliation.ts:34:export type ReconciliationVerdict = "CONSISTENT" | "RECOVERY_REQUIRED";
+src/core/release-recovery-evidence-reconciliation.ts:110:      return this.record(intentKey, null, "RECOVERY_REQUIRED", "MISSING", "intent not found", now);
+src/core/release-recovery-evidence-reconciliation.ts:119:        return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:132:      return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:136:      return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:143:      return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:147:      return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:172:        return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:179:      return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:183:      return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:189:      return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:195:      return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:199:      return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-evidence-reconciliation.ts:208:        return this.record(intentKey, intent, "RECOVERY_REQUIRED", "VERIFIED",
+src/core/release-recovery-evidence-reconciliation.ts:218:        return this.record(intentKey, intent, "RECOVERY_REQUIRED", "VERIFICATION_FAILED",
+src/core/release-recovery-evidence-reconciliation.ts:225:    // BLOCKED path: intent must be RECOVERY_REQUIRED.
+src/core/release-recovery-evidence-reconciliation.ts:229:      if (status !== "RECOVERY_REQUIRED") {
+src/core/release-recovery-evidence-reconciliation.ts:230:        return this.record(intentKey, intent, "RECOVERY_REQUIRED",
+src/core/release-recovery-evidence-reconciliation.ts:236:        return this.record(intentKey, intent, "RECOVERY_REQUIRED", "EXCEPTION",
+src/core/release-recovery-evidence-reconciliation.ts:243:    return this.record(intentKey, intent, "RECOVERY_REQUIRED", "MISSING",
+src/core/release-recovery-executor.ts:86:      const terminalStatuses = ["FAILED", "VERIFICATION_FAILED", "RECOVERY_REQUIRED", "BLOCKED"] as const;
+src/core/release-recovery-executor.ts:128:      case "RECOVERY_REQUIRED": await this.handleRecoveryRequired(intent, plan, report); return;
+src/core/release-recovery-executor.ts:392:    this.deps.intents.transition(intent.intentKey, "RECOVERY_REQUIRED", { recoveryReason: reason });
+src/core/release-recovery.ts:20:  | "RECOVERY_REQUIRED";          // ambiguous ΓÇö must not proceed without human review
+src/core/release-recovery.ts:52:          case "RECOVERY_REQUIRED":
+src/core/release-recovery.ts:53:            return { intentKey: i.intentKey, action: "RECOVERY_REQUIRED",
+src/core/release-recovery.ts:61:            return { intentKey: i.intentKey, action: "RECOVERY_REQUIRED",
+src/core/release-recovery.ts:71:          action: "RECOVERY_REQUIRED",
+src/core/release-recovery.ts:81:            action: "RECOVERY_REQUIRED",
+src/core/release-recovery.ts:105:          action: "RECOVERY_REQUIRED",
+src/core/release-recovery.ts:117:            action: "RECOVERY_REQUIRED",
+src/core/release-recovery.ts:169:      case "RECOVERY_REQUIRED":
+src/core/release-recovery.ts:172:          action: "RECOVERY_REQUIRED",
+src/core/release-recovery.ts:181:          action: "RECOVERY_REQUIRED",
+src/core/worker-autonomous-cicd-orchestrator.ts:274:      return { status: 'BLOCKED' as const, reason, blockedReason: 'RECOVERY_REQUIRED', pipeline, execution, stages, auditEvents, evidence };
+src/core/worker-phase25-autonomous-release-deployment-control-plane.ts:162:      return { status: 'RECOVERY_REQUIRED' as const, reason: 'rollback job held by another worker',
+src/core/worker-phase25-autonomous-release-deployment-control-plane.ts:169:      audit('ROLLBACK_RECOVERY_AMBIGUOUS', 'prior attempt did not complete; state ambiguous', 'RECOVERY_REQUIRED');
+src/core/worker-phase25-autonomous-release-deployment-control-plane.ts:171:      return { status: 'RECOVERY_REQUIRED' as const,
+src/core/worker-phase25-autonomous-release-deployment-control-plane.ts:226:    return { status: 'RECOVERY_REQUIRED' as const, reason: 'rollback lease not acquired',
+src/core/worker-phase59.ts:348:    FAILED: ['ROLLING_BACK', 'RECOVERY_REQUIRED'],
+src/core/worker-phase59.ts:352:    RECOVERY_REQUIRED: ['RECOVERING', 'FAILED'],
+src/core/worker-strategy-exploration-governance.ts:4:  populationHealth: 'HEALTHY' | 'WATCH' | 'DEGRADED' | 'STAGNANT' | 'FRAGILE' | 'RECOVERY_REQUIRED';
+src/core/worker-strategy-exploration-governance.ts:15:  if (input.populationHealth === 'RECOVERY_REQUIRED' || input.populationHealth === 'FRAGILE') return 'INITIATE_RECOVERY';
+src/core/worker-strategy-population-health.ts:1:∩╗┐export type PopulationHealth = 'HEALTHY' | 'WATCH' | 'DEGRADED' | 'STAGNANT' | 'FRAGILE' | 'RECOVERY_REQUIRED';
+src/core/worker-strategy-population-health.ts:14:  if (input.resourcePressure > 0.9 || input.regressionConcentration > 0.8) return 'RECOVERY_REQUIRED';
+src/core/worker-strategy-population-recovery.ts:4:  populationHealth: 'HEALTHY' | 'WATCH' | 'DEGRADED' | 'STAGNANT' | 'FRAGILE' | 'RECOVERY_REQUIRED';
+src/core/worker-strategy-population-recovery.ts:12:  if (input.populationHealth === 'FRAGILE' || input.populationHealth === 'RECOVERY_REQUIRED') {
+src/core/worker-strategy-population-safety.ts:4:  populationHealth: 'HEALTHY' | 'WATCH' | 'DEGRADED' | 'STAGNANT' | 'FRAGILE' | 'RECOVERY_REQUIRED';
+src/core/worker-strategy-population-safety.ts:19:  if (input.populationHealth === 'FRAGILE' || input.populationHealth === 'RECOVERY_REQUIRED') return 'BLOCK';
+src/core/worker-strategy-population.ts:14:  populationHealth: 'HEALTHY' | 'WATCH' | 'DEGRADED' | 'STAGNANT' | 'FRAGILE' | 'RECOVERY_REQUIRED';
+src/core/worker-stuck-job-detector.ts:3:export type StuckJobState = "NORMAL" | "SUSPECTED" | "STUCK" | "RECOVERY_REQUIRED";
+src/core/worker-stuck-job-detector.ts:10:      return "RECOVERY_REQUIRED";
+

@@ -516,6 +516,7 @@ export async function orchestrateCICD(request: CICDRequest): Promise<CICDResult>
         d.artifactId,
         request.revision,
         d.environment,
+        null,
       );
     } catch (e: any) {
       const reason = 'deployment execution threw: ' + (e && e.message ? e.message : 'unknown');

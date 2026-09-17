@@ -1,0 +1,201 @@
+﻿#!/usr/bin/env tsx
+/* Phase 136 Ã¢â‚¬â€ durable execution crash-recovery + stale-worker fencing tests.
+ *
+ * Real Phase-13 SQLite schema (migrations 020 / 142 / 149). Real ExecutionStore,
+ * LeaseManager, WorkerRegistry, RetryEngine, ExecutionEngine, ArtifactStore.
+ * A controllable dispatch port whose collectResult promise is held open while
+ * the original worker's lease expires and a second worker takes ownership.
+ *
+ * Direct SQLite assertions verify durable state; service return values alone
+ * are not trusted.
+ */
+
+import Database from "better-sqlite3";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { ExecutionStore } from "../src/core/execution-store";
+import type { NexusEngine } from "../src/core/db";
+import { LeaseManager } from "../src/core/lease-manager";
+import { WorkerRegistry } from "../src/core/worker-registry";
+import { RetryEngine } from "../src/core/retry-engine";
+import {
+  ExecutionEngine,
+  ExecutionTransitionRejected,
+  type ExecutionDeps,
+} from "../src/core/execution-engine";
+import type { ExecutionDispatchPort } from "../src/core/execution-dispatch-port";
+import { ArtifactStore } from "../src/core/artifact-store";
+import { RemoteExecutionManager } from "../src/core/remote-execution-manager";
+import type { RemoteDispatchRecord, RemoteExecutionResult } from "../src/core/execution-models";
+import type { ExecutionAdapterResult } from "../src/core/execution-adapter";
+import type { RemoteExecutionAdapter } from "../src/core/remote-execution-adapter";
+
+let passed = 0;
+let failed = 0;
+const failures: string[] = [];
+function ok(id: string, cond: boolean, msg: string): void {
+  if (cond) { passed++; console.log("  ok   " + id + "  " + msg); }
+  else { failed++; failures.push(id + " " + msg); console.log("  FAIL " + id + "  " + msg); }
+}
+function eq<T>(id: string, actual: T, expected: T, msg: string): void {
+  ok(id, actual === expected, msg + "  (expected=" + JSON.stringify(expected) + ", got=" + JSON.stringify(actual) + ")");
+}
+
+function newDb(): Database.Database {
+  const db = new Database(":memory:");
+  db.exec("PRAGMA foreign_keys = ON;");
+  const mig = (n: string) => readFileSync(join(process.cwd(), "src", "db", "migrations", n), "utf8");
+  db.exec(mig("020_phase13_execution.sql"));
+  db.exec(mig("021_phase15_remote_control_plane.sql"));
+  db.exec(mig("022_phase16_remote_execution.sql"));
+  db.exec(mig("025_phase17_artifact_result_integrity.sql"));
+  db.exec(mig("142_phase_production_persistence_lease_integrity.sql"));
+  db.exec(mig("143_remote_dispatch_persistence.sql"));
+  db.exec(mig("144_durable_dispatch_intent.sql"));
+  db.exec(mig("149_phase126_execution_ownership_obligations.sql"));
+  return db;
+}
+
+function makeStore(db: Database.Database): ExecutionStore {
+  return new ExecutionStore(db as unknown as NexusEngine);
+}
+
+function registerWorker(reg: WorkerRegistry, workerId: string): void {
+  reg.register({ workerId, status: "ONLINE", capabilities: ["build"], registeredAt: Date.now() });
+}
+
+interface ControllableDispatch {
+  port: ExecutionDispatchPort;
+  setAuto: (v: boolean) => void;
+  waitForPending: (n: number) => Promise<void>;
+  resolve: (r: ExecutionAdapterResult) => void;
+}
+function makeControllableDispatch(): ControllableDispatch {
+  const pending: Array<(r: ExecutionAdapterResult) => void> = [];
+  let auto = true;
+  const port: ExecutionDispatchPort = {
+    async dispatch() { return { dispatchId: "disp_" + Math.random().toString(36).slice(2) }; },
+    async collectResult(): Promise<ExecutionAdapterResult> {
+      if (auto) return { success: true, exitCode: 0 };
+      return await new Promise<ExecutionAdapterResult>((resolve) => { pending.push(resolve); });
+    },
+    async cancel() { /* no-op */ },
+    async getStatus() { return { status: "RUNNING" }; },
+  };
+  return {
+    port,
+    setAuto: (v) => { auto = v; },
+    waitForPending: async (n) => {
+      for (let i = 0; i < 500 && pending.length < n; i++) await new Promise((r) => setImmediate(r));
+      if (pending.length < n) throw new Error("expected >= " + n + " pending, got " + pending.length);
+    },
+    resolve: (r) => {
+      const fn = pending.shift();
+      if (!fn) throw new Error("no pending collectResult to resolve");
+      fn(r);
+    },
+  };
+}
+
+interface Rig {
+  db: Database.Database;
+  store: ExecutionStore;
+  leaseMgr: LeaseManager;
+  registry: WorkerRegistry;
+  engine: ExecutionEngine;
+  dispatch: ControllableDispatch;
+}
+function buildRig(): Rig {
+  const db = newDb();
+  const store = makeStore(db);
+  const leaseMgr = new LeaseManager(store);
+  const registry = new WorkerRegistry(store, leaseMgr);
+  registerWorker(registry, "worker-A");
+  registerWorker(registry, "worker-B");
+  const dispatch = makeControllableDispatch();
+  const deps: ExecutionDeps = { dispatchPort: dispatch.port };
+  const engine = new ExecutionEngine(store, registry, leaseMgr, new RetryEngine(), deps);
+  return { db, store, leaseMgr, registry, engine, dispatch };
+}
+
+const RETRY_POLICY = { maxAttempts: 3, initialDelayMs: 10, multiplier: 2, maxDelayMs: 100 };
+
+function jobRow(db: Database.Database, jobId: string): Record<string, unknown> | undefined {
+  return db.prepare("SELECT * FROM execution_jobs WHERE id = ?").get(jobId) as Record<string, unknown> | undefined;
+}
+function attemptRows(db: Database.Database, jobId: string): Array<Record<string, unknown>> {
+  return db.prepare("SELECT * FROM execution_attempts WHERE job_id = ? ORDER BY attempt_number").all(jobId) as Array<Record<string, unknown>>;
+}
+function countObligations(db: Database.Database, jobId: string): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM execution_ownership_obligations WHERE job_id = ?").get(jobId) as { n: number }).n;
+}
+async function testStaleWorkerCannotFinalize(): Promise<void> {
+  console.log("\n[136-1] stale worker cannot finalize after lease loss");
+  const r = buildRig();
+
+  const job = r.engine.createJob(
+    "BUILD",
+    { project: "nexus-test" },
+    "idem-stale-finalize",
+    RETRY_POLICY,
+  );
+
+  const claimed = r.engine.claimNextJob("worker-A");
+  ok("136-1.1", !!claimed, "worker A claimed job");
+
+  const leaseA = claimed?.lease;
+  ok("136-1.2", !!leaseA, "worker A acquired lease");
+
+  r.dispatch.setAuto(false);
+
+  const execution = r.engine.executeJob(
+    "worker-A",
+    job.id,
+    leaseA!.leaseId,
+  );
+
+  await r.dispatch.waitForPending(1);
+
+  const beforeExpiry = r.store.getJob(job.id);
+  eq(
+    "136-1.2",
+    beforeExpiry?.status,
+    "RUNNING",
+    "job is RUNNING while worker A is executing",
+  );
+
+  r.db.prepare(`
+    UPDATE execution_leases
+    SET expires_at = ?
+    WHERE lease_id = ?
+  `).run(Date.now() - 1, leaseA!.leaseId);
+
+  r.engine.recoverStaleJobs(Date.now());
+
+  const leaseAStatus = r.db.prepare(
+    "SELECT status FROM execution_leases WHERE lease_id = ?"
+  ).get(leaseA!.leaseId) as { status: string } | undefined;
+  ok(
+    "136-1.3",
+    leaseAStatus?.status === "EXPIRED",
+    "stale lease A is durably marked EXPIRED by recovery",
+  );
+
+  const afterRecovery = r.store.getJob(job.id);
+  eq(
+    "136-1.4",
+    afterRecovery?.status,
+    "QUEUED",
+    "stale job is re-queued for retry",
+  );
+
+  const leaseB = r.leaseMgr.acquireLease(job.id, "worker-B", 5000);
+  ok("136-1.5", !!leaseB, "worker B acquired replacement lease");
+
+  const attemptsBefore = attemptRows(r.db, job.id);
+  eq(
+    "136-1.6",
+    attemptsBefore.length,
+    1,
+

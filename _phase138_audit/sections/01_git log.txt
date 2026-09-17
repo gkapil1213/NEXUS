@@ -1,0 +1,9 @@
+﻿561756f (HEAD -> master, tag: nexus-phase137-complete, origin/master, origin/HEAD) chore: preserve Phase 137 audit evidence
+db49cf9 feat: durable cancellation and timeout control
+2c5b068 (tag: nexus-phase136-complete) Phase 136: harden durable execution crash recovery
+9daa131 (tag: nexus-phase135-complete) Phase 135: enforce stale-worker CI reconciliation fencing
+48b5ac6 Phase 134b: register test:phase134 npm script
+44d6222 (tag: nexus-phase134-complete) Phase 134: durable CI reconciliation worker ownership
+a7d54de (tag: nexus-phase133-complete) Phase 133: durable CI reconciliation scheduling
+3bafeef (tag: nexus-phase132-complete) Phase 132: durable CI completion and authoritative artifact reconciliation
+

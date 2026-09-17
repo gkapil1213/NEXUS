@@ -94,6 +94,13 @@ export class ReleaseDeploymentIntentService {
     return this.store.getReleaseIntent(intentKey);
   }
 
+  requestCancellation(intentKey: string): boolean {
+    return this.store.requestIntentCancellation(intentKey);
+  }
+
+  acknowledgeCancellation(intentKey: string): boolean {
+    return this.store.acknowledgeIntentCancellation(intentKey);
+  }
   transition(
     intentKey: string,
     status: ReleaseIntentStatus,
