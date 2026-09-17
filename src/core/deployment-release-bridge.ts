@@ -221,6 +221,8 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
         startedAt: Date.now(),
       });
 
+      await this.emitDeploymentEvent("deployment.execution.started", req, intent);
+
       await this.deps.svc.events.emit({
         type: "release.deployment_started" as never,
         source: "ReleaseDeploymentBridge",
@@ -285,6 +287,8 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
             intent_key: intent.intentKey,
           },
         });
+        await this.emitDeploymentEvent("deployment.provider.result", req, intent, { provider_status: dep.status, deployment_id: dep.id });
+        await this.emitDeploymentEvent("deployment.succeeded", req, intent, { deployment_id: dep.id });
         return {
           status: "DEPLOYED",
           message: "deployed " + dep.id + " (status=KNOWN_GOOD)",
@@ -300,6 +304,8 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
           providerDeploymentId: dep.id,
           completedAt: Date.now(),
         });
+        await this.emitDeploymentEvent("deployment.provider.result", req, intent, { provider_status: dep.status, deployment_id: dep.id });
+        await this.emitDeploymentEvent("deployment.failed", req, intent, { provider_status: dep.status, deployment_id: dep.id, reason: dep.failure_reason ?? "deployment blocked" });
         return {
           status: "BLOCKED",
           message: dep.failure_reason ?? "deployment blocked",
@@ -314,6 +320,8 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
         providerDeploymentId: dep.id,
         completedAt: Date.now(),
       });
+      await this.emitDeploymentEvent("deployment.provider.result", req, intent, { provider_status: dep.status, deployment_id: dep.id });
+      await this.emitDeploymentEvent("deployment.failed", req, intent, { provider_status: dep.status, deployment_id: dep.id, reason: dep.failure_reason ?? ("deployment status=" + dep.status) });
       return {
         status: "FAIL",
         message: dep.failure_reason ?? ("deployment status=" + dep.status),
@@ -325,6 +333,27 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
   }
 
   /** Phase 102 legacy path — no durable intent, direct deploy. */
+  /** Phase 138 section 15: emit a deployment lifecycle event with standard fields. */
+  private async emitDeploymentEvent(
+    type: string,
+    req: ReleaseExecutionRequest,
+    intent: { intentKey: string },
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
+    await this.deps.svc.events.emit({
+      type: type as never,
+      source: "ReleaseDeploymentBridge",
+      execution_id: req.executionId,
+      payload: {
+        release_id: req.releaseId,
+        artifact_id: req.artifactId,
+        intent_key: intent.intentKey,
+        environment: req.environment,
+        image_digest: req.imageDigest,
+        ...extra,
+      },
+    });
+  }
   private async executeDirect(req: ReleaseExecutionRequest): Promise<ReleaseExecutionOutcome> {
     await this.deps.svc.events.emit({
       type: "release.ready" as never,
