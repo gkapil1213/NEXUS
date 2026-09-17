@@ -118,6 +118,9 @@ export type CICDResult =
   | { status: 'BLOCKED'; reason: string; blockedReason: string; pipeline: Pipeline; changeCategory?: string; execution?: PipelineExecution; stages?: StageExecution[]; artifact?: Artifact; rc?: ReleaseCandidate; risk?: ReleaseRisk; deployment?: DeploymentResult | null; auditEvents: AuditEvent[]; evidence: Evidence[] }
   | { status: 'ALREADY_TERMINAL'; reason: string; terminalStatus: string; pipeline: Pipeline; execution: PipelineExecution; auditEvents: AuditEvent[]; evidence: Evidence[] }
   | { status: 'FAILED'; reason: string; pipeline: Pipeline; execution?: PipelineExecution; stages?: StageExecution[]; artifact?: Artifact; rc?: ReleaseCandidate; risk?: ReleaseRisk; deployment?: DeploymentResult | null; auditEvents: AuditEvent[]; evidence: Evidence[] }
+  | { status: 'RECOVERY_REQUIRED'; reason: string; pipeline: Pipeline; execution?: PipelineExecution; stages?: StageExecution[]; artifact?: Artifact; rc?: ReleaseCandidate; risk?: ReleaseRisk; deployment?: DeploymentResult | null; auditEvents: AuditEvent[]; evidence: Evidence[] }
+  | { status: 'CANCELLED'; reason: string; pipeline: Pipeline; execution: PipelineExecution; auditEvents: AuditEvent[]; evidence: Evidence[] }
+  | { status: 'UNKNOWN'; reason: string; pipeline: Pipeline; execution?: PipelineExecution; stages?: StageExecution[]; artifact?: Artifact; rc?: ReleaseCandidate; risk?: ReleaseRisk; deployment?: DeploymentResult | null; auditEvents: AuditEvent[]; evidence: Evidence[] }
   | { status: 'COMPLETED'; pipeline: Pipeline; execution: PipelineExecution; stages: StageExecution[]; artifact: Artifact; rc: ReleaseCandidate; risk: ReleaseRisk; changeCategory: string; cmdResult: CommandResult; lineage: ProductionLineage; deployment: DeploymentResult | null; deployed: boolean; auditEvents: AuditEvent[]; evidence: Evidence[] };
 
 export async function orchestrateCICD(request: CICDRequest): Promise<CICDResult> {
@@ -204,8 +207,15 @@ export async function orchestrateCICD(request: CICDRequest): Promise<CICDResult>
   let execution = projectPipelineExecution(pipelineJob, fallback);
 
   // Terminal resume: report honest current state, do not fabricate.
+  if (pipelineJob.status === 'CANCELLED') {
+    return {
+      status: 'CANCELLED' as const,
+      reason: `pipeline cancelled: ${pipelineJob.status}`,
+      pipeline, execution, auditEvents, evidence,
+    };
+  }
   if (pipelineJob.status === 'SUCCEEDED' || pipelineJob.status === 'FAILED'
-      || pipelineJob.status === 'CANCELLED' || pipelineJob.status === 'DEAD_LETTER') {
+      || pipelineJob.status === 'DEAD_LETTER') {
     return {
       status: 'ALREADY_TERMINAL' as const,
       terminalStatus: pipelineJob.status,
@@ -519,10 +529,17 @@ export async function orchestrateCICD(request: CICDRequest): Promise<CICDResult>
       const reason = deployResult.message || 'deployment blocked';
       failPipeline(reason, 'BLOCKED');
       return { status: 'BLOCKED' as const, reason, blockedReason: 'DEPLOYMENT_BLOCKED', pipeline, execution, stages, artifact, rc, risk, deployment, auditEvents, evidence };
-    } else {
-      const reason = deployResult.message || ('deployment status=' + deployResult.status);
+    } else if (deployResult.status === 'FAIL') {
+      const reason = deployResult.message || 'deployment failed';
       failPipeline(reason, 'FAILED');
       return { status: 'FAILED' as const, reason, pipeline, execution, stages, artifact, rc, risk, deployment, auditEvents, evidence };
+    } else {
+      // AUTHORIZED | EXECUTING | VERIFIED: provider state is non-terminal or
+      // ambiguous. Do NOT fabricate FAILED or COMPLETED. Surface as
+      // RECOVERY_REQUIRED so the caller knows reconciliation is pending.
+      const reason = deployResult.message || ('deployment non-terminal: ' + deployResult.status);
+      failPipeline(reason, 'BLOCKED');
+      return { status: 'RECOVERY_REQUIRED' as const, reason, pipeline, execution, stages, artifact, rc, risk, deployment, auditEvents, evidence };
     }
   }
 
