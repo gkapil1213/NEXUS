@@ -142,13 +142,13 @@ export class ExecutionEngine {
      *
      * Every post-claim status change goes through here.  If the supplied
      * lease is no longer ACTIVE/owned by this worker, the database update
-     * affects zero rows Ã¢â‚¬â€ we do NOT overwrite the new owner's state.
+     * affects zero rows — we do NOT overwrite the new owner's state.
      *
      * On ownership loss we:
      *   1. write a durable ownership-loss obligation (idempotent per job+lease)
      *   2. emit `execution.ownership_lost` (best-effort)
      *   3. write an audit record (best-effort)
-     *   4. throw OwnershipLostError Ã¢â‚¬â€ deterministic, not silent
+     *   4. throw OwnershipLostError — deterministic, not silent
      */
     private static readonly ACTOR_ALLOWED: Record<
         TransitionActor,
@@ -165,7 +165,6 @@ export class ExecutionEngine {
             ["VERIFYING", "CANCELLED"],
             ["RUNNING", "BLOCKED"],
             ["CANCELLATION_REQUESTED", "RUNNING"],
-            ["CANCELLATION_REQUESTED", "CANCELLED"],
         ],
         recovery: [
             ["CLAIMED", "ORPHANED"],
@@ -180,8 +179,6 @@ export class ExecutionEngine {
             ["QUEUED", "BLOCKED"],
             ["QUEUED", "CANCELLED"],
             ["QUEUED", "CANCELLATION_REQUESTED"],
-            ["RUNNING", "CANCELLATION_REQUESTED"],
-            ["VERIFYING", "CANCELLATION_REQUESTED"],
             ["FAILED", "RETRY_SCHEDULED"],
             ["FAILED", "DEAD_LETTER"],
             ["RETRY_SCHEDULED", "QUEUED"],
@@ -318,7 +315,7 @@ export class ExecutionEngine {
                         "LEASE_ACQUIRED"
                     );
                 } catch (e) {
-                    // Compensating action: CLAIMED CAS failed Ã¢â€ â€™ release the lease
+                    // Compensating action: CLAIMED CAS failed → release the lease
                     this.leaseManager.releaseLease(lease.leaseId);
                     throw e;
                 }
@@ -337,7 +334,7 @@ export class ExecutionEngine {
 
     /**
      * Phase 136: called when a worker-authoritative attempt write is fenced out.
-     * Records a durable ownership obligation and emits audit/events Ã¢â‚¬â€ WITHOUT
+     * Records a durable ownership obligation and emits audit/events — WITHOUT
      * mutating authoritative execution state.
      */
     private recordAttemptOwnershipLoss(jobId: string, leaseId: string, workerId: string, reason: string): void {
@@ -364,7 +361,7 @@ export class ExecutionEngine {
         if (!job) throw new Error(`Job ${jobId} not found`);
 
         if (!this.leaseManager.validateLease(leaseId, workerId)) {
-            // Phase 126: ownership already lost.  Do NOT clobber the job row Ã¢â‚¬â€
+            // Phase 126: ownership already lost.  Do NOT clobber the job row —
             // another worker may now own it.  Record the durable obligation,
             // emit telemetry, and throw a typed error so callers can react.
             let obligationId = "unknown";
@@ -507,27 +504,13 @@ export class ExecutionEngine {
 
         attempt.completedAt = Date.now();
 
-        const freshCancel = this.store.getJob(job.id);
-        if (freshCancel?.cancellationRequested) {
-            job.cancellationRequested = true;
-            {
-                const __cancelled = this.store.recoverJobToStatus(
-                    job.id,
-                    freshCancel.status,
-                    "CANCELLED",
-                    leaseId,
-                    { now: Date.now() }
-                );
-                if (__cancelled) {
-                    const __refreshed = this.store.getJob(job.id);
-                    if (__refreshed) {
-                        __refreshed.cancellationAcknowledged = true;
-                        this.store.updateJob(__refreshed);
-                    }
-                } else {
-                    throw new OwnershipLostError(job.id, leaseId, workerId);
-                }
-            }
+        if (job.cancellationRequested) {
+            this.applyTransition(
+                job.id, "worker", "RUNNING", "CANCELLED",
+                workerId, leaseId,
+                { cancellationAcknowledged: true },
+                "POST_EXECUTION_CANCELLED"
+            );
             attempt.status = "CANCELLED";
             attempt.evidence = ["Execution cancelled after completion"];
             attempt.completedAt = Date.now();
@@ -559,27 +542,13 @@ export class ExecutionEngine {
                 nextStatus = "DEAD_LETTER";
             }
 
-            const freshCancel = this.store.getJob(job.id);
-        if (freshCancel?.cancellationRequested) {
-            job.cancellationRequested = true;
-                {
-                    const __cancelled = this.store.recoverJobToStatus(
-                        job.id,
-                        freshCancel.status,
-                        "CANCELLED",
-                        leaseId,
-                        { now: Date.now() }
-                    );
-                    if (__cancelled) {
-                        const __refreshed = this.store.getJob(job.id);
-                        if (__refreshed) {
-                            __refreshed.cancellationAcknowledged = true;
-                            this.store.updateJob(__refreshed);
-                        }
-                    } else {
-                        throw new OwnershipLostError(job.id, leaseId, workerId);
-                    }
-                }
+            if (job.cancellationRequested) {
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "CANCELLED",
+                    workerId, leaseId,
+                    { cancellationAcknowledged: true },
+                    "FAILED_EXECUTION_CANCELLED"
+                );
                 attempt.status = "CANCELLED";
                 attempt.error = executionError || "Execution failed";
                 attempt.completedAt = Date.now();
@@ -657,7 +626,7 @@ export class ExecutionEngine {
             }
 
             if (verificationSuccess) {
-                // Durable transition FIRST Ã¢â‚¬â€ ownership loss must not
+                // Durable transition FIRST — ownership loss must not
                 // persist a false SUCCEEDED attempt.
                 this.applyTransition(
                     job.id, "worker", "VERIFYING", "SUCCEEDED",
@@ -791,135 +760,10 @@ export class ExecutionEngine {
             }
 
             // Only jobs that could have been owned can be orphaned.
-            if (job.status !== "RUNNING" && job.status !== "CLAIMED" && job.status !== "VERIFYING" && job.status !== "CANCELLATION_REQUESTED") {
+            if (job.status !== "RUNNING" && job.status !== "CLAIMED" && job.status !== "VERIFYING") {
                 continue;
             }
 
-            // Phase 137 Ã¢â‚¬â€ durable cancellation takes precedence over orphaning.
-            // If cancellation was requested while a worker was alive and the
-            // worker crashed or lost its lease before completing it, the
-            // request is authoritative: the job terminates CANCELLED rather
-            // than being silently requeued. The transition is CAS-guarded on
-            // the current status + current_lease_id, so a concurrently
-            // recovering owner will make this a no-op.
-            const freshCancel = this.store.getJob(job.id);
-        if (freshCancel?.cancellationRequested) {
-            job.cancellationRequested = true;
-                const cancelled = this.store.recoverJobToStatus(
-                    job.id,
-                    job.status,
-                    "CANCELLED",
-                    job.currentLeaseId ?? null,
-                    { now }
-                );
-                if (!cancelled) continue;
-                job.status = "CANCELLED";
-                job.updatedAt = now;
-                job.currentLeaseId = undefined;
-
-                try {
-                    this.store.writeOwnershipObligation({
-                        jobId: job.id,
-                        leaseId: lease.leaseId,
-                        workerId: lease.workerId,
-                        reason: "CANCELLATION_REQUESTED_ON_LEASE_LOSS",
-                        now,
-                    });
-                } catch { /* isolated */ }
-
-                try {
-                    this.fireAndForget(this.deps.events?.emit({
-                        type: "execution.recovery_completed",
-                        source: "ExecutionEngine",
-                        execution_id: job.id,
-                        payload: {
-                            jobId: job.id,
-                            leaseId: lease.leaseId,
-                            workerId: lease.workerId,
-                            classification: "CANCELLED",
-                            newStatus: "CANCELLED",
-                            reason: "cancellation_requested_honoured_after_lease_loss",
-                        },
-                    }));
-                } catch { /* isolated */ }
-                continue;
-            }
-
-            // Phase 137 Ã¢â‚¬â€ durable timeout. If an execution attempt was in
-            // flight when the lease was lost and the authoritative deadline
-            // (attempt.started_at + timeout_ms) has passed, resolve as a
-            // timeout rather than as a recoverable orphan. The FAILED
-            // terminal is then routed through the existing retry /
-            // dead-letter policy. If no attempt was ever recorded, the job
-            // cannot be classified as a timeout and falls through to the
-            // existing orphan path.
-            let timeoutExpired = false;
-            if (job.status === "RUNNING" || job.status === "VERIFYING") {
-                const attempts = this.store.listAttemptsForJob(job.id);
-                const lastAttempt = attempts.length > 0 ? attempts[attempts.length - 1] : undefined;
-                const startedAt = lastAttempt?.startedAt;
-                const timeoutMs = job.timeoutMs;
-                if (typeof startedAt === "number" && typeof timeoutMs === "number" && timeoutMs > 0) {
-                    timeoutExpired = startedAt + timeoutMs <= now;
-                }
-            }
-
-            if (timeoutExpired) {
-                const failed = this.store.recoverJobToStatus(
-                    job.id,
-                    job.status,
-                    "FAILED",
-                    job.currentLeaseId ?? null,
-                    { now }
-                );
-                if (!failed) continue;
-                job.status = "FAILED";
-                job.updatedAt = now;
-                job.currentLeaseId = undefined;
-
-                try {
-                    this.store.writeOwnershipObligation({
-                        jobId: job.id,
-                        leaseId: lease.leaseId,
-                        workerId: lease.workerId,
-                        reason: "TIMEOUT_ON_LEASE_LOSS",
-                        now,
-                    });
-                } catch { /* isolated */ }
-
-                const canRetryTimeout =
-                    !!job.retryPolicy &&
-                    this.stateMachine.canTransition("FAILED", "RETRY_SCHEDULED");
-                const nextStatusTimeout = canRetryTimeout ? "RETRY_SCHEDULED" : "DEAD_LETTER";
-                const routed = this.store.recoverJobToStatus(
-                    job.id,
-                    "FAILED",
-                    nextStatusTimeout,
-                    null,
-                    { nextAttemptAt: canRetryTimeout ? now : null, now }
-                );
-                if (routed) {
-                    job.status = nextStatusTimeout;
-                    if (canRetryTimeout) job.nextAttemptAt = now;
-                }
-
-                try {
-                    this.fireAndForget(this.deps.events?.emit({
-                        type: "execution.recovery_completed",
-                        source: "ExecutionEngine",
-                        execution_id: job.id,
-                        payload: {
-                            jobId: job.id,
-                            leaseId: lease.leaseId,
-                            workerId: lease.workerId,
-                            classification: "TIMEOUT",
-                            newStatus: job.status,
-                            reason: "deadline_exceeded_during_lease_loss",
-                        },
-                    }));
-                } catch { /* isolated */ }
-                continue;
-            }
             // Atomic: only applies if the job is still in its observed status
             // AND still owned by the same lease.  If a new worker took over
             // between recoverExpiredLeases() and here, this is a no-op.
@@ -931,7 +775,7 @@ export class ExecutionEngine {
                 { now }
             );
             if (!orphaned) {
-                // Another owner appeared concurrently Ã¢â‚¬â€ skip recovery for this
+                // Another owner appeared concurrently — skip recovery for this
                 // job.  The obligation was already written above; it remains
                 // OPEN for the new owner or an operator to resolve.
                 continue;
@@ -965,7 +809,7 @@ export class ExecutionEngine {
                     { nextAttemptAt: now, now }
                 );
                 if (!requeued) {
-                    // Another writer got in Ã¢â‚¬â€ leave as ORPHANED and let the
+                    // Another writer got in — leave as ORPHANED and let the
                     // next recovery cycle pick it up.  No fake SUCCESS.
                     continue;
                 }
@@ -1047,28 +891,7 @@ export class ExecutionEngine {
         if (ok) {
             job.cancellationRequested = true;
             job.updatedAt = Date.now();
-
-            // Phase 137: durable status transition. The flag alone is
-            // discoverable, but transitioning RUNNING/VERIFYING to
-            // CANCELLATION_REQUESTED makes the pending cancellation part of
-            // the authoritative state machine so a fresh process can resume
-            // it without relying on the (possibly dead) owning worker.
-            const cur = this.store.getJob(jobId);
-            if (cur && (cur.status === "RUNNING" || cur.status === "VERIFYING")) {
-                try {
-                    this.applyTransition(
-                        jobId, "system", cur.status, "CANCELLATION_REQUESTED",
-                        undefined, undefined, undefined,
-                        "CANCELLATION_REQUESTED_BY_API"
-                    );
-                    const fresh = this.store.getJob(jobId);
-                    if (fresh) { job.status = fresh.status; }
-                } catch {
-                    // Transition not permitted for this actor/state pair.
-                    // The durable cancellation_requested flag remains the
-                    // authoritative discovery mechanism for recoverStaleJobs.
-                }
-            }
-        }        return job;
+        }
+        return job;
     }
 }

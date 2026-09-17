@@ -111,46 +111,17 @@ export class DispatchService implements ExecutionDispatchPort {
     }
 
     async cancel(dispatchId: string): Promise<void> {
-        await this.cancelDetailed(dispatchId);
-    }
-
-    /**
-     * Phase 137: honest cancellation. Writes CANCELLED only when the remote
-     * provider actually confirms the cancel (or there was no remote provider
-     * to cancel). On provider failure the dispatch status is left unchanged
-     * so recovery can retry, and the caller receives a non-fabricated result.
-     */
-    async cancelDetailed(dispatchId: string): Promise<{ cancelled: boolean; reason?: string }> {
         const record = this.store.getRemoteDispatch(dispatchId);
-        if (!record) return { cancelled: false, reason: "dispatch_not_found" };
-        if (record.status === "CANCELLED") return { cancelled: true };
-        if (record.status === "COMPLETED" || record.status === "FAILED") {
-            return { cancelled: false, reason: "already_terminal:" + record.status };
+        if (record && record.externalProviderId) {
+            await this.remoteManager.cancel(record.externalProviderId);
         }
-
-        if (record.externalProviderId) {
-            try {
-                await this.remoteManager.cancel(record.dispatchId);
-            } catch (e) {
-                return { cancelled: false, reason: "provider_unavailable:" + (((e as Error).message ?? String(e)).slice(0, 200)) };
-            }
+        if (record) {
+            record.status = "CANCELLED";
+            record.updatedAt = Date.now();
+            this.store.upsertRemoteDispatch(record);
         }
-
-        const fresh = this.store.getRemoteDispatch(dispatchId);
-        if (!fresh) return { cancelled: false, reason: "dispatch_vanished" };
-        if (fresh.status === "CANCELLED") return { cancelled: true };
-        if (fresh.status === "COMPLETED" || fresh.status === "FAILED") {
-            return { cancelled: false, reason: "raced_to_terminal:" + fresh.status };
-        }
-
-        const updated: RemoteDispatchRecord = {
-            ...fresh,
-            status: "CANCELLED",
-            updatedAt: Date.now(),
-        };
-        this.store.upsertRemoteDispatch(updated);
-        return { cancelled: true };
     }
+
     async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {
         const record = this.store.getRemoteDispatch(dispatchId);
         if (record?.externalProviderId) {

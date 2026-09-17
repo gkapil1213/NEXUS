@@ -1,4 +1,4 @@
-import { ExecutionDispatchPort } from "./execution-dispatch-port";
+﻿import { ExecutionDispatchPort } from "./execution-dispatch-port";
 import { JobDispatcher } from "./job-dispatcher";
 import { RemoteExecutionManager } from "./remote-execution-manager";
 import { ExecutionStore } from "./execution-store";
@@ -130,7 +130,7 @@ export class DispatchService implements ExecutionDispatchPort {
 
         if (record.externalProviderId) {
             try {
-                await this.remoteManager.cancel(record.dispatchId);
+                await this.remoteManager.cancel(record.externalProviderId);
             } catch (e) {
                 return { cancelled: false, reason: "provider_unavailable:" + (((e as Error).message ?? String(e)).slice(0, 200)) };
             }

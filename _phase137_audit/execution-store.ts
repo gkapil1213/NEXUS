@@ -323,7 +323,7 @@ export class ExecutionStore {
   requestCancellation(jobId: string, now: number = Date.now()): boolean {
     const result = this.db.prepare(`
       UPDATE execution_jobs SET cancellation_requested = 1, updated_at = ?
-      WHERE id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'DEAD_LETTER', 'BLOCKED')
+      WHERE id = ? AND status NOT IN ('SUCCEEDED', 'CANCELLED', 'DEAD_LETTER', 'BLOCKED')
     `).run(now, jobId);
     return result.changes > 0;
   }

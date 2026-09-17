@@ -5,7 +5,6 @@ import { RemoteWorkerStore } from "./remote-worker-store";
 import { ExecutionStore } from "./execution-store";
 import { WorkerAuthentication } from "./worker-authentication";
 import { WorkerTransportSecurity } from "./worker-transport-security";
-import type { DispatchService } from "./dispatch-service";
 import { WorkerTransportMessage, WorkerTransportMessageType } from "./worker-transport-messages";
 import { WorkerSession } from "./worker-session";
 import { RemoteWorker } from "./remote-worker-models";
@@ -17,7 +16,6 @@ const SUPPORTED_PROTOCOL_VERSION = "1.0";
 export class WorkerGateway {
   private server: ReturnType<typeof createServer>;
   private security = new WorkerTransportSecurity();
-  private dispatchService?: DispatchService;
   private listeningPromise?: Promise<void>;
 
   constructor(
@@ -30,15 +28,6 @@ export class WorkerGateway {
     this.server = createServer((req, res) => this.handleRequest(req, res));
   }
 
-  /**
-   * Phase 137: late-bound wiring. Kernel constructs DispatchService after
-   * the gateway, so the reference is attached afterwards. Without it,
-   * JOB_CANCEL honestly reports that provider cancellation is unavailable
-   * rather than fabricating success.
-   */
-  attachDispatchService(svc: DispatchService): void {
-    this.dispatchService = svc;
-  }
   start(): Promise<void> {
     if (this.listeningPromise) return this.listeningPromise;
     this.listeningPromise = new Promise((resolve, reject) => {
@@ -229,36 +218,9 @@ export class WorkerGateway {
         if (!persist.persisted) { throw new Error("ownership_lost"); }
         return { type: "JOB_RESULT_ACK" };
       }
-      case "JOB_CANCEL": {
-        const { jobId } = payload;
-        if (!this.executionStore) throw new Error("durable_store_unavailable");
-        if (!jobId) throw new Error("jobId_required");
-
-        const dispatches = this.executionStore.listRemoteDispatchesByJob(jobId);
-        const active = dispatches.find(
-          (d) => d.workerId === workerId &&
-            (d.status === "DISPATCHED" || d.status === "DISPATCH_INTENT"),
-        );
-
-        if (!active) {
-          const anyMine = dispatches.find((d) => d.workerId === workerId);
-          if (!anyMine) throw new Error("dispatch_not_found");
-          if (anyMine.status === "CANCELLED") {
-            return { type: "JOB_CANCEL_ACK" };
-          }
-          return { type: "JOB_CANCEL_ACK", confirmed: false, reason: "not_cancellable:" + anyMine.status };
-        }
-
-        if (!this.dispatchService) {
-          return { type: "JOB_CANCEL_ACK", confirmed: false, reason: "no_provider_cancel_available" };
-        }
-
-        const result = await this.dispatchService.cancelDetailed(active.dispatchId);
-        if (result.cancelled) {
-          return { type: "JOB_CANCEL_ACK" };
-        }
-        return { type: "JOB_CANCEL_ACK", confirmed: false, reason: result.reason ?? "cancellation_unconfirmed" };
-      }      default:
+      case "JOB_CANCEL":
+        throw new Error("cancellation_not_implemented");
+      default:
         throw new Error("unknown_message_type");
     }
   }

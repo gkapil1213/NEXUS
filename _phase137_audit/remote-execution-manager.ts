@@ -65,41 +65,11 @@ export class RemoteExecutionManager {
         return result;
     }
 
-    async cancel(dispatchIdOrProviderId: string): Promise<void> {
-        // In-memory lookup first - preserves callers that pass the id
-        // returned by dispatch().
-        let entry = this.dispatches.get(dispatchIdOrProviderId);
-        let durableRecord: RemoteDispatchRecord | undefined;
-
-        // Fall back to durable state. Callers may supply either the
-        // durable dispatch id (DispatchService) or the external provider
-        // id (post-restart callers). Both must resolve.
-        if (!entry && this.store) {
-            durableRecord =
-                this.store.getRemoteDispatch(dispatchIdOrProviderId) ??
-                this.store
-                    .listAllRemoteDispatches()
-                    .find(
-                        (r) =>
-                            r.dispatchId === dispatchIdOrProviderId ||
-                            r.externalProviderId === dispatchIdOrProviderId
-                    );
-        }
-
-        // The adapter cancel() contract takes the provider identifier,
-        // not the durable dispatch identifier.
-        const adapterId =
-            durableRecord?.externalProviderId ??
-            durableRecord?.dispatchId ??
-            dispatchIdOrProviderId;
-
-        // Invoke the adapter exactly once. Provider failures propagate.
-        await this.adapter.cancel(adapterId);
-
-        // Durable status is the caller's responsibility.
-        const key = durableRecord?.dispatchId ?? dispatchIdOrProviderId;
-        this.dispatches.set(key, { adapter: this.adapter, status: "CANCELLED" });
-        if (entry) entry.status = "CANCELLED";
+    async cancel(dispatchId: string): Promise<void> {
+        const entry = this.dispatches.get(dispatchId);
+        if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
+        await entry.adapter.cancel(dispatchId);
+        entry.status = "CANCELLED";
     }
 
     async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {

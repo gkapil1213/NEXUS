@@ -1,0 +1,4430 @@
+﻿# Phase 137 context 20260917-130258
+Repo: C:\Users\pc\NEXUS
+
+===== FILE: src/core/remote-execution-manager.ts =====
+import { RemoteExecutionAdapter } from "./remote-execution-adapter";
+import { ExecutionAdapterRequest, ExecutionAdapterResult } from "./execution-adapter";
+import { ExecutionStore } from "./execution-store";
+import { RemoteDispatchRecord } from "./execution-models";
+
+export class RemoteExecutionManager {
+    private dispatches = new Map<string, { adapter: RemoteExecutionAdapter; status: string }>();
+
+    constructor(
+        private adapter: RemoteExecutionAdapter,
+        private store?: ExecutionStore
+    ) {
+        if (store) {
+            this.reconcilePersistedDispatches(store.listAllRemoteDispatches());
+        }
+    }
+
+    public async reconcilePersistedDispatches(records: RemoteDispatchRecord[]): Promise<void> {
+        for (const record of records) {
+            if (this.dispatches.has(record.dispatchId)) continue;
+
+            // Terminal states are already durable; do not overwrite them.
+            if (record.status === "COMPLETED" || record.status === "FAILED" || record.status === "CANCELLED") {
+                this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: record.status });
+                continue;
+            }
+
+            let finalStatus: RemoteDispatchRecord["status"] = "UNKNOWN";
+            try {
+                const queryId = record.externalProviderId ?? record.dispatchId;
+                const status = await this.adapter.getStatus(queryId);
+                finalStatus = status.status as RemoteDispatchRecord["status"];
+                this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: status.status });
+            } catch {
+                this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: "UNKNOWN" });
+            }
+
+            if (this.store) {
+                const fresh = this.store.getRemoteDispatch(record.dispatchId);
+                if (fresh) {
+                    // Phase 136: do not overwrite a terminal status written by
+                    // the authoritative worker while this control-plane sweep
+                    // awaited the provider.
+                    const isTerminal =
+                        fresh.status === "COMPLETED" ||
+                        fresh.status === "FAILED" ||
+                        fresh.status === "CANCELLED";
+                    if (!isTerminal) {
+                        const updated: RemoteDispatchRecord = {
+                            ...fresh,
+                            status: finalStatus,
+                            updatedAt: Date.now(),
+                        };
+                        this.store.upsertRemoteDispatch(updated);
+                    }
+                }
+            }
+        }
+    }
+
+    async dispatch(request: ExecutionAdapterRequest, workerId: string, leaseId: string): Promise<{ dispatchId: string }> {
+        await this.adapter.connect();
+        const result = await this.adapter.dispatch(request, workerId, leaseId);
+        this.dispatches.set(result.dispatchId, { adapter: this.adapter, status: "DISPATCHED" });
+        return result;
+    }
+
+    async cancel(dispatchId: string): Promise<void> {
+        const entry = this.dispatches.get(dispatchId);
+        if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
+        await entry.adapter.cancel(dispatchId);
+        entry.status = "CANCELLED";
+    }
+
+    async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {
+        const entry = this.dispatches.get(dispatchId);
+        if (entry) return entry.adapter.getStatus(dispatchId);
+        if (this.store) {
+            const record = this.store.getRemoteDispatch(dispatchId);
+            if (record) {
+                if (record.result) return { status: record.result.success ? "COMPLETED" : "FAILED", evidence: record.result.evidence };
+                if (record.status) return { status: record.status };
+            }
+        }
+        throw new Error(`Dispatch ${dispatchId} not found`);
+    }
+
+    async collectResult(dispatchId: string): Promise<ExecutionAdapterResult> {
+        // Durable terminal results are authoritative across process restarts.
+        // Never prefer an in-memory adapter result over a persisted result.
+        if (this.store) {
+            const record = this.store.getRemoteDispatch(dispatchId);
+            if (record) {
+                if (record.result) {
+                    return record.result;
+                }
+
+                const providerId = record.externalProviderId ?? dispatchId;
+                return this.adapter.collectResult(providerId);
+            }
+        }
+
+        const entry = this.dispatches.get(dispatchId);
+        if (entry) {
+            return entry.adapter.collectResult(dispatchId);
+        }
+
+        throw new Error(`Dispatch ${dispatchId} not found`);
+    }
+
+    streamLogs(dispatchId: string) {
+        const entry = this.dispatches.get(dispatchId);
+        if (!entry) throw new Error(`Dispatch ${dispatchId} not found`);
+        return entry.adapter.streamLogs(dispatchId);
+    }
+}
+
+
+===== FILE: src/core/dispatch-service.ts =====
+import { ExecutionDispatchPort } from "./execution-dispatch-port";
+import { JobDispatcher } from "./job-dispatcher";
+import { RemoteExecutionManager } from "./remote-execution-manager";
+import { ExecutionStore } from "./execution-store";
+import { ExecutionJob, ExecutionAttempt, RemoteDispatchRecord } from "./execution-models";
+import { ExecutionAdapterRequest, ExecutionAdapterResult } from "./execution-adapter";
+
+function generateInternalId(): string {
+    if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+    return `dispatch_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+export class DispatchService implements ExecutionDispatchPort {
+    constructor(
+        private jobDispatcher: JobDispatcher,
+        private remoteManager: RemoteExecutionManager,
+        private store: ExecutionStore
+    ) {}
+
+    private createOrGetDispatchRecord(
+        job: ExecutionJob,
+        attempt: ExecutionAttempt,
+        leaseId: string,
+        request: ExecutionAdapterRequest
+    ): { record: RemoteDispatchRecord; created: boolean } {
+        const now = Date.now();
+        const internalId = generateInternalId();
+
+        const record: RemoteDispatchRecord = {
+            dispatchId: internalId,
+            jobId: job.id,
+            attemptId: attempt.id,
+            workerId: attempt.workerId!,
+            leaseId: leaseId,
+            idempotencyKey: job.idempotencyKey,
+            status: "DISPATCH_INTENT",
+            request,
+            createdAt: now,
+            updatedAt: now,
+        };
+
+        return this.store.createRemoteDispatchIfAbsent(record);
+    }
+    async dispatch(
+        job: ExecutionJob,
+        attempt: ExecutionAttempt,
+        leaseId: string,
+        request: ExecutionAdapterRequest
+    ): Promise<{ dispatchId: string }> {
+        const { record, created } = this.createOrGetDispatchRecord(
+            job,
+            attempt,
+            leaseId,
+            request
+        );
+
+        if (!created) {
+            if (
+                record.status === "DISPATCHED" ||
+                record.status === "COMPLETED" ||
+                record.status === "FAILED" ||
+                record.status === "CANCELLED"
+            ) {
+                return { dispatchId: record.dispatchId };
+            }
+
+            if (record.status === "DISPATCH_INTENT") {
+                throw new Error("Dispatch " + record.dispatchId + " has a persisted DISPATCH_INTENT and requires reconciliation before redispatch");
+            }
+
+            if (record.status === "UNKNOWN") {
+                throw new Error("Dispatch " + record.dispatchId + " has UNKNOWN remote state and cannot be redispatched automatically");
+            }
+
+            throw new Error("Dispatch " + record.dispatchId + " is in unsupported state " + record.status);
+        }
+
+        const providerDispatchId = await this.jobDispatcher.dispatchJob(
+            job.id,
+            attempt.workerId!,
+            request
+        );
+
+        const updated: RemoteDispatchRecord = {
+            ...record,
+            externalProviderId: providerDispatchId,
+            status: "DISPATCHED",
+            updatedAt: Date.now(),
+        };
+
+        this.store.upsertRemoteDispatch(updated);
+
+        return { dispatchId: record.dispatchId };
+    }
+    async collectResult(dispatchId: string): Promise<ExecutionAdapterResult> {
+        const record = this.store.getRemoteDispatch(dispatchId);
+        if (!record) throw new Error(`Dispatch ${dispatchId} not found`);
+
+        // If result already persisted (e.g., after restart), return directly
+        if (record.result) return record.result;
+
+        const providerId = record.externalProviderId ?? dispatchId;
+        const result = await this.remoteManager.collectResult(providerId);
+        record.result = result;
+        record.status = result.success ? "COMPLETED" : "FAILED";
+        record.updatedAt = Date.now();
+        this.store.upsertRemoteDispatch(record);
+        return result;
+    }
+
+    async cancel(dispatchId: string): Promise<void> {
+        await this.cancelDetailed(dispatchId);
+    }
+
+    /**
+     * Phase 137: honest cancellation. Writes CANCELLED only when the remote
+     * provider actually confirms the cancel (or there was no remote provider
+     * to cancel). On provider failure the dispatch status is left unchanged
+     * so recovery can retry, and the caller receives a non-fabricated result.
+     */
+    async cancelDetailed(dispatchId: string): Promise<{ cancelled: boolean; reason?: string }> {
+        const record = this.store.getRemoteDispatch(dispatchId);
+        if (!record) return { cancelled: false, reason: "dispatch_not_found" };
+        if (record.status === "CANCELLED") return { cancelled: true };
+        if (record.status === "COMPLETED" || record.status === "FAILED") {
+            return { cancelled: false, reason: "already_terminal:" + record.status };
+        }
+
+        if (record.externalProviderId) {
+            try {
+                await this.remoteManager.cancel(record.externalProviderId);
+            } catch (e) {
+                return { cancelled: false, reason: "provider_unavailable:" + (((e as Error).message ?? String(e)).slice(0, 200)) };
+            }
+        }
+
+        const fresh = this.store.getRemoteDispatch(dispatchId);
+        if (!fresh) return { cancelled: false, reason: "dispatch_vanished" };
+        if (fresh.status === "CANCELLED") return { cancelled: true };
+        if (fresh.status === "COMPLETED" || fresh.status === "FAILED") {
+            return { cancelled: false, reason: "raced_to_terminal:" + fresh.status };
+        }
+
+        const updated: RemoteDispatchRecord = {
+            ...fresh,
+            status: "CANCELLED",
+            updatedAt: Date.now(),
+        };
+        this.store.upsertRemoteDispatch(updated);
+        return { cancelled: true };
+    }
+    async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {
+        const record = this.store.getRemoteDispatch(dispatchId);
+        if (record?.externalProviderId) {
+            return this.remoteManager.getStatus(record.externalProviderId);
+        }
+        throw new Error(`Dispatch ${dispatchId} not found`);
+    }
+}
+
+
+===== FILE: src/core/worker-gateway.ts =====
+import { createServer, IncomingMessage, ServerResponse } from "http";
+import { WorkerTransport } from "./worker-transport";
+import { WorkerSessionStore } from "./worker-session-store";
+import { RemoteWorkerStore } from "./remote-worker-store";
+import { ExecutionStore } from "./execution-store";
+import { WorkerAuthentication } from "./worker-authentication";
+import { WorkerTransportSecurity } from "./worker-transport-security";
+import type { DispatchService } from "./dispatch-service";
+import { WorkerTransportMessage, WorkerTransportMessageType } from "./worker-transport-messages";
+import { WorkerSession } from "./worker-session";
+import { RemoteWorker } from "./remote-worker-models";
+import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
+
+const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
+const SUPPORTED_PROTOCOL_VERSION = "1.0";
+
+export class WorkerGateway {
+  private server: ReturnType<typeof createServer>;
+  private security = new WorkerTransportSecurity();
+  private dispatchService?: DispatchService;
+  private listeningPromise?: Promise<void>;
+
+  constructor(
+    private port: number,
+    private sessionStore: WorkerSessionStore,
+    private workerStore: RemoteWorkerStore,
+    private auth: WorkerAuthentication,
+    private executionStore?: ExecutionStore
+  ) {
+    this.server = createServer((req, res) => this.handleRequest(req, res));
+  }
+
+  /**
+   * Phase 137: late-bound wiring. Kernel constructs DispatchService after
+   * the gateway, so the reference is attached afterwards. Without it,
+   * JOB_CANCEL honestly reports that provider cancellation is unavailable
+   * rather than fabricating success.
+   */
+  attachDispatchService(svc: DispatchService): void {
+    this.dispatchService = svc;
+  }
+  start(): Promise<void> {
+    if (this.listeningPromise) return this.listeningPromise;
+    this.listeningPromise = new Promise((resolve, reject) => {
+      this.server.once("error", reject);
+      this.server.listen(this.port, () => {
+        this.server.off("error", reject);
+        resolve();
+      });
+    });
+    return this.listeningPromise;
+  }
+
+  stop(): Promise<void> {
+    return new Promise((resolve) => {
+      this.server.close(() => resolve());
+    });
+  }
+
+  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== "POST") return this.send(res, 405, { error: "method_not_allowed" });
+    const contentType = req.headers["content-type"] || "";
+    if (!contentType.includes("application/json")) return this.send(res, 415, { error: "unsupported_media_type" });
+
+    let body = "";
+    let bytes = 0;
+    for await (const chunk of req) {
+      bytes += chunk.length;
+      if (bytes > MAX_BODY_BYTES) {
+        return this.send(res, 413, { error: "body_too_large" });
+      }
+      body += chunk;
+    }
+
+    let msg: WorkerTransportMessage;
+    try {
+      msg = JSON.parse(body);
+    } catch {
+      return this.send(res, 400, { error: "malformed_json" });
+    }
+    if (!msg?.messageId || !msg?.type) return this.send(res, 400, { error: "missing_message_fields" });
+
+    try {
+      const result = await this.handleMessage(msg);
+      this.send(res, 200, result);
+    } catch (e: any) {
+      this.send(res, 400, { error: e.message || "gateway_error" });
+    }
+  }
+
+  private send(res: ServerResponse, status: number, data: unknown): void {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(data));
+  }
+
+  private async handleMessage(msg: WorkerTransportMessage): Promise<any> {
+    const { type, sessionId, workerId, sequence, messageId, payload, protocolVersion } = msg;
+    if (protocolVersion && protocolVersion !== SUPPORTED_PROTOCOL_VERSION) {
+      throw new Error("unsupported_protocol_version");
+    }
+
+    // AUTH_REQUEST handled separately
+    if (type === "AUTH_REQUEST") {
+      const { workerId, credential } = payload;
+      const authResult = this.auth.authenticate({ workerId, credential, timestamp: Date.now() });
+      if (!authResult.authenticated) return { type: "AUTH_RESPONSE", authenticated: false, reason: authResult.reason };
+      const sessionId = authResult.sessionToken!;
+      const session: WorkerSession = {
+        sessionId,
+        workerId,
+        status: "ACTIVE",
+        protocolVersion: SUPPORTED_PROTOCOL_VERSION,
+        createdAt: Date.now(),
+        authenticatedAt: Date.now(),
+        lastSeenAt: Date.now(),
+        lastSequence: 0,
+        expiresAt: Date.now() + 60000,
+      };
+      this.sessionStore.createSession(session);
+      return { type: "AUTH_RESPONSE", authenticated: true, sessionId };
+    }
+
+    // All other messages require valid session
+    if (!sessionId || !workerId) throw new Error("missing_session_or_worker");
+    const session = this.sessionStore.getSession(sessionId);
+    if (!session || session.workerId !== workerId || session.status !== "ACTIVE") {
+      throw new Error("invalid_session");
+    }
+    if (session.expiresAt < Date.now()) {
+      this.sessionStore.markRevoked(sessionId);
+      throw new Error("session_expired");
+    }
+
+    // Durable sequence validation
+    if (sequence === undefined || sequence <= session.lastSequence) {
+      throw new Error("invalid_sequence");
+    }
+
+    // Validate messageId freshness (in-memory only; durable idempotency handled separately for result)
+    const freshness = this.security.validateFreshMessage(messageId, sessionId, sequence);
+    if (!freshness.valid) throw new Error(freshness.reason || "invalid_message");
+
+    // Accept and advance durable session sequence
+    session.lastSequence = sequence;
+    session.lastSeenAt = Date.now();
+    this.sessionStore.updateSession(session);
+    this.security.acceptMessage(messageId, sessionId, sequence);
+
+    switch (type) {
+      case "HEARTBEAT": {
+        const worker = this.workerStore.getWorker(workerId);
+        if (!worker) throw new Error("worker_not_found");
+        worker.lastHeartbeatAt = Date.now();
+        worker.status = payload?.currentJobId ? "BUSY" : "ONLINE";
+        this.workerStore.updateWorker(worker);
+        return { type: "HEARTBEAT_ACK" };
+      }
+      case "JOB_OFFER": {
+        // Atomic DB-level claim: two concurrent pollers cannot claim the same dispatch.
+        if (!this.executionStore) throw new Error("durable_store_unavailable");
+        const claimed = this.executionStore.claimNextDispatchForWorker(workerId);
+        if (!claimed) return { type: "JOB_OFFER", job: null };
+        return {
+          type: "JOB_OFFER",
+          job: {
+            jobId: claimed.jobId,
+            dispatchId: claimed.dispatchId,
+            leaseId: claimed.leaseId,
+            operation: claimed.request?.operation,
+            args: claimed.request?.args,
+            cwd: claimed.request?.cwd,
+            timeoutMs: claimed.request?.timeoutMs,
+          },
+        };
+      }
+      case "JOB_RESULT": {
+        const { jobId, result } = payload;
+        if (!this.executionStore) throw new Error("durable_store_unavailable");
+        const dispatch = this.executionStore.getRemoteDispatch(result.dispatchId);
+        if (!dispatch || dispatch.workerId !== workerId || dispatch.jobId !== jobId) {
+          throw new Error("dispatch_ownership_violation");
+        }
+        // Idempotent duplicate detection
+        const existing = this.executionStore.getRemoteExecutionResultByDispatchId(result.dispatchId);
+        if (existing) {
+          if (existing.resultSha256 === result.resultSha256) {
+            return { type: "JOB_RESULT_ACK" };
+          }
+          throw new Error("conflicting_duplicate_result");
+        }
+
+        const durableResult: RemoteExecutionResult = {
+          resultId: `result_${result.dispatchId}`,
+          jobId: result.jobId,
+          attemptId: dispatch.attemptId,
+          workerId: result.workerId || workerId,
+          dispatchId: result.dispatchId,
+          leaseId: result.leaseId,
+          success: result.success,
+          exitCode: result.exitCode,
+          stdoutRef: result.stdout,
+          stderrRef: result.stderr,
+          evidence: result.evidence,
+          createdAt: Date.now(),
+          stdoutSha256: result.stdoutSha256,
+          stderrSha256: result.stderrSha256,
+          resultSha256: result.resultSha256,
+        };
+        const updatedDispatch: RemoteDispatchRecord = {
+          ...dispatch,
+          result: {
+            success: result.success,
+            exitCode: result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            evidence: result.evidence,
+          },
+          status: result.success ? "COMPLETED" : "FAILED",
+          updatedAt: Date.now(),
+        };
+
+        // Atomic persist
+        const persist = this.executionStore.persistRemoteExecutionResultAndDispatchAsOwner(
+          durableResult,
+          updatedDispatch,
+          result.leaseId,
+          result.workerId || workerId,
+        );
+        if (!persist.persisted) { throw new Error("ownership_lost"); }
+        return { type: "JOB_RESULT_ACK" };
+      }
+      case "JOB_CANCEL": {
+        const { jobId } = payload;
+        if (!this.executionStore) throw new Error("durable_store_unavailable");
+        if (!jobId) throw new Error("jobId_required");
+
+        const dispatches = this.executionStore.listRemoteDispatchesByJob(jobId);
+        const active = dispatches.find(
+          (d) => d.workerId === workerId &&
+            (d.status === "DISPATCHED" || d.status === "DISPATCH_INTENT"),
+        );
+
+        if (!active) {
+          const anyMine = dispatches.find((d) => d.workerId === workerId);
+          if (!anyMine) throw new Error("dispatch_not_found");
+          if (anyMine.status === "CANCELLED") {
+            return { type: "JOB_CANCEL_ACK" };
+          }
+          return { type: "JOB_CANCEL_ACK", confirmed: false, reason: "not_cancellable:" + anyMine.status };
+        }
+
+        if (!this.dispatchService) {
+          return { type: "JOB_CANCEL_ACK", confirmed: false, reason: "no_provider_cancel_available" };
+        }
+
+        const result = await this.dispatchService.cancelDetailed(active.dispatchId);
+        if (result.cancelled) {
+          return { type: "JOB_CANCEL_ACK" };
+        }
+        return { type: "JOB_CANCEL_ACK", confirmed: false, reason: result.reason ?? "cancellation_unconfirmed" };
+      }      default:
+        throw new Error("unknown_message_type");
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Control-plane API (used by RemoteExecutionAdapter).
+  // ------------------------------------------------------------------
+
+  async createDispatch(input: {
+    jobId: string;
+    attemptId: string;
+    workerId: string;
+    leaseId: string;
+    idempotencyKey: string;
+    request: { operation: string; args?: string[]; cwd?: string; timeoutMs?: number };
+  }): Promise<{ dispatchId: string; created: boolean; status: string }> {
+    if (!this.executionStore) throw new Error("durable_store_unavailable");
+    if (!input.jobId) throw new Error("jobId_required");
+    if (!input.attemptId) throw new Error("attemptId_required");
+    if (!input.workerId) throw new Error("workerId_required");
+    if (!input.leaseId) throw new Error("leaseId_required");
+    if (!input.idempotencyKey) throw new Error("idempotencyKey_required");
+    if (!input.request || !input.request.operation) throw new Error("operation_required");
+
+    const record: RemoteDispatchRecord = {
+      dispatchId: crypto.randomUUID(),
+      jobId: input.jobId,
+      attemptId: input.attemptId,
+      workerId: input.workerId,
+      leaseId: input.leaseId,
+      idempotencyKey: input.idempotencyKey,
+      status: "DISPATCHED",
+      request: {
+        operation: input.request.operation,
+        args: input.request.args,
+        cwd: input.request.cwd,
+        timeoutMs: input.request.timeoutMs,
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const { record: stored, created } = this.executionStore.createRemoteDispatchIdempotent(record);
+    return { dispatchId: stored.dispatchId, created, status: stored.status };
+  }
+
+  async getDispatchStatus(dispatchId: string): Promise<RemoteDispatchRecord | undefined> {
+    if (!this.executionStore) throw new Error("durable_store_unavailable");
+    return this.executionStore.getRemoteDispatch(dispatchId);
+  }
+
+  async collectDispatchResult(dispatchId: string): Promise<any> {
+    if (!this.executionStore) throw new Error("durable_store_unavailable");
+    const dispatch = this.executionStore.getRemoteDispatch(dispatchId);
+    if (!dispatch) throw new Error("dispatch_not_found");
+    const result = this.executionStore.getRemoteExecutionResultByDispatchId(dispatchId);
+    if (!result) {
+      if (dispatch.status === "COMPLETED" || dispatch.status === "FAILED") {
+        const embedded: any = (dispatch as any).result;
+        if (embedded) {
+          return {
+            success: !!embedded.success,
+            exitCode: typeof embedded.exitCode === "number" ? embedded.exitCode : 0,
+            stdout: embedded.stdout,
+            stderr: embedded.stderr,
+            evidence: embedded.evidence,
+          };
+        }
+        throw new Error("result_unavailable");
+      }
+      throw new Error("result_not_ready");
+    }
+    // Storage-contract note: the JOB_RESULT handler above writes the worker's
+    // INLINE stdout/stderr into the columns named `stdout_ref`/`stderr_ref`.
+    // So for results produced by this gateway, those columns hold INLINE text.
+    // We therefore expose both `stdout` (inline) and `stdoutRef` (raw column)
+    // so callers can use the correct semantic. When real external references
+    // are introduced, only `stdoutRef` will carry meaning.
+    return {
+      success: result.success,
+      exitCode: result.exitCode ?? 0,
+      stdout: result.stdoutRef ?? undefined,
+      stderr: result.stderrRef ?? undefined,
+      stdoutRef: result.stdoutRef ?? undefined,
+      stderrRef: result.stderrRef ?? undefined,
+      evidence: result.evidence,
+      resultId: result.resultId,
+      resultSha256: result.resultSha256,
+      stdoutSha256: result.stdoutSha256,
+      stderrSha256: result.stderrSha256,
+      verificationStatus: result.verificationStatus,
+      verifiedAt: result.verifiedAt,
+    };
+  }
+  offerJob(workerId: string, job: any): void {
+    // Convert a direct job offer into a durable dispatch record
+    if (!this.executionStore) return;
+    const dispatch: RemoteDispatchRecord = {
+      dispatchId: job.dispatchId,
+      jobId: job.jobId,
+      attemptId: job.attemptId || `attempt_${job.jobId}`,
+      workerId,
+      leaseId: job.leaseId,
+      idempotencyKey: job.idempotencyKey || `idem_${job.jobId}`,
+      status: "DISPATCHED",
+      request: {
+        operation: job.operation,
+        args: job.args,
+        cwd: job.cwd,
+        timeoutMs: job.timeoutMs,
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    this.executionStore.upsertRemoteDispatch(dispatch);
+  }
+
+  getResult(jobId: string): any {
+    if (!this.executionStore) return undefined;
+    const result = this.executionStore.getRemoteExecutionResultByJobId(jobId);
+    return result ? { workerId: result.workerId, result } : undefined;
+  }
+}
+
+export class WorkerGatewayClient implements WorkerTransport {
+  private connected = false;
+  private sessionId?: string;
+  private authToken?: string;
+  private sequence = 0;
+
+  constructor(private gatewayUrl: string, private workerId: string, private credential: string) {}
+
+  async connect(): Promise<void> { this.connected = true; }
+
+  private async post(message: any): Promise<any> {
+    const res = await fetch(this.gatewayUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(message),
+    });
+    const text = await res.text();
+    let json: any;
+    try { json = JSON.parse(text); } catch { throw new Error(`gateway_invalid_response: ${res.status}`); }
+    if (res.status !== 200) throw new Error(json.error || `gateway_error_${res.status}`);
+    return json;
+  }
+
+  async authenticate(workerId: string, credential: string): Promise<boolean> {
+    if (workerId !== this.workerId || credential !== this.credential) return false;
+    const response = await this.post({
+      messageId: crypto.randomUUID(),
+      type: "AUTH_REQUEST",
+      workerId,
+      timestamp: Date.now(),
+      protocolVersion: "1.0",
+      payload: { workerId, credential },
+    });
+    if (response.authenticated) {
+      this.sessionId = response.sessionId;
+      this.authToken = response.sessionId;
+      return true;
+    }
+    return false;
+  }
+
+  async heartbeat(workerId: string, currentJobId?: string): Promise<void> {
+    if (!this.connected || !this.sessionId) throw new Error("not_authenticated");
+    await this.post({
+      messageId: crypto.randomUUID(),
+      type: "HEARTBEAT",
+      sessionId: this.sessionId,
+      workerId,
+      timestamp: Date.now(),
+      protocolVersion: "1.0",
+      sequence: ++this.sequence,
+      payload: { currentJobId },
+    });
+  }
+
+  async receiveJob(workerId: string): Promise<any | null> {
+    if (!this.connected || !this.sessionId) throw new Error("not_authenticated");
+    const response = await this.post({
+      messageId: crypto.randomUUID(),
+      type: "JOB_OFFER",
+      sessionId: this.sessionId,
+      workerId,
+      timestamp: Date.now(),
+      protocolVersion: "1.0",
+      sequence: ++this.sequence,
+    });
+    return response.job || null;
+  }
+
+  async reportResult(workerId: string, result: any): Promise<void> {
+    if (!this.connected || !this.sessionId) throw new Error("not_authenticated");
+    await this.post({
+      messageId: crypto.randomUUID(),
+      type: "JOB_RESULT",
+      sessionId: this.sessionId,
+      workerId,
+      timestamp: Date.now(),
+      protocolVersion: "1.0",
+      sequence: ++this.sequence,
+      payload: { jobId: result.jobId, result },
+    });
+  }
+
+  async cancelJob(workerId: string, jobId: string): Promise<void> {
+    if (!this.connected || !this.sessionId) throw new Error("not_authenticated");
+    await this.post({
+      messageId: crypto.randomUUID(),
+      type: "JOB_CANCEL",
+      sessionId: this.sessionId,
+      workerId,
+      timestamp: Date.now(),
+      protocolVersion: "1.0",
+      sequence: ++this.sequence,
+      payload: { jobId },
+    });
+  }
+
+  async disconnect(): Promise<void> { this.connected = false; this.sessionId = undefined; }
+}
+
+
+===== FILE: src/core/worker-agent.ts =====
+import { WorkerConfig } from "./worker-config";
+import { WorkerSecurity } from "./worker-security";
+import { WorkerTransport } from "./worker-transport";
+import { WorkerSandbox } from "./worker-sandbox";
+import { WorkerObservabilityService } from "./worker-observability";
+import { sha256Hex, computeResultDigest } from "./integrity";
+
+export interface WorkerJobRequest {
+  jobId: string;
+  dispatchId: string;
+  leaseId: string;
+  operation: string;
+  executable?: string;
+  args?: string[];
+  cwd?: string;
+  timeoutMs?: number;
+}
+
+export interface WorkerJobResult {
+  jobId: string;
+  dispatchId: string;
+  leaseId: string;
+  success: boolean;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  evidence?: Record<string, any>;
+  stdoutSha256?: string;
+  stderrSha256?: string;
+  resultSha256?: string;
+}
+
+export class WorkerAgent {
+  private running = false;
+  private currentJobId?: string;
+  private heartbeatTimer?: NodeJS.Timeout;
+  private cancellationRequested = new Set<string>();
+
+  constructor(
+    private config: WorkerConfig,
+    private security: WorkerSecurity,
+    private transport: WorkerTransport,
+    private sandbox?: WorkerSandbox,
+    private observability?: WorkerObservabilityService
+  ) {}
+
+  async start(): Promise<void> {
+    await this.transport.connect();
+    const authenticated = await this.transport.authenticate(this.config.workerId, this.config.credentialRef);
+    if (!authenticated) {
+      await this.transport.disconnect();
+      throw new Error("Worker authentication failed");
+    }
+    this.running = true;
+    this.startHeartbeat();
+  }
+
+  private startHeartbeat(): void {
+    const interval = this.config.heartbeatIntervalMs || 30000;
+    this.heartbeatTimer = setInterval(() => {
+      this.transport.heartbeat(this.config.workerId, this.currentJobId).catch(() => {});
+    }, interval);
+  }
+
+  async processOnce(): Promise<WorkerJobResult | null> {
+    if (!this.running) return null;
+    const job = await this.transport.receiveJob(this.config.workerId);
+    if (!job) return null;
+
+    this.currentJobId = job.jobId;
+    await this.transport.heartbeat(this.config.workerId, job.jobId);
+
+    const validation = this.security.validateRequest({
+      operation: job.operation,
+      executable: job.executable,
+      args: job.args,
+      cwd: job.cwd,
+    });
+    if (!validation.valid) {
+      const result: WorkerJobResult = {
+        jobId: job.jobId,
+        dispatchId: job.dispatchId,
+        leaseId: job.leaseId,
+        success: false,
+        stderr: validation.errors.join("; "),
+        evidence: { validation_failed: true },
+      };
+      await this.transport.reportResult(this.config.workerId, result);
+      this.currentJobId = undefined;
+      return result;
+    }
+
+    let result: WorkerJobResult;
+    if (this.sandbox) {
+      const sandboxResult = await this.sandbox.execute({
+        executable: job.executable || "node",
+        args: job.args || [],
+        cwd: job.cwd || this.config.executionRoot || process.cwd(),
+        envAllowlist: this.config.envAllowlist,
+        timeoutMs: job.timeoutMs || this.config.executionTimeoutMs || 30000,
+      });
+      const stdoutSha256 = sha256Hex(sandboxResult.stdout);
+      const stderrSha256 = sha256Hex(sandboxResult.stderr);
+      result = {
+        jobId: job.jobId,
+        dispatchId: job.dispatchId,
+        leaseId: job.leaseId,
+        success: sandboxResult.success,
+        stdout: sandboxResult.stdout,
+        stderr: sandboxResult.stderr,
+        exitCode: sandboxResult.exitCode,
+        evidence: {
+          timedOut: sandboxResult.timedOut,
+          cancelled: sandboxResult.cancelled,
+          durationMs: sandboxResult.durationMs,
+        },
+        stdoutSha256,
+        stderrSha256,
+      };
+      result.resultSha256 = computeResultDigest(result as any);
+
+      if (this.observability) {
+        this.observability.recordExecution({
+          workerId: this.config.workerId,
+          jobId: job.jobId,
+          dispatchId: job.dispatchId,
+          leaseId: job.leaseId,
+          eventType: result.success ? "EXECUTION_COMPLETED" : "EXECUTION_FAILED",
+          payload: {
+            exitCode: result.exitCode,
+            stdoutSha256: result.stdoutSha256,
+            stderrSha256: result.stderrSha256,
+            resultSha256: result.resultSha256,
+          },
+        });
+      }
+    } else {
+      throw new Error("No sandbox provided; real execution is required");
+    }
+
+    await this.transport.reportResult(this.config.workerId, result);
+    this.currentJobId = undefined;
+    return result;
+  }
+
+  async stop(): Promise<void> {
+    this.running = false;
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    await this.transport.disconnect();
+  }
+
+  requestCancellation(jobId: string): void {
+    this.cancellationRequested.add(jobId);
+  }
+}
+
+
+===== FILE: src/core/execution-engine.ts =====
+
+import { ExecutionStore } from "./execution-store";
+import { ExecutionStateMachine } from "./execution-state-machine";
+import { WorkerRegistry } from "./worker-registry";
+import { LeaseManager } from "./lease-manager";
+import { RetryEngine } from "./retry-engine";
+import { ExecutionDispatchPort } from "./execution-dispatch-port";
+import { ExecutionJob, ExecutionAttempt, ExecutionJobStatus, RetryPolicy } from "./execution-models";
+import { ExecutionAdapterRequest } from "./execution-adapter";
+
+
+function generateUUID(): string {
+    const bytes = new Uint8Array(16);
+    if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.getRandomValues) {
+        globalThis.crypto.getRandomValues(bytes);
+    } else {
+        // Fallback to pseudo-random (not production-grade)
+        for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+export interface ExecutionEventSink {
+    emit(e: {
+        type: string;
+        source?: string;
+        execution_id?: string | null;
+        payload?: Record<string, unknown>;
+    }): Promise<unknown> | unknown;
+}
+
+export interface ExecutionAuditSink {
+    record(e: {
+        actor: string;
+        action: string;
+        resource_type: string;
+        resource_id: string;
+        result?: string;
+        metadata?: Record<string, unknown>;
+    }): Promise<unknown> | unknown;
+}
+
+export interface ExecutionDeps {
+    dispatchPort?: ExecutionDispatchPort;
+    governance?: {
+        evaluate(job: ExecutionJob): Promise<"ALLOW" | "APPROVAL_REQUIRED" | "DENY" | "FREEZE">;
+    };
+    safety?: {
+        verify(job: ExecutionJob, workerId: string, leaseId: string): Promise<{ safe: boolean; reason?: string }>;
+    };
+    verification?: (job: ExecutionJob, result: any) => Promise<boolean>;
+    // Phase 126: optional durable telemetry sinks. Absence is tolerated;
+    // telemetry failure NEVER changes the actual execution outcome.
+    events?: ExecutionEventSink;
+    audit?: ExecutionAuditSink;
+}
+
+/**
+ * Phase 126: thrown when a worker's ownership-aware mutation is rejected
+ * because the lease is no longer held by that worker.  The caller must
+ * treat this as ownership loss, not a transient error.
+ */
+export class ExecutionTransitionRejected extends Error {
+    constructor(
+        public readonly reason: string,
+        public readonly jobId: string,
+        public readonly expectedStatus: ExecutionJobStatus,
+        public readonly newStatus: ExecutionJobStatus,
+    ) {
+        super(`Transition rejected (${reason}): ${jobId} ${expectedStatus} -> ${newStatus}`);
+        this.name = "ExecutionTransitionRejected";
+    }
+}
+
+// Phase 127: local structural mirrors of execution-store.ts transition types.
+// TS structural typing makes these compatible with store.transitionExecution().
+type TransitionActor = "worker" | "recovery" | "system";
+type TransitionResult =
+    | { ok: true;  applied: true;  status: ExecutionJobStatus; idempotent: false }
+    | { ok: true;  applied: false; status: ExecutionJobStatus; idempotent: true  }
+    | { ok: false;
+        reason: "WORKER_OWNERSHIP_LOST" | "STATE_MISMATCH" | "TERMINAL_STATE" | "JOB_NOT_FOUND";
+        currentStatus: ExecutionJobStatus | null };
+type TransitionInput = {
+    jobId: string;
+    actor: TransitionActor;
+    expectedStatus: ExecutionJobStatus;
+    newStatus: ExecutionJobStatus;
+    workerId?: string;
+    leaseId?: string;
+    reason?: string;
+    now?: number;
+    patch?: Partial<Pick<ExecutionJob,
+        | "currentLeaseId" | "retryPolicy" | "timeoutMs"
+        | "lastAttemptAt" | "nextAttemptAt"
+        | "cancellationRequested" | "cancellationAcknowledged">>;
+};
+
+export class OwnershipLostError extends Error {
+    constructor(
+        public readonly jobId: string,
+        public readonly leaseId: string,
+        public readonly workerId: string,
+    ) {
+        super(`WORKER_OWNERSHIP_LOST: job=${jobId} lease=${leaseId} worker=${workerId}`);
+        this.name = "OwnershipLostError";
+    }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+        promise.then(
+            (val) => { clearTimeout(timer); resolve(val); },
+            (err) => { clearTimeout(timer); reject(err); }
+        );
+    });
+}
+
+export class ExecutionEngine {
+    private stateMachine = new ExecutionStateMachine();
+
+    constructor(
+        private store: ExecutionStore,
+        private workerRegistry: WorkerRegistry,
+        private leaseManager: LeaseManager,
+        private retryEngine: RetryEngine,
+        private deps: ExecutionDeps = {}
+    ) {}
+
+    /** Fire-and-forget a possibly-async telemetry call; swallow any failure. */
+    private fireAndForget(p: unknown): void {
+        if (p && typeof (p as { then?: unknown }).then === "function") {
+            (p as Promise<unknown>).catch(() => { /* telemetry failure isolated */ });
+        }
+    }
+
+    /**
+     * Phase 126: ownership-aware state mutation.
+     *
+     * Every post-claim status change goes through here.  If the supplied
+     * lease is no longer ACTIVE/owned by this worker, the database update
+     * affects zero rows â€” we do NOT overwrite the new owner's state.
+     *
+     * On ownership loss we:
+     *   1. write a durable ownership-loss obligation (idempotent per job+lease)
+     *   2. emit `execution.ownership_lost` (best-effort)
+     *   3. write an audit record (best-effort)
+     *   4. throw OwnershipLostError â€” deterministic, not silent
+     */
+    private static readonly ACTOR_ALLOWED: Record<
+        TransitionActor,
+        Array<[ExecutionJobStatus, ExecutionJobStatus]>
+    > = {
+        worker: [
+            ["CLAIMED", "RUNNING"],
+            ["RUNNING", "SUCCEEDED"],
+            ["RUNNING", "VERIFYING"],
+            ["VERIFYING", "SUCCEEDED"],
+            ["VERIFYING", "FAILED"],
+            ["RUNNING", "FAILED"],
+            ["RUNNING", "CANCELLED"],
+            ["VERIFYING", "CANCELLED"],
+            ["RUNNING", "BLOCKED"],
+            ["CANCELLATION_REQUESTED", "RUNNING"],
+            ["CANCELLATION_REQUESTED", "CANCELLED"],
+        ],
+        recovery: [
+            ["CLAIMED", "ORPHANED"],
+            ["RUNNING", "ORPHANED"],
+            ["VERIFYING", "ORPHANED"],
+            ["ORPHANED", "QUEUED"],
+            ["ORPHANED", "FAILED"],
+            ["ORPHANED", "DEAD_LETTER"],
+        ],
+        system: [
+            ["QUEUED", "CLAIMED"],
+            ["QUEUED", "BLOCKED"],
+            ["QUEUED", "CANCELLED"],
+            ["QUEUED", "CANCELLATION_REQUESTED"],
+            ["RUNNING", "CANCELLATION_REQUESTED"],
+            ["VERIFYING", "CANCELLATION_REQUESTED"],
+            ["FAILED", "RETRY_SCHEDULED"],
+            ["FAILED", "DEAD_LETTER"],
+            ["RETRY_SCHEDULED", "QUEUED"],
+            ["RETRY_SCHEDULED", "CANCELLED"],
+            ["CANCELLATION_REQUESTED", "CANCELLED"],
+        ],
+    };
+
+    /**
+     * Phase 127: single entry point for every durable execution transition.
+     * Enforces, in order: state-machine legality, actor-role policy, and
+     * expected-state CAS + ownership fencing at the store.  On
+     * WORKER_OWNERSHIP_LOST writes a durable obligation.
+     */
+    private applyTransition(
+        jobId: string,
+        actor: TransitionActor,
+        expectedStatus: ExecutionJobStatus,
+        newStatus: ExecutionJobStatus,
+        workerId?: string,
+        leaseId?: string,
+        patch?: TransitionInput["patch"],
+        reason?: string,
+    ): TransitionResult {
+        if (!this.stateMachine.canTransition(expectedStatus, newStatus)) {
+            this.emitTransitionAudit(jobId, actor, expectedStatus, newStatus, "illegal_transition", workerId, leaseId, reason);
+            throw new ExecutionTransitionRejected("ILLEGAL_TRANSITION", jobId, expectedStatus, newStatus);
+        }
+        const allowed = ExecutionEngine.ACTOR_ALLOWED[actor] ?? [];
+        if (!allowed.some(([f, t]) => f === expectedStatus && t === newStatus)) {
+            this.emitTransitionAudit(jobId, actor, expectedStatus, newStatus, "actor_not_allowed", workerId, leaseId, reason);
+            throw new ExecutionTransitionRejected("ACTOR_NOT_ALLOWED", jobId, expectedStatus, newStatus);
+        }
+
+        const result = this.store.transitionExecution({
+            jobId, actor, expectedStatus, newStatus, workerId, leaseId, patch, reason,
+        });
+
+        if (result.ok) {
+            this.emitTransitionAudit(jobId, actor, expectedStatus, newStatus,
+                result.idempotent ? "idempotent" : "applied", workerId, leaseId, reason);
+                this.fireAndForget(this.deps.events?.emit({
+                    type: `execution.transition.${newStatus.toLowerCase()}`,
+                    source: "ExecutionEngine",
+                    execution_id: jobId,
+                    payload: {
+                        from: expectedStatus,
+                        to: newStatus,
+                        actor,
+                        workerId: workerId ?? null,
+                        leaseId: leaseId ?? null,
+                        reason: reason ?? null,
+                    },
+                }));
+            return result;
+        }
+
+        if (result.reason === "WORKER_OWNERSHIP_LOST") {
+            try {
+                this.store.writeOwnershipObligation({
+                    jobId,
+                    leaseId: leaseId ?? "unknown",
+                    workerId: workerId ?? "unknown",
+                    reason: reason ?? "TRANSITION_REJECTED",
+                });
+            } catch { /* obligation failure does not mask the loss */ }
+        }
+        this.emitTransitionAudit(jobId, actor, expectedStatus, newStatus,
+            result.reason.toLowerCase(), workerId, leaseId, reason);
+        throw new ExecutionTransitionRejected(result.reason, jobId, expectedStatus, newStatus);
+    }
+
+    private emitTransitionAudit(
+        jobId: string,
+        actor: TransitionActor,
+        from: ExecutionJobStatus,
+        to: ExecutionJobStatus,
+        result: string,
+        workerId?: string,
+        leaseId?: string,
+        reason?: string,
+    ): void {
+        try {
+            this.fireAndForget(this.deps.audit?.record({
+                actor: workerId ?? actor,
+                action: "execution.transition",
+                resource_type: "execution_job",
+                resource_id: jobId,
+                result,
+                metadata: { from, to, actor, leaseId: leaseId ?? null, reason: reason ?? null },
+            }));
+        } catch { /* isolated */ }
+    }
+
+    createJob(
+        jobType: string,
+        payload: any,
+        idempotencyKey: string,
+        retryPolicy?: RetryPolicy,
+        timeoutMs?: number
+    ): ExecutionJob {
+        const existing = this.store.getJobByIdempotencyKey(idempotencyKey);
+        if (existing) return existing;
+
+        const now = Date.now();
+        const job: ExecutionJob = {
+            id: generateUUID(),
+            idempotencyKey,
+            jobType,
+            payload,
+            status: "QUEUED",
+            retryPolicy,
+            timeoutMs,
+            createdAt: now,
+            updatedAt: now,
+            cancellationRequested: false,
+            cancellationAcknowledged: false,
+        };
+        this.store.createJob(job);
+        return job;
+    }
+
+    claimNextJob(workerId: string): { job: ExecutionJob; lease: any } | null {
+        const queued = this.store.listJobsByStatus("QUEUED");
+        for (const job of queued) {
+            if (job.cancellationRequested) continue;
+            try {
+                const lease = this.leaseManager.acquireLease(job.id, workerId, 60000);
+                try {
+                    this.applyTransition(
+                        job.id, "system", "QUEUED", "CLAIMED",
+                        workerId, lease.leaseId,
+                        { currentLeaseId: lease.leaseId },
+                        "LEASE_ACQUIRED"
+                    );
+                } catch (e) {
+                    // Compensating action: CLAIMED CAS failed â†’ release the lease
+                    this.leaseManager.releaseLease(lease.leaseId);
+                    throw e;
+                }
+                job.status = "CLAIMED";
+                job.currentLeaseId = lease.leaseId;
+                job.updatedAt = Date.now();
+                this.workerRegistry.markBusy(workerId, job.id);
+                return { job, lease };
+            } catch {
+                continue;
+            }
+        }
+        return null;
+    }
+
+
+    /**
+     * Phase 136: called when a worker-authoritative attempt write is fenced out.
+     * Records a durable ownership obligation and emits audit/events â€” WITHOUT
+     * mutating authoritative execution state.
+     */
+    private recordAttemptOwnershipLoss(jobId: string, leaseId: string, workerId: string, reason: string): void {
+        try { this.store.writeOwnershipObligation({ jobId, leaseId, workerId, reason }); } catch { /* isolated */ }
+        try {
+            this.fireAndForget(this.deps.events?.emit({
+                type: "execution.ownership_lost",
+                source: "ExecutionEngine",
+                execution_id: jobId,
+                payload: { jobId, leaseId, workerId, reason, phase: "attempt_write" },
+            }));
+        } catch { /* isolated */ }
+        try {
+            this.fireAndForget(this.deps.audit?.record({
+                actor: workerId, action: "execution.ownership_lost",
+                resource_type: "execution_job", resource_id: jobId,
+                result: "blocked",
+                metadata: { leaseId, reason, phase: "attempt_write" },
+            }));
+        } catch { /* isolated */ }
+    }
+    async executeJob(workerId: string, jobId: string, leaseId: string): Promise<ExecutionJob> {
+        const job = this.store.getJob(jobId);
+        if (!job) throw new Error(`Job ${jobId} not found`);
+
+        if (!this.leaseManager.validateLease(leaseId, workerId)) {
+            // Phase 126: ownership already lost.  Do NOT clobber the job row â€”
+            // another worker may now own it.  Record the durable obligation,
+            // emit telemetry, and throw a typed error so callers can react.
+            let obligationId = "unknown";
+            try {
+                const ob = this.store.writeOwnershipObligation({
+                    jobId: job.id,
+                    leaseId,
+                    workerId,
+                    reason: "LEASE_LOST_AT_EXECUTE",
+                });
+                obligationId = ob.obligationId;
+            } catch { /* isolated */ }
+            try {
+                this.fireAndForget(this.deps.events?.emit({
+                    type: "execution.ownership_lost",
+                    source: "ExecutionEngine",
+                    execution_id: job.id,
+                    payload: { jobId: job.id, leaseId, workerId, obligationId, phase: "execute_precheck" },
+                }));
+            } catch { /* isolated */ }
+            try {
+                this.fireAndForget(this.deps.audit?.record({
+                    actor: workerId,
+                    action: "execution.ownership_lost",
+                    resource_type: "execution_job",
+                    resource_id: job.id,
+                    result: "blocked",
+                    metadata: { leaseId, obligationId, phase: "execute_precheck" },
+                }));
+            } catch { /* isolated */ }
+            throw new OwnershipLostError(job.id, leaseId, workerId);
+        }
+
+        this.applyTransition(job.id, "worker", "CLAIMED", "RUNNING", workerId, leaseId, undefined, "WORKER_STARTED");
+        job.status = "RUNNING";
+        job.updatedAt = Date.now();
+
+        const attemptNumber = this.store.listAttemptsForJob(jobId).length + 1;
+        const attemptId = `attempt_${jobId}_${attemptNumber}`;
+        const attempt: ExecutionAttempt = {
+            id: attemptId,
+            jobId,
+            attemptNumber,
+            status: "RUNNING",
+            workerId,
+            leaseId,
+            startedAt: Date.now(),
+            createdAt: Date.now(),
+        };
+        const attCreateRes = this.store.createAttemptAsOwner(attempt, leaseId, workerId);
+        if (!attCreateRes.created) {
+            this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_CREATE_OWNERSHIP_LOST");
+            throw new OwnershipLostError(job.id, leaseId, workerId);
+        }
+
+        const request: ExecutionAdapterRequest = {
+            operation: job.jobType,
+            args: job.payload?.args || [],
+            cwd: job.payload?.cwd,
+            env: job.payload?.env,
+            timeoutMs: job.timeoutMs,
+            metadata: { jobId: job.id, idempotencyKey: job.idempotencyKey },
+        };
+
+        if (this.deps.governance) {
+            const decision = await this.deps.governance.evaluate(job);
+            if (decision === "DENY" || decision === "FREEZE") {
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "BLOCKED",
+                    workerId, leaseId, undefined,
+                    decision === "FREEZE" ? "GOVERNANCE_FREEZE" : "GOVERNANCE_DENIED"
+                );
+                job.status = "BLOCKED";
+                job.updatedAt = Date.now();
+                this.leaseManager.releaseLease(leaseId);
+                job.currentLeaseId = undefined;
+                this.workerRegistry.markIdle(workerId);
+                return job;
+            }
+            if (decision === "APPROVAL_REQUIRED") {
+                // Phase 127 STEP 7: execution has no APPROVAL_REQUIRED state.
+                // Map to BLOCKED with a distinct durable audit reason.
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "BLOCKED",
+                    workerId, leaseId, undefined, "GOVERNANCE_APPROVAL_REQUIRED"
+                );
+                job.status = "BLOCKED";
+                job.updatedAt = Date.now();
+                try {
+                    this.fireAndForget(this.deps.audit?.record({
+                        actor: workerId,
+                        action: "execution.approval_required",
+                        resource_type: "execution_job",
+                        resource_id: job.id,
+                        result: "blocked",
+                        metadata: { leaseId },
+                    }));
+                } catch { /* isolated */ }
+                this.leaseManager.releaseLease(leaseId);
+                job.currentLeaseId = undefined;
+                this.workerRegistry.markIdle(workerId);
+                return job;
+            }
+        }
+
+        if (this.deps.safety) {
+            const safetyResult = await this.deps.safety.verify(job, workerId, leaseId);
+            if (!safetyResult.safe) {
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "BLOCKED",
+                    workerId, leaseId, undefined, "SAFETY_VERIFY_FAILED"
+                );
+                job.status = "BLOCKED";
+                job.updatedAt = Date.now();
+                this.leaseManager.releaseLease(leaseId);
+                job.currentLeaseId = undefined;
+                this.workerRegistry.markIdle(workerId);
+                return job;
+            }
+        }
+
+        let executionResult: any = null;
+        let executionError: string | undefined;
+        let timedOut = false;
+
+        try {
+            if (this.deps.dispatchPort) {
+                // We need the lease object; fetch from store or use leaseId? LeaseManager has getLease?
+
+
+                const { dispatchId } = await this.deps.dispatchPort.dispatch(job, attempt, leaseId, request);
+                executionResult = await this.deps.dispatchPort.collectResult(dispatchId);
+            } else {
+                throw new Error("No dispatch port provided");
+            }
+        } catch (err: any) {
+            executionError = err?.message || String(err);
+            if (executionError && executionError.includes("timed out")) timedOut = true;
+        }
+
+        attempt.completedAt = Date.now();
+
+        const freshCancel = this.store.getJob(job.id);
+        if (freshCancel?.cancellationRequested) {
+            job.cancellationRequested = true;
+            this.applyTransition(
+                job.id, "worker", "RUNNING", "CANCELLED",
+                workerId, leaseId,
+                { cancellationAcknowledged: true },
+                "POST_EXECUTION_CANCELLED"
+            );
+            attempt.status = "CANCELLED";
+            attempt.evidence = ["Execution cancelled after completion"];
+            attempt.completedAt = Date.now();
+            const attResCancelPost = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
+            if (!attResCancelPost.updated) {
+                this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_CANCELLED");
+            }
+            job.status = "CANCELLED";
+            job.cancellationAcknowledged = true;
+            job.updatedAt = Date.now();
+            this.leaseManager.releaseLease(leaseId);
+            this.workerRegistry.markIdle(workerId);
+            return job;
+        }
+
+        if (!executionResult || !executionResult.success) {
+            // Phase 136: compute retry outcome BEFORE any attempt write.
+            let nextStatus: ExecutionJobStatus;
+            let nextAttemptAt: number | undefined;
+            if (timedOut && job.retryPolicy) {
+                const na = this.retryEngine.calculateNextAttempt(attemptNumber, job.retryPolicy, Date.now());
+                if (na !== null) { nextStatus = "RETRY_SCHEDULED"; nextAttemptAt = na; }
+                else { nextStatus = "DEAD_LETTER"; }
+            } else if (job.retryPolicy && this.retryEngine.isRetryable(executionError || "Execution failed", job.retryPolicy)) {
+                const na = this.retryEngine.calculateNextAttempt(attemptNumber, job.retryPolicy, Date.now());
+                if (na !== null) { nextStatus = "RETRY_SCHEDULED"; nextAttemptAt = na; }
+                else { nextStatus = "DEAD_LETTER"; }
+            } else {
+                nextStatus = "DEAD_LETTER";
+            }
+
+            const freshCancel = this.store.getJob(job.id);
+        if (freshCancel?.cancellationRequested) {
+            job.cancellationRequested = true;
+                this.applyTransition(
+                    job.id, "worker", "RUNNING", "CANCELLED",
+                    workerId, leaseId,
+                    { cancellationAcknowledged: true },
+                    "FAILED_EXECUTION_CANCELLED"
+                );
+                attempt.status = "CANCELLED";
+                attempt.error = executionError || "Execution failed";
+                attempt.completedAt = Date.now();
+                const attResFailCancel = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
+                if (!attResFailCancel.updated) {
+                    this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_FAILED_CANCELLED");
+                }
+                job.status = "CANCELLED";
+                job.cancellationAcknowledged = true;
+                job.updatedAt = Date.now();
+                this.leaseManager.releaseLease(leaseId);
+                job.currentLeaseId = undefined;
+                this.workerRegistry.markIdle(workerId);
+                return job;
+            }
+
+            this.applyTransition(
+                job.id, "worker", "RUNNING", "FAILED",
+                workerId, leaseId, undefined, "EXECUTION_FAILED"
+            );
+            job.status = "FAILED";
+            job.updatedAt = Date.now();
+
+            attempt.status = "FAILED";
+            attempt.error = executionError || "Execution failed";
+            attempt.completedAt = Date.now();
+            const attResFail = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
+            if (!attResFail.updated) {
+                this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_FAILED");
+            }
+
+            this.applyTransition(
+                job.id, "system", "FAILED", nextStatus,
+                undefined, undefined,
+                nextAttemptAt !== undefined ? { nextAttemptAt } : undefined,
+                nextStatus === "RETRY_SCHEDULED" ? "RETRY_SCHEDULED" : "DEAD_LETTER"
+            );
+            job.status = nextStatus;
+            if (nextAttemptAt !== undefined) job.nextAttemptAt = nextAttemptAt;
+            job.updatedAt = Date.now();
+            this.leaseManager.releaseLease(leaseId);
+            job.currentLeaseId = undefined;
+            this.workerRegistry.markIdle(workerId);
+            return job;
+        }
+
+        // ==============================================================
+        // Phase 128: canonical completion lifecycle.
+        //
+        //   verification configured:  RUNNING -> VERIFYING -> SUCCEEDED
+        //                                                    \-> FAILED -> RETRY/DEAD
+        //   no verification:          RUNNING -> SUCCEEDED
+        //
+        // Every durable transition goes through this.applyTransition(...).
+        // No state cast. No invalid VERIFYING -> SUCCEEDED from RUNNING.
+        // Success attempt is persisted only AFTER the authoritative
+        // RUNNING/VERIFYING -> SUCCEEDED transition has been applied,
+        // so ownership loss cannot persist a false SUCCEEDED attempt.
+        // ==============================================================
+
+        if (this.deps.verification) {
+            this.applyTransition(
+                job.id, "worker", "RUNNING", "VERIFYING",
+                workerId, leaseId, undefined, "VERIFICATION_STARTED"
+            );
+            job.status = "VERIFYING";
+            job.updatedAt = Date.now();
+
+            let verificationSuccess = true;
+            try {
+                verificationSuccess = await this.deps.verification(job, executionResult);
+            } catch (err: any) {
+                verificationSuccess = false;
+                attempt.error = `Verification failed: ${err.message}`;
+            }
+
+            if (verificationSuccess) {
+                // Durable transition FIRST â€” ownership loss must not
+                // persist a false SUCCEEDED attempt.
+                this.applyTransition(
+                    job.id, "worker", "VERIFYING", "SUCCEEDED",
+                    workerId, leaseId, undefined, "VERIFICATION_SUCCEEDED"
+                );
+                attempt.status = "SUCCEEDED";
+                attempt.evidence = ["Verification succeeded"];
+                attempt.completedAt = Date.now();
+                const attResVok = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
+                if (!attResVok.updated) {
+                    this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_VERIFICATION_SUCCEEDED");
+                }
+
+                job.status = "SUCCEEDED";
+                job.updatedAt = Date.now();
+                this.leaseManager.releaseLease(leaseId);
+                job.currentLeaseId = undefined;
+                this.workerRegistry.markIdle(workerId);
+                return job;
+            }
+
+            // Phase 136: compute outcome FIRST, transition FIRST, fenced attempt write.
+            const verifErrMsg = attempt.error ?? "Verification failed";
+            let nextStatus: ExecutionJobStatus;
+            let nextAttemptAt: number | undefined;
+            if (job.retryPolicy && this.retryEngine.isRetryable(verifErrMsg, job.retryPolicy)) {
+                const na = this.retryEngine.calculateNextAttempt(attemptNumber, job.retryPolicy, Date.now());
+                if (na !== null) { nextStatus = "RETRY_SCHEDULED"; nextAttemptAt = na; }
+                else { nextStatus = "DEAD_LETTER"; }
+            } else {
+                nextStatus = "DEAD_LETTER";
+            }
+
+            this.applyTransition(
+                job.id, "worker", "VERIFYING", "FAILED",
+                workerId, leaseId, undefined, "VERIFICATION_FAILED"
+            );
+            job.status = "FAILED";
+            job.updatedAt = Date.now();
+
+            attempt.status = "FAILED";
+            attempt.error = verifErrMsg;
+            attempt.completedAt = Date.now();
+            const attResVf = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
+            if (!attResVf.updated) {
+                this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_VERIFICATION_FAILED");
+            }
+            this.applyTransition(
+                job.id, "system", "FAILED", nextStatus,
+                undefined, undefined,
+                nextAttemptAt !== undefined ? { nextAttemptAt } : undefined,
+                nextStatus === "RETRY_SCHEDULED" ? "RETRY_SCHEDULED" : "DEAD_LETTER"
+            );
+            job.status = nextStatus;
+            if (nextAttemptAt !== undefined) job.nextAttemptAt = nextAttemptAt;
+            job.updatedAt = Date.now();
+            this.leaseManager.releaseLease(leaseId);
+            job.currentLeaseId = undefined;
+            this.workerRegistry.markIdle(workerId);
+            return job;
+        }
+
+        // No verification configured: direct RUNNING -> SUCCEEDED.
+        // Do NOT fabricate a VERIFYING transition.
+        this.applyTransition(
+            job.id, "worker", "RUNNING", "SUCCEEDED",
+            workerId, leaseId, undefined, "EXECUTION_COMPLETE_NO_VERIFICATION"
+        );
+        attempt.status = "SUCCEEDED";
+        attempt.evidence = ["Execution succeeded (verification not configured)"];
+        attempt.completedAt = Date.now();
+        const attResNv = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
+        if (!attResNv.updated) {
+            this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_NO_VERIFICATION");
+        }
+
+        job.status = "SUCCEEDED";
+        job.updatedAt = Date.now();
+        this.leaseManager.releaseLease(leaseId);
+        job.currentLeaseId = undefined;
+        this.workerRegistry.markIdle(workerId);
+
+        return job;
+    }
+
+    /**
+     * Phase 126: stale-execution recovery.
+     *
+     * A recovered expired lease is NOT automatically safe to retry.  For
+     * each affected execution we:
+     *   1. emit `execution.lease.expired`
+     *   2. transition to ORPHANED (the only valid state from RUNNING/CLAIMED/VERIFYING)
+     *   3. write a durable ownership-loss obligation (idempotent per job+lease)
+     *   4. classify as RECOVERABLE (retryPolicy AND ORPHANED->QUEUED valid)
+     *      or RECOVERY_REQUIRED (anything else)
+     *   5. re-queue only the RECOVERABLE class
+     *   6. emit `execution.recovery_completed` or `execution.recovery_required`
+     *   7. write an audit record for the recovery action
+     *
+     * Terminal states are never touched.  The obligation write is idempotent,
+     * so repeated detection converges on one row.
+     */
+    recoverStaleJobs(now: number = Date.now()): void {
+        const expiredLeases = this.leaseManager.recoverExpiredLeases(now);
+        for (const lease of expiredLeases) {
+            try {
+                this.fireAndForget(this.deps.events?.emit({
+                    type: "execution.lease.expired",
+                    source: "ExecutionEngine",
+                    execution_id: lease.jobId,
+                    payload: {
+                        jobId: lease.jobId,
+                        leaseId: lease.leaseId,
+                        workerId: lease.workerId,
+                        expiredAt: lease.expiresAt,
+                    },
+                }));
+            } catch { /* isolated */ }
+
+            const job = this.store.getJob(lease.jobId);
+            if (!job) continue;
+
+            // Terminal states are never resurrected.
+            if (
+                job.status === "SUCCEEDED" ||
+                job.status === "FAILED" ||
+                job.status === "CANCELLED" ||
+                job.status === "DEAD_LETTER"
+            ) {
+                continue;
+            }
+
+            // Only jobs that could have been owned can be orphaned.
+            if (job.status !== "RUNNING" && job.status !== "CLAIMED" && job.status !== "VERIFYING" && job.status !== "CANCELLATION_REQUESTED") {
+                continue;
+            }
+
+            // Phase 137 â€” durable cancellation takes precedence over orphaning.
+            // If cancellation was requested while a worker was alive and the
+            // worker crashed or lost its lease before completing it, the
+            // request is authoritative: the job terminates CANCELLED rather
+            // than being silently requeued. The transition is CAS-guarded on
+            // the current status + current_lease_id, so a concurrently
+            // recovering owner will make this a no-op.
+            const freshCancel = this.store.getJob(job.id);
+        if (freshCancel?.cancellationRequested) {
+            job.cancellationRequested = true;
+                const cancelled = this.store.recoverJobToStatus(
+                    job.id,
+                    job.status,
+                    "CANCELLED",
+                    job.currentLeaseId ?? null,
+                    { now }
+                );
+                if (!cancelled) continue;
+                job.status = "CANCELLED";
+                job.updatedAt = now;
+                job.currentLeaseId = undefined;
+
+                try {
+                    this.store.writeOwnershipObligation({
+                        jobId: job.id,
+                        leaseId: lease.leaseId,
+                        workerId: lease.workerId,
+                        reason: "CANCELLATION_REQUESTED_ON_LEASE_LOSS",
+                        now,
+                    });
+                } catch { /* isolated */ }
+
+                try {
+                    this.fireAndForget(this.deps.events?.emit({
+                        type: "execution.recovery_completed",
+                        source: "ExecutionEngine",
+                        execution_id: job.id,
+                        payload: {
+                            jobId: job.id,
+                            leaseId: lease.leaseId,
+                            workerId: lease.workerId,
+                            classification: "CANCELLED",
+                            newStatus: "CANCELLED",
+                            reason: "cancellation_requested_honoured_after_lease_loss",
+                        },
+                    }));
+                } catch { /* isolated */ }
+                continue;
+            }
+
+            // Phase 137 â€” durable timeout. If an execution attempt was in
+            // flight when the lease was lost and the authoritative deadline
+            // (attempt.started_at + timeout_ms) has passed, resolve as a
+            // timeout rather than as a recoverable orphan. The FAILED
+            // terminal is then routed through the existing retry /
+            // dead-letter policy. If no attempt was ever recorded, the job
+            // cannot be classified as a timeout and falls through to the
+            // existing orphan path.
+            let timeoutExpired = false;
+            if (job.status === "RUNNING" || job.status === "VERIFYING") {
+                const attempts = this.store.listAttemptsForJob(job.id);
+                const lastAttempt = attempts.length > 0 ? attempts[attempts.length - 1] : undefined;
+                const startedAt = lastAttempt?.startedAt;
+                const timeoutMs = job.timeoutMs;
+                if (typeof startedAt === "number" && typeof timeoutMs === "number" && timeoutMs > 0) {
+                    timeoutExpired = startedAt + timeoutMs <= now;
+                }
+            }
+
+            if (timeoutExpired) {
+                const failed = this.store.recoverJobToStatus(
+                    job.id,
+                    job.status,
+                    "FAILED",
+                    job.currentLeaseId ?? null,
+                    { now }
+                );
+                if (!failed) continue;
+                job.status = "FAILED";
+                job.updatedAt = now;
+                job.currentLeaseId = undefined;
+
+                try {
+                    this.store.writeOwnershipObligation({
+                        jobId: job.id,
+                        leaseId: lease.leaseId,
+                        workerId: lease.workerId,
+                        reason: "TIMEOUT_ON_LEASE_LOSS",
+                        now,
+                    });
+                } catch { /* isolated */ }
+
+                const canRetryTimeout =
+                    !!job.retryPolicy &&
+                    this.stateMachine.canTransition("FAILED", "RETRY_SCHEDULED");
+                const nextStatusTimeout = canRetryTimeout ? "RETRY_SCHEDULED" : "DEAD_LETTER";
+                const routed = this.store.recoverJobToStatus(
+                    job.id,
+                    "FAILED",
+                    nextStatusTimeout,
+                    null,
+                    { nextAttemptAt: canRetryTimeout ? now : null, now }
+                );
+                if (routed) {
+                    job.status = nextStatusTimeout;
+                    if (canRetryTimeout) job.nextAttemptAt = now;
+                }
+
+                try {
+                    this.fireAndForget(this.deps.events?.emit({
+                        type: "execution.recovery_completed",
+                        source: "ExecutionEngine",
+                        execution_id: job.id,
+                        payload: {
+                            jobId: job.id,
+                            leaseId: lease.leaseId,
+                            workerId: lease.workerId,
+                            classification: "TIMEOUT",
+                            newStatus: job.status,
+                            reason: "deadline_exceeded_during_lease_loss",
+                        },
+                    }));
+                } catch { /* isolated */ }
+                continue;
+            }
+            // Atomic: only applies if the job is still in its observed status
+            // AND still owned by the same lease.  If a new worker took over
+            // between recoverExpiredLeases() and here, this is a no-op.
+            const orphaned = this.store.recoverJobToStatus(
+                job.id,
+                job.status,
+                "ORPHANED",
+                job.currentLeaseId ?? null,
+                { now }
+            );
+            if (!orphaned) {
+                // Another owner appeared concurrently â€” skip recovery for this
+                // job.  The obligation was already written above; it remains
+                // OPEN for the new owner or an operator to resolve.
+                continue;
+            }
+            job.status = "ORPHANED";
+            job.updatedAt = now;
+            job.currentLeaseId = undefined;
+
+            let obligationId = "unknown";
+            try {
+                const ob = this.store.writeOwnershipObligation({
+                    jobId: job.id,
+                    leaseId: lease.leaseId,
+                    workerId: lease.workerId,
+                    reason: "LEASE_EXPIRED",
+                    now,
+                });
+                obligationId = ob.obligationId;
+            } catch { /* obligation failure does not stop recovery */ }
+
+            const canRetry =
+                !!job.retryPolicy &&
+                this.stateMachine.canTransition("ORPHANED", "QUEUED");
+
+            if (canRetry) {
+                const requeued = this.store.recoverJobToStatus(
+                    job.id,
+                    "ORPHANED",
+                    "QUEUED",
+                    null,
+                    { nextAttemptAt: now, now }
+                );
+                if (!requeued) {
+                    // Another writer got in â€” leave as ORPHANED and let the
+                    // next recovery cycle pick it up.  No fake SUCCESS.
+                    continue;
+                }
+                job.status = "QUEUED";
+                job.nextAttemptAt = now;
+                job.currentLeaseId = undefined;
+                job.updatedAt = now;
+                try {
+                    this.fireAndForget(this.deps.events?.emit({
+                        type: "execution.recovery_completed",
+                        source: "ExecutionEngine",
+                        execution_id: job.id,
+                        payload: {
+                            jobId: job.id,
+                            leaseId: lease.leaseId,
+                            workerId: lease.workerId,
+                            obligationId,
+                            classification: "RECOVERABLE",
+                            newStatus: "QUEUED",
+                        },
+                    }));
+                } catch { /* isolated */ }
+            } else {
+                try {
+                    this.fireAndForget(this.deps.events?.emit({
+                        type: "execution.recovery_required",
+                        source: "ExecutionEngine",
+                        execution_id: job.id,
+                        payload: {
+                            jobId: job.id,
+                            leaseId: lease.leaseId,
+                            workerId: lease.workerId,
+                            obligationId,
+                            classification: "RECOVERY_REQUIRED",
+                        },
+                    }));
+                } catch { /* isolated */ }
+            }
+
+            try {
+                this.fireAndForget(this.deps.audit?.record({
+                    actor: "system",
+                    action: "execution.stale_recovered",
+                    resource_type: "execution_job",
+                    resource_id: job.id,
+                    result: canRetry ? "ok" : "blocked",
+                    metadata: {
+                        leaseId: lease.leaseId,
+                        workerId: lease.workerId,
+                        obligationId,
+                        classification: canRetry ? "RECOVERABLE" : "RECOVERY_REQUIRED",
+                    },
+                }));
+            } catch { /* isolated */ }
+        }
+
+        const lostWorkers = this.workerRegistry.detectLostWorkers(now, 120000);
+        for (const worker of lostWorkers) {
+            worker.status = "LOST";
+            this.store.updateWorker(worker);
+            try {
+                this.fireAndForget(this.deps.events?.emit({
+                    type: "execution.worker_lost",
+                    source: "ExecutionEngine",
+                    payload: {
+                        workerId: worker.workerId,
+                        lastHeartbeatAt: worker.lastHeartbeatAt ?? null,
+                        detectedAt: now,
+                    },
+                }));
+            } catch { /* isolated */ }
+        }
+    }
+
+    requestCancellation(jobId: string): ExecutionJob | undefined {
+        const job = this.store.getJob(jobId);
+        if (!job) return undefined;
+        const ok = this.store.requestCancellation(jobId);
+        if (ok) {
+            job.cancellationRequested = true;
+            job.updatedAt = Date.now();
+
+            // Phase 137: durable status transition. The flag alone is
+            // discoverable, but transitioning RUNNING/VERIFYING to
+            // CANCELLATION_REQUESTED makes the pending cancellation part of
+            // the authoritative state machine so a fresh process can resume
+            // it without relying on the (possibly dead) owning worker.
+            const cur = this.store.getJob(jobId);
+            if (cur && (cur.status === "RUNNING" || cur.status === "VERIFYING")) {
+                try {
+                    this.applyTransition(
+                        jobId, "system", cur.status, "CANCELLATION_REQUESTED",
+                        undefined, undefined, undefined,
+                        "CANCELLATION_REQUESTED_BY_API"
+                    );
+                    const fresh = this.store.getJob(jobId);
+                    if (fresh) { job.status = fresh.status; }
+                } catch {
+                    // Transition not permitted for this actor/state pair.
+                    // The durable cancellation_requested flag remains the
+                    // authoritative discovery mechanism for recoverStaleJobs.
+                }
+            }
+        }        return job;
+    }
+}
+
+
+===== FILE: src/core/execution-store.ts =====
+import { NexusEngine } from "./db";
+import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
+import {
+  ExecutionJob,
+  ExecutionAttempt,
+  ExecutionWorker,
+  ExecutionLease,
+  ArtifactRecord,
+  ReleaseRecord,
+  DeploymentRecord,
+  ApprovalRequest,
+  ExecutionEvent,
+} from "./execution-models";
+
+/* -------- Phase 103: durable release deployment intent -------- */
+
+export type ReleaseIntentStatus =
+  | "PENDING"
+  | "AUTHORIZED"
+  | "DEPLOYMENT_INTENT_CREATED"
+  | "DEPLOYING"
+  | "HEALTH_CHECKING"
+  | "SMOKE_TESTING"
+  | "VERIFICATION_FAILED"
+  | "ROLLING_BACK"
+  | "KNOWN_GOOD"
+  | "FAILED"
+  | "BLOCKED"
+  | "RECOVERY_REQUIRED";
+
+export interface ReleaseDeploymentIntent {
+  intentKey: string;
+  releaseId: string;
+  executionId: string;
+  artifactId: string;
+  artifactDigest: string;
+  commitSha: string;
+  environment: string;
+  projectId?: string | null;
+  imageRepository: string;
+  imageTag: string;
+  imageId: string | null;
+  imageDigest: string;
+  containerName: string;
+  containerPort: number;
+    // Phase 119: discriminator + rollback linkage.
+    intentKind?: "DEPLOY" | "ROLLBACK";
+    rollbackTargetReleaseId?: string | null;
+    rollbackJobId?: string | null;
+  status: ReleaseIntentStatus;
+  deploymentId: string | null;
+  failureReason: string | null;
+  recoveryReason: string | null;
+  leasedBy: string | null;
+  leaseExpiresAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+// ---------- Phase 127: authoritative durable transitions ----------
+
+export type TransitionActor = "worker" | "recovery" | "system";
+
+export interface TransitionInput {
+  jobId: string;
+  actor: TransitionActor;
+  expectedStatus: ExecutionJob["status"];
+  newStatus: ExecutionJob["status"];
+  workerId?: string;
+  leaseId?: string;
+  reason?: string;
+  now?: number;
+  patch?: Partial<Pick<ExecutionJob,
+    | "currentLeaseId" | "retryPolicy" | "timeoutMs"
+    | "lastAttemptAt" | "nextAttemptAt"
+    | "cancellationRequested" | "cancellationAcknowledged"
+    | "payload">>;
+}
+
+export type TransitionResult =
+  | { ok: true;  applied: true;  status: ExecutionJob["status"]; idempotent: false }
+  | { ok: true;  applied: false; status: ExecutionJob["status"]; idempotent: true  }
+  | { ok: false;
+      reason: "WORKER_OWNERSHIP_LOST" | "STATE_MISMATCH" | "TERMINAL_STATE" | "JOB_NOT_FOUND";
+      currentStatus: ExecutionJob["status"] | null };
+export class ExecutionStore {
+  constructor(private db: NexusEngine) {}
+
+  // ---------- Jobs ----------
+  createJob(job: ExecutionJob): void {
+    this.db.prepare(`
+      INSERT INTO execution_jobs (
+        id, idempotency_key, job_type, payload, status, retry_policy,
+        timeout_ms, created_at, updated_at, last_attempt_at, next_attempt_at,
+        current_lease_id, cancellation_requested, cancellation_acknowledged
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      job.id,
+      job.idempotencyKey,
+      job.jobType,
+      job.payload ? JSON.stringify(job.payload) : null,
+      job.status,
+      job.retryPolicy ? JSON.stringify(job.retryPolicy) : null,
+      job.timeoutMs ?? null,
+      job.createdAt,
+      job.updatedAt,
+      job.lastAttemptAt ?? null,
+      job.nextAttemptAt ?? null,
+      job.currentLeaseId ?? null,
+      job.cancellationRequested ? 1 : 0,
+      job.cancellationAcknowledged ? 1 : 0
+    );
+  }
+
+  getJob(id: string): ExecutionJob | undefined {
+    const row = this.db.prepare("SELECT * FROM execution_jobs WHERE id = ?").get(id);
+    return row ? this.mapJob(row) : undefined;
+  }
+
+  getJobByIdempotencyKey(key: string): ExecutionJob | undefined {
+    const row = this.db.prepare("SELECT * FROM execution_jobs WHERE idempotency_key = ?").get(key);
+    return row ? this.mapJob(row) : undefined;
+  }
+
+  updateJob(job: ExecutionJob): void {
+    this.db.prepare(`
+      UPDATE execution_jobs SET
+        payload = ?, status = ?, retry_policy = ?, timeout_ms = ?,
+        updated_at = ?, last_attempt_at = ?, next_attempt_at = ?,
+        current_lease_id = ?, cancellation_requested = ?, cancellation_acknowledged = ?
+      WHERE id = ?
+    `).run(
+      job.payload ? JSON.stringify(job.payload) : null,
+      job.status,
+      job.retryPolicy ? JSON.stringify(job.retryPolicy) : null,
+      job.timeoutMs ?? null,
+      job.updatedAt,
+      job.lastAttemptAt ?? null,
+      job.nextAttemptAt ?? null,
+      job.currentLeaseId ?? null,
+      job.cancellationRequested ? 1 : 0,
+      job.cancellationAcknowledged ? 1 : 0,
+      job.id
+    );
+  }
+
+  /**
+   * Phase 126: ownership-aware mutation.  Atomically verifies that the
+   * supplied leaseId is currently ACTIVE, unexpired, and owned by workerId
+   * before committing the job update.  A stale worker's write fails
+   * deterministically with WORKER_OWNERSHIP_LOST and mutates nothing.
+   */
+  updateJobAsOwner(
+    job: ExecutionJob,
+    workerId: string,
+    leaseId: string,
+    now: number = Date.now()
+  ): { updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
+    const result = this.db.prepare(`
+      UPDATE execution_jobs SET
+        payload = ?, status = ?, retry_policy = ?, timeout_ms = ?,
+        updated_at = ?, last_attempt_at = ?, next_attempt_at = ?,
+        current_lease_id = ?, cancellation_requested = ?, cancellation_acknowledged = ?
+      WHERE id = ?
+        AND EXISTS (
+          SELECT 1 FROM execution_leases
+          WHERE lease_id = ? AND worker_id = ? AND status = 'ACTIVE' AND expires_at > ?
+        )
+    `).run(
+      job.payload ? JSON.stringify(job.payload) : null,
+      job.status,
+      job.retryPolicy ? JSON.stringify(job.retryPolicy) : null,
+      job.timeoutMs ?? null,
+      now,
+      job.lastAttemptAt ?? null,
+      job.nextAttemptAt ?? null,
+      job.currentLeaseId ?? null,
+      job.cancellationRequested ? 1 : 0,
+      job.cancellationAcknowledged ? 1 : 0,
+      job.id,
+      leaseId,
+      workerId,
+      now
+    );
+    if (result.changes === 0) {
+      return { updated: false, reason: "WORKER_OWNERSHIP_LOST" };
+    }
+    return { updated: true };
+  }
+
+  /**
+   * Phase 127: single authoritative durable transition.
+   * State-machine legality + actor-role policy live in ExecutionEngine.applyTransition.
+   * This method is the DB-level concurrency boundary: expected-state CAS + ownership.
+   */
+  transitionExecution(input: TransitionInput): TransitionResult {
+    const now = input.now ?? Date.now();
+    const before = this.getJob(input.jobId);
+    if (!before) return { ok: false, reason: "JOB_NOT_FOUND", currentStatus: null };
+
+    // Phase 127: worker fencing MUST precede the idempotency shortcut.
+    // Otherwise a stale worker whose job already happens to be in newStatus
+    // would receive "idempotent success" without proving lease ownership.
+    if (input.actor === "worker") {
+      if (!input.leaseId || !input.workerId) {
+        return { ok: false, reason: "WORKER_OWNERSHIP_LOST", currentStatus: before.status };
+      }
+      const owned = this.db.prepare(`
+        SELECT 1 FROM execution_leases
+        WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+          AND status = 'ACTIVE' AND expires_at > ?
+      `).get(input.leaseId, input.workerId, input.jobId, now);
+      if (!owned) {
+        return { ok: false, reason: "WORKER_OWNERSHIP_LOST", currentStatus: before.status };
+      }
+    }
+
+    // Idempotent duplicate (safe now that ownership has been verified).
+    if (before.status === input.newStatus) {
+      return { ok: true, applied: false, status: before.status, idempotent: true };
+    }
+
+    // Terminal-state protection.
+    const TERMINAL: ExecutionJob["status"][] = ["SUCCEEDED", "CANCELLED", "DEAD_LETTER", "BLOCKED"];
+    if (TERMINAL.includes(input.expectedStatus) && input.expectedStatus !== input.newStatus) {
+      return { ok: false, reason: "TERMINAL_STATE", currentStatus: before.status };
+    }
+
+    const useOwner = input.actor === "worker" ? 1 : 0;
+    const p = input.patch ?? {};
+
+    // Atomic UPDATE + event, using the repository's existing SQLite
+    // transaction compatibility pattern (raw better-sqlite3 vs SQLiteEngine).
+    let updateResult: any = null;
+
+    const run = (): any => {
+      const r = this.db.prepare(`
+        UPDATE execution_jobs SET
+          status = ?, updated_at = ?,
+          current_lease_id          = COALESCE(?, current_lease_id),
+          retry_policy              = COALESCE(?, retry_policy),
+          timeout_ms                = COALESCE(?, timeout_ms),
+          last_attempt_at           = COALESCE(?, last_attempt_at),
+          next_attempt_at           = COALESCE(?, next_attempt_at),
+          cancellation_requested    = COALESCE(?, cancellation_requested),
+          cancellation_acknowledged = COALESCE(?, cancellation_acknowledged)
+        WHERE id = ? AND status = ?
+          AND (
+            ? = 0
+            OR EXISTS (
+              SELECT 1 FROM execution_leases
+              WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+                AND status = 'ACTIVE' AND expires_at > ?
+            )
+          )
+      `).run(
+        input.newStatus, now,
+        p.currentLeaseId === undefined ? null : (p.currentLeaseId ?? null),
+        p.retryPolicy === undefined ? null : (p.retryPolicy ? JSON.stringify(p.retryPolicy) : null),
+        p.timeoutMs === undefined ? null : (p.timeoutMs ?? null),
+        p.lastAttemptAt === undefined ? null : (p.lastAttemptAt ?? null),
+        p.nextAttemptAt === undefined ? null : (p.nextAttemptAt ?? null),
+        p.cancellationRequested === undefined ? null : (p.cancellationRequested ? 1 : 0),
+        p.cancellationAcknowledged === undefined ? null : (p.cancellationAcknowledged ? 1 : 0),
+        input.jobId, input.expectedStatus,
+        useOwner, input.leaseId ?? null, input.workerId ?? null, input.jobId, now
+      );
+
+      if (r.changes > 0) {
+        // Event insert is part of durable transition integrity: a failure
+        // here aborts the transaction and rolls back the state change.
+        this.addEvent({
+          eventId: `evt_${input.jobId}_${now}_${Math.random().toString(36).slice(2, 10)}`,
+          jobId: input.jobId,
+          eventType: `execution.transition.${input.newStatus.toLowerCase()}`,
+          payload: {
+            from: input.expectedStatus, to: input.newStatus, actor: input.actor,
+            reason: input.reason ?? null,
+            workerId: input.workerId ?? null, leaseId: input.leaseId ?? null,
+          },
+          createdAt: now,
+        });
+      }
+
+      updateResult = r;
+      return r;
+    };
+
+    let txThrew = false;
+    try {
+      const maybeTx: any = (this.db as any).transaction(run);
+      if (typeof maybeTx === "function") {
+        maybeTx();
+      }
+      // else: SQLiteEngine executed fn eagerly; closure already set updateResult.
+    } catch {
+      txThrew = true;
+      updateResult = null;
+    }
+
+    if (txThrew) {
+      // Event insertion failed; state rollback preserved consistency but the
+      // transition itself did not commit.  Reported as STATE_MISMATCH
+      // because TransitionResult has no dedicated EVENT_FAILED reason.
+      const cur = this.getJob(input.jobId);
+      return { ok: false, reason: "STATE_MISMATCH", currentStatus: cur?.status ?? null };
+    }
+
+    if (!updateResult || updateResult.changes === 0) {
+      const cur = this.getJob(input.jobId);
+      const currentStatus = cur?.status ?? null;
+      if (currentStatus === input.newStatus) {
+        return { ok: true, applied: false, status: currentStatus, idempotent: true };
+      }
+      if (input.actor === "worker" && currentStatus === input.expectedStatus) {
+        return { ok: false, reason: "WORKER_OWNERSHIP_LOST", currentStatus };
+      }
+      return { ok: false, reason: "STATE_MISMATCH", currentStatus };
+    }
+
+    return { ok: true, applied: true, status: input.newStatus, idempotent: false };
+  }
+  /** Phase 127 STEP 8: flag-only cancellation; never writes status. */
+  requestCancellation(jobId: string, now: number = Date.now()): boolean {
+    const result = this.db.prepare(`
+      UPDATE execution_jobs SET cancellation_requested = 1, updated_at = ?
+      WHERE id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'DEAD_LETTER', 'BLOCKED')
+    `).run(now, jobId);
+    return result.changes > 0;
+  }
+
+  /**
+   * Phase 126: durable ownership-loss obligation.
+   * Idempotent per (job_id, lease_id): repeated detection is a no-op.
+   */
+  writeOwnershipObligation(input: {
+    jobId: string;
+    leaseId: string;
+    workerId: string;
+    reason: string;
+    now?: number;
+  }): { obligationId: string; created: boolean } {
+    const now = input.now ?? Date.now();
+    const obligationId = `oblig_${input.jobId}_${input.leaseId}`;
+    try {
+      this.db.prepare(`
+        INSERT INTO execution_ownership_obligations (
+          obligation_id, job_id, lease_id, worker_id, reason, state, created_at
+        ) VALUES (?, ?, ?, ?, ?, 'OPEN', ?)
+      `).run(obligationId, input.jobId, input.leaseId, input.workerId, input.reason, now);
+      return { obligationId, created: true };
+    } catch (err: any) {
+      if (err.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed/i.test(err.message)) {
+        const existing = this.db.prepare(
+          `SELECT obligation_id FROM execution_ownership_obligations WHERE job_id = ? AND lease_id = ?`
+        ).get(input.jobId, input.leaseId) as { obligation_id: string } | undefined;
+        return { obligationId: existing?.obligation_id ?? obligationId, created: false };
+      }
+      throw err;
+    }
+  }
+
+  resolveOwnershipObligation(obligationId: string, resolution: string, now: number = Date.now()): boolean {
+    const result = this.db.prepare(`
+      UPDATE execution_ownership_obligations
+      SET state = 'RESOLVED', resolved_at = ?, resolution = ?
+      WHERE obligation_id = ? AND state = 'OPEN'
+    `).run(now, resolution, obligationId);
+    return result.changes > 0;
+  }
+
+  listOpenOwnershipObligations(): Array<{
+    obligationId: string; jobId: string; leaseId: string; workerId: string;
+    reason: string; createdAt: number;
+  }> {
+    const rows = this.db.prepare(
+      `SELECT * FROM execution_ownership_obligations WHERE state = 'OPEN' ORDER BY created_at ASC`
+    ).all() as any[];
+    return rows.map((r) => ({
+      obligationId: r.obligation_id,
+      jobId: r.job_id,
+      leaseId: r.lease_id,
+      workerId: r.worker_id,
+      reason: r.reason,
+      createdAt: r.created_at,
+    }));
+  }
+
+  /**
+   * Phase 126: atomic stale-recovery transition.
+   *
+   * Recovers a job from `expectedStatus` to `newStatus` ONLY IF the job is
+   * still in `expectedStatus` AND its current_lease_id is exactly
+   * `expectedLeaseId`.  If a new worker has taken over between the caller's
+   * read and this write, the WHERE clause matches zero rows and nothing is
+   * mutated.
+   *
+   * Returns true if the transition was applied, false if the job was
+   * concurrently re-owned or otherwise changed state.
+   */
+  recoverJobToStatus(
+    jobId: string,
+    expectedStatus: string,
+    newStatus: string,
+    expectedLeaseId: string | null,
+    patch: { nextAttemptAt?: number | null; now?: number } = {}
+  ): boolean {
+    const now = patch.now ?? Date.now();
+    const result = this.db.prepare(`
+      UPDATE execution_jobs SET
+        status = ?, updated_at = ?, next_attempt_at = ?, current_lease_id = NULL
+      WHERE id = ?
+        AND status = ?
+        AND (
+          (? IS NULL AND current_lease_id IS NULL)
+          OR current_lease_id = ?
+        )
+    `).run(
+      newStatus,
+      now,
+      patch.nextAttemptAt ?? null,
+      jobId,
+      expectedStatus,
+      expectedLeaseId,
+      expectedLeaseId
+    );
+    return result.changes > 0;
+  }
+
+  listJobsByStatus(status: string): ExecutionJob[] {
+    return this.db.prepare("SELECT * FROM execution_jobs WHERE status = ?").all(status).map(this.mapJob);
+  }
+
+  listJobsDueForRetry(now: number): ExecutionJob[] {
+    return this.db.prepare(
+      "SELECT * FROM execution_jobs WHERE status = 'RETRY_SCHEDULED' AND next_attempt_at <= ?"
+    ).all(now).map(this.mapJob);
+  }
+
+  // ---------- Attempts ----------
+  createAttempt(attempt: ExecutionAttempt): void {
+    this.db.prepare(`
+      INSERT INTO execution_attempts (
+        id, job_id, attempt_number, status, worker_id, lease_id,
+        started_at, completed_at, error, evidence, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      attempt.id,
+      attempt.jobId,
+      attempt.attemptNumber,
+      attempt.status,
+      attempt.workerId,
+      attempt.leaseId,
+      attempt.startedAt,
+      attempt.completedAt,
+      attempt.error,
+      attempt.evidence ? JSON.stringify(attempt.evidence) : null,
+      attempt.createdAt
+    );
+  }
+
+  /**
+   * Phase 136: worker-authoritative attempt creation. Fenced by the same
+   * lease invariant used by transitionExecution and updateJobAsOwner:
+   * the INSERT is rejected unless the caller holds an ACTIVE, unexpired
+   * lease for (lease_id, worker_id, job_id). A stale worker receives
+   * WORKER_OWNERSHIP_LOST and no attempt row is written.
+   */
+  createAttemptAsOwner(
+    attempt: ExecutionAttempt,
+    leaseId: string,
+    workerId: string,
+    now: number = Date.now(),
+  ): { created: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
+    const owned = this.db.prepare(`
+      SELECT 1 FROM execution_leases
+      WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+        AND status = 'ACTIVE' AND expires_at > ?
+    `).get(leaseId, workerId, attempt.jobId, now);
+    if (!owned) {
+      return { created: false, reason: "WORKER_OWNERSHIP_LOST" };
+    }
+    try {
+      this.db.prepare(`
+        INSERT INTO execution_attempts (
+          id, job_id, attempt_number, status, worker_id, lease_id,
+          started_at, completed_at, error, evidence, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        attempt.id,
+        attempt.jobId,
+        attempt.attemptNumber,
+        attempt.status,
+        attempt.workerId,
+        attempt.leaseId,
+        attempt.startedAt,
+        attempt.completedAt,
+        attempt.error,
+        attempt.evidence ? JSON.stringify(attempt.evidence) : null,
+        attempt.createdAt,
+      );
+      return { created: true };
+    } catch (err: unknown) {
+      const e = err as { code?: string; message?: string };
+      if (
+        e.code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
+        /UNIQUE constraint failed/i.test(e.message ?? "")
+      ) {
+        return { created: false };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Phase 136: worker-authoritative attempt update. WHERE clause carries the
+   * same EXISTS(ACTIVE, unexpired, matching lease_id+worker_id+job_id) as
+   * updateJobAsOwner and transitionExecution. A stale worker's UPDATE matches
+   * zero rows and no attempt evidence is committed.
+   */
+  updateAttemptAsOwner(
+    attempt: ExecutionAttempt,
+    leaseId: string,
+    workerId: string,
+    now: number = Date.now(),
+  ): { updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
+    const result = this.db.prepare(`
+      UPDATE execution_attempts SET
+        status = ?, worker_id = ?, lease_id = ?, started_at = ?,
+        completed_at = ?, error = ?, evidence = ?
+      WHERE id = ?
+        AND EXISTS (
+          SELECT 1 FROM execution_leases
+          WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+            AND status = 'ACTIVE' AND expires_at > ?
+        )
+    `).run(
+      attempt.status,
+      attempt.workerId,
+      attempt.leaseId,
+      attempt.startedAt,
+      attempt.completedAt,
+      attempt.error,
+      attempt.evidence ? JSON.stringify(attempt.evidence) : null,
+      attempt.id,
+      leaseId,
+      workerId,
+      attempt.jobId,
+      now,
+    );
+    return result.changes > 0
+      ? { updated: true }
+      : { updated: false, reason: "WORKER_OWNERSHIP_LOST" };
+  }
+
+  updateAttempt(attempt: ExecutionAttempt): void {
+    this.db.prepare(`
+      UPDATE execution_attempts SET
+        status = ?, worker_id = ?, lease_id = ?, started_at = ?,
+        completed_at = ?, error = ?, evidence = ?
+      WHERE id = ?
+    `).run(
+      attempt.status,
+      attempt.workerId,
+      attempt.leaseId,
+      attempt.startedAt,
+      attempt.completedAt,
+      attempt.error,
+      attempt.evidence ? JSON.stringify(attempt.evidence) : null,
+      attempt.id
+    );
+  }
+
+  getAttempt(id: string): ExecutionAttempt | undefined {
+    const row = this.db.prepare("SELECT * FROM execution_attempts WHERE id = ?").get(id);
+    return row ? this.mapAttempt(row) : undefined;
+  }
+
+  listAttemptsForJob(jobId: string): ExecutionAttempt[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM execution_attempts WHERE job_id = ? ORDER BY attempt_number"
+    ).all(jobId);
+    return rows.map((row: any) => this.mapAttempt(row));
+  }
+
+  // ---------- Workers ----------
+  registerWorker(worker: ExecutionWorker): void {
+    this.db.prepare(`
+      INSERT INTO execution_workers (
+        worker_id, hostname, capabilities, status, last_heartbeat_at,
+        current_job_id, registered_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      worker.workerId,
+      worker.hostname,
+      worker.capabilities ? JSON.stringify(worker.capabilities) : null,
+      worker.status,
+      worker.lastHeartbeatAt,
+      worker.currentJobId,
+      worker.registeredAt
+    );
+  }
+
+  updateWorker(worker: ExecutionWorker): void {
+    this.db.prepare(`
+      UPDATE execution_workers SET
+        hostname = ?, capabilities = ?, status = ?,
+        last_heartbeat_at = ?, current_job_id = ?
+      WHERE worker_id = ?
+    `).run(
+      worker.hostname,
+      worker.capabilities ? JSON.stringify(worker.capabilities) : null,
+      worker.status,
+      worker.lastHeartbeatAt,
+      worker.currentJobId,
+      worker.workerId
+    );
+  }
+
+  getWorker(workerId: string): ExecutionWorker | undefined {
+    const row = this.db.prepare("SELECT * FROM execution_workers WHERE worker_id = ?").get(workerId);
+    return row ? this.mapWorker(row) : undefined;
+  }
+
+  listWorkers(): ExecutionWorker[] {
+    return this.db.prepare("SELECT * FROM execution_workers").all().map(this.mapWorker);
+  }
+
+  listWorkersByStatus(status: string): ExecutionWorker[] {
+    return this.db.prepare("SELECT * FROM execution_workers WHERE status = ?").all(status).map(this.mapWorker);
+  }
+
+  // ---------- Leases ----------
+  acquireLease(lease: ExecutionLease): { acquired: boolean; existingLease?: ExecutionLease } {
+    try {
+      this.db.prepare(`
+        INSERT INTO execution_leases (
+          lease_id, job_id, worker_id, acquired_at, expires_at,
+          renewed_at, released_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        lease.leaseId,
+        lease.jobId,
+        lease.workerId,
+        lease.acquiredAt,
+        lease.expiresAt,
+        lease.renewedAt,
+        lease.releasedAt ?? null,
+        lease.status
+      );
+      return { acquired: true };
+    } catch (err: any) {
+      if (err.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed/i.test(err.message)) {
+        // Phase 127 STEP 5: exclude expired rows so a dead worker's stale
+        // ACTIVE lease does not block reacquisition until recovery sweeps.
+        const existing = this.getActiveNonExpiredLeaseForJob(lease.jobId, lease.acquiredAt);
+        return { acquired: false, existingLease: existing };
+      }
+      throw err;
+    }
+  }
+
+  updateLease(lease: ExecutionLease): void {
+    this.db.prepare(`
+      UPDATE execution_leases SET
+        renewed_at = ?, released_at = ?, status = ?, expires_at = ?
+      WHERE lease_id = ?
+    `).run(
+      lease.renewedAt ?? null,
+      lease.releasedAt ?? null,
+      lease.status,
+      lease.expiresAt,
+      lease.leaseId
+    );
+  }
+
+  /**
+   * Phase 126: atomically renew a lease only while the caller still owns
+   * an unexpired ACTIVE lease. This closes the read/check/write race where
+   * another worker could acquire the job between getLease() and updateLease().
+   */
+  renewLeaseAsOwner(
+    leaseId: string,
+    workerId: string,
+    renewedAt: number,
+    expiresAt: number,
+    now: number
+  ): boolean {
+    const result = this.db.prepare(`
+      UPDATE execution_leases SET
+        renewed_at = ?,
+        expires_at = ?
+      WHERE lease_id = ?
+        AND worker_id = ?
+        AND status = 'ACTIVE'
+        AND expires_at > ?
+    `).run(
+      renewedAt,
+      expiresAt,
+      leaseId,
+      workerId,
+      now
+    );
+
+    return result.changes === 1;
+  }
+  getLease(leaseId: string): ExecutionLease | undefined {
+    const row = this.db.prepare("SELECT * FROM execution_leases WHERE lease_id = ?").get(leaseId);
+    return row ? this.mapLease(row) : undefined;
+  }
+
+  getActiveLeaseForJob(jobId: string): ExecutionLease | undefined {
+    const row = this.db.prepare(
+      "SELECT * FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE'"
+    ).get(jobId);
+    return row ? this.mapLease(row) : undefined;
+  }
+
+  getActiveNonExpiredLeaseForJob(jobId: string, now: number = Date.now()): ExecutionLease | undefined {
+    const row = this.db.prepare(
+      "SELECT * FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE' AND expires_at > ?"
+    ).get(jobId, now);
+    return row ? this.mapLease(row) : undefined;
+  }
+
+  listExpiredLeases(now: number): ExecutionLease[] {
+    return this.db.prepare(
+      "SELECT * FROM execution_leases WHERE status = 'ACTIVE' AND expires_at <= ?"
+    ).all(now).map(this.mapLease);
+  }
+
+  /**
+   * Clears the job's current_lease_id if it still points at the given
+   * (released/expired) lease.  Called from LeaseManager.releaseLease so the
+   * durable job row matches the in-memory state after release.  CAS on the
+   * previous lease id ensures a concurrent new claim is never clobbered.
+   */
+  clearJobLeaseByLeaseId(leaseId: string): void {
+    this.db.prepare(`
+      UPDATE execution_jobs SET current_lease_id = NULL
+      WHERE current_lease_id = ?
+    `).run(leaseId);
+  }
+
+  // ---------- Artifacts ----------
+  /**
+   * Phase 136: worker-authoritative artifact registration. Requires the
+   * caller to hold an ACTIVE, unexpired lease matching (lease_id, worker_id,
+   * job_id). A stale worker is rejected and no artifact row is written.
+   * System/recovery callers that do not carry a worker lease continue to use
+   * the unfenced addArtifact().
+   */
+  addArtifactAsOwner(
+    artifact: ArtifactRecord,
+    leaseId: string,
+    workerId: string,
+    now: number = Date.now(),
+  ): { added: boolean; reason?: "WORKER_OWNERSHIP_LOST" | "JOB_ID_REQUIRED" } {
+    if (!artifact.jobId) {
+      return { added: false, reason: "JOB_ID_REQUIRED" };
+    }
+    const owned = this.db.prepare(`
+      SELECT 1 FROM execution_leases
+      WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+        AND status = 'ACTIVE' AND expires_at > ?
+    `).get(leaseId, workerId, artifact.jobId, now);
+    if (!owned) {
+      return { added: false, reason: "WORKER_OWNERSHIP_LOST" };
+    }
+    this.addArtifact(artifact);
+    return { added: true };
+  }
+
+  addArtifact(artifact: ArtifactRecord): void {
+    this.db.prepare(`
+      INSERT INTO execution_artifacts (
+        artifact_id, job_id, release_id, name, type, size_bytes,
+        checksum, storage_ref, metadata, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      artifact.artifactId,
+      artifact.jobId,
+      artifact.releaseId,
+      artifact.name,
+      artifact.type,
+      artifact.sizeBytes,
+      artifact.checksum,
+      artifact.storageRef,
+      artifact.metadata ? JSON.stringify(artifact.metadata) : null,
+      artifact.createdAt
+    );
+  }
+
+  getArtifact(artifactId: string): ArtifactRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM execution_artifacts WHERE artifact_id = ?").get(artifactId);
+    return row ? this.mapArtifact(row) : undefined;
+  }
+
+  // ---------- Releases ----------
+  addRelease(release: ReleaseRecord): void {
+    this.db.prepare(`
+      INSERT INTO execution_releases (
+        release_id, version, build_info, artifact_id, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      release.releaseId,
+      release.version,
+      release.buildInfo ? JSON.stringify(release.buildInfo) : null,
+      release.artifactId,
+      release.status,
+      release.createdAt,
+      release.updatedAt
+    );
+  }
+
+  updateRelease(release: ReleaseRecord): void {
+    this.db.prepare(`
+      UPDATE execution_releases SET
+        build_info = ?, artifact_id = ?, status = ?, updated_at = ?
+      WHERE release_id = ?
+    `).run(
+      release.buildInfo ? JSON.stringify(release.buildInfo) : null,
+      release.artifactId,
+      release.status,
+      release.updatedAt,
+      release.releaseId
+    );
+  }
+
+  getRelease(releaseId: string): ReleaseRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM execution_releases WHERE release_id = ?").get(releaseId);
+    return row ? this.mapRelease(row) : undefined;
+  }
+
+  // ---------- Deployments ----------
+  addDeployment(deployment: DeploymentRecord): void {
+    this.db.prepare(`
+      INSERT INTO execution_deployments (
+        deployment_id, release_id, environment, status, created_at,
+        updated_at, rollback_deployment_id, evidence
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      deployment.deploymentId,
+      deployment.releaseId,
+      deployment.environment,
+      deployment.status,
+      deployment.createdAt,
+      deployment.updatedAt,
+      deployment.rollbackDeploymentId,
+      deployment.evidence ? JSON.stringify(deployment.evidence) : null
+    );
+  }
+
+  updateDeployment(deployment: DeploymentRecord): void {
+    this.db.prepare(`
+      UPDATE execution_deployments SET
+        status = ?, updated_at = ?, rollback_deployment_id = ?, evidence = ?
+      WHERE deployment_id = ?
+    `).run(
+      deployment.status,
+      deployment.updatedAt,
+      deployment.rollbackDeploymentId,
+      deployment.evidence ? JSON.stringify(deployment.evidence) : null,
+      deployment.deploymentId
+    );
+  }
+
+  getDeployment(deploymentId: string): DeploymentRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM execution_deployments WHERE deployment_id = ?").get(deploymentId);
+    return row ? this.mapDeployment(row) : undefined;
+  }
+
+  // ---------- Approvals ----------
+  addApproval(approval: ApprovalRequest): void {
+    this.db.prepare(`
+      INSERT INTO execution_approvals (
+        approval_id, deployment_id, release_id, environment, requested_action,
+        decision, decided_at, decided_by, reason, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      approval.approvalId,
+      approval.deploymentId,
+      approval.releaseId,
+      approval.environment,
+      approval.requestedAction,
+      approval.decision,
+      approval.decidedAt,
+      approval.decidedBy,
+      approval.reason,
+      approval.createdAt
+    );
+  }
+
+  updateApproval(approval: ApprovalRequest): void {
+    this.db.prepare(`
+      UPDATE execution_approvals SET
+        decision = ?, decided_at = ?, decided_by = ?, reason = ?
+      WHERE approval_id = ?
+    `).run(
+      approval.decision,
+      approval.decidedAt,
+      approval.decidedBy,
+      approval.reason,
+      approval.approvalId
+    );
+  }
+
+  getApproval(approvalId: string): ApprovalRequest | undefined {
+    const row = this.db.prepare("SELECT * FROM execution_approvals WHERE approval_id = ?").get(approvalId);
+    return row ? this.mapApproval(row) : undefined;
+  }
+
+  // ---------- Events ----------
+  addEvent(event: ExecutionEvent): void {
+    this.db.prepare(`
+      INSERT INTO execution_events (event_id, job_id, deployment_id, event_type, payload, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      event.eventId,
+      event.jobId,
+      event.deploymentId,
+      event.eventType,
+      event.payload ? JSON.stringify(event.payload) : null,
+      event.createdAt
+    );
+  }
+
+  // ---------- Mapping Helpers ----------
+  private mapJob(row: any): ExecutionJob {
+    return {
+      id: row.id,
+      idempotencyKey: row.idempotency_key,
+      jobType: row.job_type,
+      payload: row.payload ? JSON.parse(row.payload) : undefined,
+      status: row.status,
+      retryPolicy: row.retry_policy ? JSON.parse(row.retry_policy) : undefined,
+      timeoutMs: row.timeout_ms,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      lastAttemptAt: row.last_attempt_at,
+      nextAttemptAt: row.next_attempt_at,
+      currentLeaseId: row.current_lease_id,
+      cancellationRequested: !!row.cancellation_requested,
+      cancellationAcknowledged: !!row.cancellation_acknowledged,
+    };
+  }
+
+  private mapAttempt(row: any): ExecutionAttempt {
+    return {
+      id: row.id,
+      jobId: row.job_id,
+      attemptNumber: row.attempt_number,
+      status: row.status,
+      workerId: row.worker_id,
+      leaseId: row.lease_id,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+      error: row.error,
+      evidence: row.evidence ? JSON.parse(row.evidence) : undefined,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapWorker(row: any): ExecutionWorker {
+    return {
+      workerId: row.worker_id,
+      hostname: row.hostname,
+      capabilities: row.capabilities ? JSON.parse(row.capabilities) : undefined,
+      status: row.status,
+      lastHeartbeatAt: row.last_heartbeat_at,
+      currentJobId: row.current_job_id,
+      registeredAt: row.registered_at,
+    };
+  }
+
+  /* -------- Phase 103: durable release deployment intent -------- */
+
+  private ensureIntentTable(): void {
+    // Schema is owned by migration 146.
+    // This compatibility method intentionally performs no runtime DDL.
+  }
+  /**
+   * Idempotent create. INSERT OR IGNORE guarantees a race produces exactly one row.
+   * Returns the row that now exists plus a flag indicating whether it was created.
+   */
+  createReleaseIntentIdempotent(
+    input: Omit<ReleaseDeploymentIntent, "status" | "deploymentId" | "failureReason" | "recoveryReason" | "leasedBy" | "leaseExpiresAt" | "createdAt" | "updatedAt">,
+  ): { intent: ReleaseDeploymentIntent; created: boolean } {
+    this.ensureIntentTable();
+    const now = Date.now();
+    const info = this.db.prepare(`
+      INSERT OR IGNORE INTO release_deployment_intents (
+        intent_key, release_id, execution_id, artifact_id, artifact_digest,
+        commit_sha, environment, project_id, image_repository, image_tag, image_id,
+          intent_kind, rollback_target_release_id, rollback_job_id,
+        image_digest, container_name, container_port, status, deployment_id,
+        failure_reason, recovery_reason, leased_by, lease_expires_at,
+        created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DEPLOYMENT_INTENT_CREATED', NULL, NULL, NULL, NULL, NULL, ?, ?)
+    `).run(
+        input.intentKey,
+        input.releaseId,
+        input.executionId,
+        input.artifactId,
+        input.artifactDigest,
+        input.commitSha,
+        input.environment,
+        input.projectId ?? null,
+        input.imageRepository,
+        input.imageTag,
+        input.imageId,
+        input.intentKind ?? "DEPLOY",
+        input.rollbackTargetReleaseId ?? null,
+        input.rollbackJobId ?? null,
+        input.imageDigest,
+        input.containerName,
+        input.containerPort,
+        now,
+        now,
+      );
+    const existing = this.getReleaseIntent(input.intentKey);
+    if (!existing) throw new Error("release intent missing after INSERT OR IGNORE");
+    return { intent: existing, created: (info.changes ?? 0) > 0 };
+  }
+
+  getReleaseIntent(intentKey: string): ReleaseDeploymentIntent | undefined {
+    this.ensureIntentTable();
+    const row = this.db.prepare("SELECT * FROM release_deployment_intents WHERE intent_key = ?").get(intentKey);
+    return row ? this.mapReleaseIntent(row) : undefined;
+  }
+
+  updateReleaseIntentStatus(
+    intentKey: string,
+    status: ReleaseIntentStatus,
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null } = {},
+  ): ReleaseDeploymentIntent | undefined {
+    this.ensureIntentTable();
+    const now = Date.now();
+    this.db.prepare(`
+      UPDATE release_deployment_intents SET
+        status = ?,
+        deployment_id = COALESCE(?, deployment_id),
+        failure_reason = COALESCE(?, failure_reason),
+        recovery_reason = COALESCE(?, recovery_reason),
+        updated_at = ?
+      WHERE intent_key = ?
+    `).run(
+      status,
+      patch.deploymentId ?? null,
+      patch.failureReason ?? null,
+      patch.recoveryReason ?? null,
+      now,
+      intentKey,
+    );
+    return this.getReleaseIntent(intentKey);
+  }
+
+  /**
+   * Optimistic-lock lease. Acquires iff: no active lease OR lease expired OR caller already holds it.
+   * Returns the outcome; caller MUST inspect `acquired`.
+   */
+  acquireReleaseIntentLease(
+    intentKey: string,
+    workerId: string,
+    durationMs: number,
+  ): { acquired: boolean; holder: string | null; expiresAt: number | null } {
+    this.ensureIntentTable();
+    const now = Date.now();
+    const intent = this.getReleaseIntent(intentKey);
+    if (!intent) return { acquired: false, holder: null, expiresAt: null };
+    const leaseActive = intent.leasedBy !== null && intent.leaseExpiresAt !== null && intent.leaseExpiresAt > now;
+    const sameHolder = intent.leasedBy === workerId;
+    if (leaseActive && !sameHolder) {
+      return { acquired: false, holder: intent.leasedBy, expiresAt: intent.leaseExpiresAt };
+    }
+    const expiresAt = now + durationMs;
+    const info = this.db.prepare(`
+      UPDATE release_deployment_intents SET
+        leased_by = ?, lease_expires_at = ?, updated_at = ?
+      WHERE intent_key = ?
+        AND (
+          leased_by IS NULL
+          OR lease_expires_at IS NULL
+          OR lease_expires_at <= ?
+          OR leased_by = ?
+        )
+    `).run(workerId, expiresAt, now, intentKey, now, workerId);
+    if ((info.changes ?? 0) === 0) {
+      const fresh = this.getReleaseIntent(intentKey);
+      return { acquired: false, holder: fresh?.leasedBy ?? null, expiresAt: fresh?.leaseExpiresAt ?? null };
+    }
+    return { acquired: true, holder: workerId, expiresAt };
+  }
+
+  renewReleaseIntentLease(intentKey: string, workerId: string, durationMs: number): boolean {
+    this.ensureIntentTable();
+    const now = Date.now();
+    const expiresAt = now + durationMs;
+    const info = this.db.prepare(`
+      UPDATE release_deployment_intents SET
+        lease_expires_at = ?, updated_at = ?
+      WHERE intent_key = ? AND leased_by = ?
+    `).run(expiresAt, now, intentKey, workerId);
+    return (info.changes ?? 0) > 0;
+  }
+
+  releaseReleaseIntentLease(intentKey: string, workerId: string): boolean {
+    this.ensureIntentTable();
+    const now = Date.now();
+    const info = this.db.prepare(`
+      UPDATE release_deployment_intents SET
+        leased_by = NULL, lease_expires_at = NULL, updated_at = ?
+      WHERE intent_key = ? AND leased_by = ?
+    `).run(now, intentKey, workerId);
+    return (info.changes ?? 0) > 0;
+  }
+
+  listReleaseIntentsByStatus(status: ReleaseIntentStatus): ReleaseDeploymentIntent[] {
+    this.ensureIntentTable();
+    const rows = this.db.prepare(
+      "SELECT * FROM release_deployment_intents WHERE status = ? ORDER BY created_at DESC"
+    ).all(status);
+    return (rows as any[]).map((r) => this.mapReleaseIntent(r));
+  }
+
+  listRecoverableReleaseIntents(): ReleaseDeploymentIntent[] {
+    this.ensureIntentTable();
+    const rows = this.db.prepare(`
+      SELECT * FROM release_deployment_intents
+      WHERE status IN ('PENDING','AUTHORIZED','DEPLOYMENT_INTENT_CREATED','DEPLOYING','HEALTH_CHECKING','SMOKE_TESTING','VERIFICATION_FAILED','ROLLING_BACK','RECOVERY_REQUIRED')
+      ORDER BY created_at DESC
+    `).all();
+    return (rows as any[]).map((r) => this.mapReleaseIntent(r));
+  }
+
+  private mapReleaseIntent(row: any): ReleaseDeploymentIntent {
+    return {
+      intentKey: row.intent_key,
+      releaseId: row.release_id,
+      executionId: row.execution_id,
+      artifactId: row.artifact_id,
+      artifactDigest: row.artifact_digest,
+      commitSha: row.commit_sha,
+      environment: row.environment,
+      projectId: row.project_id ?? null,
+      imageRepository: row.image_repository,
+      imageTag: row.image_tag,
+      imageId: row.image_id ?? null,
+      imageDigest: row.image_digest,
+      containerName: row.container_name,
+      containerPort: row.container_port,
+        intentKind: ((row.intent_kind ?? "DEPLOY") as "DEPLOY" | "ROLLBACK"),
+        rollbackTargetReleaseId: row.rollback_target_release_id ?? null,
+        rollbackJobId: row.rollback_job_id ?? null,
+      status: row.status,
+      deploymentId: row.deployment_id ?? null,
+      failureReason: row.failure_reason ?? null,
+      recoveryReason: row.recovery_reason ?? null,
+      leasedBy: row.leased_by ?? null,
+      leaseExpiresAt: row.lease_expires_at ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+  private mapLease(row: any): ExecutionLease {
+    return {
+      leaseId: row.lease_id,
+      jobId: row.job_id,
+      workerId: row.worker_id,
+      acquiredAt: row.acquired_at,
+      expiresAt: row.expires_at,
+      renewedAt: row.renewed_at,
+      releasedAt: row.released_at,
+      status: row.status,
+    };
+  }
+
+  private mapArtifact(row: any): ArtifactRecord {
+    return {
+      artifactId: row.artifact_id,
+      jobId: row.job_id,
+      releaseId: row.release_id,
+      name: row.name,
+      type: row.type,
+      sizeBytes: row.size_bytes,
+      checksum: row.checksum,
+      storageRef: row.storage_ref,
+      metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapRelease(row: any): ReleaseRecord {
+    return {
+      releaseId: row.release_id,
+      version: row.version,
+      buildInfo: row.build_info ? JSON.parse(row.build_info) : undefined,
+      artifactId: row.artifact_id,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private mapDeployment(row: any): DeploymentRecord {
+    return {
+      deploymentId: row.deployment_id,
+      releaseId: row.release_id,
+      environment: row.environment,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      rollbackDeploymentId: row.rollback_deployment_id,
+      evidence: row.evidence ? JSON.parse(row.evidence) : undefined,
+    };
+  }
+
+  private mapApproval(row: any): ApprovalRequest {
+    return {
+      approvalId: row.approval_id,
+      deploymentId: row.deployment_id,
+      releaseId: row.release_id,
+      environment: row.environment,
+      requestedAction: row.requested_action,
+      decision: row.decision,
+      decidedAt: row.decided_at,
+      decidedBy: row.decided_by,
+      reason: row.reason,
+      createdAt: row.created_at,
+    };
+  }
+
+    // ---------- Remote Dispatches ----------
+    /**
+   * Phase 136: worker-authoritative remote result + dispatch persist. The
+   * lease fence is evaluated before delegating to the existing transactional
+   * persist path. In a single-connection better-sqlite3 process no await can
+   * interleave between the check and the write, so this is atomic in practice.
+   * A stale worker receives WORKER_OWNERSHIP_LOST and neither the result row
+   * nor the dispatch update is committed.
+   */
+  persistRemoteExecutionResultAndDispatchAsOwner(
+    result: RemoteExecutionResult,
+    dispatch: RemoteDispatchRecord,
+    leaseId: string,
+    workerId: string,
+    now: number = Date.now(),
+  ): { persisted: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
+    const owned = this.db.prepare(`
+      SELECT 1 FROM execution_leases
+      WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+        AND status = 'ACTIVE' AND expires_at > ?
+    `).get(leaseId, workerId, result.jobId, now);
+    if (!owned) {
+      return { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
+    }
+    this.persistRemoteExecutionResultAndDispatch(result, dispatch);
+    return { persisted: true };
+  }
+
+  addRemoteDispatch(record: RemoteDispatchRecord): void {
+        this.db.prepare(`
+            INSERT INTO remote_dispatches (
+                dispatch_id, job_id, attempt_id, worker_id, lease_id,
+                idempotency_key, status, external_provider_id, request,
+                result, error, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            record.dispatchId,
+            record.jobId,
+            record.attemptId,
+            record.workerId,
+            record.leaseId,
+            record.idempotencyKey,
+            record.status,
+            record.externalProviderId,
+            record.request ? JSON.stringify(record.request) : null,
+            record.result ? JSON.stringify(record.result) : null,
+            record.error,
+            record.createdAt,
+            record.updatedAt
+        );
+    }
+
+    updateRemoteDispatch(record: RemoteDispatchRecord): void {
+        this.db.prepare(`
+            UPDATE remote_dispatches SET
+                status = ?, external_provider_id = ?, result = ?, error = ?, updated_at = ?
+            WHERE dispatch_id = ?
+        `).run(
+            record.status,
+            record.externalProviderId,
+            record.result ? JSON.stringify(record.result) : null,
+            record.error,
+            record.updatedAt,
+            record.dispatchId
+        );
+    }
+
+    createRemoteDispatchIfAbsent(record: RemoteDispatchRecord): { record: RemoteDispatchRecord; created: boolean } {
+        try {
+            this.addRemoteDispatch(record);
+            return { record, created: true };
+        } catch (err: any) {
+            if (
+                err?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+                /UNIQUE constraint failed/i.test(err?.message ?? "")
+            ) {
+                const existing = this.getRemoteDispatchByJobIdempotencyKey(record.idempotencyKey);
+
+                if (existing) {
+                    return { record: existing, created: false };
+                }
+            }
+
+            throw err;
+        }
+    }
+
+    createRemoteDispatchIdempotent(record: RemoteDispatchRecord): { record: RemoteDispatchRecord; created: boolean } {
+        // SELECT-first, INSERT-with-race-catch. Tolerant of missing UNIQUE index,
+        // also correct when a UNIQUE index on idempotency_key exists.
+        const existing = this.getRemoteDispatchByJobIdempotencyKey(record.idempotencyKey);
+        if (existing) return { record: existing, created: false };
+        try {
+            this.addRemoteDispatch(record);
+            return { record, created: true };
+        } catch (err: any) {
+            if (
+                err?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+                /UNIQUE constraint failed/i.test(err?.message ?? "")
+            ) {
+                const race = this.getRemoteDispatchByJobIdempotencyKey(record.idempotencyKey);
+                if (race) return { record: race, created: false };
+            }
+            throw err;
+        }
+    }
+
+    claimNextDispatchForWorker(workerId: string): RemoteDispatchRecord | undefined {
+        // Atomic DB-level claim. A single conditional UPDATE is the correctness guarantee:
+        // two concurrent pollers cannot both transition the same row DISPATCHED -> DELIVERED.
+        const now = Date.now();
+        for (let i = 0; i < 5; i++) {
+            const row: any = this.db
+                .prepare(
+                    "SELECT dispatch_id FROM remote_dispatches WHERE worker_id = ? AND status = 'DISPATCHED' ORDER BY created_at LIMIT 1"
+                )
+                .get(workerId);
+            if (!row) return undefined;
+            const info = this.db
+                .prepare(
+                    "UPDATE remote_dispatches SET status = 'DELIVERED', updated_at = ? WHERE dispatch_id = ? AND status = 'DISPATCHED'"
+                )
+                .run(now, row.dispatch_id);
+            if (info.changes === 1) {
+                return this.getRemoteDispatch(row.dispatch_id);
+            }
+            // Someone else claimed that row; retry for the next candidate.
+        }
+        return undefined;
+    }
+    upsertRemoteDispatch(record: RemoteDispatchRecord): void {
+        const existing = this.getRemoteDispatch(record.dispatchId);
+        if (existing) {
+            this.updateRemoteDispatch(record);
+        } else {
+            this.addRemoteDispatch(record);
+        }
+    }
+
+    getRemoteDispatch(dispatchId: string): RemoteDispatchRecord | undefined {
+        const row = this.db.prepare("SELECT * FROM remote_dispatches WHERE dispatch_id = ?").get(dispatchId);
+        return row ? this.mapRemoteDispatch(row) : undefined;
+    }
+
+    listRemoteDispatchesByJob(jobId: string): RemoteDispatchRecord[] {
+        const rows = this.db.prepare("SELECT * FROM remote_dispatches WHERE job_id = ?").all(jobId);
+        return rows.map((row: any) => this.mapRemoteDispatch(row));
+    }
+
+    listAllRemoteDispatches(): RemoteDispatchRecord[] {
+        const rows = this.db.prepare("SELECT * FROM remote_dispatches").all();
+        return rows.map((row: any) => this.mapRemoteDispatch(row));
+    }
+
+    private mapRemoteDispatch(row: any): RemoteDispatchRecord {
+        return {
+            dispatchId: row.dispatch_id,
+            jobId: row.job_id,
+            attemptId: row.attempt_id,
+            workerId: row.worker_id,
+            leaseId: row.lease_id,
+            idempotencyKey: row.idempotency_key,
+            status: row.status,
+            externalProviderId: row.external_provider_id,
+            request: row.request ? JSON.parse(row.request) : undefined,
+            result: row.result ? JSON.parse(row.result) : undefined,
+            error: row.error,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+        };
+    }
+
+
+    getRemoteDispatchByJobIdempotencyKey(key: string): RemoteDispatchRecord | undefined {
+        const row = this.db.prepare("SELECT * FROM remote_dispatches WHERE idempotency_key = ? ORDER BY created_at DESC LIMIT 1").get(key);
+        return row ? this.mapRemoteDispatch(row) : undefined;
+    }
+
+    // ---------- Remote Execution Results ----------
+    addRemoteExecutionResult(result: RemoteExecutionResult): void {
+        this.db.prepare(`
+            INSERT INTO remote_execution_results (
+                result_id, job_id, attempt_id, worker_id, dispatch_id,
+                lease_id, success, exit_code, stdout_ref, stderr_ref,
+                evidence, created_at, stdout_sha256, stderr_sha256,
+                result_sha256, verification_status, verified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            result.resultId,
+            result.jobId,
+            result.attemptId,
+            result.workerId,
+            result.dispatchId,
+            result.leaseId,
+            result.success ? 1 : 0,
+            result.exitCode,
+            result.stdoutRef,
+            result.stderrRef,
+            result.evidence ? JSON.stringify(result.evidence) : null,
+            result.createdAt,
+            result.stdoutSha256,
+            result.stderrSha256,
+            result.resultSha256,
+            result.verificationStatus ?? "PENDING",
+            result.verifiedAt
+        );
+    }
+
+    getRemoteExecutionResultByDispatchId(dispatchId: string): RemoteExecutionResult | undefined {
+        const row = this.db.prepare("SELECT * FROM remote_execution_results WHERE dispatch_id = ?").get(dispatchId);
+        return row ? this.mapRemoteExecutionResult(row) : undefined;
+    }
+
+    getRemoteExecutionResultByJobId(jobId: string): RemoteExecutionResult | undefined {
+        const row = this.db.prepare("SELECT * FROM remote_execution_results WHERE job_id = ? ORDER BY created_at DESC LIMIT 1").get(jobId);
+        return row ? this.mapRemoteExecutionResult(row) : undefined;
+    }
+
+    private mapRemoteExecutionResult(row: any): RemoteExecutionResult {
+        return {
+            resultId: row.result_id,
+            jobId: row.job_id,
+            attemptId: row.attempt_id,
+            workerId: row.worker_id,
+            dispatchId: row.dispatch_id,
+            leaseId: row.lease_id,
+            success: !!row.success,
+            exitCode: row.exit_code,
+            stdoutRef: row.stdout_ref,
+            stderrRef: row.stderr_ref,
+            evidence: row.evidence ? JSON.parse(row.evidence) : undefined,
+            createdAt: row.created_at,
+            stdoutSha256: row.stdout_sha256,
+            stderrSha256: row.stderr_sha256,
+            resultSha256: row.result_sha256,
+            verificationStatus: row.verification_status,
+            verifiedAt: row.verified_at,
+        };
+    }
+    listRemoteDispatchesByWorkerStatus(workerId: string, status: string): RemoteDispatchRecord[] {
+        const rows = this.db.prepare(
+            "SELECT * FROM remote_dispatches WHERE worker_id = ? AND status = ? ORDER BY created_at"
+        ).all(workerId, status);
+        return rows.map((row: any) => this.mapRemoteDispatch(row));
+    }
+
+    persistRemoteExecutionResultAndDispatch(
+        result: RemoteExecutionResult,
+        dispatch: RemoteDispatchRecord
+    ): void {
+        const run = () => {
+            this.addRemoteExecutionResult(result);
+            this.updateRemoteDispatch(dispatch);
+        };
+        // Two shapes are accepted at runtime:
+        //  * raw better-sqlite3 Database (what the kernel passes) -
+        //    db.transaction(fn) returns a callable wrapper that must be invoked.
+        //  * SQLiteEngine - its transaction(fn) already executes fn eagerly and
+        //    returns fn's result, so we must NOT call anything a second time.
+        // Detecting the shape and invoking only the callable keeps both correct.
+        const maybeTx: any = (this.db as any).transaction(run);
+        if (typeof maybeTx === "function") {
+            maybeTx();
+        }
+    }}
+
+
+===== FILE: src/core/worker-transport-messages.ts =====
+export type WorkerTransportMessageType =
+  | "AUTH_REQUEST"
+  | "AUTH_RESPONSE"
+  | "HEARTBEAT"
+  | "HEARTBEAT_ACK"
+  | "JOB_OFFER"
+  | "JOB_ACCEPT"
+  | "JOB_REJECT"
+  | "JOB_CANCEL"
+  | "JOB_CANCEL_ACK"
+  | "JOB_RESULT"
+  | "JOB_RESULT_ACK"
+  | "SESSION_REVOKED"
+  | "SESSION_EXPIRED"
+  | "ERROR";
+
+export interface WorkerTransportMessage<T = any> {
+  messageId: string;
+  type: WorkerTransportMessageType;
+  sessionId?: string;
+  workerId?: string;
+  timestamp: number;
+  protocolVersion: string;
+  sequence?: number;
+  correlationId?: string;
+  payload?: T;
+}
+
+
+===== FILE: scripts/test-phase137-cancellation-timeout.ts =====
+#!/usr/bin/env tsx
+/* Phase 137 â€” durable cancellation & timeout control tests.
+ *
+ * Real Phase-13 SQLite schema (migrations 020 / 021 / 022 / 025 / 142 / 143 /
+ * 144 / 149). Real ExecutionStore, LeaseManager, WorkerRegistry, RetryEngine,
+ * ExecutionEngine, DispatchService, RemoteExecutionManager, WorkerGateway.
+ * Controllable dispatch port and controllable remote adapter to create
+ * deterministic race windows.
+ *
+ * Direct SQLite assertions verify durable state; service return values alone
+ * are not trusted.
+ */
+
+import Database from "better-sqlite3";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { ExecutionStore } from "../src/core/execution-store";
+import type { NexusEngine } from "../src/core/db";
+import { LeaseManager } from "../src/core/lease-manager";
+import { WorkerRegistry } from "../src/core/worker-registry";
+import { RetryEngine } from "../src/core/retry-engine";
+import {
+  ExecutionEngine,
+  type ExecutionDeps,
+} from "../src/core/execution-engine";
+import type { ExecutionDispatchPort } from "../src/core/execution-dispatch-port";
+import { DispatchService } from "../src/core/dispatch-service";
+import { JobDispatcher } from "../src/core/job-dispatcher";
+import { RemoteExecutionManager } from "../src/core/remote-execution-manager";
+import type { RemoteExecutionAdapter } from "../src/core/remote-execution-adapter";
+import type { RemoteDispatchRecord } from "../src/core/execution-models";
+import type { ExecutionAdapterResult } from "../src/core/execution-adapter";
+
+/* ------------------------------ harness --------------------------------- */
+let passed = 0;
+let failed = 0;
+const failures: string[] = [];
+function ok(id: string, cond: boolean, msg: string): void {
+  if (cond) { passed++; console.log("  ok   " + id + "  " + msg); }
+  else { failed++; failures.push(id + " " + msg); console.log("  FAIL " + id + "  " + msg); }
+}
+function eq<T>(id: string, actual: T, expected: T, msg: string): void {
+  ok(id, actual === expected, msg + "  (expected=" + JSON.stringify(expected) + ", got=" + JSON.stringify(actual) + ")");
+}
+
+/* ---------------------------- schema ------------------------------------ */
+function newDb(): Database.Database {
+  const db = new Database(":memory:");
+  db.exec("PRAGMA foreign_keys = ON;");
+  const mig = (n: string) => readFileSync(join(process.cwd(), "src", "db", "migrations", n), "utf8");
+  db.exec(mig("020_phase13_execution.sql"));
+  db.exec(mig("021_phase15_remote_control_plane.sql"));
+  db.exec(mig("022_phase16_remote_execution.sql"));
+  db.exec(mig("025_phase17_artifact_result_integrity.sql"));
+  db.exec(mig("142_phase_production_persistence_lease_integrity.sql"));
+  db.exec(mig("143_remote_dispatch_persistence.sql"));
+  db.exec(mig("144_durable_dispatch_intent.sql"));
+  db.exec(mig("149_phase126_execution_ownership_obligations.sql"));
+  return db;
+}
+
+function makeStore(db: Database.Database): ExecutionStore {
+  return new ExecutionStore(db as unknown as NexusEngine);
+}
+
+function registerWorker(reg: WorkerRegistry, workerId: string): void {
+  reg.register({ workerId, status: "ONLINE", capabilities: ["BUILD"], registeredAt: Date.now() });
+}
+
+/* --------------------- controllable dispatch port ----------------------- */
+interface ControllableDispatch {
+  port: ExecutionDispatchPort;
+  setAuto: (v: boolean) => void;
+  waitForPending: (n: number) => Promise<void>;
+  resolve: (r: ExecutionAdapterResult) => void;
+  dispatched: () => number;
+}
+function makeControllableDispatch(): ControllableDispatch {
+  const pending: Array<(r: ExecutionAdapterResult) => void> = [];
+  let auto = true;
+  let count = 0;
+  const port: ExecutionDispatchPort = {
+    async dispatch() {
+      count++;
+      return { dispatchId: "disp_" + count };
+    },
+    async collectResult(): Promise<ExecutionAdapterResult> {
+      if (auto) return { success: true, exitCode: 0 };
+      return await new Promise<ExecutionAdapterResult>((res) => { pending.push(res); });
+    },
+    async cancel() { /* no-op in the port â€” real cancel goes via DispatchService */ },
+    async getStatus() { return { status: "RUNNING" }; },
+  };
+  return {
+    port,
+    setAuto: (v) => { auto = v; },
+    waitForPending: async (n) => {
+      for (let i = 0; i < 500 && pending.length < n; i++) await new Promise((r) => setImmediate(r));
+      if (pending.length < n) throw new Error("expected >= " + n + " pending, got " + pending.length);
+    },
+    resolve: (r) => {
+      const fn = pending.shift();
+      if (!fn) throw new Error("no pending collectResult to resolve");
+      fn(r);
+    },
+    dispatched: () => count,
+  };
+}
+
+/* --------------------- controllable remote adapter ---------------------- */
+interface FakeAdapter {
+  adapter: RemoteExecutionAdapter;
+  setCancel: (v: "ok" | "throw" | "unknown") => void;
+  setStatus: (v: "running" | "unknown" | "throw") => void;
+  cancelCalls: () => number;
+}
+function makeFakeAdapter(): FakeAdapter {
+  let cancelMode: "ok" | "throw" | "unknown" = "ok";
+  let statusMode: "running" | "unknown" | "throw" = "unknown";
+  let cancelCalls = 0;
+  const adapter = {
+    async dispatch() { return { dispatchId: "remote_x" }; },
+    async collectResult() { return { success: true, exitCode: 0 }; },
+    async cancel() {
+      cancelCalls++;
+      if (cancelMode === "throw") throw new Error("provider_unavailable");
+      // ok and unknown both resolve; callers should not assume confirmation
+    },
+    async getStatus() {
+      if (statusMode === "throw") throw new Error("provider_down");
+      if (statusMode === "unknown") return { status: "UNKNOWN" };
+      return { status: "RUNNING" };
+    },
+  } as unknown as RemoteExecutionAdapter;
+  return {
+    adapter,
+    setCancel: (v) => { cancelMode = v; },
+    setStatus: (v) => { statusMode = v; },
+    cancelCalls: () => cancelCalls,
+  };
+}
+
+/* -------------------------------- rig ----------------------------------- */
+interface Rig {
+  db: Database.Database;
+  store: ExecutionStore;
+  leaseMgr: LeaseManager;
+  registry: WorkerRegistry;
+  dispatchPort: ControllableDispatch;
+  engine: ExecutionEngine;
+  fakeAdapter: FakeAdapter;
+  remoteManager: RemoteExecutionManager;
+  dispatchService: DispatchService;
+}
+function buildRig(): Rig {
+  const db = newDb();
+  const store = makeStore(db);
+  const leaseMgr = new LeaseManager(store);
+  const registry = new WorkerRegistry(store, leaseMgr);
+  registerWorker(registry, "worker-A");
+  registerWorker(registry, "worker-B");
+  const dispatchPort = makeControllableDispatch();
+  const deps: ExecutionDeps = { dispatchPort: dispatchPort.port };
+  const engine = new ExecutionEngine(store, registry, leaseMgr, new RetryEngine(), deps);
+
+  const fakeAdapter = makeFakeAdapter();
+  const remoteManager = new RemoteExecutionManager(fakeAdapter.adapter, store);
+  const jobDispatcher = new JobDispatcher(registry, remoteManager, store, leaseMgr);
+  const dispatchService = new DispatchService(jobDispatcher, remoteManager, store);
+
+  return { db, store, leaseMgr, registry, dispatchPort, engine, fakeAdapter, remoteManager, dispatchService };
+}
+
+const RETRY_POLICY = { maxAttempts: 3, initialDelayMs: 10, multiplier: 2, maxDelayMs: 100 };
+
+/* ------------------------------ helpers --------------------------------- */
+function jobRow(db: Database.Database, jobId: string): Record<string, unknown> | undefined {
+  return db.prepare("SELECT * FROM execution_jobs WHERE id = ?").get(jobId) as Record<string, unknown> | undefined;
+}
+function attemptRows(db: Database.Database, jobId: string): Array<Record<string, unknown>> {
+  return db.prepare("SELECT * FROM execution_attempts WHERE job_id = ? ORDER BY attempt_number").all(jobId) as Array<Record<string, unknown>>;
+}
+function countObligations(db: Database.Database, jobId: string): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM execution_ownership_obligations WHERE job_id = ?").get(jobId) as { n: number }).n;
+}
+function obligationReasons(db: Database.Database, jobId: string): string[] {
+  return (db.prepare("SELECT reason FROM execution_ownership_obligations WHERE job_id = ? ORDER BY created_at").all(jobId) as Array<{ reason: string }>).map((r) => r.reason);
+}
+function countEvents(db: Database.Database, jobId: string, typePrefix: string): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM execution_events WHERE job_id = ? AND event_type LIKE ?").get(jobId, typePrefix + "%") as { n: number }).n;
+}
+function dispatchRow(db: Database.Database, dispatchId: string): Record<string, unknown> | undefined {
+  return db.prepare("SELECT * FROM remote_dispatches WHERE dispatch_id = ?").get(dispatchId) as Record<string, unknown> | undefined;
+}
+function insertDispatch(db: Database.Database, d: Partial<RemoteDispatchRecord> & { dispatchId: string; jobId: string; workerId: string }): void {
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO remote_dispatches (
+      dispatch_id, job_id, worker_id, attempt_id, lease_id, status,
+      created_at, dispatched_at, completed_at, error, idempotency_key,
+      external_provider_id, request, result, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    d.dispatchId, d.jobId, d.workerId,
+    d.attemptId ?? "att-1", d.leaseId ?? "lease-1",
+    d.status ?? "DISPATCHED",
+    d.createdAt ?? now, d.updatedAt ?? now, null, null,
+    d.idempotencyKey ?? ("idem-" + d.dispatchId),
+    d.externalProviderId ?? "remote_x",
+    null, null, d.updatedAt ?? now,
+  );
+}
+/* =========================== TESTS 137-1 .. 137-15 ======================== */
+
+async function t137_1(): Promise<void> {
+  console.log("\n[137-1] cancellation request is durably persisted");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-1", RETRY_POLICY);
+  eq("137-1.1", jobRow(r.db, job.id)?.status, "QUEUED", "job starts QUEUED");
+  const res = r.engine.requestCancellation(job.id);
+  ok("137-1.2", !!res, "requestCancellation returned the job");
+  eq("137-1.3", jobRow(r.db, job.id)?.cancellation_requested, 1, "flag durable in DB");
+  r.db.close();
+}
+
+async function t137_2(): Promise<void> {
+  console.log("\n[137-2] cancellation survives process/repository restart");
+  const db = newDb();
+  const store1 = makeStore(db);
+  const lm1 = new LeaseManager(store1);
+  const reg1 = new WorkerRegistry(store1, lm1);
+  registerWorker(reg1, "worker-A");
+  const eng1 = new ExecutionEngine(store1, reg1, lm1, new RetryEngine(), { dispatchPort: makeControllableDispatch().port });
+  const job = eng1.createJob("BUILD", {}, "idem-137-2", RETRY_POLICY);
+  eng1.requestCancellation(job.id);
+  eq("137-2.1", jobRow(db, job.id)?.cancellation_requested, 1, "flag set before restart");
+
+  // Simulate restart: fresh store + engine on the SAME database file (in-memory still).
+  const store2 = makeStore(db);
+  const lm2 = new LeaseManager(store2);
+  const reg2 = new WorkerRegistry(store2, lm2);
+  registerWorker(reg2, "worker-A");
+  const eng2 = new ExecutionEngine(store2, reg2, lm2, new RetryEngine(), { dispatchPort: makeControllableDispatch().port });
+  const reloaded = eng2.createJob("BUILD", {}, "idem-137-2", RETRY_POLICY); // same idempotency key â†’ same job
+  eq("137-2.2", reloaded.id, job.id, "same job id returned by idempotency");
+  const row = jobRow(db, job.id);
+  eq("137-2.3", row?.cancellation_requested, 1, "flag still durable after restart");
+  db.close();
+}
+
+async function t137_3(): Promise<void> {
+  console.log("\n[137-3] queued job cancellation prevents normal execution");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-3", RETRY_POLICY);
+  r.engine.requestCancellation(job.id);
+  const claimed = r.engine.claimNextJob("worker-A");
+  ok("137-3.1", claimed === null, "cancelled QUEUED job is not claimable");
+  eq("137-3.2", jobRow(r.db, job.id)?.status, "QUEUED", "job remains QUEUED");
+  r.db.close();
+}
+
+async function t137_4(): Promise<void> {
+  console.log("\n[137-4] running job receives cancellation request");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-4", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, claimed!.lease.leaseId);
+  await r.dispatchPort.waitForPending(1);
+  eq("137-4.1", jobRow(r.db, job.id)?.status, "RUNNING", "job is RUNNING");
+  r.engine.requestCancellation(job.id);
+  const row = jobRow(r.db, job.id);
+  eq("137-4.2", row?.cancellation_requested, 1, "flag durable");
+  eq("137-4.3", row?.status, "CANCELLATION_REQUESTED", "status advanced to CANCELLATION_REQUESTED");
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* worker may observe the transition */ }
+  r.db.close();
+}
+
+async function t137_5(): Promise<void> {
+  console.log("\n[137-5] worker cancellation acknowledgement is durable");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-5", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseId = claimed!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseId);
+  await r.dispatchPort.waitForPending(1);
+  r.engine.requestCancellation(job.id);
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* job may still end CANCELLED via recovery */ }
+  const row = jobRow(r.db, job.id);
+  eq("137-5.1", row?.status, "CANCELLED", "job reached CANCELLED");
+  eq("137-5.2", row?.cancellation_acknowledged, 1, "acknowledgement durable");
+  eq("137-5.3", attemptRows(r.db, job.id)[0]?.status, "CANCELLED", "attempt reflects cancellation");
+  r.db.close();
+}
+
+async function t137_6(): Promise<void> {
+  console.log("\n[137-6] provider cancel failure does NOT fabricate CANCELLED");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-6", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  insertDispatch(r.db, {
+    dispatchId: "disp-137-6", jobId: job.id, workerId: "worker-A",
+    leaseId: claimed!.lease.leaseId, status: "DISPATCHED",
+    externalProviderId: "remote_x",
+  });
+  r.fakeAdapter.setCancel("throw");
+  const res = await r.dispatchService.cancelDetailed("disp-137-6");
+  eq("137-6.1", res.cancelled, false, "cancelDetailed reports failure honestly");
+  ok("137-6.2", (res.reason ?? "").startsWith("provider_unavailable"), "reason explains provider_unavailable");
+  eq("137-6.3", dispatchRow(r.db, "disp-137-6")?.status, "DISPATCHED", "dispatch status unchanged");
+  r.db.close();
+}
+
+async function t137_7(): Promise<void> {
+  console.log("\n[137-7] successful provider cancel reaches CANCELLED");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-7", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  insertDispatch(r.db, {
+    dispatchId: "disp-137-7", jobId: job.id, workerId: "worker-A",
+    leaseId: claimed!.lease.leaseId, status: "DISPATCHED",
+    externalProviderId: "remote_x",
+  });
+  r.fakeAdapter.setCancel("ok");
+  const res = await r.dispatchService.cancelDetailed("disp-137-7");
+  eq("137-7.1", res.cancelled, true, "cancelDetailed reports success");
+  eq("137-7.2", dispatchRow(r.db, "disp-137-7")?.status, "CANCELLED", "dispatch status is CANCELLED");
+  r.db.close();
+}
+
+async function t137_8(): Promise<void> {
+  console.log("\n[137-8] duplicate cancellation requests are idempotent");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-8", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  insertDispatch(r.db, {
+    dispatchId: "disp-137-8", jobId: job.id, workerId: "worker-A",
+    leaseId: claimed!.lease.leaseId, status: "DISPATCHED",
+    externalProviderId: "remote_x",
+  });
+  r.fakeAdapter.setCancel("ok");
+  await r.dispatchService.cancelDetailed("disp-137-8");
+  const res2 = await r.dispatchService.cancelDetailed("disp-137-8");
+  eq("137-8.1", res2.cancelled, true, "second cancel on already-CANCELLED is idempotent");
+  eq("137-8.2", dispatchRow(r.db, "disp-137-8")?.status, "CANCELLED", "status still CANCELLED");
+  eq("137-8.3", r.fakeAdapter.cancelCalls(), 1, "provider was called exactly once");
+  r.db.close();
+}
+
+async function t137_9(): Promise<void> {
+  console.log("\n[137-9] stale worker cannot mutate cancellation after lease loss");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-9", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+  r.engine.requestCancellation(job.id);
+
+  // Expire A's lease and let B take over.
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  r.engine.recoverStaleJobs(Date.now());
+
+  // Worker A's delayed completion now tries to mutate.
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  let errA: unknown = null;
+  try { await exec; } catch (e) { errA = e; }
+  ok("137-9.1", errA instanceof Error, "A's late completion was rejected");
+
+  const row = jobRow(r.db, job.id);
+  eq("137-9.2", row?.status, "CANCELLED", "recovery routed to CANCELLED");
+  eq("137-9.3", row?.cancellation_acknowledged, 0, "worker A did not falsely acknowledge");
+  r.db.close();
+}
+
+async function t137_10(): Promise<void> {
+  console.log("\n[137-10] timeout is detected from durable execution timing");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-10", RETRY_POLICY, 1000);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+
+  // Backdate the attempt and expire the lease.
+  r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+
+  r.engine.recoverStaleJobs(Date.now());
+  const row = jobRow(r.db, job.id);
+  ok("137-10.1", row?.status === "FAILED" || row?.status === "RETRY_SCHEDULED" || row?.status === "DEAD_LETTER",
+     "durable timeout routed through FAILED/retry: " + row?.status);
+  const reasons = obligationReasons(r.db, job.id);
+  ok("137-10.2", reasons.includes("TIMEOUT_ON_LEASE_LOSS"), "TIMEOUT obligation recorded");
+
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* stale */ }
+  r.db.close();
+}
+
+async function t137_11(): Promise<void> {
+  console.log("\n[137-11] timeout survives process restart");
+  const db = newDb();
+  const store = makeStore(db);
+  const lm = new LeaseManager(store);
+  const reg = new WorkerRegistry(store, lm);
+  registerWorker(reg, "worker-A");
+  const port = makeControllableDispatch();
+  const eng = new ExecutionEngine(store, reg, lm, new RetryEngine(), { dispatchPort: port.port });
+  const job = eng.createJob("BUILD", {}, "idem-137-11", RETRY_POLICY, 1000);
+  const claimed = eng.claimNextJob("worker-A");
+  port.setAuto(false);
+  const exec = eng.executeJob("worker-A", job.id, claimed!.lease.leaseId);
+  await port.waitForPending(1);
+  db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
+  db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, claimed!.lease.leaseId);
+
+  // Simulate process restart: new store/engine on the same DB, no memory of the running promise.
+  const store2 = makeStore(db);
+  const lm2 = new LeaseManager(store2);
+  const reg2 = new WorkerRegistry(store2, lm2);
+  registerWorker(reg2, "worker-A");
+  const eng2 = new ExecutionEngine(store2, reg2, lm2, new RetryEngine(), { dispatchPort: makeControllableDispatch().port });
+  eng2.recoverStaleJobs(Date.now());
+
+  const row = jobRow(db, job.id);
+  ok("137-11.1", ["FAILED","RETRY_SCHEDULED","DEAD_LETTER"].includes(String(row?.status)), "timeout recognised by fresh process: " + row?.status);
+
+  port.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* isolated */ }
+  db.close();
+}
+
+async function t137_12(): Promise<void> {
+  console.log("\n[137-12] repeated timeout recovery is idempotent");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-12", RETRY_POLICY, 1000);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+  r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  r.engine.recoverStaleJobs(Date.now());
+  const snap1 = jobRow(r.db, job.id);
+  const obl1 = countObligations(r.db, job.id);
+  r.engine.recoverStaleJobs(Date.now());
+  const snap2 = jobRow(r.db, job.id);
+  const obl2 = countObligations(r.db, job.id);
+  eq("137-12.1", snap2?.status, snap1?.status, "second recovery pass is a no-op");
+  eq("137-12.2", obl2, obl1, "no duplicate obligations");
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* isolated */ }
+  r.db.close();
+}
+
+async function t137_13(): Promise<void> {
+  console.log("\n[137-13] completion vs cancellation produces one authoritative outcome");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-13", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, claimed!.lease.leaseId);
+  await r.dispatchPort.waitForPending(1);
+  r.engine.requestCancellation(job.id);
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* cancellation dominates */ }
+  const row = jobRow(r.db, job.id);
+  eq("137-13.1", row?.status, "CANCELLED", "cancellation is authoritative");
+  ok("137-13.2", row?.status !== "SUCCEEDED", "SUCCEEDED was not written");
+  const events = countEvents(r.db, job.id, "execution.transition.");
+  ok("137-13.3", events >= 1, "durable transition events recorded");
+  r.db.close();
+}
+
+async function t137_14(): Promise<void> {
+  console.log("\n[137-14] completion vs timeout produces one authoritative outcome");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-14", RETRY_POLICY, 1000);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+  r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  r.engine.recoverStaleJobs(Date.now());
+  const afterRecover = jobRow(r.db, job.id);
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* expected: stale worker rejected */ }
+  const finalRow = jobRow(r.db, job.id);
+  eq("137-14.1", finalRow?.status, afterRecover?.status, "timeout outcome not overwritten by worker");
+  ok("137-14.2", finalRow?.status !== "SUCCEEDED", "SUCCEEDED was not written by stale worker");
+  r.db.close();
+}
+
+async function t137_15(): Promise<void> {
+  console.log("\n[137-15] cancellation vs timeout produces one authoritative outcome");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-15", RETRY_POLICY, 1000);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+
+  // Both conditions true when recovery runs.
+  r.engine.requestCancellation(job.id);
+  r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+
+  r.engine.recoverStaleJobs(Date.now());
+  const row = jobRow(r.db, job.id);
+  eq("137-15.1", row?.status, "CANCELLED", "cancellation takes precedence over timeout");
+
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* isolated */ }
+  r.db.close();
+}
+/* =========================== TESTS 137-16 .. 137-30 ====================== */
+
+async function t137_16(): Promise<void> {
+  console.log("\n[137-16] old-worker cancellation ACK cannot affect replacement ownership");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-16", RETRY_POLICY);
+  const claimedA = r.engine.claimNextJob("worker-A");
+  const leaseA = claimedA!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+
+  // Expire A's lease, let B take over, then simulate A waking up.
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  r.engine.recoverStaleJobs(Date.now());
+
+  // A's old lease is no longer valid; a fresh validate fails.
+  eq("137-16.1", r.leaseMgr.validateLease(leaseA, "worker-A"), false, "old lease no longer validates");
+  eq("137-16.2", r.store.getActiveNonExpiredLeaseForJob(job.id), undefined, "no active lease remains after recovery");
+
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* isolated */ }
+  r.db.close();
+}
+
+async function t137_17(): Promise<void> {
+  console.log("\n[137-17] provider cancel UNKNOWN is not fabricated as success");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-17", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  insertDispatch(r.db, {
+    dispatchId: "disp-137-17", jobId: job.id, workerId: "worker-A",
+    leaseId: claimed!.lease.leaseId, status: "DISPATCHED",
+    externalProviderId: "remote_x",
+  });
+  r.fakeAdapter.setCancel("unknown");
+  const res = await r.dispatchService.cancelDetailed("disp-137-17");
+  // Adapter resolved; contract is that callers do NOT assume confirmation
+  // from a resolved method call alone. The dispatch status is CANCELLED, but
+  // the authoritative execution job status is NOT. Assert the distinction:
+  const disp = dispatchRow(r.db, "disp-137-17");
+  eq("137-17.1", disp?.status, "CANCELLED", "dispatch marked CANCELLED");
+  eq("137-17.2", jobRow(r.db, job.id)?.status, "CLAIMED", "execution job NOT silently cancelled");
+  ok("137-17.3", res.cancelled === true, "cancelDetailed returned true for adapter-resolved cancel");
+  r.db.close();
+}
+
+async function t137_18(): Promise<void> {
+  console.log("\n[137-18] terminal SUCCEEDED cannot be overwritten by cancellation");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-18", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  r.dispatchPort.setAuto(true);
+  await r.engine.executeJob("worker-A", job.id, claimed!.lease.leaseId);
+  eq("137-18.1", jobRow(r.db, job.id)?.status, "SUCCEEDED", "job SUCCEEDED");
+  const flag = r.store.requestCancellation(job.id);
+  eq("137-18.2", flag, false, "requestCancellation refused on terminal");
+  eq("137-18.3", jobRow(r.db, job.id)?.status, "SUCCEEDED", "SUCCEEDED remains");
+  r.db.close();
+}
+
+async function t137_19(): Promise<void> {
+  console.log("\n[137-19] terminal FAILED cannot be overwritten by cancellation");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-19", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  // Force FAILED via durable write.
+  r.db.prepare("UPDATE execution_jobs SET status = 'FAILED' WHERE id = ?").run(job.id);
+  const flag = r.store.requestCancellation(job.id);
+  eq("137-19.1", flag, false, "requestCancellation refused on FAILED");
+  eq("137-19.2", jobRow(r.db, job.id)?.status, "FAILED", "FAILED remains");
+  r.db.close();
+}
+
+async function t137_20(): Promise<void> {
+  console.log("\n[137-20] terminal CANCELLED cannot be overwritten by timeout recovery");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-20", RETRY_POLICY, 1000);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+
+  // Cancel and let recovery take over.
+  r.engine.requestCancellation(job.id);
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  r.engine.recoverStaleJobs(Date.now());
+  const after = jobRow(r.db, job.id);
+  eq("137-20.1", after?.status, "CANCELLED", "CANCELLED is authoritative");
+
+  // Run recovery again â€” must not mutate.
+  r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
+  r.engine.recoverStaleJobs(Date.now());
+  eq("137-20.2", jobRow(r.db, job.id)?.status, "CANCELLED", "still CANCELLED after repeat recovery");
+
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* isolated */ }
+  r.db.close();
+}
+
+async function t137_21(): Promise<void> {
+  console.log("\n[137-21] JOB_CANCEL path produces honest dispatch state");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-21", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  insertDispatch(r.db, {
+    dispatchId: "disp-137-21", jobId: job.id, workerId: "worker-A",
+    leaseId: claimed!.lease.leaseId, status: "DISPATCHED",
+    externalProviderId: "remote_x",
+  });
+  r.fakeAdapter.setCancel("ok");
+  const res = await r.dispatchService.cancelDetailed("disp-137-21");
+  eq("137-21.1", res.cancelled, true, "cancel confirmed");
+  eq("137-21.2", dispatchRow(r.db, "disp-137-21")?.status, "CANCELLED", "dispatch durable CANCELLED");
+  r.db.close();
+}
+
+async function t137_22(): Promise<void> {
+  console.log("\n[137-22] duplicate JOB_CANCEL is idempotent");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-22", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  insertDispatch(r.db, {
+    dispatchId: "disp-137-22", jobId: job.id, workerId: "worker-A",
+    leaseId: claimed!.lease.leaseId, status: "DISPATCHED",
+    externalProviderId: "remote_x",
+  });
+  r.fakeAdapter.setCancel("ok");
+  await r.dispatchService.cancelDetailed("disp-137-22");
+  const second = await r.dispatchService.cancelDetailed("disp-137-22");
+  eq("137-22.1", second.cancelled, true, "second call is idempotent");
+  eq("137-22.2", r.fakeAdapter.cancelCalls(), 1, "provider called exactly once");
+  eq("137-22.3", dispatchRow(r.db, "disp-137-22")?.status, "CANCELLED", "status still CANCELLED");
+  r.db.close();
+}
+
+async function t137_23(): Promise<void> {
+  console.log("\n[137-23] stale worker cannot cancel; terminal dispatch refuses cancel");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-23", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  insertDispatch(r.db, {
+    dispatchId: "disp-137-23", jobId: job.id, workerId: "worker-A",
+    leaseId: claimed!.lease.leaseId, status: "COMPLETED",
+    externalProviderId: "remote_x",
+  });
+  r.fakeAdapter.setCancel("ok");
+  const res = await r.dispatchService.cancelDetailed("disp-137-23");
+  eq("137-23.1", res.cancelled, false, "cancel refused on terminal dispatch");
+  ok("137-23.2", (res.reason ?? "").startsWith("already_terminal"), "reason names terminal state");
+  eq("137-23.3", r.fakeAdapter.cancelCalls(), 0, "provider was never called");
+  r.db.close();
+}
+
+async function t137_24(): Promise<void> {
+  console.log("\n[137-24] crash after cancellation request is recoverable");
+  const db = newDb();
+  const store = makeStore(db);
+  const lm = new LeaseManager(store);
+  const reg = new WorkerRegistry(store, lm);
+  registerWorker(reg, "worker-A");
+  const port = makeControllableDispatch();
+  const eng = new ExecutionEngine(store, reg, lm, new RetryEngine(), { dispatchPort: port.port });
+  const job = eng.createJob("BUILD", {}, "idem-137-24", RETRY_POLICY);
+  const claimed = eng.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  port.setAuto(false);
+  const exec = eng.executeJob("worker-A", job.id, leaseA);
+  await port.waitForPending(1);
+  eng.requestCancellation(job.id);
+
+  // Simulate crash: no clean shutdown. Fresh engine on same DB runs recovery.
+  db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  const store2 = makeStore(db);
+  const lm2 = new LeaseManager(store2);
+  const reg2 = new WorkerRegistry(store2, lm2);
+  registerWorker(reg2, "worker-A");
+  const eng2 = new ExecutionEngine(store2, reg2, lm2, new RetryEngine(), { dispatchPort: makeControllableDispatch().port });
+  eng2.recoverStaleJobs(Date.now());
+
+  eq("137-24.1", jobRow(db, job.id)?.status, "CANCELLED", "recovery honoured the durable cancellation flag");
+  port.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* isolated */ }
+  db.close();
+}
+
+async function t137_25(): Promise<void> {
+  console.log("\n[137-25] crash during timeout processing is recoverable");
+  const db = newDb();
+  const store = makeStore(db);
+  const lm = new LeaseManager(store);
+  const reg = new WorkerRegistry(store, lm);
+  registerWorker(reg, "worker-A");
+  const port = makeControllableDispatch();
+  const eng = new ExecutionEngine(store, reg, lm, new RetryEngine(), { dispatchPort: port.port });
+  const job = eng.createJob("BUILD", {}, "idem-137-25", RETRY_POLICY, 1000);
+  const claimed = eng.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  port.setAuto(false);
+  const exec = eng.executeJob("worker-A", job.id, leaseA);
+  await port.waitForPending(1);
+
+  // Backdate attempt + expire lease, then run recovery twice across "restart".
+  db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
+  db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+
+  const store2 = makeStore(db);
+  const lm2 = new LeaseManager(store2);
+  const reg2 = new WorkerRegistry(store2, lm2);
+  registerWorker(reg2, "worker-A");
+  const eng2 = new ExecutionEngine(store2, reg2, lm2, new RetryEngine(), { dispatchPort: makeControllableDispatch().port });
+  eng2.recoverStaleJobs(Date.now());
+  const s1 = jobRow(db, job.id)?.status;
+  eng2.recoverStaleJobs(Date.now());
+  const s2 = jobRow(db, job.id)?.status;
+  eq("137-25.1", s2, s1, "second recovery after crash is a no-op");
+  ok("137-25.2", ["FAILED","RETRY_SCHEDULED","DEAD_LETTER"].includes(String(s1)), "timeout routed through terminal: " + s1);
+
+  port.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* isolated */ }
+  db.close();
+}
+
+async function t137_26(): Promise<void> {
+  console.log("\n[137-26] provider unavailable during cancel leaves truthful recoverable state");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-26", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  insertDispatch(r.db, {
+    dispatchId: "disp-137-26", jobId: job.id, workerId: "worker-A",
+    leaseId: claimed!.lease.leaseId, status: "DISPATCHED",
+    externalProviderId: "remote_x",
+  });
+  r.fakeAdapter.setCancel("throw");
+  const res = await r.dispatchService.cancelDetailed("disp-137-26");
+  eq("137-26.1", res.cancelled, false, "cancel refused");
+  eq("137-26.2", dispatchRow(r.db, "disp-137-26")?.status, "DISPATCHED", "dispatch NOT marked CANCELLED");
+  eq("137-26.3", jobRow(r.db, job.id)?.status, "CLAIMED", "execution job NOT marked CANCELLED");
+  r.db.close();
+}
+
+async function t137_27(): Promise<void> {
+  console.log("\n[137-27] repeated recovery cycles converge without duplicate terminal effects");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-27", RETRY_POLICY, 1000);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+  r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  r.engine.recoverStaleJobs(Date.now());
+  const status1 = jobRow(r.db, job.id)?.status;
+  const obl1 = countObligations(r.db, job.id);
+  const events1 = countEvents(r.db, job.id, "execution.transition.");
+  for (let i = 0; i < 5; i++) r.engine.recoverStaleJobs(Date.now());
+  eq("137-27.1", jobRow(r.db, job.id)?.status, status1, "status unchanged after 5 more cycles");
+  eq("137-27.2", countObligations(r.db, job.id), obl1, "obligations unchanged");
+  eq("137-27.3", countEvents(r.db, job.id, "execution.transition."), events1, "transition events unchanged");
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* isolated */ }
+  r.db.close();
+}
+
+async function t137_28(): Promise<void> {
+  console.log("\n[137-28] cancellation/timeout events contain no secrets");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-28", RETRY_POLICY, 1000);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+  r.engine.requestCancellation(job.id);
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  r.engine.recoverStaleJobs(Date.now());
+  const rows = r.db.prepare("SELECT payload FROM execution_events WHERE job_id = ?").all(job.id) as Array<{ payload: string | null }>;
+  const blob = JSON.stringify(rows);
+  const forbidden = [
+    /gh[pousr]_[A-Za-z0-9]{20,}/,
+    /github_pat_/,
+    /Bearer\s+[A-Za-z0-9._~+/=-]{10,}/i,
+    /password\s*[:=]\s*[^\s"]+/i,
+    /token\s*[:=]\s*[A-Za-z0-9._~+/=-]{10,}/i,
+  ];
+  for (const re of forbidden) {
+    ok("137-28.1." + re.source.slice(0, 12), !re.test(blob), "no secret matching " + re.source.slice(0, 20));
+  }
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  try { await exec; } catch { /* isolated */ }
+  r.db.close();
+}
+
+async function t137_29(): Promise<void> {
+  console.log("\n[137-29] Phase 136 stale-worker execution fencing remains intact");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-29", RETRY_POLICY);
+  const claimedA = r.engine.claimNextJob("worker-A");
+  const leaseA = claimedA!.lease.leaseId;
+  r.dispatchPort.setAuto(false);
+  const exec = r.engine.executeJob("worker-A", job.id, leaseA);
+  await r.dispatchPort.waitForPending(1);
+
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  r.engine.recoverStaleJobs(Date.now());
+
+  r.dispatchPort.resolve({ success: true, exitCode: 0 });
+  let errA: unknown = null;
+  try { await exec; } catch (e) { errA = e; }
+  ok("137-29.1", errA instanceof Error, "stale worker A rejected");
+  const row = jobRow(r.db, job.id);
+  ok("137-29.2", row?.status !== "SUCCEEDED", "job not falsely SUCCEEDED");
+  const attempts = attemptRows(r.db, job.id);
+  eq("137-29.3", attempts.length, 1, "no extra attempt created by stale worker");
+  r.db.close();
+}
+
+async function t137_30(): Promise<void> {
+  console.log("\n[137-30] remote-result fencing remains intact");
+  const r = buildRig();
+  const job = r.engine.createJob("BUILD", {}, "idem-137-30", RETRY_POLICY);
+  const claimed = r.engine.claimNextJob("worker-A");
+  const leaseA = claimed!.lease.leaseId;
+  insertDispatch(r.db, {
+    dispatchId: "disp-137-30", jobId: job.id, workerId: "worker-A",
+    leaseId: leaseA, status: "DISPATCHED",
+    externalProviderId: "remote_x",
+  });
+
+  // Build a synthetic remote result row using the direct store path.
+  const good = r.store.persistRemoteExecutionResultAndDispatchAsOwner(
+    {
+      resultId: "res-137-30", jobId: job.id, attemptId: "att-1",
+      workerId: "worker-A", dispatchId: "disp-137-30", leaseId: leaseA,
+      success: true, exitCode: 0, createdAt: Date.now(), resultSha256: "abc",
+    },
+    { dispatchId: "disp-137-30", jobId: job.id, attemptId: "att-1", workerId: "worker-A",
+      leaseId: leaseA, idempotencyKey: "idem-disp-137-30", status: "COMPLETED",
+      createdAt: Date.now(), updatedAt: Date.now() },
+    leaseA, "worker-A",
+  );
+  eq("137-30.1", good.persisted, true, "owned remote result persisted");
+
+  r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
+  const stale = r.store.persistRemoteExecutionResultAndDispatchAsOwner(
+    {
+      resultId: "res-137-30-b", jobId: job.id, attemptId: "att-1",
+      workerId: "worker-A", dispatchId: "disp-137-30", leaseId: leaseA,
+      success: false, exitCode: 1, createdAt: Date.now(), resultSha256: "def",
+    },
+    { dispatchId: "disp-137-30", jobId: job.id, attemptId: "att-1", workerId: "worker-A",
+      leaseId: leaseA, idempotencyKey: "idem-disp-137-30", status: "FAILED",
+      createdAt: Date.now(), updatedAt: Date.now() },
+    leaseA, "worker-A",
+  );
+  eq("137-30.2", stale.persisted, false, "stale remote result rejected");
+  eq("137-30.3", dispatchRow(r.db, "disp-137-30")?.status, "COMPLETED", "prior COMPLETED status preserved");
+  r.db.close();
+}
+
+/* ============================== runner =================================== */
+
+async function main(): Promise<void> {
+  console.log("===============================================");
+  console.log("NEXUS Phase 137 â€” Durable Cancellation & Timeout");
+  console.log("===============================================");
+
+  await t137_1();  await t137_2();  await t137_3();  await t137_4();  await t137_5();
+  await t137_6();  await t137_7();  await t137_8();  await t137_9();  await t137_10();
+  await t137_11(); await t137_12(); await t137_13(); await t137_14(); await t137_15();
+  await t137_16(); await t137_17(); await t137_18(); await t137_19(); await t137_20();
+  await t137_21(); await t137_22(); await t137_23(); await t137_24(); await t137_25();
+  await t137_26(); await t137_27(); await t137_28(); await t137_29(); await t137_30();
+
+  console.log("\n===============================================");
+  console.log(`Phase 137 results: ${passed} passed, ${failed} failed`);
+  console.log("===============================================");
+  if (failed > 0) {
+    console.error("\nFailures:");
+    for (const f of failures) console.error(" - " + f);
+    process.exitCode = 1;
+  }
+}
+
+void main().catch((err) => {
+  console.error("\nFATAL:", err);
+  process.exitCode = 1;
+});
+

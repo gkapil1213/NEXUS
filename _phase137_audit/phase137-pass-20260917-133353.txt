@@ -1,0 +1,143 @@
+﻿===============================================
+NEXUS Phase 137 ΓÇö Durable Cancellation & Timeout
+===============================================
+
+[137-1] cancellation request is durably persisted
+  ok   137-1.1  job starts QUEUED  (expected="QUEUED", got="QUEUED")
+  ok   137-1.2  requestCancellation returned the job
+  ok   137-1.3  flag durable in DB  (expected=1, got=1)
+
+[137-2] cancellation survives process/repository restart
+  ok   137-2.1  flag set before restart  (expected=1, got=1)
+  ok   137-2.2  same job id returned by idempotency  (expected="de2cd5c1-43dc-4bb4-b35c-df2e2c4ed0ec", got="de2cd5c1-43dc-4bb4-b35c-df2e2c4ed0ec")
+  ok   137-2.3  flag still durable after restart  (expected=1, got=1)
+
+[137-3] queued job cancellation prevents normal execution
+  ok   137-3.1  cancelled QUEUED job is not claimable
+  ok   137-3.2  job remains QUEUED  (expected="QUEUED", got="QUEUED")
+
+[137-4] running job receives cancellation request
+  ok   137-4.1  job is RUNNING  (expected="RUNNING", got="RUNNING")
+  ok   137-4.2  flag durable  (expected=1, got=1)
+  ok   137-4.3  status advanced to CANCELLATION_REQUESTED  (expected="CANCELLATION_REQUESTED", got="CANCELLATION_REQUESTED")
+
+[137-5] worker cancellation acknowledgement is durable
+  ok   137-5.1  job reached CANCELLED  (expected="CANCELLED", got="CANCELLED")
+  ok   137-5.2  acknowledgement durable  (expected=1, got=1)
+  ok   137-5.3  attempt reflects cancellation  (expected="CANCELLED", got="CANCELLED")
+
+[137-6] provider cancel failure does NOT fabricate CANCELLED
+  ok   137-6.1  cancelDetailed reports failure honestly  (expected=false, got=false)
+  ok   137-6.2  reason explains provider_unavailable
+  ok   137-6.3  dispatch status unchanged  (expected="DISPATCHED", got="DISPATCHED")
+
+[137-7] successful provider cancel reaches CANCELLED
+  ok   137-7.1  cancelDetailed reports success  (expected=true, got=true)
+  ok   137-7.2  dispatch status is CANCELLED  (expected="CANCELLED", got="CANCELLED")
+
+[137-8] duplicate cancellation requests are idempotent
+  ok   137-8.1  second cancel on already-CANCELLED is idempotent  (expected=true, got=true)
+  ok   137-8.2  status still CANCELLED  (expected="CANCELLED", got="CANCELLED")
+  ok   137-8.3  provider was called exactly once  (expected=1, got=1)
+
+[137-9] stale worker cannot mutate cancellation after lease loss
+  ok   137-9.1  A's late completion was rejected
+  ok   137-9.2  recovery routed to CANCELLED  (expected="CANCELLED", got="CANCELLED")
+  ok   137-9.3  worker A did not falsely acknowledge  (expected=0, got=0)
+
+[137-10] timeout is detected from durable execution timing
+  ok   137-10.1  durable timeout routed through FAILED/retry: RETRY_SCHEDULED
+  ok   137-10.2  TIMEOUT obligation recorded
+
+[137-11] timeout survives process restart
+  ok   137-11.1  timeout recognised by fresh process: RETRY_SCHEDULED
+
+[137-12] repeated timeout recovery is idempotent
+  ok   137-12.1  second recovery pass is a no-op  (expected="RETRY_SCHEDULED", got="RETRY_SCHEDULED")
+  ok   137-12.2  no duplicate obligations  (expected=1, got=1)
+
+[137-13] completion vs cancellation produces one authoritative outcome
+  ok   137-13.1  cancellation is authoritative  (expected="CANCELLED", got="CANCELLED")
+  ok   137-13.2  SUCCEEDED was not written
+  ok   137-13.3  durable transition events recorded
+
+[137-14] completion vs timeout produces one authoritative outcome
+  ok   137-14.1  timeout outcome not overwritten by worker  (expected="RETRY_SCHEDULED", got="RETRY_SCHEDULED")
+  ok   137-14.2  SUCCEEDED was not written by stale worker
+
+[137-15] cancellation vs timeout produces one authoritative outcome
+  ok   137-15.1  cancellation takes precedence over timeout  (expected="CANCELLED", got="CANCELLED")
+
+[137-16] old-worker cancellation ACK cannot affect replacement ownership
+  ok   137-16.1  old lease no longer validates  (expected=false, got=false)
+  ok   137-16.2  no active lease remains after recovery  (expected=undefined, got=undefined)
+
+[137-17] provider cancel UNKNOWN is not fabricated as success
+  ok   137-17.1  dispatch marked CANCELLED  (expected="CANCELLED", got="CANCELLED")
+  ok   137-17.2  execution job NOT silently cancelled  (expected="CLAIMED", got="CLAIMED")
+  ok   137-17.3  cancelDetailed returned true for adapter-resolved cancel
+
+[137-18] terminal SUCCEEDED cannot be overwritten by cancellation
+  ok   137-18.1  job SUCCEEDED  (expected="SUCCEEDED", got="SUCCEEDED")
+  ok   137-18.2  requestCancellation refused on terminal  (expected=false, got=false)
+  ok   137-18.3  SUCCEEDED remains  (expected="SUCCEEDED", got="SUCCEEDED")
+
+[137-19] terminal FAILED cannot be overwritten by cancellation
+  ok   137-19.1  requestCancellation refused on FAILED  (expected=false, got=false)
+  ok   137-19.2  FAILED remains  (expected="FAILED", got="FAILED")
+
+[137-20] terminal CANCELLED cannot be overwritten by timeout recovery
+  ok   137-20.1  CANCELLED is authoritative  (expected="CANCELLED", got="CANCELLED")
+  ok   137-20.2  still CANCELLED after repeat recovery  (expected="CANCELLED", got="CANCELLED")
+
+[137-21] JOB_CANCEL path produces honest dispatch state
+  ok   137-21.1  cancel confirmed  (expected=true, got=true)
+  ok   137-21.2  dispatch durable CANCELLED  (expected="CANCELLED", got="CANCELLED")
+
+[137-22] duplicate JOB_CANCEL is idempotent
+  ok   137-22.1  second call is idempotent  (expected=true, got=true)
+  ok   137-22.2  provider called exactly once  (expected=1, got=1)
+  ok   137-22.3  status still CANCELLED  (expected="CANCELLED", got="CANCELLED")
+
+[137-23] stale worker cannot cancel; terminal dispatch refuses cancel
+  ok   137-23.1  cancel refused on terminal dispatch  (expected=false, got=false)
+  ok   137-23.2  reason names terminal state
+  ok   137-23.3  provider was never called  (expected=0, got=0)
+
+[137-24] crash after cancellation request is recoverable
+  ok   137-24.1  recovery honoured the durable cancellation flag  (expected="CANCELLED", got="CANCELLED")
+
+[137-25] crash during timeout processing is recoverable
+  ok   137-25.1  second recovery after crash is a no-op  (expected="RETRY_SCHEDULED", got="RETRY_SCHEDULED")
+  ok   137-25.2  timeout routed through terminal: RETRY_SCHEDULED
+
+[137-26] provider unavailable during cancel leaves truthful recoverable state
+  ok   137-26.1  cancel refused  (expected=false, got=false)
+  ok   137-26.2  dispatch NOT marked CANCELLED  (expected="DISPATCHED", got="DISPATCHED")
+  ok   137-26.3  execution job NOT marked CANCELLED  (expected="CLAIMED", got="CLAIMED")
+
+[137-27] repeated recovery cycles converge without duplicate terminal effects
+  ok   137-27.1  status unchanged after 5 more cycles  (expected="RETRY_SCHEDULED", got="RETRY_SCHEDULED")
+  ok   137-27.2  obligations unchanged  (expected=1, got=1)
+  ok   137-27.3  transition events unchanged  (expected=2, got=2)
+
+[137-28] cancellation/timeout events contain no secrets
+  ok   137-28.1.gh[pousr]_[A  no secret matching gh[pousr]_[A-Za-z0-9
+  ok   137-28.1.github_pat_  no secret matching github_pat_
+  ok   137-28.1.Bearer\s+[A-  no secret matching Bearer\s+[A-Za-z0-9.
+  ok   137-28.1.password\s*[  no secret matching password\s*[:=]\s*[^
+  ok   137-28.1.token\s*[:=]  no secret matching token\s*[:=]\s*[A-Za
+
+[137-29] Phase 136 stale-worker execution fencing remains intact
+  ok   137-29.1  stale worker A rejected
+  ok   137-29.2  job not falsely SUCCEEDED
+  ok   137-29.3  no extra attempt created by stale worker  (expected=1, got=1)
+
+[137-30] remote-result fencing remains intact
+  ok   137-30.1  owned remote result persisted  (expected=true, got=true)
+  ok   137-30.2  stale remote result rejected  (expected=false, got=false)
+  ok   137-30.3  prior COMPLETED status preserved  (expected="COMPLETED", got="COMPLETED")
+
+===============================================
+Phase 137 results: 76 passed, 0 failed
+===============================================

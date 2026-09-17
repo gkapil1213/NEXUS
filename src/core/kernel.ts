@@ -265,6 +265,8 @@ export class NexusKernel {
           const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore);
           const jobDispatcher = new JobDispatcher(workerRegistry, remoteExecutionManager, executionStore, leaseManager);
           const dispatchService = new DispatchService(jobDispatcher, remoteExecutionManager, executionStore);
+          // Phase 137: late-wire the honest dispatch cancel into the worker gateway.
+          if (workerGateway) { workerGateway.attachDispatchService(dispatchService); }
 
           const executionDeps: ExecutionDeps = {
             dispatchPort: dispatchService,
