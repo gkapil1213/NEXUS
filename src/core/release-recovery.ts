@@ -17,6 +17,7 @@ export type RecoveryAction =
   | "ALREADY_KNOWN_GOOD"           // terminal, no action
   | "ALREADY_FAILED"               // terminal, no action
   | "ALREADY_BLOCKED"              // terminal, no action
+  | "ALREADY_CANCELLED"           // terminal cancellation, no action
   | "RECOVERY_REQUIRED";          // ambiguous — must not proceed without human review
 
 export interface RecoveryPlan {
@@ -174,6 +175,21 @@ export class ReleaseRecoveryService {
           requiresDockerInspection: true,
         };
 
+      case "CANCELLED":
+        return {
+          intentKey: i.intentKey,
+          action: "ALREADY_CANCELLED",
+          reason: "terminal state - cancellation is authoritative; no recovery needed",
+          requiresDockerInspection: false,
+        };
+
+      case "UNKNOWN":
+        return {
+          intentKey: i.intentKey,
+          action: "RECOVERY_REQUIRED",
+          reason: "provider state ambiguous; requires reconciliation",
+          requiresDockerInspection: true,
+        };
       default: {
         const _exhaustive: never = i.status;
         return {

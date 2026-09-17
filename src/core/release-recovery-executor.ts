@@ -120,7 +120,8 @@ export class ReleaseRecoveryExecutor {
     switch (plan.action) {
       case "ALREADY_KNOWN_GOOD":
       case "ALREADY_FAILED":
-      case "ALREADY_BLOCKED": report.skipped++; return;
+      case "ALREADY_BLOCKED":
+      case "ALREADY_CANCELLED": report.skipped++; return;
       case "RESUME_FROM_INTENT": await this.resumeFromIntent(intent, report); return;
       case "RESUME_VERIFICATION": await this.resumeVerification(intent, report); return;
       case "MARK_FAILED_AND_ROLLBACK": await this.markFailedAndRollback(intent, report); return;

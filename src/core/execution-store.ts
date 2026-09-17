@@ -26,7 +26,9 @@ export type ReleaseIntentStatus =
   | "KNOWN_GOOD"
   | "FAILED"
   | "BLOCKED"
-  | "RECOVERY_REQUIRED";
+  | "CANCELLED"
+  | "RECOVERY_REQUIRED"
+  | "UNKNOWN";
 
 export interface ReleaseDeploymentIntent {
   intentKey: string;
