@@ -801,13 +801,15 @@ export class ExecutionEngine {
             const freshCancel = this.store.getJob(job.id);
         if (freshCancel?.cancellationRequested) {
             job.cancellationRequested = true;
-                const cancelled = this.store.recoverJobToStatus(
-                    job.id,
-                    job.status,
-                    "CANCELLED",
-                    job.currentLeaseId ?? null,
-                    { now }
-                );
+                const cancelledResult = this.store.recoverJobAtomic({
+                    jobId: job.id,
+                    expectedStatus: job.status,
+                    newStatus: "CANCELLED",
+                    expectedLeaseId: job.currentLeaseId ?? null,
+                    event: { eventType: "execution.recovery.cancelled", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: job.status, to: "CANCELLED", reason: "cancellation_requested_honoured_after_lease_loss" } },
+                    obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "CANCELLATION_REQUESTED_ON_LEASE_LOSS" },
+                });
+                const cancelled = cancelledResult.ok;
                 if (!cancelled) continue;
                 job.status = "CANCELLED";
                 job.updatedAt = now;
@@ -861,13 +863,15 @@ export class ExecutionEngine {
             }
 
             if (timeoutExpired) {
-                const failed = this.store.recoverJobToStatus(
-                    job.id,
-                    job.status,
-                    "FAILED",
-                    job.currentLeaseId ?? null,
-                    { now }
-                );
+                const failedResult = this.store.recoverJobAtomic({
+                    jobId: job.id,
+                    expectedStatus: job.status,
+                    newStatus: "FAILED",
+                    expectedLeaseId: job.currentLeaseId ?? null,
+                    event: { eventType: "execution.recovery.failed", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: job.status, to: "FAILED", reason: "deadline_exceeded_during_lease_loss" } },
+                    obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "TIMEOUT_ON_LEASE_LOSS" },
+                });
+                const failed = failedResult.ok;
                 if (!failed) continue;
                 job.status = "FAILED";
                 job.updatedAt = now;
@@ -887,13 +891,15 @@ export class ExecutionEngine {
                     !!job.retryPolicy &&
                     this.stateMachine.canTransition("FAILED", "RETRY_SCHEDULED");
                 const nextStatusTimeout = canRetryTimeout ? "RETRY_SCHEDULED" : "DEAD_LETTER";
-                const routed = this.store.recoverJobToStatus(
-                    job.id,
-                    "FAILED",
-                    nextStatusTimeout,
-                    null,
-                    { nextAttemptAt: canRetryTimeout ? now : null, now }
-                );
+                const routedResult = this.store.recoverJobAtomic({
+                    jobId: job.id,
+                    expectedStatus: "FAILED",
+                    newStatus: nextStatusTimeout,
+                    expectedLeaseId: null,
+                    patch: { nextAttemptAt: canRetryTimeout ? now : null },
+                    event: { eventType: "execution.recovery.rerouted", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: "FAILED", to: nextStatusTimeout, reason: "deadline_exceeded_during_lease_loss" } },
+                });
+                const routed = routedResult.ok;
                 if (routed) {
                     job.status = nextStatusTimeout;
                     if (canRetryTimeout) job.nextAttemptAt = now;
@@ -919,13 +925,15 @@ export class ExecutionEngine {
             // Atomic: only applies if the job is still in its observed status
             // AND still owned by the same lease.  If a new worker took over
             // between recoverExpiredLeases() and here, this is a no-op.
-            const orphaned = this.store.recoverJobToStatus(
-                job.id,
-                job.status,
-                "ORPHANED",
-                job.currentLeaseId ?? null,
-                { now }
-            );
+            const orphanedResult = this.store.recoverJobAtomic({
+                jobId: job.id,
+                expectedStatus: job.status,
+                newStatus: "ORPHANED",
+                expectedLeaseId: job.currentLeaseId ?? null,
+                event: { eventType: "execution.recovery.orphaned", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: job.status, to: "ORPHANED" } },
+                obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "LEASE_EXPIRED" },
+            });
+            const orphaned = orphanedResult.ok;
             if (!orphaned) {
                 // Another owner appeared concurrently Ã¢â‚¬â€ skip recovery for this
                 // job.  The obligation was already written above; it remains
@@ -953,13 +961,15 @@ export class ExecutionEngine {
                 this.stateMachine.canTransition("ORPHANED", "QUEUED");
 
             if (canRetry) {
-                const requeued = this.store.recoverJobToStatus(
-                    job.id,
-                    "ORPHANED",
-                    "QUEUED",
-                    null,
-                    { nextAttemptAt: now, now }
-                );
+                const requeueResult = this.store.recoverJobAtomic({
+                    jobId: job.id,
+                    expectedStatus: "ORPHANED",
+                    newStatus: "QUEUED",
+                    expectedLeaseId: null,
+                    patch: { nextAttemptAt: now },
+                    event: { eventType: "execution.recovery.requeued", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, obligationId, from: "ORPHANED", to: "QUEUED" } },
+                });
+                const requeued = requeueResult.ok;
                 if (!requeued) {
                     // Another writer got in Ã¢â‚¬â€ leave as ORPHANED and let the
                     // next recovery cycle pick it up.  No fake SUCCESS.

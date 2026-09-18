@@ -134,6 +134,8 @@ class AtomicClaimReject extends Error {
 export class ExecutionStore {
   /** @internal Phase 142 — test-only injection hook. No-op in production. */
   public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
+  /** @internal Phase 143 - test-only injection hook. No-op in production. */
+  public __testPhase143Hook?: (stage: "afterJobUpdate" | "afterObligation") => void;
   constructor(private db: NexusEngine) {}
 
   // ---------- Jobs ----------
@@ -477,6 +479,93 @@ export class ExecutionStore {
     return result.changes > 0;
   }
 
+  /**
+   * Phase 143: atomic stale-execution recovery.
+   *
+   * One SQLite transaction:
+   *   1. CAS UPDATE execution_jobs (fenced on status + expected lease id)
+   *   2. optional INSERT into execution_ownership_obligations
+   *   3. INSERT durable recovery event into execution_events
+   *
+   * The CAS UPDATE is the sole authority. If it affects 0 rows (job moved on,
+   * lease changed), nothing is written and { ok: false } is returned. If any
+   * step throws, the whole transaction rolls back. Audit remains fire-and-
+   * forget per existing architecture and is explicitly NOT part of this
+   * transaction (the current audit path is not durable-execution-scoped).
+   */
+  recoverJobAtomic(input: {
+    jobId: string;
+    expectedStatus: string;
+    newStatus: string;
+    expectedLeaseId: string | null;
+    patch?: { nextAttemptAt?: number | null };
+    event: { eventType: string; payload: Record<string, unknown> };
+    obligation?: { leaseId: string; workerId: string; reason: string };
+  }): { ok: boolean; obligationId?: string; obligationCreated?: boolean } {
+    const now = Date.now();
+    let obligationId: string | undefined;
+    let obligationCreated: boolean | undefined;
+
+    const run = (): number => {
+      const result = this.db.prepare(`
+        UPDATE execution_jobs SET
+          status = ?, updated_at = ?, next_attempt_at = ?, current_lease_id = NULL
+        WHERE id = ?
+          AND status = ?
+          AND (
+            (? IS NULL AND current_lease_id IS NULL)
+            OR current_lease_id = ?
+          )
+      `).run(
+        input.newStatus,
+        now,
+        input.patch?.nextAttemptAt ?? null,
+        input.jobId,
+        input.expectedStatus,
+        input.expectedLeaseId,
+        input.expectedLeaseId,
+      );
+
+      if ((result.changes ?? 0) === 0) return 0;
+
+      if (typeof this.__testPhase143Hook === "function") {
+        this.__testPhase143Hook("afterJobUpdate");
+      }
+
+      if (input.obligation) {
+        const ob = this.writeOwnershipObligation({
+          jobId: input.jobId,
+          leaseId: input.obligation.leaseId,
+          workerId: input.obligation.workerId,
+          reason: input.obligation.reason,
+          now,
+        });
+        obligationId = ob.obligationId;
+        obligationCreated = ob.created;
+      }
+
+      if (typeof this.__testPhase143Hook === "function") {
+        this.__testPhase143Hook("afterObligation");
+      }
+
+      this.addEvent({
+        eventId: "evt_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 10),
+        jobId: input.jobId,
+        eventType: input.event.eventType,
+        payload: input.event.payload,
+        createdAt: now,
+      });
+
+      return result.changes;
+    };
+
+    let changes = 0;
+    const runCapture = (): void => { changes = run(); };
+    const maybeTx: any = (this.db as any).transaction(runCapture);
+    if (typeof maybeTx === "function") maybeTx();
+
+    return changes > 0 ? { ok: true, obligationId, obligationCreated } : { ok: false };
+  }
   listJobsByStatus(status: string): ExecutionJob[] {
     return this.db.prepare("SELECT * FROM execution_jobs WHERE status = ?").all(status).map(this.mapJob);
   }
