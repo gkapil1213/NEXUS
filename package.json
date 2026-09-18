@@ -20,6 +20,8 @@
     "test:phase135": "tsx scripts/test-phase135-ci-reconciliation-integrity.ts",
     "test:phase138": "tsx scripts/test-phase138-recovery.ts",
     "test:phase138:attempt": "tsx scripts/test-phase138-attempt-authority.ts",
+    "test:phase141": "tsx scripts/test-phase141-deployment-evidence.ts",
+    "test:phase142": "tsx scripts/test-phase142-atomic-claim.ts",
     "test:phase138:cancel": "tsx scripts/test-phase138-cancellation.ts"
   },
   "dependencies": {

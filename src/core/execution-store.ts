@@ -118,7 +118,22 @@ export type TransitionResult =
   | { ok: false;
       reason: "WORKER_OWNERSHIP_LOST" | "STATE_MISMATCH" | "TERMINAL_STATE" | "JOB_NOT_FOUND";
       currentStatus: ExecutionJob["status"] | null };
+export type AtomicClaimRejectReason =
+  | "NOT_QUEUED"
+  | "CANCELLED"
+  | "ALREADY_LEASED"
+  | "LEASE_CONFLICT"
+  | "TRANSITION_FAILED";
+
+class AtomicClaimReject extends Error {
+  constructor(public readonly reason: AtomicClaimRejectReason) {
+    super("atomic claim rejected: " + reason);
+    this.name = "AtomicClaimReject";
+  }
+}
 export class ExecutionStore {
+  /** @internal Phase 142 — test-only injection hook. No-op in production. */
+  public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
   constructor(private db: NexusEngine) {}
 
   // ---------- Jobs ----------
@@ -666,6 +681,112 @@ export class ExecutionStore {
   }
 
   // ---------- Leases ----------
+  /**
+   * Phase 142: atomic claim of a QUEUED job — single SQLite transaction.
+   *
+   * Every durable step executes directly inside the transaction. This method
+   * MUST NOT call transitionExecution(); doing so would create a nested
+   * transaction boundary and break the crash-safety guarantee.
+   *
+   *   1. Guard (exists, QUEUED, not cancelled, no current_lease_id)
+   *   2. Expire stale ACTIVE leases for this job
+   *   3. INSERT new ACTIVE lease
+   *   4. UPDATE job to CLAIMED + bind current_lease_id (CAS, 1 row required)
+   *   5. INSERT durable execution.transition.claimed event via addEvent()
+   */
+  atomicClaimJob(input: {
+    jobId: string;
+    workerId: string;
+    durationMs: number;
+  }): {
+    claimed: boolean;
+    lease?: ExecutionLease;
+    reason?: AtomicClaimRejectReason;
+  } {
+    const now = Date.now();
+    const lease: ExecutionLease = {
+      leaseId: "lease_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 10),
+      jobId: input.jobId,
+      workerId: input.workerId,
+      acquiredAt: now,
+      expiresAt: now + input.durationMs,
+      status: "ACTIVE",
+    };
+
+    const run = (): void => {
+      // 1. Guard.
+      const row = this.db.prepare(
+        "SELECT status, cancellation_requested, current_lease_id FROM execution_jobs WHERE id = ?"
+      ).get(input.jobId) as
+        | { status: string; cancellation_requested: number; current_lease_id: string | null }
+        | undefined;
+
+      if (!row) throw new AtomicClaimReject("NOT_QUEUED");
+      if (row.cancellation_requested) throw new AtomicClaimReject("CANCELLED");
+      if (row.status !== "QUEUED") throw new AtomicClaimReject("NOT_QUEUED");
+      if (row.current_lease_id) throw new AtomicClaimReject("ALREADY_LEASED");
+
+      // 2. Expire stale ACTIVE leases for this job only.
+      this.db.prepare(
+        "UPDATE execution_leases SET status = 'EXPIRED', released_at = ? " +
+        "WHERE job_id = ? AND status = 'ACTIVE' AND expires_at <= ?"
+      ).run(now, input.jobId, now);
+
+      // 3. INSERT new ACTIVE lease.
+      try {
+        this.db.prepare(
+          "INSERT INTO execution_leases (lease_id, job_id, worker_id, acquired_at, expires_at, renewed_at, released_at, status) " +
+          "VALUES (?, ?, ?, ?, ?, NULL, NULL, 'ACTIVE')"
+        ).run(lease.leaseId, lease.jobId, lease.workerId, lease.acquiredAt, lease.expiresAt);
+      } catch (err: any) {
+        if (err && (err.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed/i.test(String(err.message)))) {
+          throw new AtomicClaimReject("LEASE_CONFLICT");
+        }
+        throw err;
+      }
+
+      if (typeof this.__testPhase142Hook === "function") {
+        this.__testPhase142Hook("afterLeaseInsert");
+      }
+
+      // 4. CAS job UPDATE — direct statement, no nested tx.
+      const upd = this.db.prepare(
+        "UPDATE execution_jobs SET status = 'CLAIMED', updated_at = ?, current_lease_id = ? " +
+        "WHERE id = ? AND status = 'QUEUED' AND cancellation_requested = 0 AND current_lease_id IS NULL"
+      ).run(now, lease.leaseId, input.jobId);
+      if ((upd.changes ?? 0) !== 1) throw new AtomicClaimReject("TRANSITION_FAILED");
+
+      if (typeof this.__testPhase142Hook === "function") {
+        this.__testPhase142Hook("afterJobUpdate");
+      }
+
+      // 5. Durable event INSERT — addEvent is a direct INSERT (no tx).
+      this.addEvent({
+        eventId: "evt_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 10),
+        jobId: input.jobId,
+        eventType: "execution.transition.claimed",
+        payload: {
+          from: "QUEUED",
+          to: "CLAIMED",
+          actor: "system",
+          reason: "LEASE_ACQUIRED",
+          workerId: input.workerId,
+          leaseId: lease.leaseId,
+        },
+        createdAt: now,
+      });
+    };
+
+    try {
+      const maybeTx: any = (this.db as any).transaction(run);
+      if (typeof maybeTx === "function") maybeTx();
+      // else: SQLiteEngine executed run() eagerly inside a transaction.
+      return { claimed: true, lease };
+    } catch (err) {
+      if (err instanceof AtomicClaimReject) return { claimed: false, reason: err.reason };
+      throw err;
+    }
+  }
   acquireLease(lease: ExecutionLease): { acquired: boolean; existingLease?: ExecutionLease } {
     try {
       this.db.prepare(`

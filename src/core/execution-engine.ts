@@ -308,28 +308,24 @@ export class ExecutionEngine {
         const queued = this.store.listJobsByStatus("QUEUED");
         for (const job of queued) {
             if (job.cancellationRequested) continue;
-            try {
-                const lease = this.leaseManager.acquireLease(job.id, workerId, 60000);
-                try {
-                    this.applyTransition(
-                        job.id, "system", "QUEUED", "CLAIMED",
-                        workerId, lease.leaseId,
-                        { currentLeaseId: lease.leaseId },
-                        "LEASE_ACQUIRED"
-                    );
-                } catch (e) {
-                    // Compensating action: CLAIMED CAS failed Ã¢â€ â€™ release the lease
-                    this.leaseManager.releaseLease(lease.leaseId);
-                    throw e;
-                }
-                job.status = "CLAIMED";
-                job.currentLeaseId = lease.leaseId;
-                job.updatedAt = Date.now();
-                this.workerRegistry.markBusy(workerId, job.id);
-                return { job, lease };
-            } catch {
-                continue;
-            }
+
+            // Phase 142: single-transaction atomic claim. The lease INSERT and
+            // the QUEUED -> CLAIMED transition with current_lease_id binding
+            // commit together, or neither commits.
+            const r = this.store.atomicClaimJob({
+                jobId: job.id,
+                workerId,
+                durationMs: 60000,
+            });
+            if (!r.claimed || !r.lease) continue;
+
+            // Durable CLAIMED state and durable execution.transition.claimed
+            // event were committed by atomicClaimJob(). No second transition,
+            // no second event, no compensating audit.
+            const fresh = this.store.getJob(job.id);
+            if (!fresh) continue;
+            this.workerRegistry.markBusy(workerId, job.id);
+            return { job: fresh, lease: r.lease };
         }
         return null;
     }
