@@ -83,6 +83,9 @@ export interface ReleaseExecutionRequest {
   imageDigest: string;
   containerName: string | null;
   containerPort: number | null;
+  // Phase 140: durable ExecutionAttempt identity propagated end-to-end.
+  // Required. Never synthesized; never substituted with executionId.
+  attemptId: string;
 }
 
 export interface ReleaseExecutionOutcome {
@@ -349,6 +352,27 @@ export class ProductionReleaseEnforcementService {
     }
 
     // Real provider wired → invoke canonical deployment, translate outcome.
+    // Phase 140: before invoking the provider, prove the durable authorization
+    // is bound to this exact attempt. If the store exists, re-read and require
+    // consumed_by_attempt_id === attemptId. Otherwise fail closed.
+    if (this.store) {
+      const fresh = this.store.getProductionAuthorization(authorizationId);
+      if (!fresh) {
+        return {
+          status: "BLOCKED",
+          message: "Authorization disappeared between consume and provider invocation",
+          providerAvailable: this.provider !== undefined,
+        };
+      }
+      if (fresh.consumedByAttemptId !== attemptId) {
+        return {
+          status: "BLOCKED",
+          message: "Authorization consumed_by_attempt_id does not match attemptId at provider boundary",
+          providerAvailable: this.provider !== undefined,
+        };
+      }
+    }
+
     const outcome = await this.provider.execute({
       authorizationId: auth.authorizationId,
       releaseId: auth.releaseId,
@@ -363,6 +387,7 @@ export class ProductionReleaseEnforcementService {
       imageDigest: auth.artifactDigest,
       containerName: auth.containerName ?? null,
       containerPort: auth.containerPort ?? null,
+      attemptId,
     });
 
     return {
