@@ -79,6 +79,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
                   type: "release.image_digest.resolved" as never,
                   source: "ReleaseDeploymentBridge",
                   execution_id: req.executionId,
+                  attempt_id: req.attemptId ?? null,
                   payload: {
                     artifact_id: imageDigestArtifact.id,
                     digest: parsed.digest,
@@ -229,6 +230,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
         type: "release.deployment_started" as never,
         source: "ReleaseDeploymentBridge",
         execution_id: req.executionId,
+        attempt_id: req.attemptId,
         payload: {
           release_id: req.releaseId,
           artifact_id: req.artifactId,
@@ -285,6 +287,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
             release_id: req.releaseId,
             artifact_id: req.artifactId,
             execution_id: req.executionId,
+            attempt_id: req.attemptId,
             image_digest: req.imageDigest,
             environment: req.environment,
             intent_key: intent.intentKey,
@@ -347,6 +350,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
       type: type as never,
       source: "ReleaseDeploymentBridge",
       execution_id: req.executionId,
+      attempt_id: req.attemptId,
       payload: {
         release_id: req.releaseId,
         artifact_id: req.artifactId,
@@ -362,6 +366,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
       type: "release.ready" as never,
       source: "ReleaseDeploymentBridge",
       execution_id: req.executionId,
+      attempt_id: req.attemptId ?? null,
       payload: {
         release_id: req.releaseId,
         artifact_id: req.artifactId,
@@ -408,6 +413,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
           release_id: req.releaseId,
           artifact_id: req.artifactId,
           execution_id: req.executionId,
+          attempt_id: req.attemptId ?? null,
           image_digest: req.imageDigest,
           environment: req.environment,
         },

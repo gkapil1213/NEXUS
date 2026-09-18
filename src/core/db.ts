@@ -27,7 +27,7 @@ import { Err } from "./errors";
  * across version bumps; the upgrade handler only creates stores that are
  * missing, so all prior data survives.
  */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 export const NEXUS_STORES = [
   "users",
   "sessions",
@@ -120,7 +120,7 @@ export function nid(prefix: string): string {
 export const INDEXES: Record<string, [string, string][]> = {
   executions: [["byProject", "project_id"]],
   agent_runs: [["byExecution", "execution_id"]],
-  events: [["byExecution", "execution_id"]],
+  events: [["byExecution", "execution_id"], ["byAttempt", "attempt_id"]],
   audit: [["byResource", "resource_id"]],
   evidence: [["byExecution", "execution_id"]],
   artifacts: [["byExecution", "execution_id"]],
@@ -210,10 +210,15 @@ class IdbEngine implements NexusEngine {
       const req = indexedDB.open(name, SCHEMA_VERSION);
       req.onupgradeneeded = () => {
         const d = req.result;
+        const tx = req.transaction;
+        if (!tx) return;
         for (const store of NEXUS_STORES) {
-          if (d.objectStoreNames.contains(store)) continue;
-          const os = d.createObjectStore(store, { keyPath: "__key" });
-          for (const [index, field] of INDEXES[store] ?? []) os.createIndex(index, field);
+          const os = d.objectStoreNames.contains(store)
+            ? tx.objectStore(store)
+            : d.createObjectStore(store, { keyPath: "__key" });
+          for (const [index, field] of INDEXES[store] ?? []) {
+            if (!os.indexNames.contains(index)) os.createIndex(index, field);
+          }
         }
       };
       req.onsuccess = () => resolve(req.result);

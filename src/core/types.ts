@@ -373,6 +373,7 @@ export interface NexusEvent {
   id: Id;
   seq: number; // strictly increasing — append-only ordering guarantee
   execution_id: Id | null;
+  attempt_id?: Id | null;
   type: NexusEventType;
   timestamp: number;
   source: string;

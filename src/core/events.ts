@@ -36,6 +36,7 @@ export class EventService {
     type: NexusEventType;
     source: string;
     execution_id?: string | null;
+    attempt_id?: string | null;
     payload?: Record<string, unknown>;
   }): Promise<NexusEvent> {
     const run = async (): Promise<NexusEvent> => {
@@ -48,6 +49,7 @@ export class EventService {
         id: nid("evt"),
         seq: globalSeq,
         execution_id: input.execution_id ?? null,
+        attempt_id: input.attempt_id ?? null,
         type: input.type,
         timestamp: Date.now(),
         source: input.source,
@@ -71,6 +73,11 @@ export class EventService {
 
   async byExecution(executionId: string): Promise<NexusEvent[]> {
     const rows = await this.engine.byIndex<NexusEvent>("events", "byExecution", executionId);
+    return rows.sort((a, b) => a.seq - b.seq);
+  }
+
+  async byAttempt(attemptId: string): Promise<NexusEvent[]> {
+    const rows = await this.engine.byIndex<NexusEvent>("events", "byAttempt", attemptId);
     return rows.sort((a, b) => a.seq - b.seq);
   }
 
