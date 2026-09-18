@@ -192,7 +192,7 @@ async function T5_idempotency(): Promise<void> {
   ok(r1.status === 'COMPLETED', 'T5 first call COMPLETED');
 
   const r2: any = await orchestrateCICD(req);
-  ok(r2.status === 'COMPLETED', 'T5 second call returns same terminal status');
+  ok(r2.status === 'ALREADY_TERMINAL', 'T5 second call reports already-terminal');
   ok(r2.reason && /already terminal/i.test(r2.reason), 'T5 second call reports terminal resume');
 
   const jobs = h.store.listJobsByStatus('SUCCEEDED').filter(j => j.idempotencyKey === 't5-idem');
@@ -300,7 +300,7 @@ async function T13_duplicateStageCompletion(): Promise<void> {
   ok(r1.status === 'COMPLETED', 'T13 first submission COMPLETED');
   // Second submission with same idempotency key sees a terminal pipeline.
   const r2: any = await orchestrateCICD(req);
-  ok(r2.status === 'COMPLETED', 'T13 second submission returns terminal state');
+  ok(r2.status === 'ALREADY_TERMINAL', 'T13 second submission reports already-terminal');
   ok(typeof r2.reason === 'string' && /already terminal/i.test(r2.reason), 'T13 second reports terminal resume');
 
   // No duplicate stage rows created.
