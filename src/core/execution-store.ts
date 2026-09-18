@@ -58,6 +58,7 @@ export interface ReleaseDeploymentIntent {
   intentKey: string;
   releaseId: string;
   executionId: string;
+  attemptId?: string | null;
   artifactId: string;
   artifactDigest: string;
   commitSha: string;
@@ -1029,8 +1030,9 @@ export class ExecutionStore {
           intent_kind, rollback_target_release_id, rollback_job_id,
         image_digest, container_name, container_port, status, deployment_id,
         failure_reason, recovery_reason, leased_by, lease_expires_at,
+        attempt_id,
         created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DEPLOYMENT_INTENT_CREATED', NULL, NULL, NULL, NULL, NULL, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DEPLOYMENT_INTENT_CREATED', NULL, NULL, NULL, NULL, NULL, ?, ?, ?)
     `).run(
         input.intentKey,
         input.releaseId,
@@ -1049,6 +1051,7 @@ export class ExecutionStore {
         input.imageDigest,
         input.containerName,
         input.containerPort,
+        input.attemptId ?? null,
         now,
         now,
       );
@@ -1333,6 +1336,7 @@ export class ExecutionStore {
       intentKey: row.intent_key,
       releaseId: row.release_id,
       executionId: row.execution_id,
+      attemptId: row.attempt_id ?? null,
       artifactId: row.artifact_id,
       artifactDigest: row.artifact_digest,
       commitSha: row.commit_sha,

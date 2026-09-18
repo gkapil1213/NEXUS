@@ -12,6 +12,7 @@ export interface ReleaseIntentInput {
   rollbackJobId?: string | null;
   releaseId: string;
   executionId: string;
+  attemptId: string;
   artifactId: string;
   artifactDigest: string;
   commitSha: string;
@@ -51,6 +52,7 @@ export class ReleaseDeploymentIntentService {
       "intent",
       input.releaseId,
       input.executionId,
+      input.attemptId,
       input.artifactId,
       input.artifactDigest,
       input.commitSha,
@@ -73,6 +75,7 @@ export class ReleaseDeploymentIntentService {
       intentKey,
       releaseId: input.releaseId,
       executionId: input.executionId,
+      attemptId: input.attemptId,
       artifactId: input.artifactId,
       artifactDigest: input.artifactDigest,
       commitSha: input.commitSha,

@@ -148,8 +148,13 @@ export class ReleaseRecoveryExecutor {
       try {
         const fresh = intents.get(intent.intentKey);
         if (!fresh || fresh.status !== "DEPLOYMENT_INTENT_CREATED") { report.skipped++; return; }
+        if (!fresh.attemptId) {
+          await this.markRecoveryRequired(fresh, "recovery: intent has no durable attemptId; cannot resume deployment");
+          report.blocked++;
+          return;
+        }
         intents.transition(fresh.intentKey, "DEPLOYING", { recoveryReason: "recovery: deploying under lease " + this.deps.workerId });
-        const outcome = await this.deps.orchestrator.deploy(this.toDeploymentRequest(fresh));
+        const outcome = await this.deps.orchestrator.deploy(this.toDeploymentRequest(fresh, fresh.attemptId));
         await this.recordDeploymentOutcome(fresh, outcome, report);
       } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
       return;
@@ -362,7 +367,7 @@ export class ReleaseRecoveryExecutor {
     report.acted++;
   }
 
-  private toDeploymentRequest(intent: ReleaseDeploymentIntent): CanonicalDeploymentRequest {
+  private toDeploymentRequest(intent: ReleaseDeploymentIntent, attemptId: string): CanonicalDeploymentRequest {
     return {
       project_id: intent.projectId!,
       environment: intent.environment,
@@ -376,6 +381,7 @@ export class ReleaseRecoveryExecutor {
       image_digest: intent.imageDigest,
       container_name: intent.containerName,
       container_port: intent.containerPort,
+      attempt_id: attemptId,
     };
   }
 

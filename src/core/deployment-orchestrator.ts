@@ -40,6 +40,7 @@ export interface CanonicalDeploymentRequest {
   container_port: number;
   container_host_port?: number;
   execution_id?: string | null;
+  attempt_id: string;
 }
 
 export interface CanonicalDeploymentOutcome {

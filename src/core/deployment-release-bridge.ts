@@ -109,6 +109,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
     if (!req.containerName) missing.push("containerName");
     if (!req.containerPort) missing.push("containerPort");
     if (!req.imageDigest) missing.push("imageDigest");
+    if (!req.attemptId) missing.push("attemptId");
     if (missing.length > 0) {
       return blocked("release-execution request missing deployment context: " + missing.join(", "));
     }
@@ -139,6 +140,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
     const input: ReleaseIntentInput = {
       releaseId: req.releaseId,
       executionId: req.executionId!,
+      attemptId: req.attemptId,
       artifactId: req.artifactId,
       artifactDigest: req.imageDigest,
       commitSha: req.commitSha,
@@ -251,6 +253,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
           container_name: req.containerName!,
           container_port: req.containerPort!,
           execution_id: req.executionId,
+          attempt_id: req.attemptId,
         });
       } catch (e) {
         intents.transition(intent.intentKey, "FAILED", {
@@ -383,6 +386,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
         container_name: req.containerName!,
         container_port: req.containerPort!,
         execution_id: req.executionId,
+        attempt_id: req.attemptId,
       });
     } catch (e) {
       return {
