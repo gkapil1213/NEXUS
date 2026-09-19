@@ -1,4 +1,3 @@
-
 import { ExecutionRecoveryOperationType } from "./execution-recovery-operation-store";
 import { ExecutionStore } from "./execution-store";
 import { ExecutionStateMachine } from "./execution-state-machine";
@@ -876,6 +875,48 @@ export class ExecutionEngine {
     }
 
     /**
+     * Phase 147: promote same-tick recovery retries.
+     *
+     * A recovery operation can set a job to RETRY_SCHEDULED with nextAttemptAt
+     * equal to the current tick's now. Because runDueRetries uses now - 1 to
+     * preserve the pre-existing due-time boundary for older retries, such a
+     * same-tick retry would otherwise wait until the next recovery cycle.
+     * This helper closes that gap for jobs that were NOT already
+     * RETRY_SCHEDULED at the start of recoverStaleJobs.
+     *
+     * Pre-existing RETRY_SCHEDULED jobs are excluded so their promotion stays
+     * governed exclusively by runDueRetries.
+     */
+    private promoteImmediateRecoveryRetries(
+        now: number,
+        preExistingRetryScheduledJobIds: Set<string>,
+    ): void {
+        for (const job of this.store.listJobsByStatus("RETRY_SCHEDULED")) {
+            if (preExistingRetryScheduledJobIds.has(job.id)) continue;
+            if (job.nextAttemptAt !== now) continue;
+
+            if (job.cancellationRequested) {
+                this.store.recoverJobAtomic({
+                    jobId: job.id,
+                    expectedStatus: "RETRY_SCHEDULED",
+                    newStatus: "CANCELLED",
+                    expectedLeaseId: null,
+                    event: { eventType: "execution.retry.cancelled", payload: { jobId: job.id, reason: "cancellation_requested_during_immediate_retry" } },
+                });
+                continue;
+            }
+
+            this.store.recoverJobAtomic({
+                jobId: job.id,
+                expectedStatus: "RETRY_SCHEDULED",
+                newStatus: "QUEUED",
+                expectedLeaseId: null,
+                event: { eventType: "execution.retry.due", payload: { jobId: job.id, previousNextAttemptAt: job.nextAttemptAt } },
+            });
+        }
+    }
+
+    /**
      * Phase 147: promote due retries to QUEUED.
      *
      * Jobs routed to RETRY_SCHEDULED by the live path or by any recovery path
@@ -958,7 +999,13 @@ export class ExecutionEngine {
      * so repeated detection converges on one row.
      */
     recoverStaleJobs(now: number = Date.now()): void {
-        this.runDueRetries(now);
+        // Phase 147: capture pre-existing RETRY_SCHEDULED job IDs before
+        // any recovery runs, so same-tick recovery retries can be promoted
+        // later without disturbing the existing due-time boundary used for
+        // pre-existing retries.
+        const preExistingRetryScheduledJobIds = new Set<string>(
+            this.store.listJobsByStatus("RETRY_SCHEDULED").map((j) => j.id),
+        );
         this.reconcileExecutionRecoveryOperations(now);
         const expiredLeases = this.leaseManager.recoverExpiredLeases(now);
         for (const lease of expiredLeases) {
@@ -1226,6 +1273,8 @@ export class ExecutionEngine {
                 }));
             } catch { /* isolated */ }
         }
+        this.runDueRetries(now - 1);
+        this.promoteImmediateRecoveryRetries(now, preExistingRetryScheduledJobIds);
     }
 
     reconcileExecutionRecoveryOperations(now: number = Date.now()): void {
