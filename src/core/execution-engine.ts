@@ -122,6 +122,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string)
 export class ExecutionEngine {
     private stateMachine = new ExecutionStateMachine();
 
+    /**
+     * Phase 154: process-local shutdown flag. When true, recoverStaleJobs()
+     * and reconcileExecutionRecoveryOperations() return immediately.
+     *
+     * This is convenience, not correctness: durable claims are not released
+     * here. A worker that exits while holding a claim leaves that claim
+     * durable so that the existing lease-expiry path can hand it to another
+     * engine after expiry.
+     */
+    private shuttingDown = false;
+
+    shutdown(): void {
+        this.shuttingDown = true;
+    }
+
+    isShuttingDown(): boolean {
+        return this.shuttingDown;
+    }
+
     private readonly recoveryInstanceId = generateUUID();
     /** @internal Phase 144 - test-only injection hook. No-op in production. */
     public __testPhase144Hook?: (stage: string) => void;
@@ -1082,6 +1101,7 @@ export class ExecutionEngine {
     }
 
     recoverStaleJobs(now: number = Date.now()): void {
+        if (this.shuttingDown) return;
         // Phase 147: capture pre-existing RETRY_SCHEDULED job IDs before
         // any recovery runs, so same-tick recovery retries can be promoted
         // later without disturbing the existing due-time boundary used for
@@ -1361,6 +1381,7 @@ export class ExecutionEngine {
     }
 
     reconcileExecutionRecoveryOperations(now: number = Date.now()): void {
+        if (this.shuttingDown) return;
         const ops = this.store.recoveryOps;
         const candidates = ops.listResumableOperations();
         for (const op of candidates) {

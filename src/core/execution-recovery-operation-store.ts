@@ -27,7 +27,8 @@ export type ExecutionRecoveryOperationState =
   | "IN_PROGRESS"
   | "COMPLETED"
   | "FAILED"
-  | "RECOVERY_REQUIRED";
+  | "RECOVERY_REQUIRED"
+  | "CANCELLED";
 
 export interface ExecutionRecoveryOperation {
   operationId: string;
@@ -351,7 +352,8 @@ export class ExecutionRecoveryOperationStore {
     if (
       current.state === "COMPLETED" ||
       current.state === "FAILED" ||
-      current.state === "RECOVERY_REQUIRED"
+      current.state === "RECOVERY_REQUIRED" ||
+      current.state === "CANCELLED"
     ) {
       return { renewed: false, reason: "TERMINAL", operation: current };
     }
@@ -359,6 +361,62 @@ export class ExecutionRecoveryOperationStore {
       return { renewed: false, reason: "OWNERSHIP_LOST", operation: current };
     }
     return { renewed: false, reason: "EXPIRED", operation: current };
+  }
+
+  /**
+   * Phase 154: owner-fenced, CAS-gated cancellation of an active claim.
+   *
+   * The current claim owner abandons its recovery operation. The job state is
+   * NOT touched. The operation transitions to CANCELLED and is excluded from
+   * listResumableOperations(), so reconciliation will not pick it up again.
+   *
+   * Does NOT increment attempt_count.
+   */
+  cancelOperationClaim(input: {
+    operationId: string;
+    owner: string;
+    now?: number;
+  }): {
+    cancelled: boolean;
+    alreadyCancelled?: boolean;
+    reason?: "NOT_FOUND" | "TERMINAL" | "OWNERSHIP_LOST" | "NOT_CLAIMED";
+    operation?: ExecutionRecoveryOperation;
+  } {
+    const now = input.now ?? Date.now();
+    const result = this.db
+      .prepare(
+        "UPDATE execution_recovery_operations " +
+        "   SET state = 'CANCELLED', " +
+        "       claim_owner = NULL, " +
+        "       claim_expires_at = NULL, " +
+        "       completed_at = ?, " +
+        "       updated_at = ? " +
+        " WHERE operation_id = ? " +
+        "   AND claim_owner = ? " +
+        "   AND state IN ('CLAIMED','IN_PROGRESS')"
+      )
+      .run(now, now, input.operationId, input.owner);
+
+    if (result.changes === 1) {
+      return { cancelled: true, operation: this.getOperation(input.operationId) };
+    }
+
+    const current = this.getOperation(input.operationId);
+    if (!current) return { cancelled: false, reason: "NOT_FOUND" };
+    if (current.state === "CANCELLED") {
+      return { cancelled: true, alreadyCancelled: true, operation: current };
+    }
+    if (
+      current.state === "COMPLETED" ||
+      current.state === "FAILED" ||
+      current.state === "RECOVERY_REQUIRED"
+    ) {
+      return { cancelled: false, reason: "TERMINAL", operation: current };
+    }
+    if (current.claimOwner !== input.owner) {
+      return { cancelled: false, reason: "OWNERSHIP_LOST", operation: current };
+    }
+    return { cancelled: false, reason: "NOT_CLAIMED", operation: current };
   }
 
   listIncompleteOperations(): ExecutionRecoveryOperation[] {
