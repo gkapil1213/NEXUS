@@ -1391,9 +1391,7 @@ export class ExecutionEngine {
 
             if (op.operationType === "CANCELLATION") {
                 if (job.status === "CANCELLED") {
-                    const owner = this.recoveryOwnerId();
-                    const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
-                    if (claim.claimed) ops.markCompleted(op.operationId, owner, now);
+                    ops.finalizeCompletedOperation(op.operationId, now);
                     continue;
                 }
                 if (job.cancellationRequested &&
@@ -1429,9 +1427,7 @@ export class ExecutionEngine {
 
             if (op.operationType === "TIMEOUT") {
                 if (job.status === "RETRY_SCHEDULED" || job.status === "DEAD_LETTER") {
-                    const owner = this.recoveryOwnerId();
-                    const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
-                    if (claim.claimed) ops.markCompleted(op.operationId, owner, now);
+                    ops.finalizeCompletedOperation(op.operationId, now);
                     continue;
                 }
                 if (job.status === "FAILED") {
@@ -1495,9 +1491,7 @@ export class ExecutionEngine {
 
             if (op.operationType === "ORPHAN_RECOVERY") {
                 if (job.status === "QUEUED") {
-                    const owner = this.recoveryOwnerId();
-                    const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
-                    if (claim.claimed) ops.markCompleted(op.operationId, owner, now);
+                    ops.finalizeCompletedOperation(op.operationId, now);
                     continue;
                 }
                 if (job.status === "ORPHANED") {

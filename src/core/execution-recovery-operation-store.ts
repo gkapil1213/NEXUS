@@ -230,6 +230,40 @@ export class ExecutionRecoveryOperationStore {
     return result.changes === 1;
   }
 
+  /**
+   * Phase 151: finalize an operation whose authoritative postcondition is
+   * already satisfied in the job, without consuming an additional recovery
+   * attempt.
+   *
+   * Used by reconciliation when a crash-after-commit left the operation
+   * incomplete: the job mutation committed, but the process died before
+   * markCompleted() ran.
+   *
+   * Semantics:
+   *   - Transitions PENDING|CLAIMED|IN_PROGRESS|FAILED to COMPLETED.
+   *   - Does NOT increment attempt_count.
+   *   - Refuses if a live claim exists (claim_expires_at > now), so the
+   *     original owner is not preempted while still active.
+   *   - Idempotent: repeated calls are no-ops once COMPLETED.
+   */
+  finalizeCompletedOperation(operationId: string, now: number = Date.now()): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE execution_recovery_operations " +
+        "   SET state = 'COMPLETED', " +
+        "       claim_owner = NULL, " +
+        "       claim_expires_at = NULL, " +
+        "       completed_at = ?, " +
+        "       updated_at = ?, " +
+        "       last_error = NULL " +
+        " WHERE operation_id = ? " +
+        "   AND state IN ('PENDING','CLAIMED','IN_PROGRESS','FAILED') " +
+        "   AND (claim_expires_at IS NULL OR claim_expires_at <= ?)"
+      )
+      .run(now, now, operationId, now);
+    return result.changes === 1;
+  }
+
   markFailed(operationId: string, owner: string, error: string, now: number = Date.now()): boolean {
     const result = this.db
       .prepare(
