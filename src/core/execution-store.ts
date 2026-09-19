@@ -4,6 +4,7 @@ import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models"
 import {
   ExecutionJob,
   ExecutionAttempt,
+  ExecutionAttemptStatus,
   ExecutionWorker,
   ExecutionLease,
   ArtifactRecord,
@@ -651,6 +652,86 @@ export class ExecutionStore {
       }
       throw err;
     }
+  }
+
+  /**
+   * Phase 148: atomic durable attempt allocation.
+   *
+   * Replaces the read-then-write pattern listAttemptsForJob(jobId).length + 1
+   * with an in-transaction allocation. Within the transaction:
+   *   1. lease ownership is verified (ACTIVE, unexpired, matching job/worker)
+   *   2. job state is verified (not terminal, not cancellation-requested)
+   *   3. idempotency check: an existing RUNNING attempt for (jobId, leaseId)
+   *      is returned as-is rather than creating a duplicate
+   *   4. MAX(attempt_number) + 1 is computed inside the same transaction
+   *   5. the attempt row is inserted inside the same transaction
+   *
+   * better-sqlite3 serializes writers at the transaction boundary, so two
+   * callers cannot both observe the same MAX and both insert. Migration 155's
+   * UNIQUE(job_id, attempt_number) remains the durable backstop.
+   */
+  createAttemptAsOwnerAtomic(
+    jobId: string,
+    leaseId: string,
+    workerId: string,
+    status: ExecutionAttemptStatus,
+    now: number = Date.now(),
+  ):
+    | { created: true; attempt: ExecutionAttempt }
+    | { created: false; reason: "WORKER_OWNERSHIP_LOST" | "TERMINAL_STATE" | "CANCELLATION_REQUESTED" } {
+
+    let result:
+      | { created: true; attempt: ExecutionAttempt }
+      | { created: false; reason: "WORKER_OWNERSHIP_LOST" | "TERMINAL_STATE" | "CANCELLATION_REQUESTED" }
+      = { created: false, reason: "WORKER_OWNERSHIP_LOST" };
+
+    const run = (): void => {
+      const owned = this.db.prepare(`
+        SELECT 1 FROM execution_leases
+        WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+          AND status = 'ACTIVE' AND expires_at > ?
+      `).get(leaseId, workerId, jobId, now);
+      if (!owned) { result = { created: false, reason: "WORKER_OWNERSHIP_LOST" }; return; }
+
+      const jobRow = this.db.prepare(
+        "SELECT status, cancellation_requested FROM execution_jobs WHERE id = ?"
+      ).get(jobId) as { status: string; cancellation_requested: number } | undefined;
+      if (!jobRow) { result = { created: false, reason: "WORKER_OWNERSHIP_LOST" }; return; }
+      if (
+        jobRow.status === "SUCCEEDED" ||
+        jobRow.status === "FAILED" ||
+        jobRow.status === "DEAD_LETTER" ||
+        jobRow.status === "CANCELLED"
+      ) { result = { created: false, reason: "TERMINAL_STATE" }; return; }
+      if (jobRow.cancellation_requested) { result = { created: false, reason: "CANCELLATION_REQUESTED" }; return; }
+
+      const existing = this.db.prepare(
+        "SELECT * FROM execution_attempts WHERE job_id = ? AND lease_id = ? AND status = 'RUNNING' LIMIT 1"
+      ).get(jobId, leaseId) as any;
+      if (existing) { result = { created: true, attempt: this.mapAttempt(existing) }; return; }
+
+      const nextRow = this.db.prepare(
+        "SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next FROM execution_attempts WHERE job_id = ?"
+      ).get(jobId) as { next: number };
+      const attemptNumber = nextRow.next;
+
+      const attemptId = "attempt_" + jobId + "_" + attemptNumber;
+      this.db.prepare(`
+        INSERT INTO execution_attempts (
+          id, job_id, attempt_number, status, worker_id, lease_id,
+          started_at, completed_at, error, evidence, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+      `).run(attemptId, jobId, attemptNumber, status, workerId, leaseId, now, now);
+
+      const inserted = this.db.prepare(
+        "SELECT * FROM execution_attempts WHERE id = ?"
+      ).get(attemptId) as any;
+      result = { created: true, attempt: this.mapAttempt(inserted) };
+    };
+
+    const maybeTx: any = (this.db as any).transaction(run);
+    if (typeof maybeTx === "function") maybeTx();
+    return result;
   }
 
   /**

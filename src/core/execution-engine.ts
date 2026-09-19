@@ -513,23 +513,13 @@ export class ExecutionEngine {
         job.status = "RUNNING";
         job.updatedAt = Date.now();
 
-        const attemptNumber = this.store.listAttemptsForJob(jobId).length + 1;
-        const attemptId = `attempt_${jobId}_${attemptNumber}`;
-        const attempt: ExecutionAttempt = {
-            id: attemptId,
-            jobId,
-            attemptNumber,
-            status: "RUNNING",
-            workerId,
-            leaseId,
-            startedAt: Date.now(),
-            createdAt: Date.now(),
-        };
-        const attCreateRes = this.store.createAttemptAsOwner(attempt, leaseId, workerId);
+        const attCreateRes = this.store.createAttemptAsOwnerAtomic(jobId, leaseId, workerId, "RUNNING");
         if (!attCreateRes.created) {
-            this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_CREATE_OWNERSHIP_LOST");
+            this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_CREATE_" + attCreateRes.reason);
             throw new OwnershipLostError(job.id, leaseId, workerId);
         }
+        const attempt: ExecutionAttempt = attCreateRes.attempt;
+        const attemptNumber = attempt.attemptNumber;
 
         const request: ExecutionAdapterRequest = {
             operation: job.jobType,
