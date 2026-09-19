@@ -1,4 +1,4 @@
-﻿
+
 import { ExecutionRecoveryOperationType } from "./execution-recovery-operation-store";
 import { ExecutionStore } from "./execution-store";
 import { ExecutionStateMachine } from "./execution-state-machine";
@@ -876,6 +876,71 @@ export class ExecutionEngine {
     }
 
     /**
+     * Phase 147: promote due retries to QUEUED.
+     *
+     * Jobs routed to RETRY_SCHEDULED by the live path or by any recovery path
+     * carry a durable next_attempt_at and wait to be picked up. Nothing else
+     * consumes them today. This method:
+     *
+     *   1. Escalates invariant violations: RETRY_SCHEDULED jobs with no valid
+     *      next_attempt_at cannot match listJobsDueForRetry (NULL <= now is
+     *      false in SQLite). They are transitioned to ORPHANED with a
+     *      diagnostic event so the recovery pass re-evaluates eligibility
+     *      through the Phase 146 budget check.
+     *
+     *   2. Promotes due RETRY_SCHEDULED jobs to QUEUED via recoverJobAtomic,
+     *      CAS-fenced on expectedStatus="RETRY_SCHEDULED". Concurrent engines
+     *      converge: the loser sees zero rows affected and writes no event.
+     *      Cancellation is honoured by routing to CANCELLED instead.
+     *
+     * The promotion clears next_attempt_at because recoverJobAtomic sets
+     * next_attempt_at = patch?.nextAttemptAt ?? null and the patch is omitted.
+     */
+    private runDueRetries(now: number): void {
+        for (const job of this.store.listJobsByStatus("RETRY_SCHEDULED")) {
+            if (typeof job.nextAttemptAt === "number" && job.nextAttemptAt > 0) continue;
+            this.store.recoverJobAtomic({
+                jobId: job.id,
+                expectedStatus: "RETRY_SCHEDULED",
+                newStatus: "ORPHANED",
+                expectedLeaseId: null,
+                event: {
+                    eventType: "execution.retry.invariant_violation",
+                    payload: {
+                        jobId: job.id,
+                        reason: "RETRY_SCHEDULE_MISSING_NEXT_ATTEMPT_AT",
+                        observedNextAttemptAt: job.nextAttemptAt ?? null,
+                    },
+                },
+            });
+        }
+
+        for (const job of this.store.listJobsDueForRetry(now)) {
+            const fresh = this.store.getJob(job.id);
+            if (!fresh || fresh.status !== "RETRY_SCHEDULED") continue;
+
+            if (fresh.cancellationRequested) {
+                this.store.recoverJobAtomic({
+                    jobId: fresh.id,
+                    expectedStatus: "RETRY_SCHEDULED",
+                    newStatus: "CANCELLED",
+                    expectedLeaseId: null,
+                    event: { eventType: "execution.retry.cancelled", payload: { jobId: fresh.id, reason: "cancellation_requested_before_retry_due" } },
+                });
+                continue;
+            }
+
+            this.store.recoverJobAtomic({
+                jobId: fresh.id,
+                expectedStatus: "RETRY_SCHEDULED",
+                newStatus: "QUEUED",
+                expectedLeaseId: null,
+                event: { eventType: "execution.retry.due", payload: { jobId: fresh.id, previousNextAttemptAt: fresh.nextAttemptAt ?? null } },
+            });
+        }
+    }
+
+    /**
      * Phase 126: stale-execution recovery.
      *
      * A recovered expired lease is NOT automatically safe to retry.  For
@@ -893,6 +958,7 @@ export class ExecutionEngine {
      * so repeated detection converges on one row.
      */
     recoverStaleJobs(now: number = Date.now()): void {
+        this.runDueRetries(now);
         this.reconcileExecutionRecoveryOperations(now);
         const expiredLeases = this.leaseManager.recoverExpiredLeases(now);
         for (const lease of expiredLeases) {
