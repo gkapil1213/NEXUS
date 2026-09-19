@@ -1,4 +1,4 @@
-﻿// scripts/test-phase146-retry-budget-recovery.ts
+// scripts/test-phase146-retry-budget-recovery.ts
 // Phase 146 - recovery-path retry budget enforcement.
 //
 // The live executeJob path bounds retries via RetryEngine.calculateNextAttempt,
@@ -141,7 +141,17 @@ async function main() {
     expireLease(h.db, "j3");
     h.pushExpired("j3", c.lease!.leaseId, "w3");
     h.engine.recoverStaleJobs();
-    ok(getJob(h.db, "j3").status === "RETRY_SCHEDULED", "146-3 RETRY_SCHEDULED (1 < 3)");
+    // Phase 147 (commit 2c8aa91): a recovery operation that routes to
+    // RETRY_SCHEDULED with nextAttemptAt === now is promoted to QUEUED by
+    // promoteImmediateRecoveryRetries within the same recoverStaleJobs tick.
+    // The Phase 146 invariant this test guards is that the retry was ALLOWED
+    // because 1 < maxAttempts (not routed to DEAD_LETTER) and that exactly one
+    // execution.recovery.rerouted event was emitted. RETRY_SCHEDULED is now
+    // an intermediate state, not the final persisted state.
+    const j3Row = h.db.prepare("SELECT status, next_attempt_at FROM execution_jobs WHERE id='j3'").get() as any;
+    ok(j3Row.status === "QUEUED", "146-3 QUEUED (retry allowed, 1 < 3, promoted same tick)");
+    ok(j3Row.status !== "DEAD_LETTER", "146-3 not DEAD_LETTER");
+    ok(j3Row.next_attempt_at === null, "146-3 next_attempt_at consumed");
     ok(countEvents(h.db, "j3", "execution.recovery.rerouted") === 1, "146-3 one rerouted event");
   }
 

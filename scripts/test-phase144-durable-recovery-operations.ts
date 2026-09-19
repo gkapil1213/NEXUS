@@ -1,4 +1,4 @@
-﻿// scripts/test-phase144-durable-recovery-operations.ts
+// scripts/test-phase144-durable-recovery-operations.ts
 // Phase 144 - durable execution recovery operations.
 //
 // Exercises the real SQLite migration path and the real ExecutionEngine /
@@ -305,7 +305,16 @@ async function main() {
     expireLease(h.db, "j15");
     h.pushExpired("j15", c.lease!.leaseId, "w15");
     h.engine.recoverStaleJobs();
-    ok(getJob(h.db, "j15").status === "RETRY_SCHEDULED", "144-15 status RETRY_SCHEDULED");
+    // Phase 147 (commit 2c8aa91): a recovery operation that routes to
+    // RETRY_SCHEDULED with nextAttemptAt === now is promoted to QUEUED by
+    // promoteImmediateRecoveryRetries within the same recoverStaleJobs tick.
+    // The Phase 144 invariant this test guards is the recovery path
+    // (RUNNING -> FAILED -> RETRY_SCHEDULED) and the atomic event/obligation
+    // writes along it. RETRY_SCHEDULED is now an intermediate state.
+    const j15Row = h.db.prepare("SELECT status, next_attempt_at FROM execution_jobs WHERE id='j15'").get() as any;
+    ok(j15Row.status === "QUEUED", "144-15 QUEUED (retry path completed, promoted same tick)");
+    ok(j15Row.status !== "DEAD_LETTER", "144-15 not DEAD_LETTER");
+    ok(j15Row.next_attempt_at === null, "144-15 next_attempt_at consumed");
     ok(countEvents(h.db, "j15", "execution.recovery.failed") === 1, "144-15 one failed event");
     ok(countEvents(h.db, "j15", "execution.recovery.rerouted") === 1, "144-15 one rerouted event");
     ok(countObligations(h.db, "j15") === 1, "144-15 one obligation");
