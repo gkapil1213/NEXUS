@@ -1,4 +1,4 @@
-
+﻿
 import { ExecutionRecoveryOperationType } from "./execution-recovery-operation-store";
 import { ExecutionStore } from "./execution-store";
 import { ExecutionStateMachine } from "./execution-state-machine";
@@ -856,6 +856,26 @@ export class ExecutionEngine {
     }
 
     /**
+     * Phase 146: recovery-path retry decision.
+     *
+     * The live executeJob path bounds retries via RetryEngine.calculateNextAttempt,
+     * which returns null once the attempt budget is exhausted. The recovery paths
+     * historically substituted a weaker proxy (!!retryPolicy && canTransition),
+     * so a job that had already consumed its retry budget could be resurrected by
+     * lease-loss recovery and run attempts beyond maxAttempts.
+     *
+     * This helper restores parity: attempts used is read from the durable
+     * execution_attempts table, and the same budget check the live path uses is
+     * applied before allowing RETRY_SCHEDULED or QUEUED from recovery.
+     */
+    private recoveryCanRetry(job: ExecutionJob, from: ExecutionJobStatus, to: ExecutionJobStatus): boolean {
+        if (!job.retryPolicy) return false;
+        const attemptsUsed = this.store.listAttemptsForJob(job.id).length;
+        if (attemptsUsed >= job.retryPolicy.maxAttempts) return false;
+        return this.stateMachine.canTransition(from, to);
+    }
+
+    /**
      * Phase 126: stale-execution recovery.
      *
      * A recovered expired lease is NOT automatically safe to retry.  For
@@ -1003,7 +1023,7 @@ export class ExecutionEngine {
                         if (!afterStep1 || afterStep1.status !== "FAILED") {
                             return { ok: false, error: "TIMEOUT_STEP1_STATE_DRIFT" };
                         }
-                        const canRetry = !!afterStep1.retryPolicy && this.stateMachine.canTransition("FAILED", "RETRY_SCHEDULED");
+                        const canRetry = this.recoveryCanRetry(afterStep1, "FAILED", "RETRY_SCHEDULED");
                         const nextStatus = canRetry ? "RETRY_SCHEDULED" : "DEAD_LETTER";
                         const routed = this.store.recoverJobAtomic({
                             jobId: job.id,
@@ -1074,7 +1094,7 @@ export class ExecutionEngine {
                     if (!afterStep1 || afterStep1.status !== "ORPHANED") {
                         return { ok: false, error: "ORPHAN_STEP1_STATE_DRIFT" };
                     }
-                    const canRetry = !!afterStep1.retryPolicy && this.stateMachine.canTransition("ORPHANED", "QUEUED");
+                    const canRetry = this.recoveryCanRetry(afterStep1, "ORPHANED", "QUEUED");
                     if (!canRetry) return { ok: false, recoveryRequired: "NON_RETRYABLE_ORPHAN" };
 
                     const requeue = this.store.recoverJobAtomic({
@@ -1225,7 +1245,7 @@ export class ExecutionEngine {
                             if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
                             if (live.status === "RETRY_SCHEDULED" || live.status === "DEAD_LETTER") return { ok: true };
                             if (live.status !== "FAILED") return { ok: false, error: "UNEXPECTED_" + live.status };
-                            const canRetry = !!live.retryPolicy && this.stateMachine.canTransition("FAILED", "RETRY_SCHEDULED");
+                            const canRetry = this.recoveryCanRetry(live, "FAILED", "RETRY_SCHEDULED");
                             const nextStatus = canRetry ? "RETRY_SCHEDULED" : "DEAD_LETTER";
                             const routed = this.store.recoverJobAtomic({
                                 jobId: job.id,
@@ -1283,7 +1303,7 @@ export class ExecutionEngine {
                     continue;
                 }
                 if (job.status === "ORPHANED") {
-                    const canRetry = !!job.retryPolicy && this.stateMachine.canTransition("ORPHANED", "QUEUED");
+                    const canRetry = this.recoveryCanRetry(job, "ORPHANED", "QUEUED");
                     if (!canRetry) {
                         const owner = this.recoveryOwnerId();
                         const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
