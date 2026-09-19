@@ -740,17 +740,47 @@ export class ExecutionStore {
    * updateJobAsOwner and transitionExecution. A stale worker's UPDATE matches
    * zero rows and no attempt evidence is committed.
    */
+  /**
+   * Phase 136 / Phase 149: worker-authoritative attempt update.
+   *
+   * WHERE clause fences on:
+   *   - the attempt id
+   *   - the attempt's job_id (prevents cross-job mutation when a caller
+   *     misprograms the id)
+   *   - the current attempt status being RUNNING (Phase 149: terminal
+   *     attempts cannot be re-terminalized or resurrected)
+   *   - an ACTIVE, unexpired lease matching lease_id + worker_id + job_id
+   *     (Phase 136: stale workers commit no evidence)
+   *
+   * Return shape (Phase 149):
+   *   { updated: true,  applied: true,  attempt }  mutation committed
+   *   { updated: true,  applied: false, attempt }  idempotent replay (already terminal-as-targeted)
+   *   { updated: false, reason: "ATTEMPT_NOT_FOUND" }        unknown id / job mismatch
+   *   { updated: false, reason: "WORKER_OWNERSHIP_LOST" }     lease fence blocked
+   *   { updated: false, reason: "TERMINAL_STATE_CONFLICT" }   terminal mismatch
+   *
+   * The UPDATE is the authoritative concurrency mechanism. The diagnostic
+   * SELECT that follows runs only when the UPDATE commits zero rows, and it
+   * only classifies the outcome; it does not mutate.
+   */
   updateAttemptAsOwner(
     attempt: ExecutionAttempt,
     leaseId: string,
     workerId: string,
     now: number = Date.now(),
-  ): { updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
+  ): {
+    updated: boolean;
+    applied?: boolean;
+    reason?: "WORKER_OWNERSHIP_LOST" | "ATTEMPT_NOT_FOUND" | "TERMINAL_STATE_CONFLICT";
+    attempt?: ExecutionAttempt;
+  } {
     const result = this.db.prepare(`
       UPDATE execution_attempts SET
         status = ?, worker_id = ?, lease_id = ?, started_at = ?,
         completed_at = ?, error = ?, evidence = ?
       WHERE id = ?
+        AND job_id = ?
+        AND status = 'RUNNING'
         AND EXISTS (
           SELECT 1 FROM execution_leases
           WHERE lease_id = ? AND worker_id = ? AND job_id = ?
@@ -758,22 +788,51 @@ export class ExecutionStore {
         )
     `).run(
       attempt.status,
-      attempt.workerId,
-      attempt.leaseId,
+      workerId,
+      leaseId,
       attempt.startedAt,
       attempt.completedAt,
       attempt.error,
       attempt.evidence ? JSON.stringify(attempt.evidence) : null,
       attempt.id,
+      attempt.jobId,
       leaseId,
       workerId,
       attempt.jobId,
       now,
     );
-    return result.changes > 0
-      ? { updated: true }
-      : { updated: false, reason: "WORKER_OWNERSHIP_LOST" };
+
+    if ((result.changes ?? 0) === 1) {
+      const row = this.db.prepare("SELECT * FROM execution_attempts WHERE id = ?").get(attempt.id) as any;
+      return { updated: true, applied: true, attempt: row ? this.mapAttempt(row) : undefined };
+    }
+
+    // Diagnostic classification only — the authoritative mutation is the UPDATE above.
+    const row = this.db.prepare("SELECT * FROM execution_attempts WHERE id = ?").get(attempt.id) as any;
+    if (!row || row.job_id !== attempt.jobId) {
+      return { updated: false, reason: "ATTEMPT_NOT_FOUND" };
+    }
+
+    const targetTerminal =
+      attempt.status === "SUCCEEDED" ||
+      attempt.status === "FAILED" ||
+      attempt.status === "CANCELLED" ||
+      attempt.status === "DEAD_LETTER";
+    const currentTerminal =
+      row.status === "SUCCEEDED" ||
+      row.status === "FAILED" ||
+      row.status === "CANCELLED" ||
+      row.status === "DEAD_LETTER";
+
+    if (targetTerminal && row.status === attempt.status) {
+      return { updated: true, applied: false, attempt: this.mapAttempt(row) };
+    }
+    if (currentTerminal) {
+      return { updated: false, reason: "TERMINAL_STATE_CONFLICT", attempt: this.mapAttempt(row) };
+    }
+    return { updated: false, reason: "WORKER_OWNERSHIP_LOST" };
   }
+
 
   updateAttempt(attempt: ExecutionAttempt): void {
     this.db.prepare(`
