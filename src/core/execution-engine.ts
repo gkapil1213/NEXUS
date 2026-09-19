@@ -1144,8 +1144,23 @@ export class ExecutionEngine {
 
     reconcileExecutionRecoveryOperations(now: number = Date.now()): void {
         const ops = this.store.recoveryOps;
-        const incomplete = ops.listIncompleteOperations();
-        for (const op of incomplete) {
+        const candidates = ops.listResumableOperations();
+        for (const op of candidates) {
+            // Phase 145: a FAILED operation whose retry budget is exhausted
+            // escalates to RECOVERY_REQUIRED rather than looping forever.
+            if (op.state === "FAILED" && op.attemptCount >= 5) {
+                const owner = this.recoveryOwnerId();
+                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                if (claim.claimed) {
+                    ops.markRecoveryRequired(
+                        op.operationId, owner,
+                        "MAX_RECOVERY_ATTEMPTS_EXCEEDED_5: " + (op.lastError ?? "UNKNOWN"),
+                        now
+                    );
+                }
+                continue;
+            }
+
             const job = this.store.getJob(op.jobId);
             if (!job) {
                 const owner = this.recoveryOwnerId();

@@ -1,4 +1,4 @@
-﻿// src/core/execution-recovery-operation-store.ts
+// src/core/execution-recovery-operation-store.ts
 //
 // Phase 144: durable execution recovery operations.
 //
@@ -271,6 +271,29 @@ export class ExecutionRecoveryOperationStore {
       .prepare(
         "SELECT * FROM execution_recovery_operations " +
         " WHERE state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
+        " ORDER BY created_at ASC"
+      )
+      .all() as any[];
+    return rows.map(mapRow);
+  }
+
+  /**
+   * Phase 145: operations that reconciliation should consider resuming.
+   *
+   * Extends listIncompleteOperations() with FAILED. claimOperation() already
+   * accepts FAILED -> CLAIMED, but listIncompleteOperations() filtered FAILED
+   * out, so a single transient failure during a recovery body left the
+   * operation - and the job it was recovering - permanently stalled.
+   *
+   * RECOVERY_REQUIRED stays excluded: it is a deliberate operator signal and
+   * must not be auto-retried.
+   */
+  listResumableOperations(): ExecutionRecoveryOperation[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM execution_recovery_operations " +
+        " WHERE state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
+        "    OR state = 'FAILED' " +
         " ORDER BY created_at ASC"
       )
       .all() as any[];
