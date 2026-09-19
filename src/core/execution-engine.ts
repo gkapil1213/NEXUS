@@ -1534,22 +1534,48 @@ export class ExecutionEngine {
                         body: () => {
                             const live = this.store.getJob(job.id);
                             if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
-                            if (live.status !== "RUNNING" && live.status !== "CLAIMED" &&
-                                live.status !== "VERIFYING" && live.status !== "CANCELLATION_REQUESTED") {
-                                return { ok: false, error: "UNEXPECTED_" + live.status };
+                            if (live.status === "QUEUED") return { ok: true };
+
+                            if (live.status !== "ORPHANED") {
+                                if (live.status !== "RUNNING" && live.status !== "CLAIMED" &&
+                                    live.status !== "VERIFYING" && live.status !== "CANCELLATION_REQUESTED") {
+                                    return { ok: false, error: "UNEXPECTED_" + live.status };
+                                }
+                                const orphan = this.store.recoverJobAtomic({
+                                    jobId: job.id,
+                                    expectedStatus: live.status,
+                                    newStatus: "ORPHANED",
+                                    expectedLeaseId: live.currentLeaseId ?? null,
+                                    event: { eventType: "execution.recovery.orphaned", payload: { jobId: job.id, from: live.status, to: "ORPHANED", reason: "reconcile_orphan_step1" } },
+                                    obligation: { leaseId, workerId, reason: "LEASE_EXPIRED" },
+                                });
+                                if (!orphan.ok) {
+                                    const after = this.store.getJob(job.id);
+                                    if (!after || after.status !== "ORPHANED") {
+                                        return { ok: false, error: "RECONCILE_ORPHAN_STEP1_FAILED" };
+                                    }
+                                }
                             }
-                            const orphan = this.store.recoverJobAtomic({
+
+                            const afterStep1 = this.store.getJob(job.id);
+                            if (!afterStep1 || afterStep1.status !== "ORPHANED") {
+                                return { ok: false, error: "RECONCILE_ORPHAN_STEP1_STATE_DRIFT" };
+                            }
+                            const canRetry = this.recoveryCanRetry(afterStep1, "ORPHANED", "QUEUED");
+                            if (!canRetry) return { ok: false, recoveryRequired: "NON_RETRYABLE_ORPHAN" };
+
+                            const requeue = this.store.recoverJobAtomic({
                                 jobId: job.id,
-                                expectedStatus: live.status,
-                                newStatus: "ORPHANED",
-                                expectedLeaseId: live.currentLeaseId ?? null,
-                                event: { eventType: "execution.recovery.orphaned", payload: { jobId: job.id, from: live.status, to: "ORPHANED", reason: "reconcile_orphan_step1" } },
-                                obligation: { leaseId, workerId, reason: "LEASE_EXPIRED" },
+                                expectedStatus: "ORPHANED",
+                                newStatus: "QUEUED",
+                                expectedLeaseId: null,
+                                patch: { nextAttemptAt: now } as any,
+                                event: { eventType: "execution.recovery.requeued", payload: { jobId: job.id, from: "ORPHANED", to: "QUEUED", reason: "reconcile_orphan_step2" } },
                             });
-                            if (orphan.ok) return { ok: true };
-                            const after = this.store.getJob(job.id);
-                            if (after?.status === "ORPHANED") return { ok: true };
-                            return { ok: false, error: "RECONCILE_ORPHAN_STEP1_FAILED" };
+                            if (requeue.ok) return { ok: true };
+                            const afterStep2 = this.store.getJob(job.id);
+                            if (afterStep2?.status === "QUEUED") return { ok: true };
+                            return { ok: false, error: "RECONCILE_ORPHAN_STEP2_FAILED" };
                         },
                     });
                     continue;
