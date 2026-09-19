@@ -1,4 +1,5 @@
 import { NexusEngine } from "./db";
+import { ExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
 import {
   ExecutionJob,
@@ -132,11 +133,12 @@ class AtomicClaimReject extends Error {
   }
 }
 export class ExecutionStore {
+  readonly recoveryOps: ExecutionRecoveryOperationStore;
   /** @internal Phase 142 — test-only injection hook. No-op in production. */
   public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
   /** @internal Phase 143 - test-only injection hook. No-op in production. */
   public __testPhase143Hook?: (stage: "afterJobUpdate" | "afterObligation") => void;
-  constructor(private db: NexusEngine) {}
+  constructor(private db: NexusEngine) { this.recoveryOps = new ExecutionRecoveryOperationStore(this.db); }
 
   // ---------- Jobs ----------
   createJob(job: ExecutionJob): void {
