@@ -1,4 +1,5 @@
 
+import { ExecutionRecoveryOperationType } from "./execution-recovery-operation-store";
 import { ExecutionStore } from "./execution-store";
 import { ExecutionStateMachine } from "./execution-state-machine";
 import { WorkerRegistry } from "./worker-registry";
@@ -121,6 +122,121 @@ function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string)
 
 export class ExecutionEngine {
     private stateMachine = new ExecutionStateMachine();
+
+    private readonly recoveryInstanceId = generateUUID();
+    /** @internal Phase 144 - test-only injection hook. No-op in production. */
+    public __testPhase144Hook?: (stage: string) => void;
+
+    private recoveryOwnerId(): string {
+        const pid = (typeof process !== "undefined" && process.pid) ? String(process.pid) : "0";
+        return "engine-" + pid + "-" + this.recoveryInstanceId;
+    }
+
+    /**
+     * Phase 144: run one durable recovery operation end to end.
+     *
+     * Creates the operation if needed, claims it with this engine instance as
+     * owner, executes the supplied body, and advances the operation to a
+     * terminal state according to the body result. If the claim cannot be
+     * obtained (another live owner holds it) this is a no-op; reconciliation
+     * will pick it up later.
+     */
+    private runRecoveryOperation(input: {
+        jobId: string;
+        leaseId: string | null;
+        workerId: string | null;
+        operationType: ExecutionRecoveryOperationType;
+        now: number;
+        body: () => { ok: boolean; error?: string; recoveryRequired?: string };
+    }): void {
+        const ops = this.store.recoveryOps;
+
+        const created = ops.createOrGetOperation({
+            jobId: input.jobId,
+            leaseId: input.leaseId,
+            workerId: input.workerId,
+            operationType: input.operationType,
+            now: input.now,
+        });
+
+        const op = created.operation;
+        if (op.state === "COMPLETED") return;
+
+        this.__testPhase144Hook?.("afterCreate");
+
+        const owner = this.recoveryOwnerId();
+
+        const claim = ops.claimOperation({
+            operationId: op.operationId,
+            owner,
+            durationMs: 60000,
+            now: input.now,
+        });
+
+        if (!claim.claimed) return;
+
+        this.__testPhase144Hook?.("afterClaim");
+
+        const started = ops.markInProgress(
+            op.operationId,
+            owner,
+            input.now
+        );
+
+        if (!started) return;
+
+        this.__testPhase144Hook?.("afterInProgress");
+
+        try {
+            const result = input.body();
+
+            if (result.ok) {
+                this.__testPhase144Hook?.("beforeComplete");
+
+                const completed = ops.markCompleted(
+                    op.operationId,
+                    owner,
+                    input.now
+                );
+
+                if (!completed) return;
+
+                return;
+            }
+
+            if (result.recoveryRequired) {
+                const marked = ops.markRecoveryRequired(
+                    op.operationId,
+                    owner,
+                    result.recoveryRequired,
+                    input.now
+                );
+
+                if (!marked) return;
+
+                return;
+            }
+
+            const failed = ops.markFailed(
+                op.operationId,
+                owner,
+                result.error ?? "RECOVERY_FAILED",
+                input.now
+            );
+
+            if (!failed) return;
+        } catch (err: any) {
+            const failed = ops.markFailed(
+                op.operationId,
+                owner,
+                String(err?.message ?? err),
+                input.now
+            );
+
+            if (!failed) return;
+        }
+    }
+
 
     constructor(
         private store: ExecutionStore,
@@ -757,6 +873,7 @@ export class ExecutionEngine {
      * so repeated detection converges on one row.
      */
     recoverStaleJobs(now: number = Date.now()): void {
+        this.reconcileExecutionRecoveryOperations(now);
         const expiredLeases = this.leaseManager.recoverExpiredLeases(now);
         for (const lease of expiredLeases) {
             try {
@@ -776,7 +893,6 @@ export class ExecutionEngine {
             const job = this.store.getJob(lease.jobId);
             if (!job) continue;
 
-            // Terminal states are never resurrected.
             if (
                 job.status === "SUCCEEDED" ||
                 job.status === "FAILED" ||
@@ -786,71 +902,62 @@ export class ExecutionEngine {
                 continue;
             }
 
-            // Only jobs that could have been owned can be orphaned.
-            if (job.status !== "RUNNING" && job.status !== "CLAIMED" && job.status !== "VERIFYING" && job.status !== "CANCELLATION_REQUESTED") {
+            if (
+                job.status !== "RUNNING" &&
+                job.status !== "CLAIMED" &&
+                job.status !== "VERIFYING" &&
+                job.status !== "CANCELLATION_REQUESTED"
+            ) {
                 continue;
             }
 
-            // Phase 137 Ã¢â‚¬â€ durable cancellation takes precedence over orphaning.
-            // If cancellation was requested while a worker was alive and the
-            // worker crashed or lost its lease before completing it, the
-            // request is authoritative: the job terminates CANCELLED rather
-            // than being silently requeued. The transition is CAS-guarded on
-            // the current status + current_lease_id, so a concurrently
-            // recovering owner will make this a no-op.
             const freshCancel = this.store.getJob(job.id);
-        if (freshCancel?.cancellationRequested) {
-            job.cancellationRequested = true;
-                const cancelledResult = this.store.recoverJobAtomic({
+            if (freshCancel?.cancellationRequested) {
+                this.runRecoveryOperation({
                     jobId: job.id,
-                    expectedStatus: job.status,
-                    newStatus: "CANCELLED",
-                    expectedLeaseId: job.currentLeaseId ?? null,
-                    event: { eventType: "execution.recovery.cancelled", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: job.status, to: "CANCELLED", reason: "cancellation_requested_honoured_after_lease_loss" } },
-                    obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "CANCELLATION_REQUESTED_ON_LEASE_LOSS" },
-                });
-                const cancelled = cancelledResult.ok;
-                if (!cancelled) continue;
-                job.status = "CANCELLED";
-                job.updatedAt = now;
-                job.currentLeaseId = undefined;
-
-                try {
-                    this.store.writeOwnershipObligation({
-                        jobId: job.id,
-                        leaseId: lease.leaseId,
-                        workerId: lease.workerId,
-                        reason: "CANCELLATION_REQUESTED_ON_LEASE_LOSS",
-                        now,
-                    });
-                } catch { /* isolated */ }
-
-                try {
-                    this.fireAndForget(this.deps.events?.emit({
-                        type: "execution.recovery_completed",
-                        source: "ExecutionEngine",
-                        execution_id: job.id,
-                        payload: {
+                    leaseId: lease.leaseId,
+                    workerId: lease.workerId,
+                    operationType: "CANCELLATION",
+                    now,
+                    body: () => {
+                        const live = this.store.getJob(job.id);
+                        if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
+                        const result = this.store.recoverJobAtomic({
                             jobId: job.id,
-                            leaseId: lease.leaseId,
-                            workerId: lease.workerId,
-                            classification: "CANCELLED",
+                            expectedStatus: live.status,
                             newStatus: "CANCELLED",
-                            reason: "cancellation_requested_honoured_after_lease_loss",
-                        },
-                    }));
-                } catch { /* isolated */ }
+                            expectedLeaseId: live.currentLeaseId ?? null,
+                            event: { eventType: "execution.recovery.cancelled", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: live.status, to: "CANCELLED", reason: "cancellation_requested_honoured_after_lease_loss" } },
+                            obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "CANCELLATION_REQUESTED_ON_LEASE_LOSS" },
+                        });
+                        if (result.ok) return { ok: true };
+                        const after = this.store.getJob(job.id);
+                        if (after?.status === "CANCELLED") return { ok: true };
+                        return { ok: false, error: "CANCELLATION_FAILED" };
+                    },
+                });
+
+                const after = this.store.getJob(job.id);
+                if (after?.status === "CANCELLED") {
+                    try {
+                        this.fireAndForget(this.deps.events?.emit({
+                            type: "execution.recovery_completed",
+                            source: "ExecutionEngine",
+                            execution_id: job.id,
+                            payload: {
+                                jobId: job.id,
+                                leaseId: lease.leaseId,
+                                workerId: lease.workerId,
+                                classification: "CANCELLED",
+                                newStatus: "CANCELLED",
+                                reason: "cancellation_requested_honoured_after_lease_loss",
+                            },
+                        }));
+                    } catch { /* isolated */ }
+                }
                 continue;
             }
 
-            // Phase 137 Ã¢â‚¬â€ durable timeout. If an execution attempt was in
-            // flight when the lease was lost and the authoritative deadline
-            // (attempt.started_at + timeout_ms) has passed, resolve as a
-            // timeout rather than as a recoverable orphan. The FAILED
-            // terminal is then routed through the existing retry /
-            // dead-letter policy. If no attempt was ever recorded, the job
-            // cannot be classified as a timeout and falls through to the
-            // existing orphan path.
             let timeoutExpired = false;
             if (job.status === "RUNNING" || job.status === "VERIFYING") {
                 const attempts = this.store.listAttemptsForJob(job.id);
@@ -863,48 +970,59 @@ export class ExecutionEngine {
             }
 
             if (timeoutExpired) {
-                const failedResult = this.store.recoverJobAtomic({
+                this.runRecoveryOperation({
                     jobId: job.id,
-                    expectedStatus: job.status,
-                    newStatus: "FAILED",
-                    expectedLeaseId: job.currentLeaseId ?? null,
-                    event: { eventType: "execution.recovery.failed", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: job.status, to: "FAILED", reason: "deadline_exceeded_during_lease_loss" } },
-                    obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "TIMEOUT_ON_LEASE_LOSS" },
+                    leaseId: lease.leaseId,
+                    workerId: lease.workerId,
+                    operationType: "TIMEOUT",
+                    now,
+                    body: () => {
+                        const live = this.store.getJob(job.id);
+                        if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
+                        if (live.status === "RETRY_SCHEDULED" || live.status === "DEAD_LETTER") return { ok: true };
+
+                        if (live.status !== "FAILED") {
+                            const failed = this.store.recoverJobAtomic({
+                                jobId: job.id,
+                                expectedStatus: live.status,
+                                newStatus: "FAILED",
+                                expectedLeaseId: live.currentLeaseId ?? null,
+                                event: { eventType: "execution.recovery.failed", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: live.status, to: "FAILED", reason: "deadline_exceeded_during_lease_loss" } },
+                                obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "TIMEOUT_ON_LEASE_LOSS" },
+                            });
+                            if (!failed.ok) {
+                                const afterStep1 = this.store.getJob(job.id);
+                                if (!afterStep1 || afterStep1.status !== "FAILED") {
+                                    return { ok: false, error: "TIMEOUT_STEP1_FAILED" };
+                                }
+                            }
+                        }
+
+                        this.__testPhase144Hook?.("afterTimeoutFailed");
+                        const afterStep1 = this.store.getJob(job.id);
+                        if (!afterStep1 || afterStep1.status !== "FAILED") {
+                            return { ok: false, error: "TIMEOUT_STEP1_STATE_DRIFT" };
+                        }
+                        const canRetry = !!afterStep1.retryPolicy && this.stateMachine.canTransition("FAILED", "RETRY_SCHEDULED");
+                        const nextStatus = canRetry ? "RETRY_SCHEDULED" : "DEAD_LETTER";
+                        const routed = this.store.recoverJobAtomic({
+                            jobId: job.id,
+                            expectedStatus: "FAILED",
+                            newStatus: nextStatus as any,
+                            expectedLeaseId: null,
+                            patch: { nextAttemptAt: canRetry ? now : null } as any,
+                            event: { eventType: "execution.recovery.rerouted", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: "FAILED", to: nextStatus, reason: "deadline_exceeded_during_lease_loss" } },
+                        });
+                        if (routed.ok) return { ok: true };
+                        const afterStep2 = this.store.getJob(job.id);
+                        if (afterStep2 && (afterStep2.status === "RETRY_SCHEDULED" || afterStep2.status === "DEAD_LETTER")) {
+                            return { ok: true };
+                        }
+                        return { ok: false, error: "TIMEOUT_STEP2_FAILED" };
+                    },
                 });
-                const failed = failedResult.ok;
-                if (!failed) continue;
-                job.status = "FAILED";
-                job.updatedAt = now;
-                job.currentLeaseId = undefined;
 
-                try {
-                    this.store.writeOwnershipObligation({
-                        jobId: job.id,
-                        leaseId: lease.leaseId,
-                        workerId: lease.workerId,
-                        reason: "TIMEOUT_ON_LEASE_LOSS",
-                        now,
-                    });
-                } catch { /* isolated */ }
-
-                const canRetryTimeout =
-                    !!job.retryPolicy &&
-                    this.stateMachine.canTransition("FAILED", "RETRY_SCHEDULED");
-                const nextStatusTimeout = canRetryTimeout ? "RETRY_SCHEDULED" : "DEAD_LETTER";
-                const routedResult = this.store.recoverJobAtomic({
-                    jobId: job.id,
-                    expectedStatus: "FAILED",
-                    newStatus: nextStatusTimeout,
-                    expectedLeaseId: null,
-                    patch: { nextAttemptAt: canRetryTimeout ? now : null },
-                    event: { eventType: "execution.recovery.rerouted", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: "FAILED", to: nextStatusTimeout, reason: "deadline_exceeded_during_lease_loss" } },
-                });
-                const routed = routedResult.ok;
-                if (routed) {
-                    job.status = nextStatusTimeout;
-                    if (canRetryTimeout) job.nextAttemptAt = now;
-                }
-
+                const finalJob = this.store.getJob(job.id);
                 try {
                     this.fireAndForget(this.deps.events?.emit({
                         type: "execution.recovery_completed",
@@ -915,114 +1033,92 @@ export class ExecutionEngine {
                             leaseId: lease.leaseId,
                             workerId: lease.workerId,
                             classification: "TIMEOUT",
-                            newStatus: job.status,
+                            newStatus: finalJob?.status ?? job.status,
                             reason: "deadline_exceeded_during_lease_loss",
                         },
                     }));
                 } catch { /* isolated */ }
                 continue;
             }
-            // Atomic: only applies if the job is still in its observed status
-            // AND still owned by the same lease.  If a new worker took over
-            // between recoverExpiredLeases() and here, this is a no-op.
-            const orphanedResult = this.store.recoverJobAtomic({
+
+            this.runRecoveryOperation({
                 jobId: job.id,
-                expectedStatus: job.status,
-                newStatus: "ORPHANED",
-                expectedLeaseId: job.currentLeaseId ?? null,
-                event: { eventType: "execution.recovery.orphaned", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: job.status, to: "ORPHANED" } },
-                obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "LEASE_EXPIRED" },
+                leaseId: lease.leaseId,
+                workerId: lease.workerId,
+                operationType: "ORPHAN_RECOVERY",
+                now,
+                body: () => {
+                    const live = this.store.getJob(job.id);
+                    if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
+                    if (live.status === "QUEUED") return { ok: true };
+
+                    if (live.status !== "ORPHANED") {
+                        const orphan = this.store.recoverJobAtomic({
+                            jobId: job.id,
+                            expectedStatus: live.status,
+                            newStatus: "ORPHANED",
+                            expectedLeaseId: live.currentLeaseId ?? null,
+                            event: { eventType: "execution.recovery.orphaned", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: live.status, to: "ORPHANED" } },
+                            obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "LEASE_EXPIRED" },
+                        });
+                        if (!orphan.ok) {
+                            const afterStep1 = this.store.getJob(job.id);
+                            if (!afterStep1 || afterStep1.status !== "ORPHANED") {
+                                return { ok: false, error: "ORPHAN_STEP1_FAILED" };
+                            }
+                        }
+                    }
+
+                    this.__testPhase144Hook?.("afterOrphaned");
+                    const afterStep1 = this.store.getJob(job.id);
+                    if (!afterStep1 || afterStep1.status !== "ORPHANED") {
+                        return { ok: false, error: "ORPHAN_STEP1_STATE_DRIFT" };
+                    }
+                    const canRetry = !!afterStep1.retryPolicy && this.stateMachine.canTransition("ORPHANED", "QUEUED");
+                    if (!canRetry) return { ok: false, recoveryRequired: "NON_RETRYABLE_ORPHAN" };
+
+                    const requeue = this.store.recoverJobAtomic({
+                        jobId: job.id,
+                        expectedStatus: "ORPHANED",
+                        newStatus: "QUEUED",
+                        expectedLeaseId: null,
+                        patch: { nextAttemptAt: now } as any,
+                        event: { eventType: "execution.recovery.requeued", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: "ORPHANED", to: "QUEUED" } },
+                    });
+                    if (requeue.ok) return { ok: true };
+                    const afterStep2 = this.store.getJob(job.id);
+                    if (afterStep2 && afterStep2.status === "QUEUED") return { ok: true };
+                    return { ok: false, error: "ORPHAN_STEP2_FAILED" };
+                },
             });
-            const orphaned = orphanedResult.ok;
-            if (!orphaned) {
-                // Another owner appeared concurrently Ã¢â‚¬â€ skip recovery for this
-                // job.  The obligation was already written above; it remains
-                // OPEN for the new owner or an operator to resolve.
-                continue;
-            }
-            job.status = "ORPHANED";
-            job.updatedAt = now;
-            job.currentLeaseId = undefined;
 
-            let obligationId = "unknown";
+            const finalJob = this.store.getJob(job.id);
             try {
-                const ob = this.store.writeOwnershipObligation({
-                    jobId: job.id,
-                    leaseId: lease.leaseId,
-                    workerId: lease.workerId,
-                    reason: "LEASE_EXPIRED",
-                    now,
-                });
-                obligationId = ob.obligationId;
-            } catch { /* obligation failure does not stop recovery */ }
-
-            const canRetry =
-                !!job.retryPolicy &&
-                this.stateMachine.canTransition("ORPHANED", "QUEUED");
-
-            if (canRetry) {
-                const requeueResult = this.store.recoverJobAtomic({
-                    jobId: job.id,
-                    expectedStatus: "ORPHANED",
-                    newStatus: "QUEUED",
-                    expectedLeaseId: null,
-                    patch: { nextAttemptAt: now },
-                    event: { eventType: "execution.recovery.requeued", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, obligationId, from: "ORPHANED", to: "QUEUED" } },
-                });
-                const requeued = requeueResult.ok;
-                if (!requeued) {
-                    // Another writer got in Ã¢â‚¬â€ leave as ORPHANED and let the
-                    // next recovery cycle pick it up.  No fake SUCCESS.
-                    continue;
-                }
-                job.status = "QUEUED";
-                job.nextAttemptAt = now;
-                job.currentLeaseId = undefined;
-                job.updatedAt = now;
-                try {
+                if (finalJob?.status === "QUEUED") {
                     this.fireAndForget(this.deps.events?.emit({
                         type: "execution.recovery_completed",
                         source: "ExecutionEngine",
                         execution_id: job.id,
-                        payload: {
-                            jobId: job.id,
-                            leaseId: lease.leaseId,
-                            workerId: lease.workerId,
-                            obligationId,
-                            classification: "RECOVERABLE",
-                            newStatus: "QUEUED",
-                        },
+                        payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, classification: "RECOVERABLE", newStatus: "QUEUED" },
                     }));
-                } catch { /* isolated */ }
-            } else {
-                try {
+                } else if (finalJob?.status === "ORPHANED") {
                     this.fireAndForget(this.deps.events?.emit({
                         type: "execution.recovery_required",
                         source: "ExecutionEngine",
                         execution_id: job.id,
-                        payload: {
-                            jobId: job.id,
-                            leaseId: lease.leaseId,
-                            workerId: lease.workerId,
-                            obligationId,
-                            classification: "RECOVERY_REQUIRED",
-                        },
+                        payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, classification: "RECOVERY_REQUIRED" },
                     }));
-                } catch { /* isolated */ }
-            }
-
-            try {
+                }
                 this.fireAndForget(this.deps.audit?.record({
                     actor: "system",
                     action: "execution.stale_recovered",
                     resource_type: "execution_job",
                     resource_id: job.id,
-                    result: canRetry ? "ok" : "blocked",
+                    result: finalJob?.status === "QUEUED" ? "ok" : "blocked",
                     metadata: {
                         leaseId: lease.leaseId,
                         workerId: lease.workerId,
-                        obligationId,
-                        classification: canRetry ? "RECOVERABLE" : "RECOVERY_REQUIRED",
+                        classification: finalJob?.status === "QUEUED" ? "RECOVERABLE" : "RECOVERY_REQUIRED",
                     },
                 }));
             } catch { /* isolated */ }
@@ -1046,6 +1142,202 @@ export class ExecutionEngine {
         }
     }
 
+    reconcileExecutionRecoveryOperations(now: number = Date.now()): void {
+        const ops = this.store.recoveryOps;
+        const incomplete = ops.listIncompleteOperations();
+        for (const op of incomplete) {
+            const job = this.store.getJob(op.jobId);
+            if (!job) {
+                const owner = this.recoveryOwnerId();
+                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "JOB_NOT_FOUND_DURING_RECONCILE", now);
+                continue;
+            }
+            const leaseId = op.leaseId ?? "";
+            const workerId = op.workerId ?? "";
+
+            if (op.operationType === "CANCELLATION") {
+                if (job.status === "CANCELLED") {
+                    const owner = this.recoveryOwnerId();
+                    const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                    if (claim.claimed) ops.markCompleted(op.operationId, owner, now);
+                    continue;
+                }
+                if (job.cancellationRequested &&
+                    (job.status === "RUNNING" || job.status === "CLAIMED" ||
+                     job.status === "VERIFYING" || job.status === "CANCELLATION_REQUESTED")) {
+                    this.runRecoveryOperation({
+                        jobId: job.id, leaseId, workerId,
+                        operationType: "CANCELLATION", now,
+                        body: () => {
+                            const live = this.store.getJob(job.id);
+                            if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
+                            const result = this.store.recoverJobAtomic({
+                                jobId: job.id,
+                                expectedStatus: live.status,
+                                newStatus: "CANCELLED",
+                                expectedLeaseId: live.currentLeaseId ?? null,
+                                event: { eventType: "execution.recovery.cancelled", payload: { jobId: job.id, from: live.status, to: "CANCELLED", reason: "reconcile_cancellation" } },
+                                obligation: { leaseId, workerId, reason: "CANCELLATION_REQUESTED_ON_LEASE_LOSS" },
+                            });
+                            if (result.ok) return { ok: true };
+                            const after = this.store.getJob(job.id);
+                            if (after?.status === "CANCELLED") return { ok: true };
+                            return { ok: false, error: "RECONCILE_CANCELLATION_FAILED" };
+                        },
+                    });
+                    continue;
+                }
+                const owner = this.recoveryOwnerId();
+                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "INCONSISTENT_JOB_STATE_" + job.status, now);
+                continue;
+            }
+
+            if (op.operationType === "TIMEOUT") {
+                if (job.status === "RETRY_SCHEDULED" || job.status === "DEAD_LETTER") {
+                    const owner = this.recoveryOwnerId();
+                    const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                    if (claim.claimed) ops.markCompleted(op.operationId, owner, now);
+                    continue;
+                }
+                if (job.status === "FAILED") {
+                    this.runRecoveryOperation({
+                        jobId: job.id, leaseId, workerId,
+                        operationType: "TIMEOUT", now,
+                        body: () => {
+                            const live = this.store.getJob(job.id);
+                            if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
+                            if (live.status === "RETRY_SCHEDULED" || live.status === "DEAD_LETTER") return { ok: true };
+                            if (live.status !== "FAILED") return { ok: false, error: "UNEXPECTED_" + live.status };
+                            const canRetry = !!live.retryPolicy && this.stateMachine.canTransition("FAILED", "RETRY_SCHEDULED");
+                            const nextStatus = canRetry ? "RETRY_SCHEDULED" : "DEAD_LETTER";
+                            const routed = this.store.recoverJobAtomic({
+                                jobId: job.id,
+                                expectedStatus: "FAILED",
+                                newStatus: nextStatus as any,
+                                expectedLeaseId: null,
+                                patch: { nextAttemptAt: canRetry ? now : null } as any,
+                                event: { eventType: "execution.recovery.rerouted", payload: { jobId: job.id, from: "FAILED", to: nextStatus, reason: "reconcile_timeout_step2" } },
+                            });
+                            if (routed.ok) return { ok: true };
+                            const after = this.store.getJob(job.id);
+                            if (after && (after.status === "RETRY_SCHEDULED" || after.status === "DEAD_LETTER")) return { ok: true };
+                            return { ok: false, error: "RECONCILE_TIMEOUT_STEP2_FAILED" };
+                        },
+                    });
+                    continue;
+                }
+                if (job.status === "RUNNING" || job.status === "VERIFYING" || job.status === "CLAIMED") {
+                    this.runRecoveryOperation({
+                        jobId: job.id, leaseId, workerId,
+                        operationType: "TIMEOUT", now,
+                        body: () => {
+                            const live = this.store.getJob(job.id);
+                            if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
+                            if (live.status !== "RUNNING" && live.status !== "VERIFYING" && live.status !== "CLAIMED") {
+                                return { ok: false, error: "UNEXPECTED_" + live.status };
+                            }
+                            const failed = this.store.recoverJobAtomic({
+                                jobId: job.id,
+                                expectedStatus: live.status,
+                                newStatus: "FAILED",
+                                expectedLeaseId: live.currentLeaseId ?? null,
+                                event: { eventType: "execution.recovery.failed", payload: { jobId: job.id, from: live.status, to: "FAILED", reason: "reconcile_timeout_step1" } },
+                                obligation: { leaseId, workerId, reason: "TIMEOUT_ON_LEASE_LOSS" },
+                            });
+                            if (failed.ok) return { ok: true };
+                            const after = this.store.getJob(job.id);
+                            if (after?.status === "FAILED") return { ok: true };
+                            return { ok: false, error: "RECONCILE_TIMEOUT_STEP1_FAILED" };
+                        },
+                    });
+                    continue;
+                }
+                const owner = this.recoveryOwnerId();
+                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "INCONSISTENT_JOB_STATE_" + job.status, now);
+                continue;
+            }
+
+            if (op.operationType === "ORPHAN_RECOVERY") {
+                if (job.status === "QUEUED") {
+                    const owner = this.recoveryOwnerId();
+                    const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                    if (claim.claimed) ops.markCompleted(op.operationId, owner, now);
+                    continue;
+                }
+                if (job.status === "ORPHANED") {
+                    const canRetry = !!job.retryPolicy && this.stateMachine.canTransition("ORPHANED", "QUEUED");
+                    if (!canRetry) {
+                        const owner = this.recoveryOwnerId();
+                        const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                        if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "NON_RETRYABLE_ORPHAN", now);
+                        continue;
+                    }
+                    this.runRecoveryOperation({
+                        jobId: job.id, leaseId, workerId,
+                        operationType: "ORPHAN_RECOVERY", now,
+                        body: () => {
+                            const live = this.store.getJob(job.id);
+                            if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
+                            if (live.status === "QUEUED") return { ok: true };
+                            if (live.status !== "ORPHANED") return { ok: false, error: "UNEXPECTED_" + live.status };
+                            const requeue = this.store.recoverJobAtomic({
+                                jobId: job.id,
+                                expectedStatus: "ORPHANED",
+                                newStatus: "QUEUED",
+                                expectedLeaseId: null,
+                                patch: { nextAttemptAt: now } as any,
+                                event: { eventType: "execution.recovery.requeued", payload: { jobId: job.id, from: "ORPHANED", to: "QUEUED", reason: "reconcile_orphan_step2" } },
+                            });
+                            if (requeue.ok) return { ok: true };
+                            const after = this.store.getJob(job.id);
+                            if (after?.status === "QUEUED") return { ok: true };
+                            return { ok: false, error: "RECONCILE_ORPHAN_STEP2_FAILED" };
+                        },
+                    });
+                    continue;
+                }
+                if (job.status === "RUNNING" || job.status === "CLAIMED" ||
+                    job.status === "VERIFYING" || job.status === "CANCELLATION_REQUESTED") {
+                    this.runRecoveryOperation({
+                        jobId: job.id, leaseId, workerId,
+                        operationType: "ORPHAN_RECOVERY", now,
+                        body: () => {
+                            const live = this.store.getJob(job.id);
+                            if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
+                            if (live.status !== "RUNNING" && live.status !== "CLAIMED" &&
+                                live.status !== "VERIFYING" && live.status !== "CANCELLATION_REQUESTED") {
+                                return { ok: false, error: "UNEXPECTED_" + live.status };
+                            }
+                            const orphan = this.store.recoverJobAtomic({
+                                jobId: job.id,
+                                expectedStatus: live.status,
+                                newStatus: "ORPHANED",
+                                expectedLeaseId: live.currentLeaseId ?? null,
+                                event: { eventType: "execution.recovery.orphaned", payload: { jobId: job.id, from: live.status, to: "ORPHANED", reason: "reconcile_orphan_step1" } },
+                                obligation: { leaseId, workerId, reason: "LEASE_EXPIRED" },
+                            });
+                            if (orphan.ok) return { ok: true };
+                            const after = this.store.getJob(job.id);
+                            if (after?.status === "ORPHANED") return { ok: true };
+                            return { ok: false, error: "RECONCILE_ORPHAN_STEP1_FAILED" };
+                        },
+                    });
+                    continue;
+                }
+                const owner = this.recoveryOwnerId();
+                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "INCONSISTENT_JOB_STATE_" + job.status, now);
+                continue;
+            }
+
+            const owner = this.recoveryOwnerId();
+            const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+            if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "UNSUPPORTED_OPERATION_TYPE_" + op.operationType, now);
+        }
+    }
     requestCancellation(jobId: string): ExecutionJob | undefined {
         const job = this.store.getJob(jobId);
         if (!job) return undefined;
