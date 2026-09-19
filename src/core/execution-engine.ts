@@ -697,20 +697,20 @@ export class ExecutionEngine {
                 return job;
             }
 
-            this.applyTransition(
-                job.id, "worker", "RUNNING", "FAILED",
-                workerId, leaseId, undefined, "EXECUTION_FAILED"
-            );
+            this.applyTransitionWithAttempt({
+                jobId: job.id,
+                expectedJobStatus: "RUNNING",
+                newJobStatus: "FAILED",
+                attemptId: attempt.id,
+                attemptStatus: "FAILED",
+                attemptError: executionError || "Execution failed",
+                attemptEvidence: attempt.evidence,
+                attemptCompletedAt: Date.now(),
+                workerId, leaseId,
+                reason: "EXECUTION_FAILED",
+            });
             job.status = "FAILED";
             job.updatedAt = Date.now();
-
-            attempt.status = "FAILED";
-            attempt.error = executionError || "Execution failed";
-            attempt.completedAt = Date.now();
-            const attResFail = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-            if (!attResFail.updated) {
-                this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_FAILED");
-            }
 
             this.applyTransition(
                 job.id, "system", "FAILED", nextStatus,
@@ -760,17 +760,17 @@ export class ExecutionEngine {
             if (verificationSuccess) {
                 // Durable transition FIRST Ã¢â‚¬â€ ownership loss must not
                 // persist a false SUCCEEDED attempt.
-                this.applyTransition(
-                    job.id, "worker", "VERIFYING", "SUCCEEDED",
-                    workerId, leaseId, undefined, "VERIFICATION_SUCCEEDED"
-                );
-                attempt.status = "SUCCEEDED";
-                attempt.evidence = ["Verification succeeded"];
-                attempt.completedAt = Date.now();
-                const attResVok = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-                if (!attResVok.updated) {
-                    this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_VERIFICATION_SUCCEEDED");
-                }
+                this.applyTransitionWithAttempt({
+                    jobId: job.id,
+                    expectedJobStatus: "VERIFYING",
+                    newJobStatus: "SUCCEEDED",
+                    attemptId: attempt.id,
+                    attemptStatus: "SUCCEEDED",
+                    attemptEvidence: ["Verification succeeded"],
+                    attemptCompletedAt: Date.now(),
+                    workerId, leaseId,
+                    reason: "VERIFICATION_SUCCEEDED",
+                });
 
                 job.status = "SUCCEEDED";
                 job.updatedAt = Date.now();
@@ -792,20 +792,20 @@ export class ExecutionEngine {
                 nextStatus = "DEAD_LETTER";
             }
 
-            this.applyTransition(
-                job.id, "worker", "VERIFYING", "FAILED",
-                workerId, leaseId, undefined, "VERIFICATION_FAILED"
-            );
+            this.applyTransitionWithAttempt({
+                jobId: job.id,
+                expectedJobStatus: "VERIFYING",
+                newJobStatus: "FAILED",
+                attemptId: attempt.id,
+                attemptStatus: "FAILED",
+                attemptError: verifErrMsg,
+                attemptEvidence: attempt.evidence,
+                attemptCompletedAt: Date.now(),
+                workerId, leaseId,
+                reason: "VERIFICATION_FAILED",
+            });
             job.status = "FAILED";
             job.updatedAt = Date.now();
-
-            attempt.status = "FAILED";
-            attempt.error = verifErrMsg;
-            attempt.completedAt = Date.now();
-            const attResVf = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-            if (!attResVf.updated) {
-                this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_VERIFICATION_FAILED");
-            }
             this.applyTransition(
                 job.id, "system", "FAILED", nextStatus,
                 undefined, undefined,
@@ -823,17 +823,17 @@ export class ExecutionEngine {
 
         // No verification configured: direct RUNNING -> SUCCEEDED.
         // Do NOT fabricate a VERIFYING transition.
-        this.applyTransition(
-            job.id, "worker", "RUNNING", "SUCCEEDED",
-            workerId, leaseId, undefined, "EXECUTION_COMPLETE_NO_VERIFICATION"
-        );
-        attempt.status = "SUCCEEDED";
-        attempt.evidence = ["Execution succeeded (verification not configured)"];
-        attempt.completedAt = Date.now();
-        const attResNv = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
-        if (!attResNv.updated) {
-            this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_NO_VERIFICATION");
-        }
+        this.applyTransitionWithAttempt({
+            jobId: job.id,
+            expectedJobStatus: "RUNNING",
+            newJobStatus: "SUCCEEDED",
+            attemptId: attempt.id,
+            attemptStatus: "SUCCEEDED",
+            attemptEvidence: ["Execution succeeded (verification not configured)"],
+            attemptCompletedAt: Date.now(),
+            workerId, leaseId,
+            reason: "EXECUTION_COMPLETE_NO_VERIFICATION",
+        });
 
         job.status = "SUCCEEDED";
         job.updatedAt = Date.now();
@@ -988,6 +988,99 @@ export class ExecutionEngine {
      * Terminal states are never touched.  The obligation write is idempotent,
      * so repeated detection converges on one row.
      */
+    /**
+     * Phase 150: atomic parent transition + attempt terminalization.
+     *
+     * Same legality + actor checks as applyTransition(), then delegates to
+     * store.completeAttemptAndTransitionJob so the parent UPDATE, the attempt
+     * UPDATE, and the durable transition event commit or roll back together.
+     */
+    private applyTransitionWithAttempt(input: {
+        jobId: string;
+        expectedJobStatus: ExecutionJobStatus;
+        newJobStatus: ExecutionJobStatus;
+        attemptId: string;
+        attemptStatus: "SUCCEEDED" | "FAILED" | "CANCELLED";
+        attemptError?: string;
+        attemptEvidence?: string[];
+        attemptCompletedAt?: number;
+        workerId?: string;
+        leaseId?: string;
+        patch?: TransitionInput["patch"];
+        reason?: string;
+    }): TransitionResult {
+        if (!this.stateMachine.canTransition(input.expectedJobStatus, input.newJobStatus)) {
+            this.emitTransitionAudit(input.jobId, "worker", input.expectedJobStatus, input.newJobStatus,
+                "illegal_transition", input.workerId, input.leaseId, input.reason);
+            throw new ExecutionTransitionRejected("ILLEGAL_TRANSITION",
+                input.jobId, input.expectedJobStatus, input.newJobStatus);
+        }
+        const allowed = ExecutionEngine.ACTOR_ALLOWED["worker"] ?? [];
+        if (!allowed.some(([f, t]) => f === input.expectedJobStatus && t === input.newJobStatus)) {
+            this.emitTransitionAudit(input.jobId, "worker", input.expectedJobStatus, input.newJobStatus,
+                "actor_not_allowed", input.workerId, input.leaseId, input.reason);
+            throw new ExecutionTransitionRejected("ACTOR_NOT_ALLOWED",
+                input.jobId, input.expectedJobStatus, input.newJobStatus);
+        }
+        if (!input.workerId || !input.leaseId) {
+            throw new ExecutionTransitionRejected("WORKER_OWNERSHIP_LOST",
+                input.jobId, input.expectedJobStatus, input.newJobStatus);
+        }
+
+        const result = this.store.completeAttemptAndTransitionJob({
+            attemptId: input.attemptId,
+            jobId: input.jobId,
+            leaseId: input.leaseId,
+            workerId: input.workerId,
+            attemptStatus: input.attemptStatus,
+            attemptError: input.attemptError,
+            attemptEvidence: input.attemptEvidence,
+            attemptCompletedAt: input.attemptCompletedAt,
+            expectedJobStatus: input.expectedJobStatus,
+            newJobStatus: input.newJobStatus,
+            patch: input.patch,
+            reason: input.reason,
+        });
+
+        if (result.ok) {
+            this.emitTransitionAudit(input.jobId, "worker", input.expectedJobStatus, input.newJobStatus,
+                result.idempotent ? "idempotent" : "applied", input.workerId, input.leaseId, input.reason);
+            this.fireAndForget(this.deps.events?.emit({
+                type: "execution.transition." + input.newJobStatus.toLowerCase(),
+                source: "ExecutionEngine",
+                execution_id: input.jobId,
+                payload: {
+                    from: input.expectedJobStatus,
+                    to: input.newJobStatus,
+                    actor: "worker",
+                    workerId: input.workerId,
+                    leaseId: input.leaseId,
+                    reason: input.reason ?? null,
+                },
+            }));
+            if (result.idempotent) {
+                return { ok: true, applied: false, status: input.newJobStatus, idempotent: true };
+            }
+            return { ok: true, applied: true, status: input.newJobStatus, idempotent: false };
+        }
+
+        if (result.reason === "WORKER_OWNERSHIP_LOST") {
+            try {
+                this.store.writeOwnershipObligation({
+                    jobId: input.jobId,
+                    leaseId: input.leaseId,
+                    workerId: input.workerId,
+                    reason: input.reason ?? "TRANSITION_REJECTED",
+                });
+            } catch { /* obligation failure does not mask the loss */ }
+        }
+        this.emitTransitionAudit(input.jobId, "worker", input.expectedJobStatus, input.newJobStatus,
+            (result.reason ?? "STATE_MISMATCH").toLowerCase(), input.workerId, input.leaseId, input.reason);
+        throw new ExecutionTransitionRejected(
+            (result.reason ?? "STATE_MISMATCH") as any,
+            input.jobId, input.expectedJobStatus, input.newJobStatus);
+    }
+
     recoverStaleJobs(now: number = Date.now()): void {
         // Phase 147: capture pre-existing RETRY_SCHEDULED job IDs before
         // any recovery runs, so same-tick recovery retries can be promoted
