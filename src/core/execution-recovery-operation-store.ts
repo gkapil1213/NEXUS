@@ -300,6 +300,67 @@ export class ExecutionRecoveryOperationStore {
     return result.changes === 1;
   }
 
+  /**
+   * Phase 153: atomic lease renewal for an active claim.
+   *
+   * Extends claim_expires_at only when the caller still holds the claim and
+   * the claim is still live. This is a single conditional UPDATE — the CAS
+   * predicate is the authoritative ownership check.
+   *
+   * Distinguishes:
+   *   renewed: true                      ownership preserved, expiry extended
+   *   renewed: false, reason NOT_FOUND   no such operation
+   *   renewed: false, reason TERMINAL    COMPLETED | FAILED | RECOVERY_REQUIRED
+   *   renewed: false, reason OWNERSHIP_LOST  another owner holds the claim
+   *   renewed: false, reason EXPIRED     caller's claim has lapsed; must re-claim
+   *
+   * Renewal does NOT increment attempt_count and does NOT touch any state
+   * other than claim_expires_at and updated_at.
+   */
+  renewOperationClaim(input: {
+    operationId: string;
+    owner: string;
+    durationMs: number;
+    now?: number;
+  }): {
+    renewed: boolean;
+    reason?: "NOT_FOUND" | "OWNERSHIP_LOST" | "TERMINAL" | "EXPIRED";
+    operation?: ExecutionRecoveryOperation;
+    expiresAt?: number;
+  } {
+    const now = input.now ?? Date.now();
+    const expiresAt = now + input.durationMs;
+
+    const result = this.db
+      .prepare(
+        "UPDATE execution_recovery_operations " +
+        "   SET claim_expires_at = ?, updated_at = ? " +
+        " WHERE operation_id = ? " +
+        "   AND claim_owner = ? " +
+        "   AND state IN ('CLAIMED','IN_PROGRESS') " +
+        "   AND claim_expires_at IS NOT NULL AND claim_expires_at > ?"
+      )
+      .run(expiresAt, now, input.operationId, input.owner, now);
+
+    if (result.changes === 1) {
+      return { renewed: true, operation: this.getOperation(input.operationId), expiresAt };
+    }
+
+    const current = this.getOperation(input.operationId);
+    if (!current) return { renewed: false, reason: "NOT_FOUND" };
+    if (
+      current.state === "COMPLETED" ||
+      current.state === "FAILED" ||
+      current.state === "RECOVERY_REQUIRED"
+    ) {
+      return { renewed: false, reason: "TERMINAL", operation: current };
+    }
+    if (current.claimOwner !== input.owner) {
+      return { renewed: false, reason: "OWNERSHIP_LOST", operation: current };
+    }
+    return { renewed: false, reason: "EXPIRED", operation: current };
+  }
+
   listIncompleteOperations(): ExecutionRecoveryOperation[] {
     const rows = this.db
       .prepare(
