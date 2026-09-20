@@ -54,6 +54,27 @@ export interface ExecutionAttempt {
   createdAt: number;
 }
 
+// Phase 165: durable terminal outcome provenance. One immutable row per
+// terminalized attempt, written inside completeAttemptAndTransitionJob's
+// transaction.
+export interface ExecutionOutcomeProvenance {
+  provenanceId: string;
+  jobId: string;
+  attemptId: string;
+  attemptNumber: number;
+  outcome: ExecutionJobStatus;
+  previousState: ExecutionJobStatus;
+  workerId: string | null;
+  leaseId: string | null;
+  recoveryOperationId: string | null;
+  predecessorAttemptId: string | null;
+  reason: string | null;
+  evidence: string[] | null;
+  evidenceHash: string;
+  terminalizedAt: number;
+  createdAt: number;
+}
+
 export type WorkerStatus = "ONLINE" | "BUSY" | "DRAINING" | "OFFLINE" | "LOST";
 
 export interface ExecutionWorker {

@@ -1,3 +1,4 @@
+import { sha256 } from "./sha256";
 import { NexusEngine } from "./db";
 import { ExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
@@ -135,7 +136,7 @@ class AtomicClaimReject extends Error {
 }
 export class ExecutionStore {
   readonly recoveryOps: ExecutionRecoveryOperationStore;
-  /** @internal Phase 142 — test-only injection hook. No-op in production. */
+  /** @internal Phase 142 â€” test-only injection hook. No-op in production. */
   public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
   /** @internal Phase 143 - test-only injection hook. No-op in production. */
   public __testPhase143Hook?: (stage: "afterJobUpdate" | "afterObligation") => void;
@@ -807,7 +808,7 @@ export class ExecutionStore {
       return { updated: true, applied: true, attempt: row ? this.mapAttempt(row) : undefined };
     }
 
-    // Diagnostic classification only — the authoritative mutation is the UPDATE above.
+    // Diagnostic classification only â€” the authoritative mutation is the UPDATE above.
     const row = this.db.prepare("SELECT * FROM execution_attempts WHERE id = ?").get(attempt.id) as any;
     if (!row || row.job_id !== attempt.jobId) {
       return { updated: false, reason: "ATTEMPT_NOT_FOUND" };
@@ -897,6 +898,7 @@ export class ExecutionStore {
     };
     reason?: string;
     now?: number;
+    recoveryOperationId?: string | null;
   }): {
     ok: boolean;
     applied?: boolean;
@@ -1041,6 +1043,45 @@ export class ExecutionStore {
         createdAt: now,
       });
 
+      // 4. Phase 165: durable terminal provenance.
+      const evidenceJson = input.attemptEvidence ? JSON.stringify(input.attemptEvidence) : null;
+      const terminalizedAt = input.attemptCompletedAt ?? now;
+      const evidenceHash = sha256(JSON.stringify({
+      outcome: input.attemptStatus,
+      previous_state: attemptBefore.status,
+      attempt_id: input.attemptId,
+      evidence_json: evidenceJson,
+      terminalized_at: terminalizedAt,
+    }));
+      const predecessorRow = this.db.prepare(
+        "SELECT id FROM execution_attempts WHERE job_id = ? AND attempt_number = ?"
+      ).get(input.jobId, attemptBefore.attempt_number - 1) as { id: string } | undefined;
+      const provenanceId = "prov_" + input.attemptId + "_" + now;
+      this.db.prepare(
+        "INSERT INTO execution_outcome_provenance " +
+        "  (provenance_id, job_id, attempt_id, attempt_number, outcome, " +
+        "   previous_state, worker_id, lease_id, recovery_operation_id, " +
+        "   predecessor_attempt_id, reason, evidence_json, evidence_hash, " +
+        "   terminalized_at, created_at) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+      ).run(
+        provenanceId,
+        input.jobId,
+        input.attemptId,
+        attemptBefore.attempt_number,
+        input.attemptStatus,
+        attemptBefore.status,
+        input.workerId,
+        input.leaseId,
+        input.recoveryOperationId ?? null,
+        predecessorRow?.id ?? null,
+        input.attemptError ?? input.reason ?? null,
+        evidenceJson,
+        evidenceHash,
+        terminalizedAt,
+        now,
+      );
+
       const attemptAfter = this.db.prepare(
         "SELECT * FROM execution_attempts WHERE id = ?"
       ).get(input.attemptId) as any;
@@ -1117,7 +1158,7 @@ export class ExecutionStore {
 
   // ---------- Leases ----------
   /**
-   * Phase 142: atomic claim of a QUEUED job — single SQLite transaction.
+   * Phase 142: atomic claim of a QUEUED job â€” single SQLite transaction.
    *
    * Every durable step executes directly inside the transaction. This method
    * MUST NOT call transitionExecution(); doing so would create a nested
@@ -1184,7 +1225,7 @@ export class ExecutionStore {
         this.__testPhase142Hook("afterLeaseInsert");
       }
 
-      // 4. CAS job UPDATE — direct statement, no nested tx.
+      // 4. CAS job UPDATE â€” direct statement, no nested tx.
       const upd = this.db.prepare(
         "UPDATE execution_jobs SET status = 'CLAIMED', updated_at = ?, current_lease_id = ? " +
         "WHERE id = ? AND status = 'QUEUED' AND cancellation_requested = 0 AND current_lease_id IS NULL"
@@ -1195,7 +1236,7 @@ export class ExecutionStore {
         this.__testPhase142Hook("afterJobUpdate");
       }
 
-      // 5. Durable event INSERT — addEvent is a direct INSERT (no tx).
+      // 5. Durable event INSERT â€” addEvent is a direct INSERT (no tx).
       this.addEvent({
         eventId: "evt_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 10),
         jobId: input.jobId,
@@ -1502,6 +1543,55 @@ export class ExecutionStore {
   }
 
   // ---------- Events ----------
+  /**
+   * Phase 165: retrieve terminal outcome provenance.
+   *
+   * These methods are read-only. The provenance row is written atomically
+   * inside completeAttemptAndTransitionJob's transaction, and there is no
+   * UPDATE or DELETE path, so returned rows are immutable.
+   */
+  getOutcomeProvenanceByAttempt(attemptId: string): any | undefined {
+    const row = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE attempt_id = ?"
+    ).get(attemptId) as any;
+    if (!row) return undefined;
+    return this.mapOutcomeProvenance(row);
+  }
+
+  getOutcomeProvenanceByJob(jobId: string): any[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE job_id = ? ORDER BY terminalized_at ASC, attempt_number ASC"
+    ).all(jobId) as any[];
+    return rows.map((r: any) => this.mapOutcomeProvenance(r));
+  }
+
+  getRetryLineage(jobId: string): any[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE job_id = ? ORDER BY attempt_number ASC"
+    ).all(jobId) as any[];
+    return rows.map((r: any) => this.mapOutcomeProvenance(r));
+  }
+
+  private mapOutcomeProvenance(row: any): any {
+    return {
+      provenanceId: row.provenance_id,
+      jobId: row.job_id,
+      attemptId: row.attempt_id,
+      attemptNumber: row.attempt_number,
+      outcome: row.outcome,
+      previousState: row.previous_state,
+      workerId: row.worker_id ?? null,
+      leaseId: row.lease_id ?? null,
+      recoveryOperationId: row.recovery_operation_id ?? null,
+      predecessorAttemptId: row.predecessor_attempt_id ?? null,
+      reason: row.reason ?? null,
+      evidence: row.evidence_json ? JSON.parse(row.evidence_json) : null,
+      evidenceHash: row.evidence_hash,
+      terminalizedAt: row.terminalized_at,
+      createdAt: row.created_at,
+    };
+  }
+
   addEvent(event: ExecutionEvent): void {
     this.db.prepare(`
       INSERT INTO execution_events (event_id, job_id, deployment_id, event_type, payload, created_at)
