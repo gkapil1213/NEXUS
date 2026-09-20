@@ -1380,10 +1380,13 @@ export class ExecutionEngine {
         this.promoteImmediateRecoveryRetries(now, preExistingRetryScheduledJobIds);
     }
 
-    reconcileExecutionRecoveryOperations(now: number = Date.now()): void {
+    reconcileExecutionRecoveryOperations(now: number = Date.now(), limit: number = Infinity): void {
         if (this.shuttingDown) return;
         const ops = this.store.recoveryOps;
-        const candidates = ops.listResumableOperations();
+        // Phase 159: bounded iteration. Default Infinity preserves prior behavior.
+        // A production scheduler may pass a finite limit to cap per-tick work.
+        const allCandidates = ops.listResumableOperations();
+        const candidates = Number.isFinite(limit) && limit >= 0 ? allCandidates.slice(0, limit) : allCandidates;
         for (const op of candidates) {
             // Phase 145: a FAILED operation whose retry budget is exhausted
             // escalates to RECOVERY_REQUIRED rather than looping forever.
