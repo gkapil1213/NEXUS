@@ -63,6 +63,7 @@ import { RuntimeBridge, getHostBridge, TokenBoundExecutor, DockerAdapter, Playwr
 import { DeploymentHistoryService } from "./deployment-history";
 import { CanonicalDeploymentOrchestrator } from "./deployment-orchestrator";
 import { SecurityApi } from "./security-api";
+import { ExecutionAuditProvenanceService } from "./execution-audit-provenance-service";
 import { SecurityReleaseGate } from "./security-release-gate";
 import { ProductionReleaseDecisionService } from "./production-release-decision";
 import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
@@ -123,6 +124,10 @@ export interface KernelServices {
   // engine is unavailable; callers must handle that honestly.
   executionStore: ExecutionStore | undefined;
   releaseIntents: ReleaseDeploymentIntentService | undefined;
+  // Phase 167: read-only audit/provenance service over the same
+  // durable executionStore. Undefined whenever executionStore is, since it
+  // reads through the same connection.
+  auditProvenance: ExecutionAuditProvenanceService | undefined;
 }
 
 const BOOT_ORDER = [
@@ -488,6 +493,13 @@ export class NexusKernel {
         ? new ReleaseDeploymentIntentService(this.executionStore)
         : undefined;
 
+      // Phase 167: read-only audit/provenance service. Optional - only
+      // constructed when the durable execution store is available. It is
+      // the same connection the runtime uses; no second store.
+      const auditProvenance = this.executionStore
+        ? new ExecutionAuditProvenanceService(this.executionStore, audit)
+        : undefined;
+
       const releaseBridge = new ReleaseDeploymentBridge({
         deployments,
         artifacts,
@@ -586,6 +598,7 @@ export class NexusKernel {
         // Phase 131: exposed for the engineering execution path.
         executionStore: this.executionStore,
         releaseIntents,
+        auditProvenance,
       };
 
       this.status = "ready";

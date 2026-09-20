@@ -17,6 +17,7 @@ export type ErrorCategory =
   | "authorization"
   | "not_found"
   | "conflict"
+  | "integrity_failure"
   | "persistence"
   | "startup"
   | "runtime"

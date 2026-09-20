@@ -1,4 +1,4 @@
-﻿import { sha256 } from "./sha256";
+import { sha256 } from "./sha256";
 import { NexusEngine } from "./db";
 import { ExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
@@ -1674,6 +1674,37 @@ export class ExecutionStore {
     return { kind: "ok", steps };
   }
 
+  pageProvenanceByJob(
+    jobId: string,
+    limit: number,
+    cursor: { terminalizedAt: number; provenanceId: string } | null,
+  ):
+    | { kind: "ok"; records: ExecutionOutcomeProvenance[]; hasMore: boolean }
+    | { kind: "integrity_failure"; failure: ProvenanceIntegrityFailure } {
+    const fetchLimit = limit + 1;
+    let rows: any[];
+    if (cursor) {
+      rows = this.db.prepare(
+        "SELECT * FROM execution_outcome_provenance " +
+        "WHERE job_id = ? AND (terminalized_at > ? OR (terminalized_at = ? AND provenance_id > ?)) " +
+        "ORDER BY terminalized_at ASC, provenance_id ASC LIMIT ?"
+      ).all(jobId, cursor.terminalizedAt, cursor.terminalizedAt, cursor.provenanceId, fetchLimit) as any[];
+    } else {
+      rows = this.db.prepare(
+        "SELECT * FROM execution_outcome_provenance WHERE job_id = ? " +
+        "ORDER BY terminalized_at ASC, provenance_id ASC LIMIT ?"
+      ).all(jobId, fetchLimit) as any[];
+    }
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const records: ExecutionOutcomeProvenance[] = [];
+    for (const row of pageRows) {
+      const res = this.validateProvenanceRow(row);
+      if (res.kind === "integrity_failure") return res;
+      if (res.kind === "ok") records.push(res.record);
+    }
+    return { kind: "ok", records, hasMore };
+  }
   verifyProvenanceByAttempt(
     attemptId: string
   ): ProvenanceVerificationResult | { kind: "not_found" } {
@@ -2489,3 +2520,14 @@ export class ExecutionStore {
             maybeTx();
         }
     }}
+
+// Phase 167: service-boundary read surface for audit/provenance.
+export type ExecutionAuditStore = Pick<ExecutionStore,
+  | "queryProvenanceById"
+  | "queryProvenanceByAttempt"
+  | "queryProvenanceByRecoveryOperation"
+  | "queryRetryLineage"
+  | "pageProvenanceByJob"
+  | "verifyProvenanceByAttempt"
+  | "verifyProvenanceById"
+>;

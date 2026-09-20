@@ -1,5 +1,5 @@
 /**
- * NEXUS Phase 1 — structured errors.
+ * NEXUS Phase 1 â€” structured errors.
  *
  * Every failure carries code, message, category, recoverability and a
  * timestamp. Sensitive internals (stack traces, query details, secret
@@ -30,7 +30,7 @@ export class NexusError extends Error {
     this.timestamp = Date.now();
   }
 
-  /** Serializable view — safe to return through API boundaries. */
+  /** Serializable view â€” safe to return through API boundaries. */
   toSystemError(): SystemError {
     return {
       code: this.code,
@@ -69,6 +69,7 @@ export const Err = {
   denied: (code: string, message: string) => new NexusError(code, message, "authorization"),
   notFound: (code: string, message: string) => new NexusError(code, message, "not_found"),
   conflict: (code: string, message: string) => new NexusError(code, message, "conflict", { recoverable: true }),
+  integrity: (code: string, message: string) => new NexusError(code, message, 'integrity_failure'),
   persistence: (code: string, message: string) => new NexusError(code, message, "persistence"),
   startup: (code: string, message: string, details?: Record<string, unknown>) =>
     new NexusError(code, message, "startup", { details }),
