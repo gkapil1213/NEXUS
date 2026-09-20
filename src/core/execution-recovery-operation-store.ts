@@ -379,7 +379,7 @@ export class ExecutionRecoveryOperationStore {
   }): {
     cancelled: boolean;
     alreadyCancelled?: boolean;
-    reason?: "NOT_FOUND" | "TERMINAL" | "OWNERSHIP_LOST" | "NOT_CLAIMED";
+    reason?: "NOT_FOUND" | "TERMINAL" | "OWNERSHIP_LOST" | "EXPIRED" | "NOT_CLAIMED";
     operation?: ExecutionRecoveryOperation;
   } {
     const now = input.now ?? Date.now();
@@ -393,9 +393,11 @@ export class ExecutionRecoveryOperationStore {
         "       updated_at = ? " +
         " WHERE operation_id = ? " +
         "   AND claim_owner = ? " +
+        "   AND claim_expires_at IS NOT NULL " +
+        "   AND claim_expires_at > ? " +
         "   AND state IN ('CLAIMED','IN_PROGRESS')"
       )
-      .run(now, now, input.operationId, input.owner);
+      .run(now, now, input.operationId, input.owner, now);
 
     if (result.changes === 1) {
       return { cancelled: true, operation: this.getOperation(input.operationId) };
@@ -415,6 +417,9 @@ export class ExecutionRecoveryOperationStore {
     }
     if (current.claimOwner !== input.owner) {
       return { cancelled: false, reason: "OWNERSHIP_LOST", operation: current };
+    }
+    if (current.claimExpiresAt !== null && current.claimExpiresAt <= now) {
+      return { cancelled: false, reason: "EXPIRED", operation: current };
     }
     return { cancelled: false, reason: "NOT_CLAIMED", operation: current };
   }

@@ -209,13 +209,16 @@ async function main() {
     ok(getOp(h, opId).state === "CANCELLED", "B6 CANCELLED");
   }
 
-  console.log("\n154-B7 claim expiry alone does not permit cancel without ownership");
+  console.log("\n154-B7 claim expiry terminates authority (superseded by Phase 155)");
   {
     const h = makeHarness();
     const opId = createClaimedOp(h, "b7", "A");
-    // A's claim expires; A has not been taken over yet. A cancels. Should succeed.
+    // Phase 155: an expired claim no longer carries mutation authority.
+    // Before Phase 155 this asserted a successful cancel; the stricter
+    // invariant is that lease expiry alone fences the previous owner.
     const r = h.store.recoveryOps.cancelOperationClaim({ operationId: opId, owner: "A", now: (Date.now() + 120000) });
-    ok(r.cancelled === true, "B7 A can cancel expired-own claim");
+    ok(r.cancelled === false && r.reason === "EXPIRED", "B7 A rejected: EXPIRED");
+    ok(getOp(h, opId).state === "CLAIMED", "B7 state unchanged");
   }
 
   console.log("\n154-B8 non-owner cannot cancel already-expired claim");
