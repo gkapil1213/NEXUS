@@ -1,4 +1,4 @@
-import { sha256 } from "./sha256";
+﻿import { sha256 } from "./sha256";
 import { NexusEngine } from "./db";
 import { ExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
@@ -13,8 +13,18 @@ import {
   DeploymentRecord,
   ApprovalRequest,
   ExecutionEvent,
+  ExecutionOutcomeProvenance,
 } from "./execution-models";
-
+import {
+  verifyProvenanceEvidenceHash,
+  validateProvenanceAgainstAttempt,
+  validateRetryLineage,
+  type ProvenanceQueryResult,
+  type ProvenanceIntegrityFailure,
+  type ProvenanceVerificationResult,
+  type RetryLineageResult,
+  type RetryLineageStep,
+} from "./audit-provenance-integrity";
 /* -------- Phase 138: durable production execution authorization -------- */
 
 export interface StoredProductionAuthorization {
@@ -1550,7 +1560,9 @@ export class ExecutionStore {
    * inside completeAttemptAndTransitionJob's transaction, and there is no
    * UPDATE or DELETE path, so returned rows are immutable.
    */
-  getOutcomeProvenanceByAttempt(attemptId: string): any | undefined {
+  // ---------- Phase 165 query surface (typed) ----------
+
+  getOutcomeProvenanceByAttempt(attemptId: string): ExecutionOutcomeProvenance | undefined {
     const row = this.db.prepare(
       "SELECT * FROM execution_outcome_provenance WHERE attempt_id = ?"
     ).get(attemptId) as any;
@@ -1558,21 +1570,150 @@ export class ExecutionStore {
     return this.mapOutcomeProvenance(row);
   }
 
-  getOutcomeProvenanceByJob(jobId: string): any[] {
+  getOutcomeProvenanceByJob(jobId: string): ExecutionOutcomeProvenance[] {
     const rows = this.db.prepare(
-      "SELECT * FROM execution_outcome_provenance WHERE job_id = ? ORDER BY terminalized_at ASC, attempt_number ASC"
+      "SELECT * FROM execution_outcome_provenance WHERE job_id = ? " +
+      "ORDER BY terminalized_at ASC, attempt_number ASC, provenance_id ASC"
     ).all(jobId) as any[];
     return rows.map((r: any) => this.mapOutcomeProvenance(r));
   }
 
-  getRetryLineage(jobId: string): any[] {
+  getRetryLineage(jobId: string): ExecutionOutcomeProvenance[] {
     const rows = this.db.prepare(
-      "SELECT * FROM execution_outcome_provenance WHERE job_id = ? ORDER BY attempt_number ASC"
+      "SELECT * FROM execution_outcome_provenance WHERE job_id = ? " +
+      "ORDER BY attempt_number ASC, provenance_id ASC"
     ).all(jobId) as any[];
     return rows.map((r: any) => this.mapOutcomeProvenance(r));
   }
 
-  private mapOutcomeProvenance(row: any): any {
+  getOutcomeProvenanceById(provenanceId: string): ExecutionOutcomeProvenance | undefined {
+    const row = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE provenance_id = ?"
+    ).get(provenanceId) as any;
+    if (!row) return undefined;
+    return this.mapOutcomeProvenance(row);
+  }
+
+  getOutcomeProvenanceByRecoveryOperation(
+    recoveryOperationId: string
+  ): ExecutionOutcomeProvenance | undefined {
+    const row = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE recovery_operation_id = ? " +
+      "ORDER BY terminalized_at ASC LIMIT 1"
+    ).get(recoveryOperationId) as any;
+    if (!row) return undefined;
+    return this.mapOutcomeProvenance(row);
+  }
+
+  // ---------- Phase 166: durable audit query + verification surface ----------
+  //
+  // query* methods cross-check the provenance row against its durable source
+  // execution_attempts row before returning. A result is either provably
+  // consistent ("ok"), absent ("not_found"), or provably inconsistent
+  // ("integrity_failure"). They never repair, never coerce a broken row into
+  // "ok", and never write to the database.
+
+  queryProvenanceByAttempt(attemptId: string): ProvenanceQueryResult {
+    const raw = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE attempt_id = ?"
+    ).get(attemptId) as any;
+    if (!raw) return { kind: "not_found" };
+    return this.validateProvenanceRow(raw);
+  }
+
+  queryProvenanceById(provenanceId: string): ProvenanceQueryResult {
+    const raw = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE provenance_id = ?"
+    ).get(provenanceId) as any;
+    if (!raw) return { kind: "not_found" };
+    return this.validateProvenanceRow(raw);
+  }
+
+  queryProvenanceByRecoveryOperation(recoveryOperationId: string): ProvenanceQueryResult {
+    const raw = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE recovery_operation_id = ? " +
+      "ORDER BY terminalized_at ASC LIMIT 1"
+    ).get(recoveryOperationId) as any;
+    if (!raw) return { kind: "not_found" };
+    return this.validateProvenanceRow(raw);
+  }
+
+  queryProvenanceByJob(jobId: string):
+    | { kind: "ok"; records: ExecutionOutcomeProvenance[] }
+    | { kind: "integrity_failure"; failure: ProvenanceIntegrityFailure } {
+    const rows = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE job_id = ? " +
+      "ORDER BY terminalized_at ASC, attempt_number ASC, provenance_id ASC"
+    ).all(jobId) as any[];
+    const records: ExecutionOutcomeProvenance[] = [];
+    for (const row of rows) {
+      const res = this.validateProvenanceRow(row);
+      if (res.kind === "integrity_failure") return res;
+      if (res.kind === "ok") records.push(res.record);
+    }
+    return { kind: "ok", records };
+  }
+
+  queryRetryLineage(jobId: string): RetryLineageResult {
+    const rows = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE job_id = ? " +
+      "ORDER BY attempt_number ASC, provenance_id ASC"
+    ).all(jobId) as any[];
+    const records: ExecutionOutcomeProvenance[] = [];
+    for (const row of rows) {
+      const res = this.validateProvenanceRow(row);
+      if (res.kind === "integrity_failure") return res;
+      if (res.kind === "ok") records.push(res.record);
+    }
+    const lineageFailure = validateRetryLineage(records);
+    if (lineageFailure) return { kind: "integrity_failure", failure: lineageFailure };
+    const steps: RetryLineageStep[] = records.map((r) => ({
+      provenance: r,
+      predecessorAttemptId: r.predecessorAttemptId,
+    }));
+    return { kind: "ok", steps };
+  }
+
+  verifyProvenanceByAttempt(
+    attemptId: string
+  ): ProvenanceVerificationResult | { kind: "not_found" } {
+    const raw = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE attempt_id = ?"
+    ).get(attemptId) as any;
+    if (!raw) return { kind: "not_found" };
+    return verifyProvenanceEvidenceHash(
+      this.mapOutcomeProvenance(raw),
+      raw.evidence_json ?? null
+    );
+  }
+
+  verifyProvenanceById(
+    provenanceId: string
+  ): ProvenanceVerificationResult | { kind: "not_found" } {
+    const raw = this.db.prepare(
+      "SELECT * FROM execution_outcome_provenance WHERE provenance_id = ?"
+    ).get(provenanceId) as any;
+    if (!raw) return { kind: "not_found" };
+    return verifyProvenanceEvidenceHash(
+      this.mapOutcomeProvenance(raw),
+      raw.evidence_json ?? null
+    );
+  }
+
+  private validateProvenanceRow(raw: any): ProvenanceQueryResult {
+    const record = this.mapOutcomeProvenance(raw);
+    const attempt = this.getAttempt(record.attemptId);
+    const failure = validateProvenanceAgainstAttempt(record, attempt);
+    if (failure) return { kind: "integrity_failure", failure };
+    return { kind: "ok", record };
+  }
+
+  private mapOutcomeProvenance(row: any): ExecutionOutcomeProvenance {
+    let evidence: string[] | null = null;
+    if (row.evidence_json) {
+      try { evidence = JSON.parse(row.evidence_json); }
+      catch { evidence = null; }
+    }
     return {
       provenanceId: row.provenance_id,
       jobId: row.job_id,
@@ -1585,7 +1726,7 @@ export class ExecutionStore {
       recoveryOperationId: row.recovery_operation_id ?? null,
       predecessorAttemptId: row.predecessor_attempt_id ?? null,
       reason: row.reason ?? null,
-      evidence: row.evidence_json ? JSON.parse(row.evidence_json) : null,
+      evidence,
       evidenceHash: row.evidence_hash,
       terminalizedAt: row.terminalized_at,
       createdAt: row.created_at,
