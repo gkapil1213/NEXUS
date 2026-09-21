@@ -243,16 +243,35 @@ export class ReleaseRecoveryExecutor {
       const inspection = await inspectIntentContainer(fresh, this.deps.docker);
       if (inspection.verdict === "BLOCKED") { await this.markRecoveryRequired(fresh, "inspection blocked: " + inspection.reason); report.blocked++; return; }
       if (inspection.verdict === "MISSING") { await this.markRecoveryRequired(fresh, "container missing on resume verification"); report.blocked++; return; }
-      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "identity mismatch on resume: expected " + inspection.expectedImageId + " got " + inspection.runningImageId, reconciledAt: Date.now() }); report.acted++; return; }
+      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "identity mismatch on resume: expected " + inspection.expectedImageId + " got " + inspection.runningImageId, reconciledAt: Date.now() }); report.acted++; await this.deps.svc.events.emit({ type: "reconciliation.identity_mismatch", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, expected: inspection.expectedImageId, observed: inspection.runningImageId } }); return; }
       if (!inspection.hostPort) { await this.markRecoveryRequired(fresh, "no host port on inspect"); report.blocked++; return; }
       const stagingUrl = "http://127.0.0.1:" + inspection.hostPort;
       const smokeResult = await this.deps.smoke.run({ staging_url: stagingUrl, execution_id: fresh.executionId });
       if (smokeResult.verdict === "PASS") {
-        intents.transitionIfOwned(fresh.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId: fresh.deploymentId, reconciledAt: Date.now() });
+        const evidence = this.buildReconciliationEvidence({
+          source: "executor.resumeVerification",
+          intent: fresh,
+          deploymentId: fresh.deploymentId,
+          containerId: inspection.containerId,
+          runningImageId: inspection.runningImageId,
+          expectedImageId: inspection.expectedImageId,
+          hostPort: inspection.hostPort,
+          smokeVerdict: smokeResult.verdict,
+        });
+        intents.transitionIfOwned(fresh.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId: fresh.deploymentId, reconciledAt: Date.now(), reconciliationEvidence: evidence });
         report.acted++;
         await this.deps.svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, deploymentId: fresh.deploymentId } });
-      } else if (smokeResult.verdict === "BLOCKED") { await this.markRecoveryRequired(fresh, "smoke blocked on resume"); report.blocked++; }
-      else { intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "smoke failed on resume", reconciledAt: Date.now() }); report.acted++; }
+        await this.deps.svc.events.emit({ type: "reconciliation.authoritative_success", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, deploymentId: fresh.deploymentId, containerId: inspection.containerId, runningImageId: inspection.runningImageId, expectedImageId: inspection.expectedImageId, smokeVerdict: smokeResult.verdict } });
+      } else if (smokeResult.verdict === "BLOCKED") {
+        await this.deps.svc.events.emit({ type: "reconciliation.unknown", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, reason: "smoke blocked on resume" } });
+        await this.markRecoveryRequired(fresh, "smoke blocked on resume");
+        report.blocked++;
+      }
+      else {
+        intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "smoke failed on resume", reconciledAt: Date.now() });
+        report.acted++;
+        await this.deps.svc.events.emit({ type: "reconciliation.authoritative_failure", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, terminal: "VERIFICATION_FAILED", smokeVerdict: smokeResult.verdict } });
+      }
     } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
   }
 
@@ -433,19 +452,74 @@ export class ReleaseRecoveryExecutor {
     } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
   }
 
+  /**
+   * Phase 176: build a bounded JSON evidence envelope describing what the
+   * deciding worker actually observed. Stored on the intent only alongside a
+   * terminal transition. Never a decision input; pure provenance.
+   */
+  private buildReconciliationEvidence(input: {
+    source: string;
+    intent: ReleaseDeploymentIntent;
+    deploymentId?: string | null;
+    providerStatus?: string | null;
+    containerId?: string | null;
+    runningImageId?: string | null;
+    expectedImageId?: string | null;
+    hostPort?: number | null;
+    smokeVerdict?: string | null;
+    reason?: string | null;
+  }): string {
+    const i = input.intent;
+    const envelope = {
+      source: input.source,
+      releaseId: i.releaseId,
+      executionId: i.executionId,
+      artifactId: i.artifactId,
+      artifactDigest: i.artifactDigest,
+      imageRepository: i.imageRepository,
+      imageTag: i.imageTag,
+      imageDigest: i.imageDigest,
+      environment: i.environment,
+      containerName: i.containerName,
+      containerPort: i.containerPort,
+      deploymentId: input.deploymentId ?? i.deploymentId ?? null,
+      providerStatus: input.providerStatus ?? i.providerStatus ?? null,
+      containerId: input.containerId ?? null,
+      runningImageId: input.runningImageId ?? null,
+      expectedImageId: input.expectedImageId ?? null,
+      hostPort: input.hostPort ?? null,
+      smokeVerdict: input.smokeVerdict ?? null,
+      workerId: this.deps.workerId,
+      attemptId: i.attemptId ?? null,
+      reason: input.reason ?? null,
+      timestamp: Date.now(),
+    };
+    return JSON.stringify(envelope);
+  }
+
   private async recordDeploymentOutcome(intent: ReleaseDeploymentIntent, outcome: CanonicalDeploymentOutcome, report: RecoveryRunReport): Promise<void> {
     const { intents, svc } = this.deps;
     const status = outcome.deployment.status;
     const deploymentId = outcome.deployment.id;
     if (status === "KNOWN_GOOD") {
-      intents.transitionIfOwned(intent.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId, providerStatus: status, reconciledAt: Date.now() });
+      const evidence = this.buildReconciliationEvidence({ source: "executor.recordDeploymentOutcome", intent, deploymentId, providerStatus: status });
+      intents.transitionIfOwned(intent.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId, providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence });
       report.acted++;
       await svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId } });
+      await svc.events.emit({ type: "reconciliation.authoritative_success", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId, providerStatus: status } });
       return;
     }
-    if (status === "BLOCKED") { intents.transitionIfOwned(intent.intentKey, "BLOCKED", this.deps.workerId, { deploymentId, failureReason: "deployment blocked", providerStatus: status, reconciledAt: Date.now() }); report.blocked++; return; }
-    intents.transitionIfOwned(intent.intentKey, "FAILED", this.deps.workerId, { deploymentId, failureReason: "deployment failed", providerStatus: status, reconciledAt: Date.now() });
+    if (status === "BLOCKED") {
+      const evidence = this.buildReconciliationEvidence({ source: "executor.recordDeploymentOutcome", intent, deploymentId, providerStatus: status, reason: "provider returned BLOCKED" });
+      intents.transitionIfOwned(intent.intentKey, "BLOCKED", this.deps.workerId, { deploymentId, failureReason: "deployment blocked", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence });
+      report.blocked++;
+      await svc.events.emit({ type: "reconciliation.authoritative_failure", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId, providerStatus: status, terminal: "BLOCKED" } });
+      return;
+    }
+    const evidence = this.buildReconciliationEvidence({ source: "executor.recordDeploymentOutcome", intent, deploymentId, providerStatus: status, reason: "provider returned non-success status" });
+    intents.transitionIfOwned(intent.intentKey, "FAILED", this.deps.workerId, { deploymentId, failureReason: "deployment failed", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence });
     report.acted++;
+    await svc.events.emit({ type: "reconciliation.authoritative_failure", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId, providerStatus: status, terminal: "FAILED" } });
   }
 
   private toDeploymentRequest(intent: ReleaseDeploymentIntent, attemptId: string): CanonicalDeploymentRequest {
@@ -515,6 +589,12 @@ export class ReleaseRecoveryExecutor {
           resource_id: intent.intentKey,
           result: "info",
           metadata: { attempts, maxAttempts: policy.maxAttempts, nextRetryAt, reason },
+        });
+        await this.deps.svc.events.emit({
+          type: exhausted ? "reconciliation.retry_exhausted" : "reconciliation.retry_scheduled",
+          source: "ReleaseRecoveryExecutor",
+          execution_id: intent.executionId,
+          payload: { intentKey: intent.intentKey, attempts, maxAttempts: policy.maxAttempts, nextRetryAt, reason },
         });
       } catch { /* audit is best-effort */ }
     }
