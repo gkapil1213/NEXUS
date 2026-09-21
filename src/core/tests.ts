@@ -258,7 +258,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         assert(res.agent_run?.status === "SUCCEEDED", "agent run must succeed");
         const evidence = await services.evidence.list(ownerUser, res.execution.id);
         assert(evidence.length >= 2, "evidence must be recorded");
-        const artifacts = await services.artifacts.list(res.execution.id);
+        const artifacts = await services.artifacts.list(ownerUser, res.execution.id);
         assert(artifacts.length >= 1, "artifact must be registered");
         assert(artifacts[0].digest.startsWith("sha256:"), "artifact digest must be a real sha256");
         const events = await services.events.byExecution(res.execution.id);
@@ -404,7 +404,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         const e = await services.executions.createQueued(ownerUser, p.id, "evidence probe");
         created.executions.push(e.id);
 
-        const rec = await services.evidence.record(e.id, {
+        const rec = await services.evidence.record(ownerUser, e.id, {
           type: "log",
           source: "REAL_EXECUTION",
           content: "deterministic content 123",
@@ -415,7 +415,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
           "digest must be a real sha256 of the content"
         );
 
-        const ok = await services.evidence.verify(rec.id);
+        const ok = await services.evidence.verify(ownerUser, rec.id);
         assert(ok.ok, "untampered evidence must verify");
 
         const stored = await services.engine.get<any>("evidence", rec.id);
@@ -426,7 +426,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
           __content: "TAMPERED CONTENT",
         });
 
-        const tampered = await services.evidence.verify(rec.id);
+        const tampered = await services.evidence.verify(ownerUser, rec.id);
 
         assert(
           !tampered.ok,
@@ -449,8 +449,8 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         created.projects.push(p.id);
         const e = await services.executions.createQueued(ownerUser, p.id, "artifact probe");
         created.executions.push(e.id);
-        const a1 = await services.artifacts.register(e.id, { kind: "report", name: "r1.json", content: '{"same":true}' });
-        const a2 = await services.artifacts.register(e.id, { kind: "report", name: "r2.json", content: '{"same":true}' });
+        const a1 = await services.artifacts.register(ownerUser, e.id, { kind: "report", name: "r1.json", content: '{"same":true}' });
+        const a2 = await services.artifacts.register(ownerUser, e.id, { kind: "report", name: "r2.json", content: '{"same":true}' });
         assert(a1.digest === a2.digest, "identical content must yield identical digests");
         assert(a1.id !== a2.id, "artifacts remain distinct records");
         return "digest stable, ids unique";
@@ -559,8 +559,8 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         const r1 = await services.orchestrator.submit(ownerUser, p.id, "duplicate probe run one");
         const r2 = await services.orchestrator.submit(ownerUser, p.id, "duplicate probe run two");
         created.executions.push(r1.execution.id, r2.execution.id);
-        const a1 = await services.artifacts.list(r1.execution.id);
-        const a2 = await services.artifacts.list(r2.execution.id);
+        const a1 = await services.artifacts.list(ownerUser, r1.execution.id);
+        const a2 = await services.artifacts.list(ownerUser, r2.execution.id);
         const ids = new Set([...a1, ...a2].map((a) => a.id));
         assert(ids.size === a1.length + a2.length, "artifact ids must be unique across runs");
         return `${a1.length}+${a2.length} artifacts, all unique`;
@@ -1595,7 +1595,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         const reader = memReader({ "package.json": JSON.stringify({ name: "n", scripts: { build: "tsc", test: "jest" } }) });
         const res = await services.cicd.agent.run(ownerUser, e.id, p.id, reader, "github", "corr-1");
         assert(res.validation.verdict === "VALID", "generated pipeline validates");
-        const arts = await services.artifacts.list(e.id);
+        const arts = await services.artifacts.list(ownerUser, e.id);
         const kinds = arts.map((a) => a.kind);
         assert(kinds.includes("PIPELINE_CONFIG"), "PIPELINE_CONFIG artifact registered");
         assert(kinds.includes("PIPELINE_VALIDATION_REPORT"), "VALIDATION_REPORT artifact registered");
@@ -1615,8 +1615,8 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         const c1 = new GitHubActionsGenerator().generate(plan, "acme/app");
         const c2 = new GitHubActionsGenerator().generate(plan, "acme/app");
         assert(c1.content === c2.content, "generation is deterministic");
-        const d1 = await services.artifacts.register(created.executions[0] ?? "exec_det", { kind: "PIPELINE_CONFIG", name: "a.yml", content: c1.content });
-        const d2 = await services.artifacts.register(created.executions[0] ?? "exec_det", { kind: "PIPELINE_CONFIG", name: "b.yml", content: c2.content });
+        const d1 = await services.artifacts.register(ownerUser, created.executions[0] ?? "exec_det", { kind: "PIPELINE_CONFIG", name: "a.yml", content: c1.content });
+        const d2 = await services.artifacts.register(ownerUser, created.executions[0] ?? "exec_det", { kind: "PIPELINE_CONFIG", name: "b.yml", content: c2.content });
         assert(d1.digest === d2.digest, "identical content → identical digest");
         return "deterministic digests";
       },
@@ -1658,7 +1658,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         created.changeRequests.push(cr.id);
         assert(cr.status === "OPEN", "CR open, never auto-merged");
         assert(cr.remote_id === 1, "static fixture PR number");
-        const arts = await services.artifacts.list(e.id);
+        const arts = await services.artifacts.list(ownerUser, e.id);
         assert(arts.some((a) => a.kind === "CHANGE_REQUEST"), "CHANGE_REQUEST artifact registered");
         const audit = await services.audit.list(100);
         assert(audit.some((a) => a.action === "change_request.created"), "CR creation audited");
@@ -1747,7 +1747,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         created.workspaces.push(plan.workspaceId);
         const res = await executePlan(services, ownerUser, plan);
         created.executions.push(res.execution.id);
-        const arts = await services.artifacts.list(res.execution.id);
+        const arts = await services.artifacts.list(ownerUser, res.execution.id);
         assert(arts.some((a) => a.kind === "SBOM"), "SBOM artifact registered");
         assert(arts.every((a) => typeof a.digest === "string" && a.digest.startsWith("sha256:")), "every artifact has a real digest");
         const events = await services.events.list(2000);

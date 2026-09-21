@@ -43,7 +43,7 @@ export function ExecutionsScreen() {
         const [events, evidence, artifacts] = await Promise.all([
           services.events.byExecution(id),
           services.evidence.list(user, id),
-          services.artifacts.list(id),
+          services.artifacts.list(user, id),
         ]);
         setDetail({ events, evidence, artifacts });
       } catch {

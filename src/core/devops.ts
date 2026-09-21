@@ -368,7 +368,7 @@ export class ArtifactIntegrityService {
   /** Register an artifact with REAL content. The digest is computed from the
    *  actual bytes by ArtifactService — never invented. */
   async register(executionId: string, input: { kind: string; name: string; content: string }): Promise<ArtifactReference> {
-    return this.artifacts.register(executionId, input);
+    return this.artifacts.register(null, executionId, input);
   }
 }
 
@@ -544,14 +544,14 @@ export class PipelineEngine {
     // Register any produced artifacts (real content → real digests).
     const artifactIds: string[] = [];
     for (const a of out.artifacts ?? []) {
-      const ref = await this.svc.artifacts.register(ctx.execution_id, { kind: a.kind, name: a.name, content: a.content });
+      const ref = await this.svc.artifacts.register(null, ctx.execution_id, { kind: a.kind, name: a.name, content: a.content });
       artifactIds.push(ref.id);
     }
 
     // Record evidence (log/report), never secrets.
     let evidenceId: string | null = null;
     if (out.logs || out.evidence) {
-      const evi: Evidence = await this.svc.evidence.record(ctx.execution_id, {
+      const evi: Evidence = await this.svc.evidence.record(null, ctx.execution_id, {
         type: "log",
         source: out.status === "BLOCKED" ? "ENVIRONMENT_BLOCK" : "REAL_EXECUTION",
         content: out.logs ?? JSON.stringify(out.evidence ?? {}),

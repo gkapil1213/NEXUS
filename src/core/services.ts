@@ -55,6 +55,33 @@ async function authorize(
   }
 }
 
+/**
+ * Phase 170: resolve the execution-scoped resource's owning project and
+ * require the actor to hold 'permission' on it. actor=null is preserved
+ * only for the CI/CD pipeline and reconciliation workers that operate
+ * under worker ownership rather than a user identity.
+ */
+async function authorizeExecutionScope(
+  ctx: ServiceContext,
+  actor: Actor | null,
+  executionId: string,
+  permission: Permission,
+): Promise<Execution> {
+  const execution = await ctx.engine.get<Execution>("executions", executionId);
+  if (!execution) throw Err.notFound("EXECUTION_NOT_FOUND", "execution not found");
+  if (actor === null) return execution;
+  try {
+    await authorizeProject(ctx, actor, permission, execution.project_id);
+  } catch {
+    // Phase 170: enumeration resistance. A caller who cannot prove project
+    // access sees the same error as a nonexistent execution - the caller
+    // cannot distinguish "foreign execution" from "no such execution".
+    // The original denial is already recorded in the audit trail.
+    throw Err.notFound("EXECUTION_NOT_FOUND", "execution not found");
+  }
+  return execution;
+}
+
 /* ------------------------------ ProjectService ----------------------------- */
 
 export class ProjectService {
@@ -280,8 +307,10 @@ export class ExecutionService {
 export class EvidenceService {
   constructor(private ctx: ServiceContext) {}
 
-  /** Record evidence with a REAL sha256 over the actual content. */
-  async record(executionId: string, input: EvidenceInput): Promise<Evidence> {
+  /** Record evidence with a REAL sha256 over the actual content.
+   *  Phase 170: project-scoped. actor=null only from internal pipeline paths. */
+  async record(actor: Actor | null, executionId: string, input: EvidenceInput): Promise<Evidence> {
+    await authorizeExecutionScope(this.ctx, actor, executionId, "evidence:create");
     const hash = await digestOf(input.content);
     const id = nid("evi");
     const evidence: Evidence = {
@@ -300,19 +329,39 @@ export class EvidenceService {
   }
 
   async list(actor: Actor, executionId?: string): Promise<Evidence[]> {
-    await authorize(this.ctx, actor, "evidence:read", { type: "evidence", id: executionId ?? "*" });
-    const rows = executionId
-      ? await this.ctx.engine.byIndex<Evidence & { __content?: string }>("evidence", "byExecution", executionId)
-      : await this.ctx.engine.all<Evidence & { __content?: string }>("evidence");
+    let rows: Array<Evidence & { __content?: string }>;
+    if (executionId) {
+      // Phase 170: scope by the execution's owning project.
+      await authorizeExecutionScope(this.ctx, actor, executionId, "evidence:read");
+      rows = await this.ctx.engine.byIndex<Evidence & { __content?: string }>("evidence", "byExecution", executionId);
+    } else {
+      // Phase 170: no executionId. Must not return evidence from projects the
+      // actor cannot access. Global RBAC gate first, then resolve accessible
+      // executions via evidence.execution_id -> Execution.project_id ->
+      // authorizeProject (projectPermissionAllowed), then filter evidence.
+      // No project_id column on evidence.
+      await authorize(this.ctx, actor, "evidence:read", { type: "evidence", id: "*" });
+      const allExecutions = await this.ctx.engine.all<Execution>("executions");
+      const accessibleExecutions = new Set<string>();
+      for (const exec of allExecutions) {
+        if (projectPermissionAllowed(this.ctx, actor, "evidence:read", exec.project_id)) {
+          accessibleExecutions.add(exec.id);
+        }
+      }
+      const allEvidence = await this.ctx.engine.all<Evidence & { __content?: string }>("evidence");
+      rows = allEvidence.filter((e) => accessibleExecutions.has(e.execution_id));
+    }
     return rows
       .map(({ __content: _c, ...rest }) => rest)
       .sort((a, b) => a.timestamp - b.timestamp);
   }
 
-  /** Re-verify integrity: recompute the digest of stored content. */
-  async verify(evidenceId: string): Promise<{ ok: boolean; expected: string; actual: string }> {
+  /** Re-verify integrity: recompute the digest of stored content.
+   *  Phase 170: project-scoped via the evidence's owning execution. */
+  async verify(actor: Actor, evidenceId: string): Promise<{ ok: boolean; expected: string; actual: string }> {
     const rec = await this.ctx.engine.get<Evidence & { __content?: string }>("evidence", evidenceId);
     if (!rec) throw Err.notFound("EVIDENCE_NOT_FOUND", "evidence not found");
+    await authorizeExecutionScope(this.ctx, actor, rec.execution_id, "evidence:read");
     const actual = await digestOf(rec.__content ?? "");
     return { ok: actual === rec.hash, expected: rec.hash, actual };
   }
@@ -334,9 +383,11 @@ export class ArtifactService {
   /** Register an artifact from REAL content — the digest is computed from the
    *  actual bytes, never invented. */
   async register(
+    actor: Actor | null,
     executionId: string,
     input: { kind: string; name: string; content: string; canWrite?: () => boolean },
   ): Promise<ArtifactReference> {
+    await authorizeExecutionScope(this.ctx, actor, executionId, "artifact:create");
     if (input.canWrite && !input.canWrite()) {
       throw new ArtifactRegistrationFencedError();
     }
@@ -361,7 +412,8 @@ export class ArtifactService {
     return ref;
   }
 
-  async list(executionId: string): Promise<ArtifactReference[]> {
+  async list(actor: Actor | null, executionId: string): Promise<ArtifactReference[]> {
+    await authorizeExecutionScope(this.ctx, actor, executionId, "artifact:read");
     const rows = await this.ctx.engine.byIndex<ArtifactReference & { __content?: string }>("artifacts", "byExecution", executionId);
     return rows
       .map(({ __content: _c, ...rest }) => rest)

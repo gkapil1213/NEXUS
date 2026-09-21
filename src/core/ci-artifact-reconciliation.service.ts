@@ -126,6 +126,27 @@ export class CiArtifactReconciliationService {
   }
 
   async reconcile(input: ReconcileInput): Promise<ReconcileOutcome> {
+    // Phase 170: authoritative project resolution. The execution record
+    // (nexus_records[store='executions']) is the canonical project source.
+    // Caller-supplied input.projectId is an assertion, not ownership.
+    const execRow = this.db.prepare(
+      "SELECT value FROM nexus_records WHERE store = 'executions' AND key = ?"
+    ).get(input.executionId) as { value: string } | undefined;
+    if (!execRow) return { state: "BLOCKED", reason: "EXECUTION_NOT_FOUND" };
+    let execution: { project_id?: unknown };
+    try { execution = JSON.parse(execRow.value) as { project_id?: unknown }; }
+    catch { return { state: "BLOCKED", reason: "EXECUTION_RECORD_MALFORMED" }; }
+    const authoritativeProjectId =
+      typeof execution.project_id === "string" && execution.project_id.length > 0
+        ? execution.project_id
+        : null;
+    if (authoritativeProjectId === null) {
+      return { state: "BLOCKED", reason: "EXECUTION_PROJECT_MISSING" };
+    }
+    if (input.projectId !== null && input.projectId !== undefined && input.projectId !== authoritativeProjectId) {
+      return { state: "BLOCKED", reason: "PROJECT_ID_MISMATCH_WITH_EXECUTION" };
+    }
+
     const parts = input.repository.split("/");
     const owner = parts[0];
     const repo = parts[1];
@@ -166,7 +187,7 @@ export class CiArtifactReconciliationService {
 
     const validated = validateCiArtifact(rawJson, {
       executionId: input.executionId,
-      projectId: input.projectId,
+      projectId: authoritativeProjectId,
       repository: input.repository,
       commitSha: input.commitSha,
       externalRunId: input.externalRunId,
@@ -204,7 +225,7 @@ export class CiArtifactReconciliationService {
     const content = JSON.stringify(a);
     let ref: Awaited<ReturnType<ArtifactService["register"]>>;
     try {
-      ref = await this.artifacts.register(input.executionId, {
+      ref = await this.artifacts.register(null, input.executionId, {
         kind: "IMAGE_DIGEST",
         name: NEXUS_IMAGE_DIGEST_ARTIFACT_NAME,
         content,
@@ -234,7 +255,7 @@ export class CiArtifactReconciliationService {
           "WHERE ownership_id = ? AND worker_id = ? AND lease_id = ? " +
           "AND state = 'ACTIVE' AND expires_at > ?)"
         ).run(
-          bindingId, input.executionId, input.projectId, input.runId, input.providerId,
+          bindingId, input.executionId, authoritativeProjectId, input.runId, input.providerId,
           input.externalRunId, input.repository, input.commitSha, a.image_repository,
           a.image_tag, a.image_digest, a.immutable_reference, ref.id, now,
           fence.ownershipId, fence.workerId, fence.leaseId, fence.now(),
@@ -248,7 +269,7 @@ export class CiArtifactReconciliationService {
           "image_tag, image_digest, immutable_reference, nexus_artifact_id, created_at" +
           ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).run(
-          bindingId, input.executionId, input.projectId, input.runId, input.providerId,
+          bindingId, input.executionId, authoritativeProjectId, input.runId, input.providerId,
           input.externalRunId, input.repository, input.commitSha, a.image_repository,
           a.image_tag, a.image_digest, a.immutable_reference, ref.id, now,
         ) as { changes: number };

@@ -683,6 +683,7 @@ async function main() {
       imageRepository: "nexus/t40", imageTag: "v1", imageId: "sha256:t40",
       imageDigest: "sha256:t40",
       containerName: "t40-c", containerPort: 8080,
+      attemptId: "attempt-t40",
     });
     check(
       "T40 bridge artifact mismatch -> BLOCKED, deploy not called",
@@ -716,6 +717,7 @@ async function main() {
       imageRepository: "nexus/t41", imageTag: "v1", imageId: "sha256:t41",
       imageDigest: "sha256:t41",
       containerName: "t41-c", containerPort: 8080,
+      attemptId: "attempt-t41",
     });
     const runOp = seen.find((o) => o.kind === "run");
     const used = runOp ? runOp.image : null;
@@ -749,6 +751,7 @@ async function main() {
       imageRepository: "nexus/t42", imageTag: "v1", imageId: "sha256:t42",
       imageDigest: "sha256:t42",
       containerName: "t42-c", containerPort: 8080,
+      attemptId: "attempt-t42",
     });
     const persisted = res.deploymentId ? await history.getDeployment(res.deploymentId) : null;
     check(
@@ -788,6 +791,7 @@ async function main() {
     commitSha: "c-" + tag, environment: "production", projectId: "proj-" + tag,
     executionId: "exec-" + tag, imageRepository: "nexus/" + tag, imageTag: "v1",
     imageId: "sha256:" + tag, imageDigest: digest, containerName: tag + "-c", containerPort: 8080,
+    attemptId: "attempt-" + tag,
   });
 
   {
@@ -815,7 +819,7 @@ async function main() {
       authorizationId: "auth-t44-" + n44, releaseId: "rel-t44-" + n44, artifactId: artifactId44,
       commitSha: "c-t44-" + n44, environment: "production", projectId: "proj-t44-" + n44,
       executionId: execId44, imageRepository: "nexus/t44", imageTag: "v1",
-      imageId: "sha256:t44", imageDigest: "sha256:t44", containerName: containerName44, containerPort: 8080,
+      imageId: "sha256:t44", imageDigest: "sha256:t44", containerName: containerName44, containerPort: 8080, attemptId: "attempt-t44-" + n44,
     };
     const first = await bridge.execute(req);
     const runsAfterFirst = dockerRuns;
@@ -824,7 +828,7 @@ async function main() {
   }
 
   {
-    const input = { releaseId: "rel-t45", executionId: "exec-t45", artifactId: "art-t45", artifactDigest: "sha256:t45", commitSha: "c-t45", environment: "production", imageRepository: "nexus/t45", imageTag: "v1", imageId: "sha256:t45", imageDigest: "sha256:t45", containerName: "t45-c", containerPort: 8080 };
+    const input = { releaseId: "rel-t45", executionId: "exec-t45", attemptId: "attempt-t45", artifactId: "art-t45", artifactDigest: "sha256:t45", commitSha: "c-t45", environment: "production", imageRepository: "nexus/t45", imageTag: "v1", imageId: "sha256:t45", imageDigest: "sha256:t45", containerName: "t45-c", containerPort: 8080 };
     const { intent } = await intents.getOrCreate(input);
     intents.transition(intent.intentKey, "KNOWN_GOOD", { deploymentId: "dep-prior-t45" });
     let dockerRuns = 0;
@@ -939,6 +943,8 @@ async function main() {
           digest: "sha256:content", size: 0, location: "artifact://" + artId, created_at: Date.now() }];
       }
     };
+    // Phase 170: seed authoritative execution so the bridge can resolve project_id.
+    await engine.put("executions", execId, { id: execId, project_id: "proj-t81", status: "RUNNING" });
     const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactsStub, svc: fakeSvc, engine });
     const res = await bridge.execute({
       authorizationId: "auth-t81", releaseId: "rel-t81", artifactId: artId,
@@ -946,6 +952,7 @@ async function main() {
       imageRepository: "nexus/t81", imageTag: "v1", imageId: regDigest,
       imageDigest: callerDigest,
       containerName: "t81-c", containerPort: 8080,
+      attemptId: "attempt-t81",
     });
     const runOp = seen.find((o) => o.kind === "run");
     const used = runOp ? (runOp as any).image : null;
@@ -984,6 +991,8 @@ async function main() {
           digest: callerDigest, size: 0, location: "artifact://" + artId, created_at: Date.now() }];
       }
     };
+    // Phase 170: seed authoritative execution so the bridge can resolve project_id.
+    await engine.put("executions", execId, { id: execId, project_id: "proj-t82", status: "RUNNING" });
     const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactsStub, svc: fakeSvc, engine });
     const res = await bridge.execute({
       authorizationId: "auth-t82", releaseId: "rel-t82", artifactId: artId,
@@ -991,6 +1000,7 @@ async function main() {
       imageRepository: "nexus/t82", imageTag: "v1", imageId: callerDigest,
       imageDigest: callerDigest,
       containerName: "t82-c", containerPort: 8080,
+      attemptId: "attempt-t82",
     });
     const runOp = seen.find((o) => o.kind === "run");
     const used = runOp ? (runOp as any).image : null;
@@ -1023,6 +1033,8 @@ async function main() {
           digest: callerDigest, size: 0, location: "artifact://" + artId, created_at: Date.now() }];
       }
     };
+    // Phase 170: seed authoritative execution so the bridge can resolve project_id.
+    await engine.put("executions", execId, { id: execId, project_id: "proj-t83", status: "RUNNING" });
     const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactsStub, svc: fakeSvc, engine });
     const res = await bridge.execute({
       authorizationId: "auth-t83", releaseId: "rel-t83", artifactId: artId,
@@ -1030,6 +1042,7 @@ async function main() {
       imageRepository: "nexus/t83", imageTag: "v1", imageId: callerDigest,
       imageDigest: callerDigest,
       containerName: "t83-c", containerPort: 8080,
+      attemptId: "attempt-t83",
     });
     const runOp = seen.find((o) => o.kind === "run");
     const used = runOp ? (runOp as any).image : null;
@@ -1070,6 +1083,7 @@ async function main() {
       imageRepository: "nexus/t84", imageTag: "v1", imageId: callerDigest,
       imageDigest: callerDigest,
       containerName: "t84-c", containerPort: 8080,
+      attemptId: "attempt-t84",
     });
     const runOp = seen.find((o) => o.kind === "run");
     const used = runOp ? (runOp as any).image : null;
@@ -1085,6 +1099,7 @@ async function main() {
       const n = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
       const input = {
         releaseId: "rel-t" + tag + "-" + n, executionId: "exec-t" + tag + "-" + n,
+        attemptId: "attempt-t" + tag + "-" + n,
         artifactId: "art-t" + tag + "-" + n, artifactDigest: "sha256:t" + tag + "-" + n,
         commitSha: "c-t" + tag + "-" + n, environment: "production",
         projectId: "proj-t" + tag + "-" + n,

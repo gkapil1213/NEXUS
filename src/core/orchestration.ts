@@ -144,10 +144,10 @@ export class NexusOrchestrator {
 
       // 5. Record REAL evidence + artifacts from the outcome.
       for (const ev of outcome.evidence) {
-        await this.svc.evidence.record(execution.id, ev);
+        await this.svc.evidence.record(actor, execution.id, ev);
       }
       for (const art of outcome.artifacts) {
-        await this.svc.artifacts.register(execution.id, art);
+        await this.svc.artifacts.register(actor, execution.id, art);
       }
 
       agentRun.status = "SUCCEEDED";

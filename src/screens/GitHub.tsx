@@ -620,7 +620,7 @@ function PushModal({
     }
     (async () => {
       if (!services) return;
-      const list = await services.artifacts.list(executionId);
+      const list = await services.artifacts.list(user, executionId);
       setArtifacts(list);
       setArtifactId(list[0]?.id ?? "");
     })();
@@ -655,7 +655,7 @@ function PushModal({
         result: "allow",
         metadata: { repo: repo.full_name, branch: res.branch, commit: res.commit_sha.slice(0, 12), artifact: artifact.name }, // sha prefix only
       });
-      await services.evidence.record(execution.id, {
+      await services.evidence.record(user, execution.id, {
         type: "report",
         source: "REAL_EXECUTION",
         content: JSON.stringify({ provider: "github", repo: repo.full_name, commit_sha: res.commit_sha, tree_sha: res.tree_sha, branch: res.branch, url: res.html_url, created_branch: res.created_branch }),

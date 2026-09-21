@@ -26,7 +26,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "workspace:create", "workspace:read", "workspace:delete",
     "secret:reference", "secret:manage",
     "approval:request", "approval:decide",
-    "event:read", "audit:read", "evidence:read",
+    "event:read", "audit:read", "evidence:read", "evidence:create",
     "config:read", "system:health", "system:configure",
     "github:connect", "github:read", "github:push",
     // Phase 3 Pass 3 — CI/CD + Git provider foundation.
@@ -42,7 +42,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "workspace:create", "workspace:read", "workspace:delete",
     "secret:reference",
     "approval:request", "approval:decide",
-    "event:read", "audit:read", "evidence:read",
+    "event:read", "audit:read", "evidence:read", "evidence:create",
     "config:read", "system:health",
     "github:connect", "github:read", "github:push",
     // Phase 3 Pass 3 — CI/CD + Git provider foundation.
@@ -58,7 +58,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "workspace:create", "workspace:read",
     "secret:reference",
     "approval:request",
-    "event:read", "audit:read", "evidence:read",
+    "event:read", "audit:read", "evidence:read", "evidence:create",
     "config:read", "system:health",
     "github:read",
     // Phase 3 Pass 3 — operate + read CI pipelines, no write/config.
@@ -72,7 +72,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "workspace:create", "workspace:read",
     "secret:reference",
     "approval:request",
-    "event:read", "evidence:read",
+    "event:read", "evidence:read", "evidence:create",
     "config:read", "system:health",
     "github:read", "github:push",
     // Phase 3 Pass 3 — author pipelines and change requests.

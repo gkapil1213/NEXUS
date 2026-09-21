@@ -17,6 +17,7 @@ import type {
 } from "./production-release-enforcement";
 import type { ReleaseDeploymentIntentService, ReleaseIntentInput } from "./release-deployment-intent";
 import type { NexusEngine } from "./db";
+import type { Execution } from "./types";
 
 export interface ReleaseDeploymentBridgeDeps {
   deployments: CanonicalDeploymentOrchestrator;
@@ -47,9 +48,30 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
       return blocked("execution_id required to verify artifact binding");
     }
 
+    // Phase 170: authoritative project resolution. When the engine is
+    // available (production), execution.project_id is canonical and any
+    // caller-supplied req.projectId is an assertion. When the engine is
+    // intentionally absent (legacy regression fixtures), preserve
+    // historical behavior: req.projectId is trusted as before.
+    let authoritativeProjectId: string | null = null;
+    if (this.deps.engine) {
+      const execution = await this.deps.engine.get<Execution>("executions", req.executionId);
+      if (!execution) {
+        return blocked("execution " + req.executionId + " not found");
+      }
+      const p = (execution as unknown as { project_id?: unknown }).project_id;
+      if (typeof p !== "string" || p.length === 0) {
+        return blocked("execution " + req.executionId + " has no authoritative project_id");
+      }
+      if (req.projectId && req.projectId !== p) {
+        return blocked("project mismatch: request=" + req.projectId + " authoritative=" + p);
+      }
+      authoritativeProjectId = p;
+    }
+
     let artifacts;
     try {
-      artifacts = await this.deps.artifacts.list(req.executionId);
+      artifacts = await this.deps.artifacts.list(null, req.executionId);
     } catch (e) {
       return blocked("artifact lookup failed: " + (e as Error).message);
     }
@@ -104,7 +126,11 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
     }
 
     const missing: string[] = [];
-    if (!req.projectId) missing.push("projectId");
+    if (this.deps.engine) {
+      if (!authoritativeProjectId) missing.push("projectId");
+    } else {
+      if (!req.projectId) missing.push("projectId");
+    }
     if (!req.imageRepository) missing.push("imageRepository");
     if (!req.imageTag) missing.push("imageTag");
     if (!req.containerName) missing.push("containerName");
@@ -119,6 +145,13 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
     }
 
     /* ---------- Phase 103 durable path (when intents service present) ---------- */
+
+    // Phase 170: when authoritative resolution succeeded, adopt the
+    // execution project as the request project for downstream intent
+    // and deployment paths. Caller-supplied value cannot override.
+    if (authoritativeProjectId) {
+      req.projectId = authoritativeProjectId;
+    }
 
     if (this.deps.intents) {
       return this.executeWithIntent(req);

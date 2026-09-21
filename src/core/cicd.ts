@@ -744,14 +744,14 @@ export class PipelineAgent {
     await this.svc.events.emit({ type: "pipeline.validation.completed", source: "PipelineAgent", execution_id: executionId, payload: { provider, verdict: validation.verdict, findings: validation.findings.length, correlation_id: correlationId } });
 
     // Immutable artifacts: the config and the validation report (real digests).
-    const configArtifact = await this.svc.artifacts.register(executionId, { kind: "PIPELINE_CONFIG", name: config.filename.split("/").pop() ?? "pipeline.yml", content });
-    const validationArtifact = await this.svc.artifacts.register(executionId, {
+    const configArtifact = await this.svc.artifacts.register(null, executionId, { kind: "PIPELINE_CONFIG", name: config.filename.split("/").pop() ?? "pipeline.yml", content });
+    const validationArtifact = await this.svc.artifacts.register(null, executionId, {
       kind: "PIPELINE_VALIDATION_REPORT",
       name: "pipeline-validation.json",
       content: JSON.stringify({ verdict: validation.verdict, findings: validation.findings, digest, provider }, null, 2),
     });
 
-    await this.svc.evidence.record(executionId, {
+    await this.svc.evidence.record(null, executionId, {
       type: "report",
       source: validation.verdict === "VALID" ? "REAL_EXECUTION" : "STATIC_ANALYSIS",
       content: JSON.stringify({ pipeline: config.filename, validation: validation.verdict, digest }, null, 2),
@@ -1381,7 +1381,7 @@ export class CiPipelineEngine {
     await this.svc.engine.put("change_requests", cr.id, cr);
 
     // Immutable artifact for the change request (no secrets — description only).
-    await this.svc.artifacts.register(ctx.execution_id, {
+    await this.svc.artifacts.register(null, ctx.execution_id, {
       kind: "CHANGE_REQUEST",
       name: `change-request-${cr.id}.json`,
       content: JSON.stringify({ ...cr, blocked_reason: blockedReason }, null, 2),

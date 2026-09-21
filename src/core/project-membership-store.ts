@@ -34,7 +34,7 @@ const PROJECT_ROLE_MATRIX: Record<ProjectMembershipRole, string[]> = {
   PROJECT_ADMIN: [
     "project:read", "project:update", "project:archive",
     "execution:read", "execution:create", "execution:cancel", "execution:retry",
-    "audit:read", "event:read", "evidence:read",
+    "audit:read", "event:read", "evidence:read", "evidence:create",
     "artifact:read", "artifact:create",
     "workspace:create", "workspace:read", "workspace:delete",
     "membership:read", "membership:create", "membership:update", "membership:revoke",
@@ -42,7 +42,7 @@ const PROJECT_ROLE_MATRIX: Record<ProjectMembershipRole, string[]> = {
   PROJECT_OPERATOR: [
     "project:read",
     "execution:read", "execution:create", "execution:cancel", "execution:retry",
-    "audit:read", "event:read", "evidence:read",
+    "audit:read", "event:read", "evidence:read", "evidence:create",
     "artifact:read", "artifact:create",
     "workspace:create", "workspace:read", "workspace:delete",
     "membership:read",

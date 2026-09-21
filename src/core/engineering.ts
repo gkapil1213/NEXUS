@@ -1279,7 +1279,7 @@ export async function handoffToRelease(
   let imageTag: string | null = null;
   let artifactId: string | null = null;
   try {
-    const list = await svc.artifacts.list(executionId);
+    const list = await svc.artifacts.list(null, executionId);
     const imgArt = list.find((a: any) => a.kind === "IMAGE_DIGEST");
     if (imgArt) {
       artifactId = imgArt.id;
