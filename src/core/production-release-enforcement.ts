@@ -62,7 +62,7 @@ export interface AuthorizationResult {
 }
 
 export interface DeploymentResult {
-  status: "DEPLOYED" | "BLOCKED" | "FAIL" | "AUTHORIZED" | "EXECUTING" | "VERIFIED";
+  status: "DEPLOYED" | "BLOCKED" | "FAIL" | "AUTHORIZED" | "EXECUTING" | "VERIFIED" | "RECOVERY_REQUIRED";
   message: string;
   providerAvailable: boolean;
   provider?: string;
@@ -91,13 +91,24 @@ export interface ReleaseExecutionRequest {
 }
 
 export interface ReleaseExecutionOutcome {
-  status: "DEPLOYED" | "FAIL" | "BLOCKED";
+  status: "DEPLOYED" | "FAIL" | "BLOCKED" | "RECOVERY_REQUIRED";
   message: string;
   deploymentId?: string | null;
 }
 
+export interface ProviderReconciliationResult {
+  status: "DEPLOYED" | "NOT_DEPLOYED" | "UNKNOWN";
+  deploymentId?: string | null;
+  message: string;
+}
+
+// Phase 173: providers MAY implement reconcile() to answer "did deployment X land?",
+// allowing release recovery to avoid re-invoking an irreversible production operation
+// when the outcome of a prior execute() is unknown. Optional: providers without
+// idempotent read-back omit it, and recovery stays RECOVERY_REQUIRED.
 export interface ReleaseExecutionProvider {
   execute(req: ReleaseExecutionRequest): Promise<ReleaseExecutionOutcome>;
+  reconcile?(req: ReleaseExecutionRequest): Promise<ProviderReconciliationResult>;
 }
 
 export class ProductionReleaseEnforcementService {
@@ -440,22 +451,44 @@ export class ProductionReleaseEnforcementService {
     }
 
     this.auditDecision({ action: "provider.execution.permitted", result: "allow", resource_type: "deployment_provider", resource_id: authorizationId, metadata: { releaseId, artifactId, commitSha, environment, attemptId } });
-    const outcome = await this.provider.execute({
-      authorizationId: auth.authorizationId,
-      releaseId: auth.releaseId,
-      artifactId: auth.artifactId,
-      commitSha: auth.commitSha,
-      environment: auth.environment,
-      projectId: auth.projectId ?? null,
-      executionId: auth.executionId ?? null,
-      imageRepository: auth.imageRepository ?? null,
-      imageTag: auth.imageTag ?? null,
-      imageId: auth.imageId ?? null,
-      imageDigest: auth.artifactDigest,
-      containerName: auth.containerName ?? null,
-      containerPort: auth.containerPort ?? null,
-      attemptId,
-    });
+    let outcome: ReleaseExecutionOutcome;
+    try {
+      outcome = await this.provider.execute({
+        authorizationId: auth.authorizationId,
+        releaseId: auth.releaseId,
+        artifactId: auth.artifactId,
+        commitSha: auth.commitSha,
+        environment: auth.environment,
+        projectId: auth.projectId ?? null,
+        executionId: auth.executionId ?? null,
+        imageRepository: auth.imageRepository ?? null,
+        imageTag: auth.imageTag ?? null,
+        imageId: auth.imageId ?? null,
+        imageDigest: auth.artifactDigest,
+        containerName: auth.containerName ?? null,
+        containerPort: auth.containerPort ?? null,
+        attemptId,
+      });
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      // Phase 173: an exception escaping the provider means the external
+      // side effect may already have occurred. Never FAIL (implies
+      // definitive non-execution); never DEPLOYED (implies success without
+      // evidence). RECOVERY_REQUIRED is the only safe state.
+      this.auditDecision({
+        action: "release.execution.provider_unknown",
+        result: "deny",
+        resource_type: "deployment_provider",
+        resource_id: authorizationId,
+        metadata: { reason, releaseId, artifactId, commitSha, environment, attemptId },
+      });
+      return {
+        status: "RECOVERY_REQUIRED",
+        message: "provider invocation outcome unknown: " + reason,
+        providerAvailable: true,
+        provider: "canonical-deployment-orchestrator",
+      };
+    }
 
     return {
       status: outcome.status,

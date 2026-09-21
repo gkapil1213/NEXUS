@@ -123,7 +123,17 @@ export class ReleaseRecoveryExecutor {
   private async dispatch(intent: ReleaseDeploymentIntent, plan: RecoveryPlan, report: RecoveryRunReport): Promise<void> {
     switch (plan.action) {
       case "ALREADY_KNOWN_GOOD":
+        // Phase 173: emit deterministic terminal-skip audit. Best-effort:
+        // audit failure must not corrupt the state machine.
+        try {
+          await this.deps.svc.audit.record({ actor: this.deps.workerId, action: "release.recovery.already_succeeded", resource_type: "release_deployment_intent", resource_id: intent.intentKey, result: "info", metadata: { status: intent.status, deploymentId: intent.deploymentId ?? null } });
+        } catch { /* audit is best-effort */ }
+        report.skipped++; return;
       case "ALREADY_FAILED":
+        try {
+          await this.deps.svc.audit.record({ actor: this.deps.workerId, action: "release.recovery.already_failed", resource_type: "release_deployment_intent", resource_id: intent.intentKey, result: "info", metadata: { status: intent.status, failureReason: intent.failureReason ?? null } });
+        } catch { /* audit is best-effort */ }
+        report.skipped++; return;
       case "ALREADY_BLOCKED":
       case "ALREADY_CANCELLED": report.skipped++; return;
       case "RESUME_FROM_INTENT": await this.resumeFromIntent(intent, report); return;

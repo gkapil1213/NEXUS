@@ -291,12 +291,22 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
           attempt_id: req.attemptId,
         });
       } catch (e) {
-        intents.transition(intent.intentKey, "FAILED", {
-          failureReason: "deployment orchestrator rejected request: " + (e as Error).message,
+        // Phase 173: the intent is already DEPLOYING and the orchestrator
+        // may have begun the external side effect before throwing. An
+        // exception here is not authoritative non-execution. Transition
+        // to RECOVERY_REQUIRED so the recovery path reconciles via the
+        // provider interface instead of assuming failure or success.
+        const reason = (e as Error).message;
+        intents.transition(intent.intentKey, "RECOVERY_REQUIRED", {
+          recoveryReason: "deployment orchestrator threw: " + reason,
+        });
+        await this.emitDeploymentEvent("deployment.failed", req, intent, {
+          provider_status: "UNKNOWN",
+          reason: "orchestrator_exception",
         });
         return {
-          status: "FAIL",
-          message: "deployment orchestrator rejected request: " + (e as Error).message,
+          status: "RECOVERY_REQUIRED",
+          message: "deployment orchestrator outcome unknown: " + reason,
           deploymentId: null,
         };
       }
