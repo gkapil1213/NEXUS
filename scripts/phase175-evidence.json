@@ -1,0 +1,137 @@
+{
+    "phase":  175,
+    "title":  "Recovery Supervisor, Admission Control \u0026 Durable Recovery Scheduling",
+    "timestamp":  "2026-09-21T16:20:58Z",
+    "commit":  "d36b56b75b29c24cb868b80fe67e4b57cb967563",
+    "branch":  "master",
+    "tag":  "nexus-phase175-complete",
+    "originMasterAtCheckpoint":  "86f1970fa7fc569c5f39392ebc9352c1e0c24273",
+    "predecessor":  {
+                        "commit":  "86f1970fa7fc569c5f39392ebc9352c1e0c24273",
+                        "tag":  "nexus-phase174-complete"
+                    },
+    "migration":  {
+                      "file":  "src/db/migrations/160_phase175_recovery_retry_state.sql",
+                      "adds":  [
+                                   "recovery_attempts",
+                                   "next_retry_at",
+                                   "last_failure_class"
+                               ],
+                      "backwardCompatible":  true
+                  },
+    "tests":  {
+                  "phase175":  {
+                                   "suite":  "scripts/test-phase175-recovery-supervisor-admission.ts",
+                                   "passed":  59,
+                                   "failed":  0
+                               },
+                  "phase174":  {
+                                   "suite":  "scripts/test-phase174-recovery-concurrency-and-rollback-safety.ts",
+                                   "passed":  76,
+                                   "failed":  0
+                               },
+                  "phase173":  {
+                                   "suite":  "scripts/test-phase173-release-recovery-crash-safety.ts",
+                                   "passed":  48,
+                                   "failed":  0
+                               },
+                  "phase172":  {
+                                   "suite":  "scripts/test-phase172-production-release-execution-safety.ts",
+                                   "passed":  41,
+                                   "failed":  0
+                               },
+                  "phase171":  {
+                                   "suite":  "scripts/test-phase171-project-scoped-cicd-release-integrity.ts",
+                                   "passed":  32,
+                                   "failed":  0
+                               },
+                  "phase170":  {
+                                   "suite":  "scripts/test-phase170-project-resource-authorization.ts",
+                                   "passed":  48,
+                                   "failed":  0
+                               },
+                  "phase169":  {
+                                   "suite":  "scripts/test-phase169-project-membership-administration.ts",
+                                   "passed":  92,
+                                   "failed":  0
+                               },
+                  "phase168":  {
+                                   "suite":  "scripts/test-phase168-project-authorization.ts",
+                                   "passed":  44,
+                                   "failed":  0
+                               },
+                  "phase167":  {
+                                   "suite":  "scripts/test-phase167-audit-provenance-control-plane.ts",
+                                   "passed":  52,
+                                   "failed":  0
+                               },
+                  "phase166":  {
+                                   "suite":  "scripts/test-phase166-audit-provenance-integrity.ts",
+                                   "passed":  118,
+                                   "failed":  0
+                               },
+                  "phase165":  {
+                                   "suite":  "scripts/test-phase165-execution-evidence-provenance.ts",
+                                   "passed":  94,
+                                   "failed":  0
+                               },
+                  "phase138":  {
+                                   "suite":  "scripts/test-phase138-recovery.ts",
+                                   "passed":  15,
+                                   "failed":  0
+                               },
+                  "canonicalDeployment":  {
+                                              "suite":  "scripts/run-canonical-deployment-tests.ts",
+                                              "passed":  67,
+                                              "failed":  0
+                                          }
+              },
+    "gates":  {
+                  "tsc":  "PASS",
+                  "build":  "PASS",
+                  "gitDiffCheck":  "PASS"
+              },
+    "blockedOrProviderUnavailable":  [
+
+                                     ],
+    "supervisorAdmissionVerified":  [
+                                        "Durable discovery: listRecoverableReleaseIntents is the sole source of truth. No in-memory queue exists; a process restart rediscovers work from SQLite.",
+                                        "Bounded admission: runOnce caps execution to maxIntentsPerRun (default 50). Excess eligible intents are counted in report.deferredCapacity and left durable for the next cycle.",
+                                        "Lease-aware admission: live-leased intents are not executed by other workers; the executor counts lease contention via report.leaseHeld.",
+                                        "Single-owner admission: Phase 174 fenced transitions preserve single ownership even under concurrent supervisors.",
+                                        "Fairness: eligible intents are processed in listRecoverable\u0027s deterministic ordering; deferred work is picked up on subsequent cycles.",
+                                        "Terminal-state filtering: listRecoverable excludes KNOWN_GOOD/FAILED/BLOCKED/CANCELLED."
+                                    ],
+    "retryVerified":  [
+                          "Durable retry state on release_deployment_intents: recovery_attempts, next_retry_at, last_failure_class.",
+                          "Bounded backoff: next_retry_at = now + min(initialDelayMs * multiplier^(attempt-1), maxDelayMs) per retryPolicy.",
+                          "Not-due intents are deferred at discovery: report.deferredNotDue counts them; no execution runs.",
+                          "Exhaustion at maxAttempts: next_retry_at is set to Number.MAX_SAFE_INTEGER so an exhausted intent is never rediscovered.",
+                          "Audit: release.recovery.retry_scheduled on each scheduled retry, release.recovery.retry_exhausted at maxAttempts.",
+                          "Storm protection: rapid repeated runOnce cycles cannot exceed maxAttempts for a given intent within the backoff window."
+                      ],
+    "crashRestartVerified":  [
+                                 "Supervisor restart on the same SQLite file discovers prior recoverable intents.",
+                                 "RECOVERY_REQUIRED with providerStatus=UNKNOWN survives process restart unchanged.",
+                                 "A worker that lost its lease (crashed or superseded) is fenced by the Phase 174 atomic conditional transition; it cannot write terminal state after restart.",
+                                 "A new supervisor instance can claim expired leases and become the authoritative recovery owner."
+                             ],
+    "auditBehaviorVerified":  [
+                                  "release.recovery.retry_scheduled / release.recovery.retry_exhausted emitted on the executor\u0027s audit sink.",
+                                  "release.recovery.started, release.recovery.advanced, release.recovery.lease.held, release.recovery.known_good, release.recovery.blocked (pre-existing) preserved.",
+                                  "release.recovery.supervisor.start / stop emitted on the supervisor\u0027s audit sink.",
+                                  "release.recovery.supervisor.started / stopped emitted on the event sink.",
+                                  "Audit is best-effort: failures cannot corrupt the state machine."
+                              ],
+    "unknownOutcomeBehavior":  [
+                                   "Provider ambiguity is recorded as RECOVERY_REQUIRED with providerStatus=UNKNOWN.",
+                                   "UNKNOWN never becomes KNOWN_GOOD or FAILED without authoritative evidence.",
+                                   "RECOVERY_REQUIRED survives supervisor restart; retry bookkeeping is durable."
+                               ],
+    "git":  {
+                "head":  "d36b56b75b29c24cb868b80fe67e4b57cb967563",
+                "originMaster":  "86f1970fa7fc569c5f39392ebc9352c1e0c24273",
+                "tag":  null,
+                "workingTree":  "clean"
+            }
+}
