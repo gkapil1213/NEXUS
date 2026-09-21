@@ -1,6 +1,7 @@
 import { SecurityApi } from "./security-api";
 import type { ExecutionStore, StoredProductionAuthorization } from "./execution-store";
 import type { NexusEngine } from "./db";
+import type { AuditService } from "./audit";
 import { SecurityReleaseGate } from "./security-release-gate";
 import {
   ProductionReleaseDecisionService,
@@ -110,7 +111,35 @@ export class ProductionReleaseEnforcementService {
     private store?: ExecutionStore,
     // Phase 171: authoritative execution/project resolution.
     private engine?: NexusEngine,
+    // Phase 172: optional audit sink. No-op when absent.
+    private audit?: AuditService,
   ) {}
+
+  /**
+   * Phase 172: best-effort audit. Enforcement must never fail because
+   * audit failed. Errors are swallowed; the decision stands.
+   */
+  private auditDecision(input: {
+    action: string;
+    result: "allow" | "deny";
+    resource_type: string;
+    resource_id: string;
+    metadata: Record<string, unknown>;
+  }): void {
+    if (!this.audit) return;
+    try {
+      void this.audit.record({
+        actor: "system",
+        action: input.action,
+        resource_type: input.resource_type,
+        resource_id: input.resource_id,
+        result: input.result,
+        metadata: input.metadata,
+      });
+    } catch {
+      /* enforcement never depends on audit */
+    }
+  }
 
   async requestRelease(params: ReleaseRequestParams): Promise<AuthorizationResult> {
     const blockers: string[] = [];
@@ -264,17 +293,20 @@ export class ProductionReleaseEnforcementService {
         }
       : this.authorizations.get(authorizationId);
     if (!auth) {
+      this.auditDecision({ action: "release.authorization.rejected", result: "deny", resource_type: "production_execution_authorization", resource_id: authorizationId, metadata: { reason: "authorization_not_found", releaseId, artifactId, environment } });
       return { status: "BLOCKED", blockers: ["Authorization not found"], reasons: ["Authorization not found"] };
     }
 
     // Check expiration
     if (new Date(auth.expiresAt) < new Date()) {
       auth.revoked = true;
+      this.auditDecision({ action: "release.authorization.rejected", result: "deny", resource_type: "production_execution_authorization", resource_id: authorizationId, metadata: { reason: "authorization_expired", releaseId, artifactId, environment } });
       return { status: "BLOCKED", blockers: ["Authorization expired"], reasons: ["Authorization expired"] };
     }
 
     // Check revocation
     if (auth.revoked) {
+      this.auditDecision({ action: "release.authorization.rejected", result: "deny", resource_type: "production_execution_authorization", resource_id: authorizationId, metadata: { reason: "authorization_revoked", releaseId, artifactId, environment } });
       return { status: "BLOCKED", blockers: ["Authorization revoked"], reasons: ["Authorization revoked"] };
     }
 
@@ -285,6 +317,7 @@ export class ProductionReleaseEnforcementService {
       auth.commitSha !== commitSha ||
       auth.environment !== environment
     ) {
+      this.auditDecision({ action: "release.authorization.rejected", result: "deny", resource_type: "production_execution_authorization", resource_id: authorizationId, metadata: { reason: "authorization_binding_mismatch", releaseId, artifactId, commitSha, environment } });
       return { status: "BLOCKED", blockers: ["Authorization binding mismatch"], reasons: ["Authorization binding mismatch"] };
     }
 
@@ -292,9 +325,11 @@ export class ProductionReleaseEnforcementService {
     // authorization and provider invocation does not burn the authorization
     // for a same-attempt retry. Different-attempt reuse remains blocked.
     if (auth.consumed && auth.consumedByAttemptId !== attemptId) {
+      this.auditDecision({ action: "release.authorization.rejected", result: "deny", resource_type: "production_execution_authorization", resource_id: authorizationId, metadata: { reason: "authorization_replay", attemptId, consumedByAttemptId: auth.consumedByAttemptId ?? null } });
       return { status: "BLOCKED", blockers: ["Authorization already consumed by a different attempt"], reasons: ["Authorization replay detected"] };
     }
 
+    this.auditDecision({ action: "release.authorization.accepted", result: "allow", resource_type: "production_execution_authorization", resource_id: authorizationId, metadata: { releaseId, artifactId, commitSha, environment, attemptId } });
     return { status: "AUTHORIZED", authorization: auth, blockers: [], reasons: [] };
   }
 
@@ -374,6 +409,7 @@ export class ProductionReleaseEnforcementService {
 
     // No provider wired → fail closed (Phase 101 / Phase 4 Pass 6 behavior preserved).
     if (!this.provider) {
+      this.auditDecision({ action: "provider.execution.blocked", result: "deny", resource_type: "deployment_provider", resource_id: authorizationId, metadata: { reason: "no_provider", releaseId, artifactId, environment } });
       return {
         status: "BLOCKED",
         message: "No real production deployment provider configured",
@@ -403,6 +439,7 @@ export class ProductionReleaseEnforcementService {
       }
     }
 
+    this.auditDecision({ action: "provider.execution.permitted", result: "allow", resource_type: "deployment_provider", resource_id: authorizationId, metadata: { releaseId, artifactId, commitSha, environment, attemptId } });
     const outcome = await this.provider.execute({
       authorizationId: auth.authorizationId,
       releaseId: auth.releaseId,

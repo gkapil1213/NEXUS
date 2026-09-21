@@ -1,0 +1,82 @@
+{
+    "phase":  172,
+    "title":  "Production Release Execution Safety, Environment Policy \u0026 Deployment Authority",
+    "commit":  "20745dea21ccd1320af0521e34a1d68dfa433320",
+    "tag":  "nexus-phase172-complete",
+    "predecessor":  {
+                        "commit":  "20745dea21ccd1320af0521e34a1d68dfa433320",
+                        "tag":  "nexus-phase171-correction-complete"
+                    },
+    "tests":  {
+                  "phase172":  {
+                                   "suite":  "scripts/test-phase172-production-release-execution-safety.ts",
+                                   "passed":  41,
+                                   "failed":  0
+                               },
+                  "phase171":  {
+                                   "suite":  "scripts/test-phase171-project-scoped-cicd-release-integrity.ts",
+                                   "passed":  32,
+                                   "failed":  0
+                               },
+                  "phase170":  {
+                                   "suite":  "scripts/test-phase170-project-resource-authorization.ts",
+                                   "passed":  48,
+                                   "failed":  0
+                               },
+                  "phase169":  {
+                                   "suite":  "scripts/test-phase169-project-membership-administration.ts",
+                                   "passed":  92,
+                                   "failed":  0
+                               },
+                  "phase168":  {
+                                   "suite":  "scripts/test-phase168-project-authorization.ts",
+                                   "passed":  44,
+                                   "failed":  0
+                               },
+                  "phase167":  {
+                                   "suite":  "scripts/test-phase167-audit-provenance-control-plane.ts",
+                                   "passed":  52,
+                                   "failed":  0
+                               },
+                  "phase166":  {
+                                   "suite":  "scripts/test-phase166-audit-provenance-integrity.ts",
+                                   "passed":  118,
+                                   "failed":  0
+                               },
+                  "phase165":  {
+                                   "suite":  "scripts/test-phase165-execution-evidence-provenance.ts",
+                                   "passed":  94,
+                                   "failed":  0
+                               },
+                  "canonicalDeployment":  {
+                                              "suite":  "scripts/run-canonical-deployment-tests.ts",
+                                              "passed":  67,
+                                              "failed":  0
+                                          }
+              },
+    "gates":  {
+                  "tsc":  "PASS",
+                  "build":  "PASS",
+                  "gitDiffCheck":  "PASS"
+              },
+    "blockedOrProviderUnavailable":  [
+
+                                     ],
+    "productionSafetyGuarantees":  [
+                                       "Every production deployment executes through the existing authorization chain: authorization -\u003e attempt -\u003e project -\u003e intent -\u003e lease -\u003e provider.",
+                                       "release.authorization.accepted / release.authorization.rejected are emitted at the authorization boundary with a specific reason (authorization_not_found, authorization_expired, authorization_revoked, authorization_binding_mismatch, authorization_replay).",
+                                       "provider.execution.blocked / provider.execution.permitted are emitted at the provider boundary; blocked paths never invoke the provider.",
+                                       "authorizeExecution retains Phase 138/171 invariants: durable authorization required, expiration enforced, revocation enforced, full identity binding (releaseId + artifactId + commitSha + environment), attempt-bound consumption (consumedByAttemptId must match the invoking attempt).",
+                                       "executeRelease retains Phase 171 durable attempt requirement: empty attemptId -\u003e BLOCKED; nonexistent attempt -\u003e BLOCKED; attempt whose job.payload.executionId differs from releaseId -\u003e BLOCKED with zero provider calls.",
+                                       "Environment policy is explicit and code-defined: production/staging/development have deterministic requirement sets; unknown environments fail-closed to production policy.",
+                                       "environment-policy.ts introduces no new durable state; policy is deterministic (matching Phase 165-171 convention of code-policy + SQL-state).",
+                                       "Audit emission is best-effort: audit failures cannot change a decision; absent audit sink is a silent no-op, preserving pre-Phase-172 behavior.",
+                                       "Same-attempt retry does not burn an authorization (Phase 138 contract preserved); different-attempt reuse is blocked. Deployment-level idempotency remains enforced by the release-intent + bridge layer."
+                                   ],
+    "git":  {
+                "head":  "20745dea21ccd1320af0521e34a1d68dfa433320",
+                "originMaster":  "20745dea21ccd1320af0521e34a1d68dfa433320",
+                "tag":  null,
+                "workingTree":  "clean"
+            }
+}
