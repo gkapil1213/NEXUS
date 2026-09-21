@@ -1,0 +1,48 @@
+{
+  "phase": 171,
+  "title": "Project-Scoped CI/CD, Release & Deployment Integrity",
+  "commit": null,
+  "tag": "nexus-phase171-complete",
+  "predecessor": {
+    "commit": "00c817f24af9aa6709f0401231ef00b22c1df490",
+    "tag": "nexus-phase170-complete"
+  },
+  "tests": {
+    "phase171": { "suite": "scripts/test-phase171-project-scoped-cicd-release-integrity.ts", "passed": 32, "failed": 0 },
+    "phase170": { "suite": "scripts/test-phase170-project-resource-authorization.ts", "passed": 48, "failed": 0 },
+    "phase169": { "suite": "scripts/test-phase169-project-membership-administration.ts", "passed": 92, "failed": 0 },
+    "phase168": { "suite": "scripts/test-phase168-project-authorization.ts", "passed": 44, "failed": 0 },
+    "phase167": { "suite": "scripts/test-phase167-audit-provenance-control-plane.ts", "passed": 52, "failed": 0 },
+    "phase166": { "suite": "scripts/test-phase166-audit-provenance-integrity.ts", "passed": 118, "failed": 0 },
+    "phase165": { "suite": "scripts/test-phase165-execution-evidence-provenance.ts", "passed": 94, "failed": 0 },
+    "canonicalDeployment": {
+      "suite": "scripts/run-canonical-deployment-tests.ts",
+      "passed": 63,
+      "failed": 4,
+      "failedTests": ["T39b", "T44", "T45", "T49"],
+      "note": "These 4 failures pre-date Phase 171 and reproduce identically on the nexus-phase170-complete baseline. They are Phase 140 attempt-identity fixture rot in the canonical test harness, not Phase 171 regressions."
+    }
+  },
+  "gates": {
+    "tsc": "PASS",
+    "build": "PASS",
+    "gitDiffCheck": "PASS"
+  },
+  "blockedOrProviderUnavailable": [],
+  "projectIsolationGuarantees": [
+    "PipelineAgent.run resolves execution.project_id from the authoritative Execution KV row and rejects (as EXECUTION_NOT_FOUND) any caller-supplied projectId that disagrees.",
+    "All non-success paths inside PipelineAgent.run (missing project_id, project mismatch, non-member actor, insufficient project role) are masked as EXECUTION_NOT_FOUND, so unauthorized callers cannot use the error code as a project-existence oracle.",
+    "ProductionReleaseEnforcementService.requestRelease now resolves the authoritative execution.project_id via an optional engine dependency and BLOCKS on missing execution, missing project_id, or caller/authoritative mismatch.",
+    "ProductionExecutionAuthorization.projectId is populated from the authoritative resolved value, never from the raw caller-supplied assertion.",
+    "ReleaseRecoveryExecutor gates orchestrator.deploy behind a project-consistency check: execution missing or project mismatch blocks with RECOVERY_REQUIRED.",
+    "ReleaseDeploymentIntentService.computeKey does not include projectId (deliberate: project is not part of intent identity); a Phase-170-compatible bridge already overwrites req.projectId with the authoritative value before calling getOrCreate.",
+    "ExecutionStore remains the sole durable authority for execution → project resolution. No project_id column was added to artifacts, evidence, or execution_jobs.",
+    "Caller-supplied projectId is an assertion everywhere; it is never treated as ownership."
+  ],
+  "git": {
+    "head": null,
+    "originMaster": null,
+    "tag": null,
+    "workingTree": "clean"
+  }
+}

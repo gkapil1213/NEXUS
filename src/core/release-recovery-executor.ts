@@ -9,6 +9,7 @@ import type {
 } from "./deployment-orchestrator";
 import type { DeploymentHistoryService } from "./deployment-history";
 import type { ReleaseDeploymentIntentService } from "./release-deployment-intent";
+import type { NexusEngine } from "./db";
 import type { ReleaseRecoveryService, RecoveryAction, RecoveryPlan } from "./release-recovery";
 import { inspectIntentContainer } from "./release-recovery-inspection";
 
@@ -32,6 +33,9 @@ export interface ReleaseRecoveryExecutorDeps {
   svc: RecoveryServices;
   workerId: string;
   leaseTtlMs?: number;
+  // Phase 171: authoritative execution/project resolution. Optional to preserve
+  // legacy fixtures that construct without persistence.
+  engine?: NexusEngine;
   rollback?: RollbackDelegate;
   /** Phase 119: independent verification after crash recovery. Called only when inspection finds
    *  the target immutable image already running. MUST NOT be implemented by re-invoking rollback. */
@@ -154,6 +158,26 @@ export class ReleaseRecoveryExecutor {
           return;
         }
         intents.transition(fresh.intentKey, "DEPLOYING", { recoveryReason: "recovery: deploying under lease " + this.deps.workerId });
+        // Phase 171: authoritative project resolution before provider invocation.
+        // When the engine is wired, verify the recovered intent's project matches
+        // the execution.project_id resolved from durable state. Mismatch or
+        // missing authoritative project blocks — deploy must not be called.
+        if (this.deps.engine) {
+          const execRec = await this.deps.engine.get("executions", fresh.executionId) as
+            | { project_id?: unknown }
+            | undefined;
+          const authPid = execRec && typeof (execRec as { project_id?: unknown }).project_id === "string"
+            ? (execRec as { project_id: string }).project_id
+            : null;
+          if (!authPid) {
+            await this.blockIntent(fresh, "recovery: execution missing or has no authoritative project_id", report);
+            return;
+          }
+          if (fresh.projectId && fresh.projectId !== authPid) {
+            await this.blockIntent(fresh, "recovery: intent project mismatch (intent=" + fresh.projectId + " authoritative=" + authPid + ")", report);
+            return;
+          }
+        }
         const outcome = await this.deps.orchestrator.deploy(this.toDeploymentRequest(fresh, fresh.attemptId));
         await this.recordDeploymentOutcome(fresh, outcome, report);
       } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }

@@ -1,5 +1,6 @@
 import { SecurityApi } from "./security-api";
 import type { ExecutionStore, StoredProductionAuthorization } from "./execution-store";
+import type { NexusEngine } from "./db";
 import { SecurityReleaseGate } from "./security-release-gate";
 import {
   ProductionReleaseDecisionService,
@@ -107,6 +108,8 @@ export class ProductionReleaseEnforcementService {
     private decisionService: ProductionReleaseDecisionService,
     private provider?: ReleaseExecutionProvider,
     private store?: ExecutionStore,
+    // Phase 171: authoritative execution/project resolution.
+    private engine?: NexusEngine,
   ) {}
 
   async requestRelease(params: ReleaseRequestParams): Promise<AuthorizationResult> {
@@ -143,6 +146,33 @@ export class ProductionReleaseEnforcementService {
       return { status: "BLOCKED", blockers, reasons };
     }
 
+    // Phase 171: authoritative project resolution. When the engine is wired,
+    // execution.project_id is canonical. A caller-supplied projectId is an
+    // assertion only. Mismatch BLOCKS; missing execution BLOCKS.
+    let authoritativeProjectId: string | null = params.projectId ?? null;
+    if (this.engine && params.executionId) {
+      const execRec = await this.engine.get("executions", params.executionId) as
+        | { project_id?: unknown }
+        | undefined;
+      if (!execRec) {
+        blockers.push("Execution not found: " + params.executionId);
+        reasons.push("EXECUTION_NOT_FOUND");
+        return { status: "BLOCKED", blockers, reasons };
+      }
+      const authPid = (execRec as { project_id?: unknown }).project_id;
+      if (typeof authPid !== "string" || authPid.length === 0) {
+        blockers.push("Execution has no authoritative project_id");
+        reasons.push("EXECUTION_PROJECT_MISSING");
+        return { status: "BLOCKED", blockers, reasons };
+      }
+      if (params.projectId && params.projectId !== authPid) {
+        blockers.push("Project mismatch: request=" + params.projectId + " authoritative=" + authPid);
+        reasons.push("PROJECT_ID_MISMATCH_WITH_EXECUTION");
+        return { status: "BLOCKED", blockers, reasons };
+      }
+      authoritativeProjectId = authPid;
+    }
+
     // 3. Issue authorization (short-lived, 5 minutes)
     const authorization: ProductionExecutionAuthorization = {
       authorizationId: `auth_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -157,7 +187,7 @@ export class ProductionReleaseEnforcementService {
       consumed: false,
       revoked: false,
       artifactDigest: params.artifactDigest,
-      projectId: params.projectId,
+      projectId: authoritativeProjectId ?? undefined,
       executionId: params.executionId,
       imageRepository: params.imageRepository,
       imageTag: params.imageTag,

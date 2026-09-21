@@ -35,6 +35,7 @@ import type { AuditService } from "./audit";
 import type { EventService } from "./events";
 import type { ArtifactService, EvidenceService, Actor } from "./services";
 import type { AuthorizationService } from "./security";
+import { authorizeProject } from "./project-authorization";
 import { ProjectDetector, type WsReader } from "./devops";
 import { GitHubService, maskToken } from "./github";
 import type {
@@ -705,6 +706,10 @@ export interface PipelineAgentServices {
   audit: AuditService;
   evidence: EvidenceService;
   artifacts: ArtifactService;
+  // Phase 171: authoritative project resolution surface. Optional to
+  // preserve legacy harnesses; when absent, run() skips the gate.
+  engine?: import("./db").NexusEngine;
+  memberships?: import("./project-membership-store").ProjectMembershipStore;
 }
 
 export interface PipelineAgentResult {
@@ -724,6 +729,34 @@ export class PipelineAgent {
   constructor(private svc: PipelineAgentServices) {}
 
   async run(actor: Actor, executionId: string, projectId: string, reader: WsReader, provider: CiProvider, correlationId: string): Promise<PipelineAgentResult> {
+    // Phase 171: authoritative project resolution. When the persistence
+    // layer is wired, resolve execution.project_id and require the actor
+    // to hold execution:create on it. Foreign execution is masked as
+    // EXECUTION_NOT_FOUND to preserve enumeration resistance.
+    if (this.svc.engine && this.svc.memberships) {
+      const execRec = await this.svc.engine.get("executions", executionId) as { project_id?: unknown } | undefined;
+      if (!execRec) {
+        throw Err.notFound("EXECUTION_NOT_FOUND", "execution not found");
+      }
+      const authPid = (execRec as unknown as { project_id?: unknown }).project_id;
+      if (typeof authPid !== "string" || authPid.length === 0) {
+        throw Err.notFound("EXECUTION_NOT_FOUND", "execution not found");
+      }
+      if (projectId && projectId !== authPid) {
+        throw Err.notFound("EXECUTION_NOT_FOUND", "execution not found");
+      }
+      try {
+        await authorizeProject(
+          { engine: this.svc.engine, audit: this.svc.audit, memberships: this.svc.memberships },
+          actor as unknown as { id: string; email: string; role: string; status: string },
+          "execution:create",
+          authPid,
+        );
+      } catch {
+        throw Err.notFound("EXECUTION_NOT_FOUND", "execution not found");
+      }
+    }
+
     const detection = await this.svc.detector.detect(reader);
 
     // Docker step only when Docker is genuinely configured (it is not in this

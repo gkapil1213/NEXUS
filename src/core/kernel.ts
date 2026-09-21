@@ -336,6 +336,9 @@ const memberships = new ProjectMembershipStore(rawDb);
         audit,
         evidence,
         artifacts,
+        // Phase 171: authoritative project resolution.
+        engine,
+        memberships,
       });
       // Phase 105 Pass 2: register the real GitHub Actions provider only when
       // a GitHub connection is actually established. When it is not, the
@@ -523,6 +526,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         releaseDecision,
         releaseBridge,
         this.executionStore,
+        engine,
       );
 
       // Phase 104: durable release recovery. Runs once at boot, only when
@@ -542,6 +546,7 @@ const memberships = new ProjectMembershipStore(rawDb);
             smoke: runtime.smoke,
             svc: { events, audit },
             workerId: recoveryWorkerId,
+            engine,
             reconciler: new ReleaseRecoveryEvidenceReconciler({
               intents: releaseIntents,
               events,

@@ -3,6 +3,7 @@
 // inputs = natural idempotency. Lives in ExecutionStore (SQLite) for real
 // durability across process restarts.
 
+import { Err } from "./errors";
 import type { ExecutionStore, ReleaseDeploymentIntent, ReleaseIntentStatus } from "./execution-store";
 
 export interface ReleaseIntentInput {
@@ -71,7 +72,7 @@ export class ReleaseDeploymentIntentService {
    */
   async getOrCreate(input: ReleaseIntentInput): Promise<{ intent: ReleaseDeploymentIntent; created: boolean }> {
     const intentKey = this.computeKey(input);
-    return this.store.createReleaseIntentIdempotent({
+    const __result = this.store.createReleaseIntentIdempotent({
       intentKey,
       releaseId: input.releaseId,
       executionId: input.executionId,
@@ -91,6 +92,7 @@ export class ReleaseDeploymentIntentService {
       rollbackTargetReleaseId: input.rollbackTargetReleaseId ?? null,
       rollbackJobId: input.rollbackJobId ?? null,
     });
+    return __result;
   }
 
   get(intentKey: string): ReleaseDeploymentIntent | undefined {
