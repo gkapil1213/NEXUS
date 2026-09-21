@@ -1,0 +1,89 @@
+{
+    "phase":  173,
+    "title":  "Durable Release Execution Recovery \u0026 Unknown-Outcome Safety",
+    "commit":  "d9968d625121a6a782bc59e402ce1c2b984265b3",
+    "branch":  "master",
+    "tag":  "nexus-phase173-complete",
+    "originMasterAtCheckpoint":  "0f6a43f5024d0500ee2ccb130327268caf0b9132",
+    "predecessor":  {
+                        "commit":  "0f6a43f5024d0500ee2ccb130327268caf0b9132",
+                        "tag":  "nexus-phase172-complete"
+                    },
+    "tests":  {
+                  "phase173":  {
+                                   "suite":  "scripts/test-phase173-release-recovery-crash-safety.ts",
+                                   "passed":  48,
+                                   "failed":  0
+                               },
+                  "phase172":  {
+                                   "suite":  "scripts/test-phase172-production-release-execution-safety.ts",
+                                   "passed":  41,
+                                   "failed":  0
+                               },
+                  "phase171":  {
+                                   "suite":  "scripts/test-phase171-project-scoped-cicd-release-integrity.ts",
+                                   "passed":  32,
+                                   "failed":  0
+                               },
+                  "phase170":  {
+                                   "suite":  "scripts/test-phase170-project-resource-authorization.ts",
+                                   "passed":  48,
+                                   "failed":  0
+                               },
+                  "phase169":  {
+                                   "suite":  "scripts/test-phase169-project-membership-administration.ts",
+                                   "passed":  92,
+                                   "failed":  0
+                               },
+                  "phase168":  {
+                                   "suite":  "scripts/test-phase168-project-authorization.ts",
+                                   "passed":  44,
+                                   "failed":  0
+                               },
+                  "phase167":  {
+                                   "suite":  "scripts/test-phase167-audit-provenance-control-plane.ts",
+                                   "passed":  52,
+                                   "failed":  0
+                               },
+                  "phase166":  {
+                                   "suite":  "scripts/test-phase166-audit-provenance-integrity.ts",
+                                   "passed":  118,
+                                   "failed":  0
+                               },
+                  "phase165":  {
+                                   "suite":  "scripts/test-phase165-execution-evidence-provenance.ts",
+                                   "passed":  94,
+                                   "failed":  0
+                               },
+                  "canonicalDeployment":  {
+                                              "suite":  "scripts/run-canonical-deployment-tests.ts",
+                                              "passed":  67,
+                                              "failed":  0
+                                          }
+              },
+    "gates":  {
+                  "tsc":  "PASS",
+                  "build":  "PASS",
+                  "gitDiffCheck":  "PASS"
+              },
+    "blockedOrProviderUnavailable":  [
+                                         "External production cloud provider reconciliation is unavailable in the test environment; ProviderReconciliationResult is exercised via a deterministic test double that never fabricates DEPLOYED without a durable intent transition."
+                                     ],
+    "recoveryGuarantees":  [
+                               "An exception escaping the deployment provider returns RECOVERY_REQUIRED, never FAIL and never DEPLOYED. Emits release.execution.provider_unknown audit with the error reason.",
+                               "The bridge transitions an intent to RECOVERY_REQUIRED when the deployment orchestrator throws, because the intent is already DEPLOYING and the external side effect may have occurred.",
+                               "ReleaseExecutionProvider gains an optional reconcile() method returning DEPLOYED | NOT_DEPLOYED | UNKNOWN. Providers without reconcile() remain valid; recovery stays RECOVERY_REQUIRED when it is absent.",
+                               "Same-attempt retry remains authorized; different-attempt reuse is blocked via consumedByAttemptId fencing (unchanged from Phase 138/172).",
+                               "Intent identity includes attemptId: different attemptId produces a distinct intentKey, so replay is caught at the authorization-consumption layer rather than silently reusing an intent.",
+                               "Durable lease fencing prevents a stale worker from releasing or renewing a lease it does not own; expired leases can be re-acquired.",
+                               "Terminal intent transitions (KNOWN_GOOD, FAILED, BLOCKED, RECOVERY_REQUIRED) persist across process restart, including recoveryReason.",
+                               "dispatch() emits release.recovery.already_succeeded / already_failed audit on terminal-skip. Best-effort: audit failure cannot corrupt the state machine.",
+                               "The recovery classifier remains unchanged: DEPLOYING -\u003e RECOVERY_REQUIRED (requires Docker inspection), KNOWN_GOOD/FAILED/BLOCKED are terminal, RECOVERY_REQUIRED stays RECOVERY_REQUIRED."
+                           ],
+    "git":  {
+                "head":  "d9968d625121a6a782bc59e402ce1c2b984265b3",
+                "originMaster":  "0f6a43f5024d0500ee2ccb130327268caf0b9132",
+                "tag":  null,
+                "workingTree":  "clean"
+            }
+}
