@@ -146,7 +146,7 @@ class AtomicClaimReject extends Error {
 }
 export class ExecutionStore {
   readonly recoveryOps: ExecutionRecoveryOperationStore;
-  /** @internal Phase 142 â€” test-only injection hook. No-op in production. */
+  /** @internal Phase 142 Ã¢â‚¬â€ test-only injection hook. No-op in production. */
   public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
   /** @internal Phase 143 - test-only injection hook. No-op in production. */
   public __testPhase143Hook?: (stage: "afterJobUpdate" | "afterObligation") => void;
@@ -818,7 +818,7 @@ export class ExecutionStore {
       return { updated: true, applied: true, attempt: row ? this.mapAttempt(row) : undefined };
     }
 
-    // Diagnostic classification only â€” the authoritative mutation is the UPDATE above.
+    // Diagnostic classification only Ã¢â‚¬â€ the authoritative mutation is the UPDATE above.
     const row = this.db.prepare("SELECT * FROM execution_attempts WHERE id = ?").get(attempt.id) as any;
     if (!row || row.job_id !== attempt.jobId) {
       return { updated: false, reason: "ATTEMPT_NOT_FOUND" };
@@ -1168,7 +1168,7 @@ export class ExecutionStore {
 
   // ---------- Leases ----------
   /**
-   * Phase 142: atomic claim of a QUEUED job â€” single SQLite transaction.
+   * Phase 142: atomic claim of a QUEUED job Ã¢â‚¬â€ single SQLite transaction.
    *
    * Every durable step executes directly inside the transaction. This method
    * MUST NOT call transitionExecution(); doing so would create a nested
@@ -1235,7 +1235,7 @@ export class ExecutionStore {
         this.__testPhase142Hook("afterLeaseInsert");
       }
 
-      // 4. CAS job UPDATE â€” direct statement, no nested tx.
+      // 4. CAS job UPDATE Ã¢â‚¬â€ direct statement, no nested tx.
       const upd = this.db.prepare(
         "UPDATE execution_jobs SET status = 'CLAIMED', updated_at = ?, current_lease_id = ? " +
         "WHERE id = ? AND status = 'QUEUED' AND cancellation_requested = 0 AND current_lease_id IS NULL"
@@ -1246,7 +1246,7 @@ export class ExecutionStore {
         this.__testPhase142Hook("afterJobUpdate");
       }
 
-      // 5. Durable event INSERT â€” addEvent is a direct INSERT (no tx).
+      // 5. Durable event INSERT Ã¢â‚¬â€ addEvent is a direct INSERT (no tx).
       this.addEvent({
         eventId: "evt_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 10),
         jobId: input.jobId,
@@ -2530,4 +2530,5 @@ export type ExecutionAuditStore = Pick<ExecutionStore,
   | "pageProvenanceByJob"
   | "verifyProvenanceByAttempt"
   | "verifyProvenanceById"
+  | "getJob"
 >;

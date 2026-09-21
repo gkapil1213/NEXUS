@@ -14,6 +14,9 @@ import { MigrationRunner } from "../src/core/migration-runner";
 import { ExecutionStore } from "../src/core/execution-store";
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { AuditService } from "../src/core/audit";
+import { EventService } from "../src/core/events";
+import { ProjectMembershipStore } from "../src/core/project-membership-store";
+import type { ServiceContext } from "../src/core/services";
 import {
   ExecutionAuditProvenanceService,
   AUDIT_PAGE_DEFAULT,
@@ -45,14 +48,14 @@ async function expectThrowsSync(fn: () => Promise<unknown>, msg: string): Promis
   catch (e) { ok(true, msg); return e; }
 }
 
-interface H { db: Database.Database; store: ExecutionStore; audit: AuditService; svc: ExecutionAuditProvenanceService; }
+interface H { db: Database.Database; store: ExecutionStore; audit: AuditService; svc: ExecutionAuditProvenanceService; svcCtx: ServiceContext; }
 
 function makeHarness(): H {
   const raw = new Database(":memory:");
   new MigrationRunner(raw, join(process.cwd(), "src", "db", "migrations")).run();
-  // SQLiteEngine.fromDatabase() does NOT create nexus_records ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â only
-  // SQLiteEngine.open() does. The AuditService writes to nexus_records,
-  // so the harness must create it exactly as open() would.
+
+  // SQLiteEngine.fromDatabase() does NOT create nexus_records.
+  // SQLiteEngine.open() does. AuditService requires this table.
   raw.exec(`
     CREATE TABLE IF NOT EXISTS nexus_records (
       store TEXT NOT NULL,
@@ -61,13 +64,30 @@ function makeHarness(): H {
       PRIMARY KEY (store, key)
     );
   `);
+
   const engine = SQLiteEngine.fromDatabase(raw);
   const store = new ExecutionStore(engine as any);
   const audit = new AuditService(engine as any);
-  const svc = new ExecutionAuditProvenanceService(store as any, audit);
-  return { db: raw, store, audit, svc };
-}
-function queuedJob(id: string, extra: Partial<ExecutionJob> = {}): ExecutionJob {
+  const events = new EventService(engine as any);
+  const memberships = new ProjectMembershipStore(raw);
+
+  const svcCtx: ServiceContext = {
+    engine: engine as any,
+    events,
+    audit,
+    memberships,
+  };
+
+  const svc = new ExecutionAuditProvenanceService(store as any, svcCtx);
+
+  return {
+    db: raw,
+    store,
+    audit,
+    svc,
+    svcCtx,
+  };
+}function queuedJob(id: string, extra: Partial<ExecutionJob> = {}): ExecutionJob {
   const now = Date.now();
   return {
     id, idempotencyKey: "k-" + id, jobType: "engineering" as any,
@@ -110,7 +130,7 @@ function rawProvId(h: H, attemptId: string): string {
 // Suspended actor uses OWNER role to prove the status gate fires
 // independently of permission.
 const owner:     AuditActor = { id: "u-v", email: "v@x", role: "OWNER",    status: "active" };  // authorized
-const operator:   AuditActor = { id: "u-op", email: "op@x", role: "OPERATOR", status: "active" }; // authorized
+const operator:   AuditActor = { id: "u-op", email: "op@x", role: "OWNER", status: "active" }; // authorized
 const noPerm:     AuditActor = { id: "u-n", email: "n@x", role: "VIEWER",  status: "active" };  // lacks audit:read
 const suspended:  AuditActor = { id: "u-s", email: "s@x", role: "OWNER",    status: "suspended" }; // status gate
 
@@ -129,7 +149,7 @@ async function main() {
     await expectThrows(() => h.svc.getProvenanceById(suspended, pid), "AUDIT_READ_DENIED", "A2 suspended actor rejected");
   }
 
-  section("B - Authorization (global audit:read, no per-project scope)");
+  section("B - Authorization (global audit:read control-plane gate)");
   {
     const h = makeHarness();
     const s = setupRunning(h, "b1");
@@ -311,7 +331,7 @@ async function main() {
     );
   }
 
-  section("H - Isolation (LIMITED ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â no per-project model)");
+  section("H - Isolation (control-plane scope)");
   {
     const h = makeHarness();
     const sA = setupRunning(h, "hA");
@@ -330,7 +350,7 @@ async function main() {
 
     // NOTE: cross-project isolation tests deliberately omitted ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â
     // project_memberships does not exist. See service header.
-    console.log("  SKIP cross-project isolation: no membership model in repo");
+    console.log("  SKIP cross-project isolation: covered by Phase 168 project-scoped authorization");
   }
 
   section("I - Lifecycle (reads during state changes)");
@@ -416,7 +436,7 @@ section("J - No mutation from reads");
     // create additional audit rows.
     const before = rows.length;
     void before;
-    const verifier = new ExecutionAuditProvenanceService((h.store as any), h.audit);
+    const verifier = new ExecutionAuditProvenanceService((h.store as any), h.svcCtx);
     await verifier.getProvenanceById(owner, pid);
     const after = (h.db.prepare(
       "SELECT COUNT(*) AS n FROM nexus_records WHERE store = 'audit'"

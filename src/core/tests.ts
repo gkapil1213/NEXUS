@@ -899,6 +899,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         const projectId = await p3Project();
         const tight = new WorkspaceService({
           engine: services.engine,
+          memberships: services.memberships,
           authz: services.authz,
           audit: services.audit,
           events: services.events,
@@ -921,6 +922,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         const projectId = await p3Project();
         const tight = new WorkspaceService({
           engine: services.engine,
+          memberships: services.memberships,
           authz: services.authz,
           audit: services.audit,
           events: services.events,

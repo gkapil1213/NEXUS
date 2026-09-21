@@ -1,22 +1,26 @@
 // src/core/execution-audit-provenance-service.ts
 //
 // Phase 167 - production audit / provenance control-plane service.
+// Phase 168 - project-scoped authorization gate.
 //
-// Read-only service boundary over Phase 165/166 durable outcome provenance.
-// Every method: validate input -> authorize -> read through ExecutionStore
-// -> record AuditService entry -> return controlled DTO.
+// Read-only. Every method: validate -> global audit:read gate -> project
+// gate (when resource is project-scoped) -> read -> audit -> DTO.
 //
-// SCOPE LIMITATION (reported honestly, not faked):
-//   NEXUS has NO user<->project membership model and no per-resource
-//   authorization. can(actor, permission) is a global role->permission
-//   matrix; its _resource parameter is unused. Cross-project isolation
-//   (Phase 167 sections 4/5/14.B/14.H) is therefore NOT implemented.
-//   This service enforces a single global audit:read permission.
+// Project scope (Phase 168): resource -> job -> payload.executionId ->
+// Execution.project_id. project_id present: require active membership
+// whose role permits audit:read. project_id missing: system-scoped,
+// OWNER only. Unauthorized callers receive PROVENANCE_NOT_FOUND so
+// resource existence is not enumerable.
 
 import { can } from "./security";
 import { Err } from "./errors";
-import type { AuditService } from "./audit";
 import type { ExecutionAuditStore } from "./execution-store";
+import type { ServiceContext } from "./services";
+import {
+  authorizeProject,
+  isPlatformAdmin,
+  resolveProjectForJobId,
+} from "./project-authorization";
 import type {
   ExecutionOutcomeProvenance,
   ExecutionJobStatus,
@@ -58,10 +62,7 @@ export interface AuditActor {
   status: string;
 }
 
-interface Cursor {
-  terminalizedAt: number;
-  provenanceId: string;
-}
+interface Cursor { terminalizedAt: number; provenanceId: string; }
 
 function encodeCursor(c: Cursor): string {
   const json = JSON.stringify({ t: c.terminalizedAt, p: c.provenanceId });
@@ -70,63 +71,42 @@ function encodeCursor(c: Cursor): string {
 
 function decodeCursor(s: string): Cursor {
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(s, "base64url").toString("utf8"));
-  } catch {
-    throw Err.validation("INVALID_CURSOR", "cursor is not a valid opaque token");
-  }
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    typeof (parsed as any).t !== "number" ||
-    typeof (parsed as any).p !== "string" ||
-    (parsed as any).p.length === 0 ||
-    (parsed as any).p.length > 256
-  ) {
+  try { parsed = JSON.parse(Buffer.from(s, "base64url").toString("utf8")); }
+  catch { throw Err.validation("INVALID_CURSOR", "cursor is not a valid opaque token"); }
+  if (!parsed || typeof parsed !== "object"
+      || typeof (parsed as any).t !== "number"
+      || typeof (parsed as any).p !== "string"
+      || (parsed as any).p.length === 0
+      || (parsed as any).p.length > 256) {
     throw Err.validation("INVALID_CURSOR", "cursor contents are malformed");
   }
   return { terminalizedAt: (parsed as any).t, provenanceId: (parsed as any).p };
 }
 
 function validateIdentifier(value: string, field: string, maxLen = 256): string {
-  if (typeof value !== "string") {
-    throw Err.validation("INVALID_IDENTIFIER", field + " must be a string");
-  }
+  if (typeof value !== "string") throw Err.validation("INVALID_IDENTIFIER", field + " must be a string");
   const t = value.trim();
-  if (t.length === 0 || t.length > maxLen) {
-    throw Err.validation("INVALID_IDENTIFIER", field + " length out of range");
-  }
-  if (!/^[A-Za-z0-9._:\-]+$/.test(t)) {
-    throw Err.validation("INVALID_IDENTIFIER", field + " contains disallowed characters");
-  }
+  if (t.length === 0 || t.length > maxLen) throw Err.validation("INVALID_IDENTIFIER", field + " length out of range");
+  if (!/^[A-Za-z0-9._:\-]+$/.test(t)) throw Err.validation("INVALID_IDENTIFIER", field + " contains disallowed characters");
   return t;
 }
 
 function validateLimit(limit: number | undefined): number {
   if (limit === undefined) return AUDIT_PAGE_DEFAULT;
-  if (!Number.isInteger(limit) || limit < 1) {
-    throw Err.validation("INVALID_LIMIT", "limit must be a positive integer");
-  }
-  if (limit > AUDIT_PAGE_MAX) {
-    throw Err.validation("INVALID_LIMIT", "limit must be <= " + AUDIT_PAGE_MAX);
-  }
+  if (!Number.isInteger(limit) || limit < 1) throw Err.validation("INVALID_LIMIT", "limit must be a positive integer");
+  if (limit > AUDIT_PAGE_MAX) throw Err.validation("INVALID_LIMIT", "limit must be <= " + AUDIT_PAGE_MAX);
   return limit;
 }
 
 export class ExecutionAuditProvenanceService {
   constructor(
     private readonly store: ExecutionAuditStore,
-    private readonly audit: AuditService,
+    private readonly ctx: ServiceContext,
   ) {}
 
-  private async authorize(
-    actor: AuditActor,
-    action: string,
-    resourceType: string,
-    resourceId: string,
-  ): Promise<void> {
+  private async authorize(actor: AuditActor, action: string, resourceType: string, resourceId: string): Promise<void> {
     if (!can(actor as any, "audit:read")) {
-      await this.audit.record({
+      await this.ctx.audit.record({
         actor: actor.email,
         action: "audit:denied:" + action,
         resource_type: resourceType,
@@ -134,7 +114,38 @@ export class ExecutionAuditProvenanceService {
         result: "deny",
         metadata: { role: actor.role, reason: "missing audit:read" },
       });
-      throw Err.denied("AUDIT_READ_DENIED", "role '" + actor.role + "' does not hold 'audit:read'");
+      throw Err.denied("AUDIT_READ_DENIED", `role '${actor.role}' does not hold 'audit:read'`);
+    }
+  }
+
+  private async gateProjectForJob(
+    actor: AuditActor,
+    jobId: string,
+    action: string,
+    resourceType: string,
+    resourceId: string,
+  ): Promise<void> {
+    const projectId = await resolveProjectForJobId(
+      this.ctx.engine,
+      (id) => this.store.getJob(id),
+      jobId,
+    );
+    if (projectId === null) {
+      if (isPlatformAdmin(actor)) return;
+      await this.ctx.audit.record({
+        actor: actor.email,
+        action: "audit:denied:" + action,
+        resource_type: resourceType,
+        resource_id: resourceId,
+        result: "deny",
+        metadata: { role: actor.role, reason: "system_scoped_requires_admin" },
+      });
+      throw Err.notFound("PROVENANCE_NOT_FOUND", "not found");
+    }
+    try {
+      await authorizeProject(this.ctx, actor, "audit:read", projectId);
+    } catch {
+      throw Err.notFound("PROVENANCE_NOT_FOUND", "not found");
     }
   }
 
@@ -146,7 +157,7 @@ export class ExecutionAuditProvenanceService {
     outcome: "ok" | "not_found" | "integrity_failure" | "hash_mismatch",
     metadata: Record<string, unknown> = {},
   ): Promise<void> {
-    await this.audit.record({
+    await this.ctx.audit.record({
       actor: actor.email,
       action: "audit:" + action,
       resource_type: resourceType,
@@ -162,12 +173,13 @@ export class ExecutionAuditProvenanceService {
     const res = this.store.queryProvenanceById(id);
     if (res.kind === "not_found") {
       await this.recordAccess(actor, "read:provenance", "provenance", id, "not_found");
-      throw Err.notFound("PROVENANCE_NOT_FOUND", "provenance record not found");
+      throw Err.notFound("PROVENANCE_NOT_FOUND", "not found");
     }
     if (res.kind === "integrity_failure") {
       await this.recordAccess(actor, "read:provenance", "provenance", id, "integrity_failure", { failureKind: res.failure.kind });
       throw Err.integrity("PROVENANCE_INTEGRITY_FAILURE", "provenance failed consistency checks");
     }
+    await this.gateProjectForJob(actor, res.record.jobId, "read:provenance", "provenance", id);
     await this.recordAccess(actor, "read:provenance", "provenance", id, "ok");
     return res.record;
   }
@@ -178,12 +190,13 @@ export class ExecutionAuditProvenanceService {
     const res = this.store.queryProvenanceByAttempt(id);
     if (res.kind === "not_found") {
       await this.recordAccess(actor, "read:attempt", "attempt", id, "not_found");
-      throw Err.notFound("PROVENANCE_NOT_FOUND", "provenance for attempt not found");
+      throw Err.notFound("PROVENANCE_NOT_FOUND", "not found");
     }
     if (res.kind === "integrity_failure") {
       await this.recordAccess(actor, "read:attempt", "attempt", id, "integrity_failure", { failureKind: res.failure.kind });
       throw Err.integrity("PROVENANCE_INTEGRITY_FAILURE", "provenance failed consistency checks");
     }
+    await this.gateProjectForJob(actor, res.record.jobId, "read:attempt", "attempt", id);
     await this.recordAccess(actor, "read:attempt", "attempt", id, "ok");
     return res.record;
   }
@@ -194,12 +207,13 @@ export class ExecutionAuditProvenanceService {
     const res = this.store.queryProvenanceByRecoveryOperation(id);
     if (res.kind === "not_found") {
       await this.recordAccess(actor, "read:recovery_operation", "recovery_operation", id, "not_found");
-      throw Err.notFound("PROVENANCE_NOT_FOUND", "provenance for recovery operation not found");
+      throw Err.notFound("PROVENANCE_NOT_FOUND", "not found");
     }
     if (res.kind === "integrity_failure") {
       await this.recordAccess(actor, "read:recovery_operation", "recovery_operation", id, "integrity_failure", { failureKind: res.failure.kind });
       throw Err.integrity("PROVENANCE_INTEGRITY_FAILURE", "provenance failed consistency checks");
     }
+    await this.gateProjectForJob(actor, res.record.jobId, "read:recovery_operation", "recovery_operation", id);
     await this.recordAccess(actor, "read:recovery_operation", "recovery_operation", id, "ok");
     return res.record;
   }
@@ -213,6 +227,7 @@ export class ExecutionAuditProvenanceService {
     const limit = validateLimit(options.limit);
     const cursor = options.cursor ? decodeCursor(options.cursor) : null;
     await this.authorize(actor, "read:job", "job", id);
+    await this.gateProjectForJob(actor, id, "read:job", "job", id);
     const page = this.store.pageProvenanceByJob(id, limit, cursor);
     if (page.kind === "integrity_failure") {
       await this.recordAccess(actor, "read:job", "job", id, "integrity_failure", { failureKind: page.failure.kind });
@@ -230,10 +245,11 @@ export class ExecutionAuditProvenanceService {
   async getRetryLineage(actor: AuditActor, jobId: string): Promise<RetryLineageView> {
     const id = validateIdentifier(jobId, "jobId");
     await this.authorize(actor, "read:retry_lineage", "job", id);
+    await this.gateProjectForJob(actor, id, "read:retry_lineage", "job", id);
     const res = this.store.queryRetryLineage(id);
     if (res.kind === "integrity_failure") {
       await this.recordAccess(actor, "read:retry_lineage", "job", id, "integrity_failure", { failureKind: res.failure.kind });
-      throw Err.integrity("PROVENANCE_INTEGRITY_FAILURE", "provenance failed consistency checks");
+      throw Err.integrity("PROVENANCE_INTEGRITY_FAILURE", "retry lineage failed consistency checks");
     }
     await this.recordAccess(actor, "read:retry_lineage", "job", id, "ok", { steps: res.steps.length });
     return {
@@ -251,6 +267,16 @@ export class ExecutionAuditProvenanceService {
   async verifyByAttempt(actor: AuditActor, attemptId: string): Promise<VerificationView> {
     const id = validateIdentifier(attemptId, "attemptId");
     await this.authorize(actor, "verify:attempt", "attempt", id);
+    const pre = this.store.queryProvenanceByAttempt(id);
+    if (pre.kind === "not_found") {
+      await this.recordAccess(actor, "verify:attempt", "attempt", id, "not_found");
+      return { status: "not_found", provenanceId: null, expected: null, actual: null };
+    }
+    if (pre.kind === "integrity_failure") {
+      await this.recordAccess(actor, "verify:attempt", "attempt", id, "integrity_failure", { failureKind: pre.failure.kind });
+      throw Err.integrity("PROVENANCE_INTEGRITY_FAILURE", "provenance failed consistency checks");
+    }
+    await this.gateProjectForJob(actor, pre.record.jobId, "verify:attempt", "attempt", id);
     const res = this.store.verifyProvenanceByAttempt(id);
     if (res.kind === "not_found") {
       await this.recordAccess(actor, "verify:attempt", "attempt", id, "not_found");
@@ -267,6 +293,16 @@ export class ExecutionAuditProvenanceService {
   async verifyById(actor: AuditActor, provenanceId: string): Promise<VerificationView> {
     const id = validateIdentifier(provenanceId, "provenanceId");
     await this.authorize(actor, "verify:provenance", "provenance", id);
+    const pre = this.store.queryProvenanceById(id);
+    if (pre.kind === "not_found") {
+      await this.recordAccess(actor, "verify:provenance", "provenance", id, "not_found");
+      return { status: "not_found", provenanceId: null, expected: null, actual: null };
+    }
+    if (pre.kind === "integrity_failure") {
+      await this.recordAccess(actor, "verify:provenance", "provenance", id, "integrity_failure", { failureKind: pre.failure.kind });
+      throw Err.integrity("PROVENANCE_INTEGRITY_FAILURE", "provenance failed consistency checks");
+    }
+    await this.gateProjectForJob(actor, pre.record.jobId, "verify:provenance", "provenance", id);
     const res = this.store.verifyProvenanceById(id);
     if (res.kind === "not_found") {
       await this.recordAccess(actor, "verify:provenance", "provenance", id, "not_found");

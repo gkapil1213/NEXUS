@@ -21,9 +21,11 @@
  */
 
 import { nid, type NexusEngine } from "./db";
+import { authorizeProject } from "./project-authorization";
 import { Err } from "./errors";
 import { safeWorkspacePath, type AuthorizationService } from "./security";
 import type { AuditService } from "./audit";
+import type { ProjectMembershipStore } from "./project-membership-store";
 import type { EventService } from "./events";
 import type {
   ExecutionSandbox,
@@ -130,6 +132,7 @@ export interface WorkspaceServices {
   events: EventService;
   policy: FileAccessPolicy;
   limits: WorkspaceLimits;
+  memberships: ProjectMembershipStore;
 }
 
 export class WorkspaceService {
@@ -167,7 +170,7 @@ export class WorkspaceService {
     actor: WorkspaceActor,
     input: { project_id: string; execution_id: string; ttl_ms?: number },
   ): Promise<WorkspaceRecord> {
-    await this.svc.authz.authorize(actor, "workspace:create", { type: "workspace", id: input.execution_id });
+    await authorizeProject(this.svc, actor, "workspace:create", input.project_id);
 
     const now = Date.now();
     const ws: WorkspaceRecord = {
@@ -192,16 +195,16 @@ export class WorkspaceService {
   }
 
   async get(actor: WorkspaceActor, id: string): Promise<WorkspaceRecord> {
-    await this.svc.authz.authorize(actor, "workspace:read", { type: "workspace", id });
     const ws = await this.svc.engine.get<WorkspaceRecord>("workspaces", id);
     if (!ws) throw Err.notFound("WORKSPACE_NOT_FOUND", "workspace not found");
+    await authorizeProject(this.svc, actor, "workspace:read", ws.project_id);
     return ws;
   }
 
   /** Activate (READY → ACTIVE). Expired workspaces are BLOCKED, never activated. */
   async activate(actor: WorkspaceActor, id: string): Promise<WorkspaceRecord> {
-    await this.svc.authz.authorize(actor, "workspace:create", { type: "workspace", id });
     const ws = await this.mustGet(id);
+    await authorizeProject(this.svc, actor, "workspace:create", ws.project_id);
 
     if (this.isExpired(ws)) {
       await this.auditWs(actor, "workspace.expired", ws, "deny", { reason: "ttl elapsed before activation" });
@@ -217,8 +220,8 @@ export class WorkspaceService {
    * A failed cleanup is recorded honestly as FAILED, never swallowed.
    */
   async cleanup(actor: WorkspaceActor, id: string): Promise<WorkspaceRecord> {
-    await this.svc.authz.authorize(actor, "workspace:delete", { type: "workspace", id });
     const ws = await this.mustGet(id);
+    await authorizeProject(this.svc, actor, "workspace:delete", ws.project_id);
 
     // Idempotency: already terminal.
     if (ws.status === "DESTROYED") return ws;
@@ -260,14 +263,14 @@ export class WorkspaceService {
 
   /** Controlled read. Passes identity → authorization → ownership → path policy. */
   async readFile(actor: WorkspaceActor, id: string, path: string): Promise<WorkspaceFileRecord> {
-    await this.svc.authz.authorize(actor, "workspace:read", { type: "workspace", id });
     const ws = await this.requireActive(actor, id, "read");
+    await authorizeProject(this.svc, actor, "workspace:read", ws.project_id);
     if (ws.owner_identity_id !== actor.id) {
       await this.auditWs(actor, "workspace.access.denied", ws, "deny", { op: "read", reason: "not the workspace owner" });
       throw Err.denied("WORKSPACE_FOREIGN", "denied");
     }
 
-    await this.svc.authz.authorize(actor, "project:read", { type: "project", id: ws.project_id });
+    await authorizeProject(this.svc, actor, "project:read", ws.project_id);
     const decision = await this.authorizePath(actor, ws, path, "read");
     const rec = await this.svc.engine.byIndex<WorkspaceFileRecord>("workspace_files", "byWorkspace", id);
     const file = rec.find((f) => f.path === decision.normalized);
@@ -279,8 +282,8 @@ export class WorkspaceService {
 
   /** Controlled write with size/count/total limits. Fail closed (BLOCKED). */
   async writeFile(actor: WorkspaceActor, id: string, path: string, content: string): Promise<WorkspaceFileRecord> {
-    await this.svc.authz.authorize(actor, "workspace:create", { type: "workspace", id });
     const ws = await this.requireActive(actor, id, "write");
+    await authorizeProject(this.svc, actor, "workspace:create", ws.project_id);
     const decision = await this.authorizePath(actor, ws, path, "write");
 
     const limits = this.svc.limits;
@@ -327,15 +330,15 @@ export class WorkspaceService {
 
   /** Controlled listing — only this workspace's files are ever returned. */
   async listFiles(actor: WorkspaceActor, id: string): Promise<WorkspaceFileRecord[]> {
-    await this.svc.authz.authorize(actor, "workspace:read", { type: "workspace", id });
-    await this.requireActive(actor, id, "list");
+    const ws = await this.requireActive(actor, id, "list");
+    await authorizeProject(this.svc, actor, "workspace:read", ws.project_id);
     const files = await this.svc.engine.byIndex<WorkspaceFileRecord>("workspace_files", "byWorkspace", id);
     return files.filter((f) => f.workspace_id === id).sort((a, b) => a.path.localeCompare(b.path));
   }
 
   async exists(actor: WorkspaceActor, id: string, path: string): Promise<boolean> {
-    await this.svc.authz.authorize(actor, "workspace:read", { type: "workspace", id });
     const ws = await this.requireActive(actor, id, "exists");
+    await authorizeProject(this.svc, actor, "workspace:read", ws.project_id);
     const decision = await this.authorizePath(actor, ws, path, "exists");
     const files = await this.svc.engine.byIndex<WorkspaceFileRecord>("workspace_files", "byWorkspace", id);
     return files.some((f) => f.path === decision.normalized);

@@ -1,5 +1,5 @@
 /**
- * NEXUS Projects — real project lifecycle + engineering request submission.
+ * NEXUS Projects â€” real project lifecycle + engineering request submission.
  * All state comes from ProjectService; actions are gated by RBAC.
  */
 
@@ -32,15 +32,15 @@ export function ProjectsScreen() {
   const openProject = useCallback(
     async (p: Project) => {
       setSelected(p);
-      if (services) {
+      if (services && user) {
         try {
-          setExecutions(await services.executions.byProject(p.id));
+          setExecutions(await services.executions.byProject(user, p.id));
         } catch {
           setExecutions([]);
         }
       }
     },
-    [services],
+    [services, user],
   );
 
   const canCreate = user?.role === "OWNER" || user?.role === "ADMIN" || user?.role === "ENGINEER";
@@ -63,7 +63,7 @@ export function ProjectsScreen() {
       <SectionHead
         kicker="portfolio"
         title="Projects"
-        sub="Real project records with lifecycle control — ACTIVE, PAUSED, ARCHIVED. Empty means the database is empty."
+        sub="Real project records with lifecycle control â€” ACTIVE, PAUSED, ARCHIVED. Empty means the database is empty."
         right={canCreate ? <Button icon="plus" onClick={() => setCreateOpen(true)}>New project</Button> : <Badge tone="mut"><Icon name="lock" size={10} /> read-only role</Badge>}
       />
 
@@ -73,7 +73,7 @@ export function ProjectsScreen() {
         <EmptyState
           icon="box"
           title="Zero projects in the database"
-          body="Nothing has been created yet — this is the true persisted state. Create the first project to begin."
+          body="Nothing has been created yet â€” this is the true persisted state. Create the first project to begin."
           action={canCreate ? <Button icon="plus" onClick={() => setCreateOpen(true)}>Create project</Button> : undefined}
         />
       ) : (
@@ -91,7 +91,7 @@ export function ProjectsScreen() {
                 <p className="mt-1 line-clamp-2 text-xs text-mut min-h-[32px]">{p.description || "no description"}</p>
                 <div className="mt-3 flex items-center gap-2 font-mono text-[10px] text-dim">
                   <Icon name="branch" size={11} />
-                  <span className="truncate">{p.repository || "no repository"} · {p.default_branch}</span>
+                  <span className="truncate">{p.repository || "no repository"} Â· {p.default_branch}</span>
                 </div>
                 <div className="mt-2 font-mono text-[10px] text-dim">created {timeAgo(p.created_at)}</div>
               </button>
@@ -122,7 +122,7 @@ export function ProjectsScreen() {
 
             <div className="space-y-5 p-5">
               <div className="grid grid-cols-2 gap-3 font-mono text-[11px]">
-                <div className="panel-inset p-3"><span className="mono-label block">repository</span><span className="text-mut break-all">{selected.repository || "—"}</span></div>
+                <div className="panel-inset p-3"><span className="mono-label block">repository</span><span className="text-mut break-all">{selected.repository || "â€”"}</span></div>
                 <div className="panel-inset p-3"><span className="mono-label block">default branch</span><span className="text-mut">{selected.default_branch}</span></div>
                 <div className="panel-inset p-3"><span className="mono-label block">created</span><span className="text-mut">{fmtDateTime(selected.created_at)}</span></div>
                 <div className="panel-inset p-3"><span className="mono-label block">updated</span><span className="text-mut">{fmtDateTime(selected.updated_at)}</span></div>
@@ -146,7 +146,7 @@ export function ProjectsScreen() {
               <RequestPanel project={selected} onSubmitted={() => void openProject(selected)} />
 
               <div>
-                <div className="mono-label mb-2 flex items-center gap-2"><Icon name="play" size={11} /> executions · {executions.length}</div>
+                <div className="mono-label mb-2 flex items-center gap-2"><Icon name="play" size={11} /> executions Â· {executions.length}</div>
                 {executions.length === 0 ? (
                   <p className="font-mono text-[11px] text-dim">no executions for this project yet</p>
                 ) : (
@@ -189,7 +189,7 @@ function RequestPanel({ project, onSubmitted }: { project: Project; onSubmitted:
       const evidence = await services.evidence.list(user, res.execution.id);
       setLastResult({ status: res.execution.status, id: res.execution.id, evidence: evidence.length });
       setText("");
-      toast(res.execution.status === "SUCCEEDED" ? "ok" : "err", `Execution ${res.execution.status.toLowerCase()}`, res.execution.id.slice(0, 20) + "…");
+      toast(res.execution.status === "SUCCEEDED" ? "ok" : "err", `Execution ${res.execution.status.toLowerCase()}`, res.execution.id.slice(0, 20) + "â€¦");
       onSubmitted();
     } catch (e) {
       const msg = e instanceof Err.constructor ? (e as { message: string }).message : (e as Error).message;
@@ -204,15 +204,15 @@ function RequestPanel({ project, onSubmitted }: { project: Project; onSubmitted:
       <div className="mono-label mb-2 flex items-center gap-2"><Icon name="terminal" size={11} /> engineering request</div>
       {!canRun ? (
         <p className="text-xs text-dim">
-          {project.status !== "ACTIVE" ? "project is not ACTIVE — executions are refused" : "your role cannot create executions"}
+          {project.status !== "ACTIVE" ? "project is not ACTIVE â€” executions are refused" : "your role cannot create executions"}
         </p>
       ) : (
         <div className="space-y-3">
-          <TextArea value={text} onChange={(e) => setText(e.target.value)} placeholder="Describe the engineering work, e.g. “Design the booking confirmation flow and its API contract”" />
+          <TextArea value={text} onChange={(e) => setText(e.target.value)} placeholder="Describe the engineering work, e.g. â€œDesign the booking confirmation flow and its API contractâ€" />
           {error ? <p className="rounded border border-flame/30 bg-flame/10 px-3 py-2 font-mono text-[11px] text-flame">{error}</p> : null}
           {lastResult ? (
             <p className={cx("rounded border px-3 py-2 font-mono text-[11px]", lastResult.status === "SUCCEEDED" ? "border-moss/30 bg-moss/10 text-moss" : "border-flame/30 bg-flame/10 text-flame")}>
-              {lastResult.status} · {lastResult.evidence} evidence record(s) · {lastResult.id.slice(0, 22)}…
+              {lastResult.status} Â· {lastResult.evidence} evidence record(s) Â· {lastResult.id.slice(0, 22)}â€¦
             </p>
           ) : null}
           <div className="flex justify-end">
@@ -263,7 +263,7 @@ function CreateProjectModal({ open, onClose, onCreated }: { open: boolean; onClo
         </Field>
         <div className="grid grid-cols-[1fr_120px] gap-3">
           <Field label="Repository (optional)">
-            <TextInput value={form.repository} onChange={(e) => setForm({ ...form, repository: e.target.value })} placeholder="https://…" />
+            <TextInput value={form.repository} onChange={(e) => setForm({ ...form, repository: e.target.value })} placeholder="https://â€¦" />
           </Field>
           <Field label="Branch">
             <TextInput value={form.default_branch} onChange={(e) => setForm({ ...form, default_branch: e.target.value })} />

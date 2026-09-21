@@ -12,6 +12,7 @@ import { digestOf, nid, type NexusEngine } from "./db";
 import { Err, toSystemError } from "./errors";
 import type { EventService } from "./events";
 import { can, validateProjectInput } from "./security";
+import { authorizeProject, projectPermissionAllowed } from "./project-authorization";
 import type {
   ArtifactReference,
   Evidence,
@@ -31,6 +32,8 @@ export interface ServiceContext {
   engine: NexusEngine;
   events: EventService;
   audit: AuditService;
+  // Phase 168: durable project membership source of truth.
+  memberships: import("./project-membership-store").ProjectMembershipStore;
 }
 
 async function authorize(
@@ -58,8 +61,8 @@ export class ProjectService {
   constructor(private ctx: ServiceContext) {}
 
   async create(actor: Actor, input: { name: string; description?: string; repository?: string; default_branch?: string }): Promise<Project> {
-    const clean = validateProjectInput(input);
     await authorize(this.ctx, actor, "project:create", { type: "project", id: "*" });
+    const clean = validateProjectInput(input);
     const now = Date.now();
     const project: Project = {
       id: nid("prj"),
@@ -68,7 +71,12 @@ export class ProjectService {
       created_at: now,
       updated_at: now,
     };
-    await this.ctx.engine.put("projects", project.id, project);
+    // Phase 168: project row + creator's PROJECT_OWNER membership are
+    // committed in one SQLite transaction. Either both succeed or
+    // neither does. Bypasses engine.put on purpose - engine.put is
+    // async and cannot participate in better-sqlite3's synchronous
+    // transaction callback. Both tables live in the same database.
+    this.ctx.memberships.insertProjectWithOwner(project, actor.id);
     await this.ctx.audit.record({
       actor: actor.email,
       action: "project.create",
@@ -82,23 +90,37 @@ export class ProjectService {
   }
 
   async get(actor: Actor, id: string): Promise<Project> {
-    await authorize(this.ctx, actor, "project:read", { type: "project", id });
+    // Phase 168: existence + membership are checked by authorizeProject
+    // in a single call. Both "project missing" and "not a member"
+    // surface as PROJECT_ACCESS_DENIED so unauthorized callers cannot
+    // enumerate project existence.
+    await authorizeProject(this.ctx, actor, "project:read", id);
     const project = await this.ctx.engine.get<Project>("projects", id);
     if (!project) throw Err.notFound("PROJECT_NOT_FOUND", "project not found");
     return project;
   }
 
   async list(actor: Actor): Promise<Project[]> {
-    await authorize(this.ctx, actor, "project:read", { type: "project", id: "*" });
+    // Phase 168: platform admins (OWNER) see every project; ordinary
+    // actors see only projects where they hold an ACTIVE membership
+    // whose role permits project:read. Filtering is enforced here, at
+    // the service layer, not in any UI.
+    if (!can(actor, "project:read")) {
+      throw Err.denied("PERMISSION_DENIED", `role '${actor.role}' does not hold 'project:read'`);
+    }
     const rows = await this.ctx.engine.all<Project>("projects");
-    return rows.sort((a, b) => b.created_at - a.created_at);
+    const visible = rows.filter((p) => projectPermissionAllowed(this.ctx, actor, "project:read", p.id));
+    return visible.sort((a, b) => b.created_at - a.created_at);
   }
 
   async update(actor: Actor, id: string, patch: Partial<{ name: string; description: string; repository: string; default_branch: string; status: ProjectStatus }>): Promise<Project> {
+    // Phase 168: project:archive / project:update enforced via the
+    // actor's project membership. Platform admins bypass membership.
+    const permission: Permission = patch.status === "ARCHIVED" ? "project:archive" : "project:update";
+    await authorizeProject(this.ctx, actor, permission, id);
+
     const project = await this.ctx.engine.get<Project>("projects", id);
     if (!project) throw Err.notFound("PROJECT_NOT_FOUND", "project not found");
-    const permission: Permission = patch.status === "ARCHIVED" ? "project:archive" : "project:update";
-    await authorize(this.ctx, actor, permission, { type: "project", id });
 
     const changes: string[] = [];
     if (patch.name !== undefined || patch.description !== undefined || patch.repository !== undefined || patch.default_branch !== undefined) {
@@ -152,6 +174,10 @@ export class ExecutionService {
   constructor(private ctx: ServiceContext) {}
 
   async createQueued(actor: Actor, projectId: string, request: string): Promise<Execution> {
+    // Phase 168: project-scoped. Requires global execution:create +
+    // ACTIVE project membership whose role permits execution:create.
+    await authorizeProject(this.ctx, actor, "execution:create", projectId);
+
     const now = Date.now();
     const execution: Execution = {
       id: nid("exe"),
@@ -171,6 +197,15 @@ export class ExecutionService {
   async transition(actor: Actor | null, id: string, status: ExecutionStatus, error?: ReturnType<typeof toSystemError> | null): Promise<Execution> {
     const execution = await this.ctx.engine.get<Execution>("executions", id);
     if (!execution) throw Err.notFound("EXECUTION_NOT_FOUND", "execution not found");
+
+    // Phase 168: authorize before mutating. null actor = internal/system
+    // control-plane caller (existing signature preserved for that path).
+    // Every production caller in src/ passes a real actor.
+    if (actor) {
+      const permission: Permission = status === "CANCELLED" ? "execution:cancel" : "execution:create";
+      await authorizeProject(this.ctx, actor, permission, execution.project_id);
+    }
+
     const allowed: Record<ExecutionStatus, ExecutionStatus[]> = {
       QUEUED: ["RUNNING", "CANCELLED", "FAILED"],
       RUNNING: ["SUCCEEDED", "FAILED", "CANCELLED"],
@@ -205,25 +240,37 @@ export class ExecutionService {
   }
 
   async get(actor: Actor, id: string): Promise<Execution> {
-    await authorize(this.ctx, actor, "execution:read", { type: "execution", id });
     const execution = await this.ctx.engine.get<Execution>("executions", id);
+    // Not-found before authorization so a nonexistent id is indistinguishable
+    // from an unauthorized one at the caller boundary.
     if (!execution) throw Err.notFound("EXECUTION_NOT_FOUND", "execution not found");
+    await authorizeProject(this.ctx, actor, "execution:read", execution.project_id);
     return execution;
   }
 
   async list(actor: Actor): Promise<Execution[]> {
-    await authorize(this.ctx, actor, "execution:read", { type: "execution", id: "*" });
+    if (!can(actor, "execution:read")) {
+      throw Err.denied("PERMISSION_DENIED", `role '${actor.role}' does not hold 'execution:read'`);
+    }
     const rows = await this.ctx.engine.all<Execution>("executions");
-    return rows.sort((a, b) => b.started_at - a.started_at);
+    const visible = rows.filter((e) => projectPermissionAllowed(this.ctx, actor, "execution:read", e.project_id));
+    return visible.sort((a, b) => b.started_at - a.started_at);
   }
 
-  async byProject(projectId: string): Promise<Execution[]> {
+  async byProject(actor: Actor, projectId: string): Promise<Execution[]> {
+    // Phase 168: actor-aware. Requires execution:read on the target project.
+    await authorizeProject(this.ctx, actor, "execution:read", projectId);
     const rows = await this.ctx.engine.byIndex<Execution>("executions", "byProject", projectId);
     return rows.sort((a, b) => b.started_at - a.started_at);
   }
 
   async cancel(actor: Actor, id: string): Promise<Execution> {
-    await authorize(this.ctx, actor, "execution:cancel", { type: "execution", id });
+    // cancel delegates the actual auth check to transition(), which applies
+    // authorizeProject(..., "execution:cancel", ...) against the resolved
+    // execution.project_id. Explicit load here so not-found semantics are
+    // preserved for the cancel path specifically.
+    const execution = await this.ctx.engine.get<Execution>("executions", id);
+    if (!execution) throw Err.notFound("EXECUTION_NOT_FOUND", "execution not found");
     return this.transition(actor, id, "CANCELLED");
   }
 }
