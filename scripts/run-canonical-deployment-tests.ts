@@ -615,7 +615,7 @@ async function main() {
     const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
 
     const artifactsStub: any = {
-      async list(execId: string) {
+      async list(_actor: string, execId: string) {
         if (execId === "exec-t39") {
           return [{ id: "art-t39", execution_id: "exec-t39", kind: "DOCKER_IMAGE", name: "t39", digest: "sha256:t39", size: 0, location: "artifact://art-t39", created_at: Date.now() }];
         }
@@ -632,7 +632,19 @@ async function main() {
         return { status: "ALLOW", releaseId: p.releaseId, artifactId: p.artifactId, artifactDigest: p.artifactDigest, securityStatus: "PASS", riskScore: 0, policyStatus: "PASS", approvalStatus: "APPROVED", blockers: [], warnings: [] };
       }
     };
-    const enforcement = new ProductionReleaseEnforcementService({} as any, {} as any, decisionStub, bridge);
+    const _t39RawDb = (engine as any).getDatabase?.();
+    if (!_t39RawDb) { throw new Error("T39b requires raw DB handle"); }
+    const _t39Store = new ExecutionStore(_t39RawDb);
+    const t39AttemptId = "attempt-t39b";
+    const t39JobId = "job-t39b";
+    if (!_t39Store.getJob(t39JobId)) {
+      _t39Store.createJob({ id: t39JobId, idempotencyKey: "k-" + t39JobId, jobType: "engineering", payload: { kind: "engineering", executionId: "rel-t39" }, status: "QUEUED", createdAt: Date.now(), updatedAt: Date.now(), cancellationRequested: false, cancellationAcknowledged: false } as any);
+    }
+    if (!_t39Store.getAttempt(t39AttemptId)) {
+      _t39Store.createAttempt({ id: t39AttemptId, jobId: t39JobId, attemptNumber: 1, status: "RUNNING", workerId: "w-t39b", leaseId: "L-t39b", startedAt: Date.now(), createdAt: Date.now() } as any);
+    }
+    await engine.put("executions", "exec-t39", { id: "exec-t39", project_id: "proj-t39", status: "RUNNING", started_at: Date.now(), completed_at: null, created_by: "system", request: "canonical-t39", metadata: {} });
+    const enforcement = new ProductionReleaseEnforcementService({} as any, {} as any, decisionStub, bridge, _t39Store, engine);
     const approval: any = { releaseId: "rel-t39", artifactId: "art-t39", artifactDigest: "sha256:t39", environment: "production", approver: "owner", approvedAt: new Date().toISOString(), status: "APPROVED" };
 
     const reqRes = await enforcement.requestRelease({
@@ -648,7 +660,7 @@ async function main() {
 
     if (reqRes.authorization) {
       const auth = reqRes.authorization;
-      const depRes = await enforcement.executeRelease(auth.authorizationId, auth.releaseId, auth.artifactId, auth.commitSha, auth.environment);
+      const depRes = await enforcement.executeRelease(auth.authorizationId, auth.releaseId, auth.artifactId, auth.commitSha, auth.environment, t39AttemptId);
       const persisted = depRes.deploymentId ? await history.getDeployment(depRes.deploymentId) : null;
       check(
         "T39b enforcement ALLOW -> bridge -> canonical deployment -> KNOWN_GOOD",
@@ -776,11 +788,11 @@ async function main() {
   const recovery = new ReleaseRecoveryService();
 
   if (!intents) {
-    console.log("[SKIPPED] Phase 103 tests — engine.getDatabase() unavailable");
+    console.log("[SKIPPED] Phase 103 tests â€” engine.getDatabase() unavailable");
   } else {
 
   const artifactStub = (id, execId, digest) => ({
-    async list(execution_id) {
+    async list(_actor: any, execution_id: string) {
       if (execution_id !== execId) return [];
       return [{ id, execution_id: execId, kind: "DOCKER_IMAGE", name: id, digest, size: 0, location: "artifact://" + id, created_at: Date.now() }];
     }
@@ -795,7 +807,7 @@ async function main() {
   });
 
   {
-    const t43Suffix = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); const input = { releaseId: "rel-t43-" + t43Suffix, executionId: "exec-t43-" + t43Suffix, artifactId: "art-t43-" + t43Suffix, artifactDigest: "sha256:t43-" + t43Suffix, commitSha: "c-t43-" + t43Suffix, environment: "production", imageRepository: "nexus/t43-" + t43Suffix, imageTag: "v1", imageId: null, imageDigest: "sha256:t43-" + t43Suffix, containerName: "t43-c-" + t43Suffix, containerPort: 8080 };
+    const t43Suffix = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); const input = { releaseId: "rel-t43-" + t43Suffix, executionId: "exec-t43-" + t43Suffix, artifactId: "art-t43-" + t43Suffix, artifactDigest: "sha256:t43-" + t43Suffix, commitSha: "c-t43-" + t43Suffix, environment: "t43-isolated", projectId: "proj-t43-" + t43Suffix, imageRepository: "nexus/t43-" + t43Suffix, imageTag: "v1", imageId: null, imageDigest: "sha256:t43-" + t43Suffix, containerName: "t43-c-" + t43Suffix, containerPort: 8080 };
     const r1 = await intents.getOrCreate(input);
     const r2 = await intents.getOrCreate(input);
     check("T43 durable intent created with deterministic key", r1.created === true && r2.created === false && r1.intent.intentKey === r2.intent.intentKey, "created1=" + r1.created + " created2=" + r2.created);
@@ -817,10 +829,22 @@ async function main() {
     const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactStub(artifactId44, execId44, "sha256:t44"), svc: fakeSvc, intents });
     const req = {
       authorizationId: "auth-t44-" + n44, releaseId: "rel-t44-" + n44, artifactId: artifactId44,
-      commitSha: "c-t44-" + n44, environment: "production", projectId: "proj-t44-" + n44,
+      commitSha: "c-t44-" + n44, environment: "t44-isolated", projectId: "proj-t44-" + n44,
       executionId: execId44, imageRepository: "nexus/t44", imageTag: "v1",
       imageId: "sha256:t44", imageDigest: "sha256:t44", containerName: containerName44, containerPort: 8080, attemptId: "attempt-t44-" + n44,
     };
+        const _t44RawDb = (engine as any).getDatabase?.();
+    if (!_t44RawDb) { throw new Error("T44 requires raw DB handle"); }
+    const _t44Store = new ExecutionStore(_t44RawDb);
+    const t44AttemptId = "attempt-t44-" + n44;
+    const t44JobId = "job-t44-" + n44;
+    if (!_t44Store.getJob(t44JobId)) {
+      _t44Store.createJob({ id: t44JobId, idempotencyKey: "k-" + t44JobId, jobType: "engineering", payload: { kind: "engineering", executionId: execId44 }, status: "QUEUED", createdAt: Date.now(), updatedAt: Date.now(), cancellationRequested: false, cancellationAcknowledged: false } as any);
+    }
+    if (!_t44Store.getAttempt(t44AttemptId)) {
+      _t44Store.createAttempt({ id: t44AttemptId, jobId: t44JobId, attemptNumber: 1, status: "RUNNING", workerId: "w-t44", leaseId: "L-t44", startedAt: Date.now(), createdAt: Date.now() } as any);
+    }
+    await engine.put("executions", execId44, { id: execId44, project_id: "proj-t44-" + n44, status: "RUNNING", started_at: Date.now(), completed_at: null, created_by: "system", request: "canonical-t44", metadata: {} });
     const first = await bridge.execute(req);
     const runsAfterFirst = dockerRuns;
     const second = await bridge.execute(req);
@@ -841,7 +865,7 @@ async function main() {
   }
 
   {
-    const input = { releaseId: "rel-t49", executionId: "exec-t49", artifactId: "art-t49", artifactDigest: "sha256:t49", commitSha: "c-t49", environment: "production", imageRepository: "nexus/t49", imageTag: "v1", imageId: "sha256:t49", imageDigest: "sha256:t49", containerName: "t49-c", containerPort: 8080 };
+    const input = { releaseId: "rel-t49", executionId: "exec-t49", artifactId: "art-t49", attemptId: "attempt-t49", artifactDigest: "sha256:t49", commitSha: "c-t49", environment: "production", imageRepository: "nexus/t49", imageTag: "v1", imageId: "sha256:t49", imageDigest: "sha256:t49", containerName: "t49-c", containerPort: 8080 };
     const { intent } = await intents.getOrCreate(input);
     intents.transition(intent.intentKey, "DEPLOYING");
     let dockerRuns = 0;
@@ -854,7 +878,8 @@ async function main() {
   }
 
   {
-    const input = { releaseId: "rel-t52", executionId: "exec-t52", artifactId: "art-t52", artifactDigest: "sha256:t52", commitSha: "c-t52", environment: "production", imageRepository: "nexus/t52", imageTag: "v1", imageId: "sha256:t52", imageDigest: "sha256:t52", containerName: "t52-c", containerPort: 8080 };
+    const n52 = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+    const input = { releaseId: "rel-t52-" + n52, executionId: "exec-t52-" + n52, artifactId: "art-t52-" + n52, attemptId: "attempt-t52-" + n52, artifactDigest: "sha256:t52-" + n52, commitSha: "c-t52-" + n52, environment: "production", imageRepository: "nexus/t52", imageTag: "v1", imageId: "sha256:t52-" + n52, imageDigest: "sha256:t52-" + n52, containerName: "t52-c-" + n52, containerPort: 8080 };
     const { intent } = await intents.getOrCreate(input);
     const first = intents.acquireLease(intent.intentKey, "worker-A");
     const second = intents.acquireLease(intent.intentKey, "worker-B");
@@ -862,8 +887,9 @@ async function main() {
     const docker = mockDocker((op) => { if (op.kind === "run") dockerRuns++; return undefined; });
     const smoke = mockSmoke(() => okSmoke());
     const orch = new CanonicalDeploymentOrchestrator(history, docker, smoke, fakeSvc);
-    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactStub("art-t52", "exec-t52", "sha256:t52"), svc: fakeSvc, intents, workerId: "worker-B" });
-    const res = await bridge.execute(baseReq("t52", "art-t52", "sha256:t52"));
+    const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactStub("art-t52-" + n52, "exec-t52-" + n52, "sha256:t52-" + n52), svc: fakeSvc, intents, workerId: "worker-B" });
+    const req52 = { ...baseReq("t52-" + n52, "art-t52-" + n52, "sha256:t52-" + n52), releaseId: "rel-t52-" + n52, executionId: "exec-t52-" + n52, projectId: "proj-t52-" + n52, attemptId: "attempt-t52-" + n52, imageDigest: "sha256:t52-" + n52 };
+    const res = await bridge.execute(req52);
     check("T52 lease prevents concurrent deployment", first.acquired === true && second.acquired === false && res.status === "BLOCKED" && dockerRuns === 0, "first=" + first.acquired + " second=" + second.acquired + " res=" + res.status);
   }
 
@@ -961,7 +987,7 @@ async function main() {
       "status=" + res.status + " used=" + used);
   }
 
-  // T82: malformed artifact content → no override, legacy behavior preserved
+  // T82: malformed artifact content â†’ no override, legacy behavior preserved
   {
     const sfx = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
     const execId = "exec-t82-" + sfx;
@@ -1009,7 +1035,7 @@ async function main() {
       "status=" + res.status + " used=" + used);
   }
 
-  // T83: no IMAGE_DIGEST artifact → legacy behavior unchanged
+  // T83: no IMAGE_DIGEST artifact â†’ legacy behavior unchanged
   {
     const sfx = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
     const execId = "exec-t83-" + sfx;
@@ -1046,12 +1072,12 @@ async function main() {
     });
     const runOp = seen.find((o) => o.kind === "run");
     const used = runOp ? (runOp as any).image : null;
-    check("T83 no IMAGE_DIGEST artifact — legacy behavior unchanged",
+    check("T83 no IMAGE_DIGEST artifact â€” legacy behavior unchanged",
       res.status === "DEPLOYED" && used === "nexus/t83@" + callerDigest,
       "status=" + res.status + " used=" + used);
   }
 
-  // T84: no engine dep — override disabled, legacy behavior preserved
+  // T84: no engine dep â€” override disabled, legacy behavior preserved
   {
     const sfx = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
     const execId = "exec-t84-" + sfx;
@@ -1075,7 +1101,7 @@ async function main() {
           digest: callerDigest, size: 0, location: "artifact://" + artId, created_at: Date.now() }];
       }
     };
-    // No engine — override path disabled.
+    // No engine â€” override path disabled.
     const bridge = new ReleaseDeploymentBridge({ deployments: orch, artifacts: artifactsStub, svc: fakeSvc });
     const res = await bridge.execute({
       authorizationId: "auth-t84", releaseId: "rel-t84", artifactId: artId,
@@ -1087,7 +1113,7 @@ async function main() {
     });
     const runOp = seen.find((o) => o.kind === "run");
     const used = runOp ? (runOp as any).image : null;
-    check("T84 no engine dep — override disabled, legacy behavior preserved",
+    check("T84 no engine dep â€” override disabled, legacy behavior preserved",
       res.status === "DEPLOYED" && used === "nexus/t84@" + callerDigest,
       "status=" + res.status + " used=" + used);
   }
