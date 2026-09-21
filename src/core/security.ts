@@ -19,6 +19,7 @@ import type { IdentityStatus, NetworkPolicy, Permission, PublicUser, Role, Secre
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   OWNER: [
     "project:create", "project:read", "project:update", "project:archive",
+    "membership:read", "membership:create", "membership:update", "membership:revoke",
     "execution:create", "execution:read", "execution:cancel", "execution:retry",
     "agent:register", "agent:read", "agent:execute", "agent:configure",
     "artifact:read", "artifact:create",
@@ -34,6 +35,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
   ADMIN: [
     "project:create", "project:read", "project:update", "project:archive",
+    "membership:read", "membership:create", "membership:update", "membership:revoke",
     "execution:create", "execution:read", "execution:cancel", "execution:retry",
     "agent:register", "agent:read", "agent:execute", "agent:configure",
     "artifact:read", "artifact:create",
@@ -49,6 +51,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   ],
   OPERATOR: [
     "project:read",
+    "membership:read",
     "execution:create", "execution:read", "execution:cancel", "execution:retry",
     "agent:read", "agent:execute",
     "artifact:read", "artifact:create",

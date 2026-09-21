@@ -65,6 +65,7 @@ import { CanonicalDeploymentOrchestrator } from "./deployment-orchestrator";
 import { SecurityApi } from "./security-api";
 import { ExecutionAuditProvenanceService } from "./execution-audit-provenance-service";
 import { ProjectMembershipStore } from "./project-membership-store";
+import { ProjectMembershipService } from "./project-membership-service";
 import { SecurityReleaseGate } from "./security-release-gate";
 import { ProductionReleaseDecisionService } from "./production-release-decision";
 import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
@@ -85,6 +86,7 @@ export interface KernelServices {
   events: EventService;
   audit: AuditService;
   memberships: ProjectMembershipStore;
+  membershipService: ProjectMembershipService;
   registry: AgentRegistry;
   orchestrator: NexusOrchestrator;
   projects: ProjectService;
@@ -226,6 +228,7 @@ const rawDb = (engine as any).getDatabase();
 const memberships = new ProjectMembershipStore(rawDb);
       const svcCtx: ServiceContext = { engine, events, audit , memberships };
       const projects = new ProjectService(svcCtx);
+      const membershipService = new ProjectMembershipService(svcCtx);
       const executions = new ExecutionService(svcCtx);
       const evidence = new EvidenceService(svcCtx);
       const artifacts = new ArtifactService(svcCtx);
@@ -579,6 +582,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         events,
         audit,
         memberships,
+        membershipService,
         registry,
         orchestrator,
         projects,

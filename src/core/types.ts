@@ -39,6 +39,10 @@ export type Role = (typeof ROLES)[number];
 
 export const PERMISSIONS = [
   "project:create",
+  "membership:read",
+  "membership:create",
+  "membership:update",
+  "membership:revoke",
   "project:read",
   "project:update",
   "project:archive",
@@ -295,6 +299,13 @@ export type NexusEventType =
   | "project.created"
   | "project.updated"
   | "project.archived"
+  // Phase 169 - membership administration (append-only)
+  | "project.member.added"
+  | "project.member.role_changed"
+  | "project.member.suspended"
+  | "project.member.restored"
+  | "project.member.revoked"
+  | "project.ownership.transferred"
   // Phase 2 — security & isolation events (append-only, ordered like all others)
   | "session.refreshed"
   | "authorization.granted"
