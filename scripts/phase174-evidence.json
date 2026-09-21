@@ -1,0 +1,101 @@
+{
+    "phase":  174,
+    "title":  "Recovery Concurrency and Rollback Safety",
+    "commit":  "5373655436594115ba3b2e2395d6ae2913814348",
+    "branch":  "master",
+    "tag":  "nexus-phase174-complete",
+    "originMasterAtCheckpoint":  "22937921e37df8738845d67de1868e3a6c3d904a",
+    "predecessor":  {
+                        "commit":  "22937921e37df8738845d67de1868e3a6c3d904a",
+                        "tag":  "nexus-phase173-complete"
+                    },
+    "tests":  {
+                  "phase174":  {
+                                   "suite":  "scripts/test-phase174-recovery-concurrency-and-rollback-safety.ts",
+                                   "passed":  76,
+                                   "failed":  0
+                               },
+                  "phase173":  {
+                                   "suite":  "scripts/test-phase173-release-recovery-crash-safety.ts",
+                                   "passed":  48,
+                                   "failed":  0
+                               },
+                  "phase172":  {
+                                   "suite":  "scripts/test-phase172-production-release-execution-safety.ts",
+                                   "passed":  41,
+                                   "failed":  0
+                               },
+                  "phase171":  {
+                                   "suite":  "scripts/test-phase171-project-scoped-cicd-release-integrity.ts",
+                                   "passed":  32,
+                                   "failed":  0
+                               },
+                  "phase170":  {
+                                   "suite":  "scripts/test-phase170-project-resource-authorization.ts",
+                                   "passed":  48,
+                                   "failed":  0
+                               },
+                  "phase169":  {
+                                   "suite":  "scripts/test-phase169-project-membership-administration.ts",
+                                   "passed":  92,
+                                   "failed":  0
+                               },
+                  "phase168":  {
+                                   "suite":  "scripts/test-phase168-project-authorization.ts",
+                                   "passed":  44,
+                                   "failed":  0
+                               },
+                  "phase167":  {
+                                   "suite":  "scripts/test-phase167-audit-provenance-control-plane.ts",
+                                   "passed":  52,
+                                   "failed":  0
+                               },
+                  "phase166":  {
+                                   "suite":  "scripts/test-phase166-audit-provenance-integrity.ts",
+                                   "passed":  118,
+                                   "failed":  0
+                               },
+                  "phase165":  {
+                                   "suite":  "scripts/test-phase165-execution-evidence-provenance.ts",
+                                   "passed":  94,
+                                   "failed":  0
+                               },
+                  "phase138":  {
+                                   "suite":  "scripts/test-phase138-recovery.ts",
+                                   "passed":  15,
+                                   "failed":  0
+                               },
+                  "canonicalDeployment":  {
+                                              "suite":  "scripts/run-canonical-deployment-tests.ts",
+                                              "passed":  67,
+                                              "failed":  0
+                                          }
+              },
+    "gates":  {
+                  "tsc":  "PASS",
+                  "build":  "PASS",
+                  "gitDiffCheck":  "PASS"
+              },
+    "blockedOrProviderUnavailable":  [
+
+                                     ],
+    "recoveryGuarantees":  [
+                               "Fenced transition: updateReleaseIntentStatusIfOwned only succeeds when the caller\u0027s workerId holds a live (non-expired) lease on the intent. Returns { updated: false } for a stale worker; the caller must stop.",
+                               "Renewal fencing: renewReleaseIntentLease requires lease_expires_at \u003e now. An expired worker cannot revive its lease; a superseded worker cannot renew.",
+                               "Atomic SQL conditional: the fenced transition is a single UPDATE ... WHERE intent_key = ? AND leased_by = ? AND lease_expires_at \u003e ? [AND status IN (...)]. Zero rows affected means the worker is fenced; the JS-side check is not authoritative.",
+                               "First-mutation fencing: the AUTHORIZED -\u003e DEPLOYMENT_INTENT_CREATED path now acquires the lease before transitioning, so even the initial recovery write is fenced identically to later writes.",
+                               "Recovery executor fully fenced: all 19 intents.transition(...) call sites in release-recovery-executor.ts are transitionIfOwned(..., this.deps.workerId, ...).",
+                               "Rollback path already fenced: markFailedAndRollback and resumeRollback acquire the lease before any mutation; all transitions inside them use transitionIfOwned.",
+                               "UNKNOWN provider outcome remains RECOVERY_REQUIRED: an owner may write RECOVERY_REQUIRED with providerStatus=UNKNOWN; a stale worker cannot transition it to KNOWN_GOOD or clear the recovery reason.",
+                               "Cross-project integrity: projectId cannot be overwritten by a patch and is preserved through every transition; two intents from different projects remain isolated in the store.",
+                               "Crash matrix: after a worker crashes without releasing, the lease expires, a new worker acquires authoritatively, the crashed worker is fenced on all attempted mutations, and durable state persists.",
+                               "Expected-status guard: transitions can be gated to an expected status set; mismatch -\u003e not updated, status preserved.",
+                               "Store enforces ownership, not state-machine validity. Terminal-state immutability (ALREADY_KNOWN_GOOD etc.) remains the classifier\u0027s concern, per the existing recovery model."
+                           ],
+    "git":  {
+                "head":  "5373655436594115ba3b2e2395d6ae2913814348",
+                "originMaster":  "22937921e37df8738845d67de1868e3a6c3d904a",
+                "tag":  null,
+                "workingTree":  "clean"
+            }
+}
