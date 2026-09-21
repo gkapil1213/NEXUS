@@ -26,7 +26,8 @@
                     "test:phase166":  "tsx scripts/test-phase166-audit-provenance-integrity.ts",
                     "test:phase172":  "tsx scripts/test-phase172-production-release-execution-safety.ts",
                     "test:phase173":  "tsx scripts/test-phase173-release-recovery-crash-safety.ts",
-                    "test:phase174":  "tsx scripts/test-phase174-recovery-concurrency-and-rollback-safety.ts"
+                    "test:phase174":  "tsx scripts/test-phase174-recovery-concurrency-and-rollback-safety.ts",
+                    "test:phase175":  "tsx scripts/test-phase175-recovery-supervisor-admission.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

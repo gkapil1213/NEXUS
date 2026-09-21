@@ -54,12 +54,26 @@ export interface ReleaseRecoveryExecutorDeps {
   reconciler?: {
     reconcile(intentKey: string): Promise<unknown>;
   };
+  /** Phase 175: bound on recovery work per supervisor cycle. Defaults to 50. */
+  maxIntentsPerRun?: number;
+  /** Phase 175: deterministic bounded backoff for RECOVERY_REQUIRED retries.
+   *  When absent, retry bookkeeping is skipped (pre-Phase-175 behavior). */
+  retryPolicy?: {
+    initialDelayMs: number;
+    multiplier: number;
+    maxDelayMs: number;
+    maxAttempts: number;
+  };
 }
 export interface RecoveryActionRecord { intentKey: string; action: RecoveryAction; reason: string; }
 export interface RecoveryRunReport {
   scanned: number; acted: number; skipped: number; blocked: number; leaseHeld: number;
   actions: RecoveryActionRecord[];
   blockedReasons: Array<{ intentKey: string; reason: string }>;
+  /** Phase 175: intents discovered but not yet due (nextRetryAt > now). */
+  deferredNotDue?: number;
+  /** Phase 175: intents eligible but over maxIntentsPerRun this cycle. */
+  deferredCapacity?: number;
 }
 
 export class ReleaseRecoveryExecutor {
@@ -68,9 +82,19 @@ export class ReleaseRecoveryExecutor {
   async runOnce(now = Date.now()): Promise<RecoveryRunReport> {
     const { intents, recovery, svc } = this.deps;
     const report: RecoveryRunReport = { scanned: 0, acted: 0, skipped: 0, blocked: 0, leaseHeld: 0, actions: [], blockedReasons: [] };
-    const recoverable = intents.listRecoverable();
-    report.scanned = recoverable.length;
-    await svc.events.emit({ type: "release.recovery.started", source: "ReleaseRecoveryExecutor", payload: { scanned: recoverable.length, workerId: this.deps.workerId } });
+    const allRecoverable = intents.listRecoverable();
+    report.scanned = allRecoverable.length;
+    // Phase 175: durable retry backoff — skip intents whose nextRetryAt is in
+    // the future. NULL/undefined nextRetryAt means immediately eligible.
+    const notDue = allRecoverable.filter((i) => i.nextRetryAt !== null && i.nextRetryAt !== undefined && i.nextRetryAt > now);
+    const eligible = allRecoverable.filter((i) => !(i.nextRetryAt !== null && i.nextRetryAt !== undefined && i.nextRetryAt > now));
+    report.deferredNotDue = notDue.length;
+    // Phase 175: bound work per cycle so a large recoverable set cannot
+    // monopolize a single supervisor tick.
+    const cap = this.deps.maxIntentsPerRun ?? 50;
+    const recoverable = eligible.slice(0, cap);
+    report.deferredCapacity = Math.max(0, eligible.length - cap);
+    await svc.events.emit({ type: "release.recovery.started", source: "ReleaseRecoveryExecutor", payload: { scanned: allRecoverable.length, eligible: eligible.length, processed: recoverable.length, deferredNotDue: report.deferredNotDue, deferredCapacity: report.deferredCapacity, workerId: this.deps.workerId } });
     for (const intent of recoverable) {
       try {
         const plan = recovery.classify({ intent, now });
@@ -381,12 +405,24 @@ export class ReleaseRecoveryExecutor {
 
   private async handleRecoveryRequired(intent: ReleaseDeploymentIntent, plan: RecoveryPlan, report: RecoveryRunReport): Promise<void> {
     const { intents } = this.deps;
-    if (!plan.requiresDockerInspection) { report.blocked++; report.blockedReasons.push({ intentKey: intent.intentKey, reason: plan.reason }); return; }
+    // Phase 175: acquire the lease first so retry bookkeeping (which is a
+    // fenced transition) can advance on every due pass, not just on passes
+    // that require Docker inspection.
     const lease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
     if (!lease.acquired) { report.leaseHeld++; return; }
     try {
       const fresh = intents.get(intent.intentKey);
       if (!fresh) { report.skipped++; return; }
+      if (!plan.requiresDockerInspection) {
+        // Phase 175: increment the retry counter and schedule the next
+        // eligible attempt (or exhaust). This is what bounds the retry loop
+        // for intents whose classifier action is RECOVERY_REQUIRED without
+        // requiring inspection.
+        await this.markRecoveryRequired(fresh, plan.reason);
+        report.blocked++;
+        report.blockedReasons.push({ intentKey: fresh.intentKey, reason: plan.reason });
+        return;
+      }
       const inspection = await inspectIntentContainer(fresh, this.deps.docker);
       if (inspection.verdict === "MATCHES_INTENT") { intents.transitionIfOwned(fresh.intentKey, "HEALTH_CHECKING", this.deps.workerId, { recoveryReason: "recovery: container matches intent -> HEALTH_CHECKING" }); report.acted++; return; }
       if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "recovery: container identity mismatch on resume" }); report.acted++; return; }
@@ -441,7 +477,47 @@ export class ReleaseRecoveryExecutor {
   }
 
   private async markRecoveryRequired(intent: ReleaseDeploymentIntent, reason: string): Promise<void> {
-    this.deps.intents.transitionIfOwned(intent.intentKey, "RECOVERY_REQUIRED", this.deps.workerId, { recoveryReason: reason, providerStatus: "UNKNOWN", reconciledAt: Date.now() });
+    // Phase 175: durable retry bookkeeping. When a retryPolicy is configured,
+    // increment recoveryAttempts, compute nextRetryAt via bounded exponential
+    // backoff, and record lastFailureClass. Exhaustion leaves the intent in
+    // RECOVERY_REQUIRED with nextRetryAt = null and emits an exhaustion audit.
+    const policy = this.deps.retryPolicy;
+    const attempts = (intent.recoveryAttempts ?? 0) + 1;
+    let nextRetryAt: number | null = null;
+    let lastFailureClass: string | null = null;
+    let exhausted = false;
+    if (policy) {
+      if (attempts >= policy.maxAttempts) {
+        exhausted = true;
+        // Sentinel far-future value so the discovery filter treats an
+        // exhausted intent as permanently not-due rather than immediately
+        // eligible. null means "fresh / never attempted".
+        nextRetryAt = Number.MAX_SAFE_INTEGER;
+      } else {
+        const delay = Math.min(policy.initialDelayMs * Math.pow(policy.multiplier, attempts - 1), policy.maxDelayMs);
+        nextRetryAt = Date.now() + delay;
+      }
+      lastFailureClass = "RECOVERY_REQUIRED";
+    }
+    this.deps.intents.transitionIfOwned(intent.intentKey, "RECOVERY_REQUIRED", this.deps.workerId, {
+      recoveryReason: reason,
+      providerStatus: "UNKNOWN",
+      reconciledAt: Date.now(),
+      ...(policy ? { recoveryAttempts: attempts, nextRetryAt, lastFailureClass } : {}),
+    });
+    if (policy) {
+      const auditAction = exhausted ? "release.recovery.retry_exhausted" : "release.recovery.retry_scheduled";
+      try {
+        await this.deps.svc.audit.record({
+          actor: this.deps.workerId,
+          action: auditAction,
+          resource_type: "release_deployment_intent",
+          resource_id: intent.intentKey,
+          result: "info",
+          metadata: { attempts, maxAttempts: policy.maxAttempts, nextRetryAt, reason },
+        });
+      } catch { /* audit is best-effort */ }
+    }
     await this.deps.svc.audit.record({ actor: this.deps.workerId, action: "release.recovery.required", resource_type: "release_deployment_intent", resource_id: intent.intentKey, result: "info", metadata: { reason } });
   }
 }
