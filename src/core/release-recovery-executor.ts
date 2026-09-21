@@ -149,9 +149,20 @@ export class ReleaseRecoveryExecutor {
     const { intents, svc } = this.deps;
     if (intent.status === "AUTHORIZED") {
       if (!this.isImmutableComplete(intent)) { await this.blockIntent(intent, "authorized intent missing immutable fields", report); return; }
-      intents.transition(intent.intentKey, "DEPLOYMENT_INTENT_CREATED", { recoveryReason: "recovery: AUTHORIZED -> DEPLOYMENT_INTENT_CREATED" });
-      report.acted++;
-      await svc.events.emit({ type: "release.recovery.advanced", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, from: "AUTHORIZED", to: "DEPLOYMENT_INTENT_CREATED" } });
+      // Phase 174: first mutation on a recovery pass must be lease-fenced.
+      const authLease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+      if (!authLease.acquired) { report.leaseHeld++; return; }
+      try {
+        const adv = intents.transitionIfOwned(intent.intentKey, "DEPLOYMENT_INTENT_CREATED", this.deps.workerId, { recoveryReason: "recovery: AUTHORIZED -> DEPLOYMENT_INTENT_CREATED" });
+        if (adv.updated) {
+          report.acted++;
+          await svc.events.emit({ type: "release.recovery.advanced", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, from: "AUTHORIZED", to: "DEPLOYMENT_INTENT_CREATED" } });
+        } else {
+          report.blocked++;
+        }
+      } finally {
+        intents.releaseLease(intent.intentKey, this.deps.workerId);
+      }
       return;
     }
     if (intent.status === "DEPLOYMENT_INTENT_CREATED") {
@@ -167,7 +178,7 @@ export class ReleaseRecoveryExecutor {
           report.blocked++;
           return;
         }
-        intents.transition(fresh.intentKey, "DEPLOYING", { recoveryReason: "recovery: deploying under lease " + this.deps.workerId });
+        intents.transitionIfOwned(fresh.intentKey, "DEPLOYING", this.deps.workerId, { recoveryReason: "recovery: deploying under lease " + this.deps.workerId });
         // Phase 171: authoritative project resolution before provider invocation.
         // When the engine is wired, verify the recovered intent's project matches
         // the execution.project_id resolved from durable state. Mismatch or
@@ -208,16 +219,16 @@ export class ReleaseRecoveryExecutor {
       const inspection = await inspectIntentContainer(fresh, this.deps.docker);
       if (inspection.verdict === "BLOCKED") { await this.markRecoveryRequired(fresh, "inspection blocked: " + inspection.reason); report.blocked++; return; }
       if (inspection.verdict === "MISSING") { await this.markRecoveryRequired(fresh, "container missing on resume verification"); report.blocked++; return; }
-      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "identity mismatch on resume: expected " + inspection.expectedImageId + " got " + inspection.runningImageId, reconciledAt: Date.now() }); report.acted++; return; }
+      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "identity mismatch on resume: expected " + inspection.expectedImageId + " got " + inspection.runningImageId, reconciledAt: Date.now() }); report.acted++; return; }
       if (!inspection.hostPort) { await this.markRecoveryRequired(fresh, "no host port on inspect"); report.blocked++; return; }
       const stagingUrl = "http://127.0.0.1:" + inspection.hostPort;
       const smokeResult = await this.deps.smoke.run({ staging_url: stagingUrl, execution_id: fresh.executionId });
       if (smokeResult.verdict === "PASS") {
-        intents.transition(fresh.intentKey, "KNOWN_GOOD", { deploymentId: fresh.deploymentId, reconciledAt: Date.now() });
+        intents.transitionIfOwned(fresh.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId: fresh.deploymentId, reconciledAt: Date.now() });
         report.acted++;
         await this.deps.svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, deploymentId: fresh.deploymentId } });
       } else if (smokeResult.verdict === "BLOCKED") { await this.markRecoveryRequired(fresh, "smoke blocked on resume"); report.blocked++; }
-      else { intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "smoke failed on resume", reconciledAt: Date.now() }); report.acted++; }
+      else { intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "smoke failed on resume", reconciledAt: Date.now() }); report.acted++; }
     } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
   }
 
@@ -229,16 +240,16 @@ export class ReleaseRecoveryExecutor {
     try {
       const fresh = intents.get(intent.intentKey);
       if (!fresh || fresh.status !== "VERIFICATION_FAILED") { report.skipped++; return; }
-      intents.transition(fresh.intentKey, "ROLLING_BACK", { recoveryReason: "recovery: verification failed -> rollback" });
+      intents.transitionIfOwned(fresh.intentKey, "ROLLING_BACK", this.deps.workerId, { recoveryReason: "recovery: verification failed -> rollback" });
       if (!this.deps.rollback) {
-        intents.transition(fresh.intentKey, "FAILED", { failureReason: "verification failed; rollback delegate unavailable" });
+        intents.transitionIfOwned(fresh.intentKey, "FAILED", this.deps.workerId, { failureReason: "verification failed; rollback delegate unavailable" });
         report.blocked++;
         report.blockedReasons.push({ intentKey: fresh.intentKey, reason: "rollback delegate unavailable" });
         await svc.events.emit({ type: "release.recovery.rollback.unavailable", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey } });
         return;
       }
       const result = await this.deps.rollback.rollback(fresh);
-      intents.transition(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", { deploymentId: result.deploymentId, failureReason: result.message });
+      intents.transitionIfOwned(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", this.deps.workerId, { deploymentId: result.deploymentId, failureReason: result.message });
       if (result.status === "COMPLETED") report.acted++; else report.blocked++;
       await svc.audit.record({ actor: this.deps.workerId, action: "release.recovery.rollback", resource_type: "release_deployment_intent", resource_id: fresh.intentKey, result: result.status === "COMPLETED" ? "ok" : "blocked", metadata: { message: result.message } });
     } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
@@ -323,7 +334,7 @@ export class ReleaseRecoveryExecutor {
               execution_id: fresh.executionId,
               payload: { ...evidenceBase, verificationStatus: "VERIFIED", reason: ver.message },
             });
-            intents.transition(fresh.intentKey, "FAILED", { recoveryReason: "rollback verified after crash recovery" });
+            intents.transitionIfOwned(fresh.intentKey, "FAILED", this.deps.workerId, { recoveryReason: "rollback verified after crash recovery" });
             report.acted++;
             await this.deps.svc.events.emit({
               type: "release.recovery.rollback.verified",
@@ -352,18 +363,18 @@ export class ReleaseRecoveryExecutor {
             execution_id: fresh.executionId,
             payload: { ...evidenceBase, verificationStatus: "VERIFICATION_FAILED", reason: ver.message },
           });
-          intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: ver.message });
+          intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: ver.message });
           report.acted++;
           return;
         }
         // Legacy DEPLOY-intent path — preserved for canonical suite T78.
-        if (!this.deps.rollback) { intents.transition(fresh.intentKey, "BLOCKED", { failureReason: "rollback in flight; delegate unavailable" }); report.blocked++; return; }
+        if (!this.deps.rollback) { intents.transitionIfOwned(fresh.intentKey, "BLOCKED", this.deps.workerId, { failureReason: "rollback in flight; delegate unavailable" }); report.blocked++; return; }
         const result = await this.deps.rollback.rollback(fresh);
-        intents.transition(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", { failureReason: result.message });
+        intents.transitionIfOwned(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", this.deps.workerId, { failureReason: result.message });
         if (result.status === "COMPLETED") report.acted++; else report.blocked++;
         return;
       }
-      intents.transition(fresh.intentKey, "FAILED", { failureReason: "rollback already completed; terminal" });
+      intents.transitionIfOwned(fresh.intentKey, "FAILED", this.deps.workerId, { failureReason: "rollback already completed; terminal" });
       report.skipped++;
     } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
   }
@@ -377,8 +388,8 @@ export class ReleaseRecoveryExecutor {
       const fresh = intents.get(intent.intentKey);
       if (!fresh) { report.skipped++; return; }
       const inspection = await inspectIntentContainer(fresh, this.deps.docker);
-      if (inspection.verdict === "MATCHES_INTENT") { intents.transition(fresh.intentKey, "HEALTH_CHECKING", { recoveryReason: "recovery: container matches intent -> HEALTH_CHECKING" }); report.acted++; return; }
-      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transition(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "recovery: container identity mismatch on resume" }); report.acted++; return; }
+      if (inspection.verdict === "MATCHES_INTENT") { intents.transitionIfOwned(fresh.intentKey, "HEALTH_CHECKING", this.deps.workerId, { recoveryReason: "recovery: container matches intent -> HEALTH_CHECKING" }); report.acted++; return; }
+      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "recovery: container identity mismatch on resume" }); report.acted++; return; }
       if (inspection.verdict === "MISSING") { await this.markRecoveryRequired(fresh, "container missing on recovery; manual review required"); report.blocked++; return; }
       report.blocked++;
       await this.markRecoveryRequired(fresh, "inspection blocked: " + inspection.reason);
@@ -391,13 +402,13 @@ export class ReleaseRecoveryExecutor {
     const status = outcome.deployment.status;
     const deploymentId = outcome.deployment.id;
     if (status === "KNOWN_GOOD") {
-      intents.transition(intent.intentKey, "KNOWN_GOOD", { deploymentId, providerStatus: status, reconciledAt: Date.now() });
+      intents.transitionIfOwned(intent.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId, providerStatus: status, reconciledAt: Date.now() });
       report.acted++;
       await svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId } });
       return;
     }
-    if (status === "BLOCKED") { intents.transition(intent.intentKey, "BLOCKED", { deploymentId, failureReason: "deployment blocked", providerStatus: status, reconciledAt: Date.now() }); report.blocked++; return; }
-    intents.transition(intent.intentKey, "FAILED", { deploymentId, failureReason: "deployment failed", providerStatus: status, reconciledAt: Date.now() });
+    if (status === "BLOCKED") { intents.transitionIfOwned(intent.intentKey, "BLOCKED", this.deps.workerId, { deploymentId, failureReason: "deployment blocked", providerStatus: status, reconciledAt: Date.now() }); report.blocked++; return; }
+    intents.transitionIfOwned(intent.intentKey, "FAILED", this.deps.workerId, { deploymentId, failureReason: "deployment failed", providerStatus: status, reconciledAt: Date.now() });
     report.acted++;
   }
 
@@ -430,7 +441,7 @@ export class ReleaseRecoveryExecutor {
   }
 
   private async markRecoveryRequired(intent: ReleaseDeploymentIntent, reason: string): Promise<void> {
-    this.deps.intents.transition(intent.intentKey, "RECOVERY_REQUIRED", { recoveryReason: reason, providerStatus: "UNKNOWN", reconciledAt: Date.now() });
+    this.deps.intents.transitionIfOwned(intent.intentKey, "RECOVERY_REQUIRED", this.deps.workerId, { recoveryReason: reason, providerStatus: "UNKNOWN", reconciledAt: Date.now() });
     await this.deps.svc.audit.record({ actor: this.deps.workerId, action: "release.recovery.required", resource_type: "release_deployment_intent", resource_id: intent.intentKey, result: "info", metadata: { reason } });
   }
 }

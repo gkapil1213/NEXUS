@@ -1923,6 +1923,64 @@ export class ExecutionStore {
   }
 
   /**
+   * Phase 174: fenced transition. Only the current, non-expired lease owner
+   * may mutate the intent, and (optionally) only when the current status is
+   * in the expected set. Returns { updated: false } for a stale worker; the
+   * caller MUST treat updated=false as fenced and stop.
+   */
+  updateReleaseIntentStatusIfOwned(
+    intentKey: string,
+    status: ReleaseIntentStatus,
+    workerId: string,
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null } = {},
+    expectedStatuses?: ReleaseIntentStatus[],
+  ): { updated: boolean; intent: ReleaseDeploymentIntent | undefined } {
+    this.ensureIntentTable();
+    const now = Date.now();
+    let sql = `
+      UPDATE release_deployment_intents SET
+        status = ?,
+        deployment_id = COALESCE(?, deployment_id),
+        failure_reason = COALESCE(?, failure_reason),
+        recovery_reason = COALESCE(?, recovery_reason),
+        provider = COALESCE(?, provider),
+        provider_status = COALESCE(?, provider_status),
+        provider_deployment_id = COALESCE(?, provider_deployment_id),
+        started_at = COALESCE(?, started_at),
+        completed_at = COALESCE(?, completed_at),
+        reconciled_at = COALESCE(?, reconciled_at),
+        updated_at = ?
+      WHERE intent_key = ?
+        AND leased_by = ?
+        AND lease_expires_at IS NOT NULL
+        AND lease_expires_at > ?
+    `;
+    const params: any[] = [
+      status,
+      patch.deploymentId ?? null,
+      patch.failureReason ?? null,
+      patch.recoveryReason ?? null,
+      patch.provider ?? null,
+      patch.providerStatus ?? null,
+      patch.providerDeploymentId ?? null,
+      patch.startedAt ?? null,
+      patch.completedAt ?? null,
+      patch.reconciledAt ?? null,
+      now,
+      intentKey,
+      workerId,
+      now,
+    ];
+    if (expectedStatuses && expectedStatuses.length > 0) {
+      sql += " AND status IN (" + expectedStatuses.map(() => "?").join(",") + ")";
+      params.push(...expectedStatuses);
+    }
+    const info = this.db.prepare(sql).run(...params);
+    const updated = (info.changes ?? 0) > 0;
+    return { updated, intent: this.getReleaseIntent(intentKey) };
+  }
+
+  /**
    * Optimistic-lock lease. Acquires iff: no active lease OR lease expired OR caller already holds it.
    * Returns the outcome; caller MUST inspect `acquired`.
    */
@@ -1966,8 +2024,8 @@ export class ExecutionStore {
     const info = this.db.prepare(`
       UPDATE release_deployment_intents SET
         lease_expires_at = ?, updated_at = ?
-      WHERE intent_key = ? AND leased_by = ?
-    `).run(expiresAt, now, intentKey, workerId);
+      WHERE intent_key = ? AND leased_by = ? AND lease_expires_at IS NOT NULL AND lease_expires_at > ?
+    `).run(expiresAt, now, intentKey, workerId, now);
     return (info.changes ?? 0) > 0;
   }
 

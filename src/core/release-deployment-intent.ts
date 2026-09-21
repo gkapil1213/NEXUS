@@ -114,6 +114,21 @@ export class ReleaseDeploymentIntentService {
     return this.store.updateReleaseIntentStatus(intentKey, status, patch);
   }
 
+  /**
+   * Phase 174: fenced transition. Only the current, non-expired lease owner
+   * may mutate the intent; optionally gated to an expected status set.
+   * Returns { updated: false } for a stale worker.
+   */
+  transitionIfOwned(
+    intentKey: string,
+    status: ReleaseIntentStatus,
+    workerId: string,
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null } = {},
+    expectedStatuses?: ReleaseIntentStatus[],
+  ): { updated: boolean; intent: ReleaseDeploymentIntent | undefined } {
+    return this.store.updateReleaseIntentStatusIfOwned(intentKey, status, workerId, patch, expectedStatuses);
+  }
+
   acquireLease(intentKey: string, workerId: string, durationMs = DEFAULT_LEASE_MS): AcquireResult {
     return this.store.acquireReleaseIntentLease(intentKey, workerId, durationMs);
   }
