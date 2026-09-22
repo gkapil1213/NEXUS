@@ -2231,6 +2231,279 @@ export class ExecutionStore {
     };
   }
 
+  // ============================================================
+  // Phase 183b: async persistence for release/deployment intents.
+  // Same SQL semantics as the sync siblings; routes through this.asyncDb.
+  // Shared mode uses these; sync mode continues to use the sync methods.
+  // ============================================================
+
+  async createReleaseIntentIdempotentAsync(
+    input: Omit<ReleaseDeploymentIntent, "status" | "deploymentId" | "failureReason" | "recoveryReason" | "leasedBy" | "leaseExpiresAt" | "createdAt" | "updatedAt">,
+    now: number = Date.now(),
+  ): Promise<{ intent: ReleaseDeploymentIntent; created: boolean }> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(`
+      INSERT INTO release_deployment_intents (
+        intent_key, release_id, execution_id, artifact_id, artifact_digest,
+        commit_sha, environment, image_repository, image_tag, image_id,
+        image_digest, container_name, container_port, status,
+        deployment_id, failure_reason, recovery_reason, leased_by, lease_expires_at,
+        created_at, updated_at, project_id, intent_kind,
+        rollback_target_release_id, rollback_job_id, attempt_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                'DEPLOYMENT_INTENT_CREATED',
+                NULL, NULL, NULL, NULL, NULL,
+                ?, ?, ?, ?,
+                ?, ?, ?)
+      ON CONFLICT (intent_key) DO NOTHING
+    `).run(
+      input.intentKey,
+      input.releaseId,
+      input.executionId,
+      input.artifactId,
+      input.artifactDigest,
+      input.commitSha,
+      input.environment,
+      input.imageRepository,
+      input.imageTag,
+      input.imageId ?? null,
+      input.imageDigest,
+      input.containerName,
+      input.containerPort,
+      now,
+      now,
+      input.projectId ?? null,
+      input.intentKind ?? "DEPLOY",
+      input.rollbackTargetReleaseId ?? null,
+      input.rollbackJobId ?? null,
+      input.attemptId ?? null,
+    );
+    const existing = await this.getReleaseIntentAsync(input.intentKey);
+    if (!existing) throw new Error("release intent missing after INSERT ON CONFLICT DO NOTHING");
+    return { intent: existing, created: r.changes > 0 };
+  }
+
+  async getReleaseIntentAsync(intentKey: string): Promise<ReleaseDeploymentIntent | undefined> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync("SELECT * FROM release_deployment_intents WHERE intent_key = ?").get<any>(intentKey);
+    return row ? this.mapReleaseIntent(row) : undefined;
+  }
+
+  async updateReleaseIntentStatusAsync(
+    intentKey: string,
+    status: ReleaseIntentStatus,
+    patch: {
+      deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null;
+      provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null;
+      startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null;
+      recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null;
+      reconciliationEvidence?: string | null;
+    } = {},
+  ): Promise<ReleaseDeploymentIntent | undefined> {
+    const engine = this.requireAsyncDb();
+    const now = Date.now();
+    await engine.prepareAsync(`
+      UPDATE release_deployment_intents SET
+        status = ?,
+        deployment_id = COALESCE(?, deployment_id),
+        failure_reason = COALESCE(?, failure_reason),
+        recovery_reason = COALESCE(?, recovery_reason),
+        provider = COALESCE(?, provider),
+        provider_status = COALESCE(?, provider_status),
+        provider_deployment_id = COALESCE(?, provider_deployment_id),
+        started_at = COALESCE(?, started_at),
+        completed_at = COALESCE(?, completed_at),
+        reconciled_at = COALESCE(?, reconciled_at),
+        recovery_attempts = COALESCE(?, recovery_attempts),
+        next_retry_at = COALESCE(?, next_retry_at),
+        last_failure_class = COALESCE(?, last_failure_class),
+        reconciliation_evidence = COALESCE(?, reconciliation_evidence),
+        updated_at = ?
+      WHERE intent_key = ?
+    `).run(
+      status,
+      patch.deploymentId ?? null,
+      patch.failureReason ?? null,
+      patch.recoveryReason ?? null,
+      patch.provider ?? null,
+      patch.providerStatus ?? null,
+      patch.providerDeploymentId ?? null,
+      patch.startedAt ?? null,
+      patch.completedAt ?? null,
+      patch.reconciledAt ?? null,
+      patch.recoveryAttempts ?? null,
+      patch.nextRetryAt ?? null,
+      patch.lastFailureClass ?? null,
+      patch.reconciliationEvidence ?? null,
+      now,
+      intentKey,
+    );
+    return this.getReleaseIntentAsync(intentKey);
+  }
+
+  async updateReleaseIntentStatusIfOwnedAsync(
+    intentKey: string,
+    status: ReleaseIntentStatus,
+    workerId: string,
+    patch: {
+      deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null;
+      provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null;
+      startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null;
+      recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null;
+      reconciliationEvidence?: string | null;
+    } = {},
+    expectedStatuses?: ReleaseIntentStatus[],
+  ): Promise<{ updated: boolean; intent: ReleaseDeploymentIntent | undefined }> {
+    const engine = this.requireAsyncDb();
+    const now = Date.now();
+    let sql = `
+      UPDATE release_deployment_intents SET
+        status = ?,
+        deployment_id = COALESCE(?, deployment_id),
+        failure_reason = COALESCE(?, failure_reason),
+        recovery_reason = COALESCE(?, recovery_reason),
+        provider = COALESCE(?, provider),
+        provider_status = COALESCE(?, provider_status),
+        provider_deployment_id = COALESCE(?, provider_deployment_id),
+        started_at = COALESCE(?, started_at),
+        completed_at = COALESCE(?, completed_at),
+        reconciled_at = COALESCE(?, reconciled_at),
+        recovery_attempts = COALESCE(?, recovery_attempts),
+        next_retry_at = COALESCE(?, next_retry_at),
+        last_failure_class = COALESCE(?, last_failure_class),
+        reconciliation_evidence = COALESCE(?, reconciliation_evidence),
+        updated_at = ?
+      WHERE intent_key = ?
+        AND leased_by = ?
+        AND lease_expires_at IS NOT NULL
+        AND lease_expires_at > ?
+    `;
+    const params: unknown[] = [
+      status,
+      patch.deploymentId ?? null,
+      patch.failureReason ?? null,
+      patch.recoveryReason ?? null,
+      patch.provider ?? null,
+      patch.providerStatus ?? null,
+      patch.providerDeploymentId ?? null,
+      patch.startedAt ?? null,
+      patch.completedAt ?? null,
+      patch.reconciledAt ?? null,
+      patch.recoveryAttempts ?? null,
+      patch.nextRetryAt ?? null,
+      patch.lastFailureClass ?? null,
+      patch.reconciliationEvidence ?? null,
+      now,
+      intentKey,
+      workerId,
+      now,
+    ];
+    if (expectedStatuses && expectedStatuses.length > 0) {
+      sql += " AND status IN (" + expectedStatuses.map(() => "?").join(",") + ")";
+      params.push(...expectedStatuses);
+    }
+    const r = await engine.prepareAsync(sql).run(...params);
+    return { updated: r.changes > 0, intent: await this.getReleaseIntentAsync(intentKey) };
+  }
+
+  async acquireReleaseIntentLeaseAsync(
+    intentKey: string,
+    workerId: string,
+    durationMs: number = 120_000,
+  ): Promise<{ acquired: boolean; holder: string | null; expiresAt: number | null }> {
+    const engine = this.requireAsyncDb();
+    const now = Date.now();
+    const intent = await this.getReleaseIntentAsync(intentKey);
+    if (!intent) return { acquired: false, holder: null, expiresAt: null };
+    const leaseActive = intent.leasedBy !== null && intent.leaseExpiresAt !== null && intent.leaseExpiresAt > now;
+    const sameHolder = intent.leasedBy === workerId;
+    if (leaseActive && !sameHolder) {
+      return { acquired: false, holder: intent.leasedBy, expiresAt: intent.leaseExpiresAt };
+    }
+    const expiresAt = now + durationMs;
+    const r = await engine.prepareAsync(`
+      UPDATE release_deployment_intents SET
+        leased_by = ?, lease_expires_at = ?, updated_at = ?
+      WHERE intent_key = ?
+        AND (
+          leased_by IS NULL
+          OR lease_expires_at IS NULL
+          OR lease_expires_at <= ?
+          OR leased_by = ?
+        )
+    `).run(workerId, expiresAt, now, intentKey, now, workerId);
+    if (r.changes === 0) {
+      const fresh = await this.getReleaseIntentAsync(intentKey);
+      return { acquired: false, holder: fresh?.leasedBy ?? null, expiresAt: fresh?.leaseExpiresAt ?? null };
+    }
+    return { acquired: true, holder: workerId, expiresAt };
+  }
+
+  async renewReleaseIntentLeaseAsync(intentKey: string, workerId: string, durationMs: number): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const now = Date.now();
+    const expiresAt = now + durationMs;
+    const r = await engine.prepareAsync(`
+      UPDATE release_deployment_intents SET
+        lease_expires_at = ?, updated_at = ?
+      WHERE intent_key = ? AND leased_by = ? AND lease_expires_at IS NOT NULL AND lease_expires_at > ?
+    `).run(expiresAt, now, intentKey, workerId, now);
+    return r.changes > 0;
+  }
+
+  async releaseReleaseIntentLeaseAsync(intentKey: string, workerId: string): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const now = Date.now();
+    const r = await engine.prepareAsync(`
+      UPDATE release_deployment_intents SET
+        leased_by = NULL, lease_expires_at = NULL, updated_at = ?
+      WHERE intent_key = ? AND leased_by = ?
+    `).run(now, intentKey, workerId);
+    return r.changes > 0;
+  }
+
+  async listReleaseIntentsByStatusAsync(status: ReleaseIntentStatus): Promise<ReleaseDeploymentIntent[]> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync(
+      "SELECT * FROM release_deployment_intents WHERE status = ? ORDER BY created_at DESC",
+    ).all<any>(status);
+    return rows.map((r) => this.mapReleaseIntent(r));
+  }
+
+  async listRecoverableReleaseIntentsAsync(): Promise<ReleaseDeploymentIntent[]> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync(`
+      SELECT * FROM release_deployment_intents
+      WHERE status IN ('PENDING','AUTHORIZED','DEPLOYMENT_INTENT_CREATED','DEPLOYING','HEALTH_CHECKING','SMOKE_TESTING','VERIFICATION_FAILED','ROLLING_BACK','RECOVERY_REQUIRED')
+      ORDER BY created_at DESC
+    `).all<any>();
+    return rows.map((r) => this.mapReleaseIntent(r));
+  }
+
+  async requestIntentCancellationAsync(intentKey: string, now: number = Date.now()): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(`
+      UPDATE release_deployment_intents SET
+        cancel_requested_at = ?, updated_at = ?
+      WHERE intent_key = ?
+        AND cancel_requested_at IS NULL
+        AND status NOT IN ('KNOWN_GOOD', 'FAILED', 'BLOCKED', 'CANCELLED')
+    `).run(now, now, intentKey);
+    return r.changes > 0;
+  }
+
+  async acknowledgeIntentCancellationAsync(intentKey: string, now: number = Date.now()): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(`
+      UPDATE release_deployment_intents SET
+        cancel_acknowledged_at = ?, updated_at = ?
+      WHERE intent_key = ?
+        AND cancel_requested_at IS NOT NULL
+        AND cancel_acknowledged_at IS NULL
+    `).run(now, now, intentKey);
+    return r.changes > 0;
+  }
+
   /* -------- Phase 103: durable release deployment intent -------- */
 
   private ensureIntentTable(): void {

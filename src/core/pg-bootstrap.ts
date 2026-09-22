@@ -155,5 +155,66 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
         ON execution_ownership_obligations (job_id)
         WHERE state = 'OPEN'
     `);
+
+    // Phase 183b: release/deployment intents.
+    // 42 columns translated from the post-migration SQLite schema (base
+    // migration 146 + all ALTER TABLE additions). INTEGER timestamps ->
+    // BIGINT. Nullable fields stay nullable. intent_kind defaults to
+    // 'DEPLOY'. recovery_attempts defaults to 0.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS release_deployment_intents (
+        intent_key TEXT PRIMARY KEY,
+        release_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL,
+        artifact_digest TEXT NOT NULL,
+        commit_sha TEXT NOT NULL,
+        environment TEXT NOT NULL,
+        image_repository TEXT NOT NULL,
+        image_tag TEXT NOT NULL,
+        image_id TEXT,
+        image_digest TEXT NOT NULL,
+        container_name TEXT NOT NULL,
+        container_port INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        deployment_id TEXT,
+        failure_reason TEXT,
+        recovery_reason TEXT,
+        leased_by TEXT,
+        lease_expires_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        project_id TEXT,
+        intent_kind TEXT DEFAULT 'DEPLOY',
+        rollback_target_release_id TEXT,
+        rollback_job_id TEXT,
+        attempt_id TEXT,
+        provider TEXT,
+        provider_status TEXT,
+        provider_deployment_id TEXT,
+        started_at BIGINT,
+        completed_at BIGINT,
+        timeout_at BIGINT,
+        cancel_requested_at BIGINT,
+        cancel_acknowledged_at BIGINT,
+        verification_state TEXT,
+        reconciled_at BIGINT,
+        recovery_attempts INTEGER DEFAULT 0,
+        next_retry_at BIGINT,
+        last_failure_class TEXT,
+        reconciliation_evidence TEXT,
+        last_recovery_decision TEXT,
+        last_recovery_decision_at BIGINT
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_status ON release_deployment_intents (status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_reconciled ON release_deployment_intents (reconciled_at)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_next_retry ON release_deployment_intents (next_retry_at)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_reconcile ON release_deployment_intents (status, reconciled_at)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_provider_deployment ON release_deployment_intents (provider_deployment_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_rollback_job ON release_deployment_intents (rollback_job_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_rollback_target ON release_deployment_intents (rollback_target_release_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_kind ON release_deployment_intents (intent_kind)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_release_environment ON release_deployment_intents (release_id, environment)`);
   });
 }
