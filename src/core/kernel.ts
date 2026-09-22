@@ -79,6 +79,8 @@ import { ReleaseRecoveryService } from "./release-recovery";
 import { ReleaseRecoveryExecutor, type RecoveryRunReport } from "./release-recovery-executor";
 import { ReleaseRecoveryEvidenceReconciler } from "./release-recovery-evidence-reconciliation";
 import { ReleaseRecoverySupervisor, type RecoverySupervisorStatus } from "./release-recovery-supervisor";
+import { RecoveryOperationsService } from "./recovery-operations";
+import { RecoveryControlService } from "./recovery-control-service";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -128,6 +130,12 @@ export interface KernelServices {
   // engine is unavailable; callers must handle that honestly.
   executionStore: ExecutionStore | undefined;
   releaseIntents: ReleaseDeploymentIntentService | undefined;
+  // Phase 178: read-only operational inspection of durable recovery state.
+  // Undefined whenever executionStore is.
+  recoveryOperations: RecoveryOperationsService | undefined;
+  // Phase 178: operator control surface (reconcile request / cancellation).
+  // Write operations delegate to existing lease + transition paths only.
+  recoveryControl: RecoveryControlService | undefined;
   // Phase 167: read-only audit/provenance service over the same
   // durable executionStore. Undefined whenever executionStore is, since it
   // reads through the same connection.
@@ -170,6 +178,10 @@ export class NexusKernel {
   recoveryExecutor?: ReleaseRecoveryExecutor;
   recoverySupervisor?: ReleaseRecoverySupervisor;
   recoveryWorkerId?: string;
+  // Phase 178: operational recovery inspection + control. Both optional and
+  // undefined unless durable recovery infrastructure was constructed.
+  recoveryOperations?: RecoveryOperationsService;
+  recoveryControl?: RecoveryControlService;
 
   private step(id: string, status: BootStep["status"], detail: string | null = null): void {
     const s = this.steps.find((x) => x.id === id);
@@ -510,6 +522,18 @@ const memberships = new ProjectMembershipStore(rawDb);
         ? new ExecutionAuditProvenanceService(this.executionStore, svcCtx)
         : undefined;
 
+      // Phase 178: operational recovery inspection (read-only) + control
+      // (reconcile request / cancel) over the same durable release-intent
+      // store. No new store, no new lease system, no new executor.
+      const recoveryOperations = (this.executionStore && releaseIntents)
+        ? new RecoveryOperationsService({ intents: releaseIntents, audit, events })
+        : undefined;
+      const recoveryControl = (this.executionStore && releaseIntents)
+        ? new RecoveryControlService({ intents: releaseIntents, audit, events })
+        : undefined;
+      this.recoveryOperations = recoveryOperations;
+      this.recoveryControl = recoveryControl;
+
       const releaseBridge = new ReleaseDeploymentBridge({
         deployments,
         artifacts,
@@ -613,6 +637,8 @@ const memberships = new ProjectMembershipStore(rawDb);
         executionStore: this.executionStore,
         releaseIntents,
         auditProvenance,
+        recoveryOperations,
+        recoveryControl,
       };
 
       this.status = "ready";
