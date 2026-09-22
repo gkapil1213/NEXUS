@@ -20,11 +20,11 @@ import { authorizeProject } from "../../core/project-authorization";
 import { Err } from "../../core/errors";
 import { sendError } from "../../server/errors";
 import type { KernelServices } from "../../core/kernel";
-import type { IdempotencyStore } from "../../server/idempotency";
+import type { IdempotencyBackend } from "../../server/idempotency";
 
 export interface RecoveryRouterDeps {
   services: KernelServices;
-  idempotency: IdempotencyStore;
+  idempotency: IdempotencyBackend;
 }
 
 export function createRecoveryRouter(deps: RecoveryRouterDeps): Router {
@@ -209,7 +209,7 @@ async function withIdempotency(
     const bodyString = JSON.stringify(req.body ?? {});
     const requestHash = createHash("sha256").update(bodyString).digest("hex");
 
-    const existing = deps.idempotency.lookup(key);
+    const existing = await deps.idempotency.lookup(key);
     if (existing) {
       if (
         existing.principalId !== principalId ||
@@ -229,7 +229,7 @@ async function withIdempotency(
 
     const { status, body } = await handler();
     if (status >= 200 && status < 300) {
-      deps.idempotency.store({
+      await deps.idempotency.store({
         idempotencyKey: key,
         principalId,
         method,

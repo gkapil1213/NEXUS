@@ -11,6 +11,9 @@ import { AgentRegistry, InspectorAgent } from "./agents";
 import { CONFIG, configBlocked, safeConfigView } from "./config";
 import { openEngine, probeEngine, nid, type NexusEngine } from "./db";
 import { resolvePersistenceMode } from "./persistence-mode";
+import { resolveBackendConfig } from "./backend-config";
+import { PgClient, setPgClient } from "./pg-client";
+import { bootstrapPgSchema } from "./pg-bootstrap";
 import { Err, NexusError } from "./errors";
 import { EventService } from "./events";
 import { NexusOrchestrator } from "./orchestration";
@@ -173,6 +176,8 @@ export class NexusKernel {
   remoteWorkerStore?: RemoteWorkerStore;
   workerAuthStore?: SqliteWorkerAuthStore;
   private gatewayStarted = false;
+  // Phase 183: shared-backend client, only present when NEXUS_PERSISTENCE_MODE=shared.
+  private pgClient?: PgClient;
   // Phase 125: lifecycle-managed recovery supervisor. Populated in boot() only
   // when durable recovery infrastructure was constructed. Opt-in via
   // CONFIG.recovery.enabled at explicit startRecoverySupervisor() time.
@@ -202,18 +207,31 @@ export class NexusKernel {
       }
       this.step("config", "ok", `${CONFIG.env} Ãƒâ€šÃ‚Â· v${CONFIG.version}`);
 
-      // Phase 182: persistence-mode guard. When the operator requests a
-      // shared backend, refuse to boot rather than silently degrade to
-      // SQLite. The exact reason is surfaced in the startup error and in
-      // readiness/observability. NEXUS_PERSISTENCE_MODE=sqlite (default)
-      // reports coordination_mode = multi_process because SQLite WAL +
-      // busy_timeout=5000 supports real multi-process coordination on a
-      // shared filesystem path.
+      // Phase 183: shared-backend wiring. When NEXUS_PERSISTENCE_MODE=shared
+      // is configured with a valid DATABASE_URL, connect to the shared
+      // Postgres backend BEFORE the SQLite engine is opened. Shared mode is
+      // a hard dependency in this configuration: failure to connect fails
+      // the boot closed. ExecutionStore remains local SQLite (Phase 183a
+      // boundary; full store port is a later phase).
       {
         const pm = resolvePersistenceMode();
         if (pm.mode === "shared") {
-          this.step("persistence", "fail", pm.reason);
-          throw Err.startup("SHARED_PERSISTENCE_UNAVAILABLE", pm.reason);
+          const cfg = resolveBackendConfig();
+          if (!cfg.valid || !cfg.sharedUrl) {
+            this.step("persistence", "fail", cfg.reason);
+            throw Err.startup("SHARED_PERSISTENCE_UNAVAILABLE", cfg.reason);
+          }
+          try {
+            const client = new PgClient();
+            await client.connect(cfg.sharedUrl);
+            await bootstrapPgSchema(client);
+            setPgClient(client);
+            this.pgClient = client;
+          } catch (e) {
+            const msg = (e as Error).message;
+            this.step("persistence", "fail", "shared backend unreachable: " + msg);
+            throw Err.startup("SHARED_PERSISTENCE_UNREACHABLE", msg);
+          }
         }
       }
 
@@ -758,6 +776,13 @@ const memberships = new ProjectMembershipStore(rawDb);
   async shutdown(options?: { finalRecoveryPass?: boolean }): Promise<void> {
     await this.stopCicdReconciliationScheduler();
     await this.stopRecoverySupervisor({ finalPass: options?.finalRecoveryPass ?? false });
+
+    // Phase 183: close the shared-backend pool if we opened one.
+    if (this.pgClient) {
+      try { await this.pgClient.close(); } catch { /* ignore */ }
+      setPgClient(null);
+      this.pgClient = undefined;
+    }
     await this.stopGateway();
   }
 

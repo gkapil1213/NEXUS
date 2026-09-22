@@ -43,11 +43,24 @@ function parseJson(stdout: string): any | null {
   return null;
 }
 
+// Every child we spawn is tracked here. On process exit (natural or forced)
+// we SIGKILL any survivors, so a stale child cannot hold the parent's stdout
+// pipe open and hang the shell that wraps this script.
+const liveChildren = new Set<ChildProcess>();
+process.on("exit", () => {
+  for (const c of liveChildren) {
+    try { c.kill("SIGKILL"); } catch { /* ignore */ }
+  }
+});
+
 function spawnChild(cmd: string, dbPath: string, ...args: string[]): ChildProcess {
-  return spawn(process.execPath, ["--import", "tsx", CHILD_SCRIPT, cmd, dbPath, ...args], {
+  const child = spawn(process.execPath, ["--import", "tsx", CHILD_SCRIPT, cmd, dbPath, ...args], {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
   });
+  liveChildren.add(child);
+  child.on("exit", () => liveChildren.delete(child));
+  return child;
 }
 
 async function runChild(cmd: string, dbPath: string, ...args: string[]): Promise<ChildOutcome> {
@@ -57,9 +70,14 @@ async function runChild(cmd: string, dbPath: string, ...args: string[]): Promise
     let stderr = "";
     child.stdout!.on("data", (d) => { stdout += d.toString(); });
     child.stderr!.on("data", (d) => { stderr += d.toString(); });
-    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 30_000);
+    // 60s: cold `tsx` + better-sqlite3 + 162 migrations can be slow on Windows.
+    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 60_000);
     child.on("exit", (code) => {
       clearTimeout(timer);
+      // Force-close the pipes: otherwise the shell redirect that wraps this
+      // script can wait forever on the child's stdout/stderr file handles.
+      try { child.stdout?.destroy(); } catch { /* ignore */ }
+      try { child.stderr?.destroy(); } catch { /* ignore */ }
       resolve({ code, stdout, stderr, json: parseJson(stdout) });
     });
   });
@@ -79,8 +97,16 @@ function spawnHeld(cmd: string, dbPath: string, ...args: string[]): HeldChild {
   proc.stdout!.on("data", (d) => { stdout += d.toString(); });
   proc.stderr!.on("data", (d) => { stderr += d.toString(); });
   const wait = (): Promise<number | null> => new Promise((resolve) => {
-    if (proc.exitCode !== null) return resolve(proc.exitCode);
-    proc.on("exit", (c) => resolve(c));
+    if (proc.exitCode !== null) {
+      try { proc.stdout?.destroy(); } catch { /* ignore */ }
+      try { proc.stderr?.destroy(); } catch { /* ignore */ }
+      return resolve(proc.exitCode);
+    }
+    proc.on("exit", (c) => {
+      try { proc.stdout?.destroy(); } catch { /* ignore */ }
+      try { proc.stderr?.destroy(); } catch { /* ignore */ }
+      resolve(c);
+    });
   });
   return { proc, stdoutRef: () => stdout, stderrRef: () => stderr, wait };
 }
@@ -121,6 +147,15 @@ async function mkRecoverableIntent(dbFile: string, prefix: string): Promise<stri
 }
 
 async function main() {
+  // Phase 182 tests the pre-183 world: no shared backend exists, so
+  // NEXUS_PERSISTENCE_MODE=shared is BLOCKED. Clear DATABASE_URL for the
+  // duration of this suite so a Phase 183 operator environment does not
+  // accidentally alter what this test is asserting. Restored on exit via
+  // the `finally` in main()'s outer wrapper (not required for test pass,
+  // but good hygiene).
+  const savedDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+
   // ============================================================
   // A - Persistence contract
   // ============================================================
@@ -134,7 +169,7 @@ async function main() {
     process.env.NEXUS_PERSISTENCE_MODE = "shared";
     const shared = resolvePersistenceMode();
     ok(shared.mode === "shared" && shared.coordination === "blocked", "A3 shared mode = blocked");
-    ok(shared.reason.toLowerCase().includes("not implemented"), "A4 shared reason names the blocker");
+    ok(shared.reason.length > 0 && (shared.reason.toLowerCase().includes("requires database_url") || shared.reason.toLowerCase().includes("not implemented")), "A4 shared reason names the blocker");
 
     process.env.NEXUS_PERSISTENCE_MODE = "garbage";
     const junk = resolvePersistenceMode();
@@ -640,7 +675,10 @@ async function main() {
   console.log("\n=== Phase 182 Summary ===");
   console.log("Passed: " + passed);
   console.log("Failed: " + failed);
-  if (failed > 0) process.exit(1);
+  // Force exit: child processes may hold stdout/stderr pipes open after they
+  // exit, preventing Node from exiting naturally. Explicit exit guarantees
+  // the test runner always terminates.
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

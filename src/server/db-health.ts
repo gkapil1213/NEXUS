@@ -20,6 +20,14 @@ export interface DbHealthMeta {
   coordination_mode: string;
   instance_id: string | null;
   reason: string;
+  /** Phase 183: present when shared mode is configured. */
+  shared_backend?: {
+    family: string;
+    url_redacted: string | null;
+    reachable: boolean | null;
+    latency_ms: number | null;
+    detail: string | null;
+  };
 }
 
 export interface DbHealthResult {

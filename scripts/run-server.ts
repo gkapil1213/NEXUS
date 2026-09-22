@@ -9,6 +9,8 @@
 import { NexusKernel } from "../src/core/kernel";
 import { createHttpApp } from "../src/server/http";
 import { IdempotencyStore } from "../src/server/idempotency";
+import { PgIdempotencyStore } from "../src/core/pg-idempotency-store";
+import { getPgClient } from "../src/core/pg-client";
 import { CONFIG } from "../src/core/config";
 import { nid } from "../src/core/db";
 import { resolvePersistenceMode } from "../src/core/persistence-mode";
@@ -33,6 +35,7 @@ async function main(): Promise<void> {
     coordination: pm.coordination,
     instance_id: pm.instanceId,
     reason: pm.reason,
+    shared_backend: pm.sharedBackend,
   });
 
   const kernel = new NexusKernel();
@@ -44,7 +47,12 @@ async function main(): Promise<void> {
     throw new Error("run-server: durable execution store is required (sqlite persistence)");
   }
 
-  const idempotency = new IdempotencyStore(rawDb);
+  // Phase 183: when shared mode wired a Postgres backend at boot, use it
+  // for idempotency. Otherwise the local SQLite store remains authoritative.
+  const pgClient = getPgClient();
+  const idempotency = pgClient
+    ? new PgIdempotencyStore(pgClient)
+    : new IdempotencyStore(rawDb);
   const app = createHttpApp({
     services,
     idempotency,

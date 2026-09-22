@@ -82,11 +82,11 @@ async function main(): Promise<void> {
       case "idempotency-attempt": {
         const [key, principalId] = args;
         const idem = new IdempotencyStore(raw);
-        const existing = idem.lookup(key);
+        const existing = await idem.lookup(key);
         if (existing) {
           console.log(JSON.stringify({ attempted: true, stored: false, existing: true, pid: process.pid }));
         } else {
-          idem.store({
+          await idem.store({
             idempotencyKey: key,
             principalId,
             method: "POST",
@@ -96,7 +96,7 @@ async function main(): Promise<void> {
             responseBody: JSON.stringify({ result: "ok-from-" + principalId }),
             createdAt: Date.now(),
           });
-          const after = idem.lookup(key);
+          const after = await idem.lookup(key);
           console.log(JSON.stringify({ attempted: true, stored: true, existing: false, storedBy: after?.principalId ?? null, pid: process.pid }));
         }
         break;

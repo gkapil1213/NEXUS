@@ -17,11 +17,13 @@ import { sendError } from "./errors";
 import { requireSession } from "./auth-middleware";
 import { createRecoveryRouter } from "../api/recovery/routes";
 import type { KernelServices } from "../core/kernel";
-import type { IdempotencyStore } from "./idempotency";
+import type { IdempotencyBackend } from "./idempotency";
 import { RateLimiter, type RateLimitOptions, type RateLimitBucket } from "./rate-limit";
 import { emitAccessLog } from "./logging";
 import { probeDbHealth } from "./db-health";
 import { resolvePersistenceMode } from "../core/persistence-mode";
+import { resolveBackendConfig } from "../core/backend-config";
+import { getPgClient } from "../core/pg-client";
 
 /** Inbound X-Request-Id is accepted only if it matches this. Otherwise we
  *  generate one. Prevents header-injection / unbounded request IDs. */
@@ -31,7 +33,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface HttpAppDeps {
   services: KernelServices;
-  idempotency: IdempotencyStore;
+  idempotency: IdempotencyBackend;
   /** Optional. Defaults to enabled with permissive single-process limits. */
   rateLimit?: RateLimitOptions;
   /** Optional. Emits one structured JSON line per request when true. */
@@ -141,7 +143,7 @@ export function createHttpApp(deps: HttpAppDeps): Application {
 
   // --- 8. Readiness (dependency-level). Read-only; no provider calls,
   //        no lease acquisition, no recovery state mutation. ---
-  app.get("/health/ready", (req: any, res) => {
+  app.get("/health/ready", async (req: any, res) => {
     const wiring: Record<string, boolean> = {
       executionStore: !!deps.services.executionStore,
       releaseIntents: !!deps.services.releaseIntents,
@@ -172,12 +174,36 @@ export function createHttpApp(deps: HttpAppDeps): Application {
         const store: any = deps.services.executionStore;
         const rawDb: any = store && typeof store === "object" ? store.db : undefined;
         const pm = resolvePersistenceMode();
-        const meta = {
+        const cfg = resolveBackendConfig();
+        let sharedBackendMeta: any = undefined;
+        if (cfg.mode === "shared") {
+          const client = getPgClient();
+          if (client) {
+            const probe = await client.probe();
+            sharedBackendMeta = {
+              family: cfg.sharedBackend ?? "unknown",
+              url_redacted: cfg.sharedUrlRedacted,
+              reachable: probe.ok,
+              latency_ms: probe.latencyMs,
+              detail: probe.detail,
+            };
+          } else {
+            sharedBackendMeta = {
+              family: cfg.sharedBackend ?? "unknown",
+              url_redacted: cfg.sharedUrlRedacted,
+              reachable: false,
+              latency_ms: null,
+              detail: "PgClient not connected at boot",
+            };
+          }
+        }
+        const meta: any = {
           persistence_mode: pm.mode,
           coordination_mode: pm.coordination,
           instance_id: pm.instanceId,
           reason: pm.reason,
         };
+        if (sharedBackendMeta) meta.shared_backend = sharedBackendMeta;
         if (rawDb) {
           dbHealth = probeDbHealth(rawDb, meta);
         } else {

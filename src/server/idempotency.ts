@@ -25,7 +25,18 @@ export interface IdempotencyRecord {
   createdAt: number;
 }
 
-export class IdempotencyStore {
+/**
+ * Phase 183: async interface so a shared (network) backend can implement the
+ * same contract as the local SQLite store. Phase 179/180 call sites now await
+ * these methods, which is a no-op for the SQLite implementation.
+ */
+export interface IdempotencyBackend {
+  lookup(key: string): Promise<IdempotencyRecord | undefined>;
+  store(rec: IdempotencyRecord): Promise<void>;
+  describe(): { backend: "sqlite" | "postgres"; detail: string };
+}
+
+export class IdempotencyStore implements IdempotencyBackend {
   constructor(private readonly db: Database.Database) {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS http_idempotency_keys (
@@ -43,7 +54,7 @@ export class IdempotencyStore {
     `);
   }
 
-  lookup(key: string): IdempotencyRecord | undefined {
+  async lookup(key: string): Promise<IdempotencyRecord | undefined> {
     const row = this.db
       .prepare("SELECT * FROM http_idempotency_keys WHERE idempotency_key = ?")
       .get(key) as
@@ -71,7 +82,7 @@ export class IdempotencyStore {
     };
   }
 
-  store(rec: IdempotencyRecord): void {
+  async store(rec: IdempotencyRecord): Promise<void> {
     this.db
       .prepare(
         "INSERT OR IGNORE INTO http_idempotency_keys " +
@@ -88,5 +99,9 @@ export class IdempotencyStore {
         rec.responseBody,
         rec.createdAt,
       );
+  }
+
+  describe(): { backend: "sqlite" | "postgres"; detail: string } {
+    return { backend: "sqlite", detail: "better-sqlite3 http_idempotency_keys" };
   }
 }

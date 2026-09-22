@@ -791,7 +791,10 @@ db.close();
   console.log("\n=== Phase 181 Summary ===");
   console.log("Passed: " + passed);
   console.log("Failed: " + failed);
-  if (failed > 0) process.exit(1);
+  // Force exit: child processes may hold stdout/stderr pipes open after they
+  // exit, preventing Node from exiting naturally. Explicit exit guarantees
+  // the test runner always terminates.
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
