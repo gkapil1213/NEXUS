@@ -3,7 +3,14 @@
 //
 // One Pool per process. Lifecycle is owned by kernel.boot() / kernel.shutdown().
 
-import { Pool, type PoolClient } from "pg";
+import { Pool, types, type PoolClient } from "pg";
+
+// Phase 183b: node-postgres returns BIGINT (OID 20) as a string to avoid
+// precision loss on 64-bit ints. NEXUS uses BIGINT only for epoch-ms
+// timestamps and a couple of sentinel values, all comfortably under
+// Number.MAX_SAFE_INTEGER (9007199254740991). Parse them as numbers so
+// persistence round-trips match the SQLite path byte-for-byte.
+types.setTypeParser(20, (val: string) => Number(val));
 
 export interface QueryResult<T> {
   rows: T[];
