@@ -75,6 +75,35 @@ export type StoreName = (typeof NEXUS_STORES)[number];
 
 export type EngineKind = "indexeddb" | "memory" | "sqlite";
 
+/**
+ * Phase 183b: async sibling of SQLStatement for PostgreSQL-compatible
+ * backends. The existing SQLStatement is synchronous because better-sqlite3
+ * is synchronous; pg is async and cannot implement it without a fake
+ * sync-over-async adapter. AsyncSQLStatement is the real async contract.
+ */
+export interface AsyncSQLStatement {
+  run(...params: unknown[]): Promise<{ changes: number; lastInsertRowid: number | bigint }>;
+  get<T = unknown>(...params: unknown[]): Promise<T | undefined>;
+  all<T = unknown>(...params: unknown[]): Promise<T[]>;
+}
+
+/**
+ * Phase 183b: async sibling of NexusEngine.
+ *
+ * ADDITIVE. Existing code continues to use NexusEngine (SQLite). New code
+ * that must work against both SQLite and PostgreSQL uses AsyncNexusEngine.
+ * Over Phase 183b–183f, ExecutionStore's synchronous prepare/exec/transaction
+ * call sites migrate to this contract one bounded slice at a time. When the
+ * migration completes, NexusEngine remains for legacy/browser code and
+ * AsyncNexusEngine becomes the shared-persistence contract.
+ */
+export interface AsyncNexusEngine {
+  readonly kind: EngineKind;
+  prepareAsync(sql: string): AsyncSQLStatement;
+  execAsync(sql: string): Promise<void>;
+  transactionAsync<T>(fn: () => Promise<T>): Promise<T>;
+}
+
 export interface NexusEngine {
   readonly kind: EngineKind;
   put(store: StoreName, key: string, value: unknown): Promise<void>;

@@ -1,4 +1,4 @@
-import { NexusEngine, StoreName, SQLStatement } from "./db";
+import { NexusEngine, AsyncNexusEngine, AsyncSQLStatement, EngineKind, StoreName, SQLStatement } from "./db";
 import Database from "better-sqlite3";
 import { INDEXES } from "./db";
 import { join } from "path";
@@ -152,5 +152,55 @@ export class SQLiteEngine implements NexusEngine {
 
   close(): void {
     (this.db as Database.Database).close();
+  }
+}
+
+/**
+ * Phase 183b: async wrapper around SQLiteEngine implementing the async
+ * persistence contract. Not a fake: better-sqlite3 is synchronous under the
+ * hood; the wrapper exposes an async-shaped API so ExecutionStore code paths
+ * can migrate to the async contract in later phases.
+ *
+ * transactionAsync is serialized through a promise chain because
+ * better-sqlite3's synchronous transaction() cannot interleave BEGIN/COMMIT
+ * across async callers on a single connection. Real coordination, not a
+ * process-local mutex over unsafe concurrency.
+ */
+export class SQLiteAsyncEngine implements AsyncNexusEngine {
+  readonly kind: EngineKind;
+  private txChain: Promise<unknown> = Promise.resolve();
+
+  constructor(private readonly inner: SQLiteEngine) {
+    this.kind = inner.kind;
+  }
+
+  prepareAsync(sql: string): AsyncSQLStatement {
+    const stmt = this.inner.prepare(sql);
+    return {
+      run: async (...params: unknown[]) => stmt.run(...params),
+      get: async <T = unknown>(...params: unknown[]) => stmt.get(...params) as T | undefined,
+      all: async <T = unknown>(...params: unknown[]) => stmt.all(...params) as T[],
+    };
+  }
+
+  async execAsync(sql: string): Promise<void> {
+    this.inner.exec(sql);
+  }
+
+  async transactionAsync<T>(fn: () => Promise<T>): Promise<T> {
+    const run = async (): Promise<T> => {
+      this.inner.exec("BEGIN IMMEDIATE");
+      try {
+        const result = await fn();
+        this.inner.exec("COMMIT");
+        return result;
+      } catch (e) {
+        try { this.inner.exec("ROLLBACK"); } catch { /* ignore */ }
+        throw e;
+      }
+    };
+    const next = this.txChain.then(run, run);
+    this.txChain = next.catch(() => undefined);
+    return next;
   }
 }

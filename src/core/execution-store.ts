@@ -1,5 +1,5 @@
 import { sha256 } from "./sha256";
-import { NexusEngine } from "./db";
+import { NexusEngine, AsyncNexusEngine } from "./db";
 import { ExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
 import {
@@ -162,7 +162,16 @@ export class ExecutionStore {
   public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
   /** @internal Phase 143 - test-only injection hook. No-op in production. */
   public __testPhase143Hook?: (stage: "afterJobUpdate" | "afterObligation") => void;
-  constructor(private db: NexusEngine) { this.recoveryOps = new ExecutionRecoveryOperationStore(this.db); }
+  /**
+   * Phase 183b: asyncDb is the future authoritative contract for shared mode.
+   * Unused by every method today -- existing methods remain synchronous and
+   * use this.db. Phase 183c+ migrates methods one bounded slice at a time to
+   * asyncDb when present, falling back to the sync path in SQLite mode.
+   */
+  constructor(
+    private db: NexusEngine,
+    private asyncDb?: AsyncNexusEngine,
+  ) { this.recoveryOps = new ExecutionRecoveryOperationStore(this.db); }
 
   // ---------- Jobs ----------
   createJob(job: ExecutionJob): void {
