@@ -623,6 +623,11 @@ export class ExecutionStore {
   // from context (bare `? IS NULL` and `? = 0`).
   // ============================================================
 
+  /** Phase 183b: true when an async backend is wired (shared mode). */
+  hasAsyncBackend(): boolean {
+    return this.asyncDb !== undefined;
+  }
+
   private requireAsyncDb(): AsyncNexusEngine {
     if (!this.asyncDb) {
       throw new Error(

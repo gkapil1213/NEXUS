@@ -188,7 +188,28 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
       containerPort: req.containerPort!,
     };
 
-    const { intent, created } = await intents.getOrCreate(input);
+    // Phase 183b: shared mode routes intent persistence to Postgres via
+    // the async siblings; SQLite mode uses the sync methods unchanged.
+    const useAsync = intents.hasAsyncBackend();
+    const io = {
+      getOrCreate: useAsync
+        ? (i: ReleaseIntentInput) => intents.getOrCreateAsync(i)
+        : (i: ReleaseIntentInput) => intents.getOrCreate(i),
+      acquireLease: useAsync
+        ? (k: string, w: string) => intents.acquireLeaseAsync(k, w)
+        : async (k: string, w: string) => intents.acquireLease(k, w),
+      releaseLease: useAsync
+        ? (k: string, w: string) => intents.releaseLeaseAsync(k, w)
+        : async (k: string, w: string) => intents.releaseLease(k, w),
+      transition: useAsync
+        ? (k: string, s: string, p: any) => intents.transitionAsync(k, s as any, p)
+        : async (k: string, s: string, p: any) => intents.transition(k, s as any, p),
+      hasActiveIntentForEnvironment: useAsync
+        ? (e: string, k: string) => intents.hasActiveIntentForEnvironmentAsync(e, k)
+        : async (e: string, k: string) => intents.hasActiveIntentForEnvironment(e, k),
+    };
+
+    const { intent, created } = await io.getOrCreate(input);
 
     /* T44, T45, T49, T51: existing intent — never re-invoke Docker blindly. */
 
@@ -230,7 +251,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
        Lease contention is transient. Never convert a live intent into
        terminal BLOCKED merely because another worker currently owns it. */
 
-    const lease = intents.acquireLease(intent.intentKey, workerId);
+    const lease = await io.acquireLease(intent.intentKey, workerId);
     if (!lease.acquired) {
       return {
         status: "BLOCKED",
@@ -243,7 +264,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
     }
     try {
       // Phase 130: prevent concurrent deployments to the same environment.
-      if (intents.hasActiveIntentForEnvironment(req.environment, intent.intentKey)) {
+      if (await io.hasActiveIntentForEnvironment(req.environment, intent.intentKey)) {
         return {
           status: "BLOCKED",
           message:
@@ -252,7 +273,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
           deploymentId: null,
         };
       }
-      intents.transition(intent.intentKey, "DEPLOYING", {
+      await io.transition(intent.intentKey, "DEPLOYING", {
         provider: "canonical-deployment-orchestrator",
         startedAt: Date.now(),
       });
@@ -297,7 +318,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
         // to RECOVERY_REQUIRED so the recovery path reconciles via the
         // provider interface instead of assuming failure or success.
         const reason = (e as Error).message;
-        intents.transition(intent.intentKey, "RECOVERY_REQUIRED", {
+        await io.transition(intent.intentKey, "RECOVERY_REQUIRED", {
           recoveryReason: "deployment orchestrator threw: " + reason,
         });
         await this.emitDeploymentEvent("deployment.failed", req, intent, {
@@ -313,7 +334,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
 
       const dep = outcome.deployment;
       if (dep.status === "KNOWN_GOOD") {
-        intents.transition(intent.intentKey, "KNOWN_GOOD", {
+        await io.transition(intent.intentKey, "KNOWN_GOOD", {
           deploymentId: dep.id,
           provider: "canonical-deployment-orchestrator",
           providerStatus: dep.status,
@@ -345,7 +366,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
         };
       }
       if (dep.status === "BLOCKED") {
-        intents.transition(intent.intentKey, "BLOCKED", {
+        await io.transition(intent.intentKey, "BLOCKED", {
           deploymentId: dep.id,
           failureReason: dep.failure_reason ?? "deployment blocked",
           provider: "canonical-deployment-orchestrator",
@@ -361,7 +382,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
           deploymentId: dep.id,
         };
       }
-      intents.transition(intent.intentKey, "FAILED", {
+      await io.transition(intent.intentKey, "FAILED", {
         deploymentId: dep.id,
         failureReason: dep.failure_reason ?? ("deployment status=" + dep.status),
         provider: "canonical-deployment-orchestrator",
@@ -377,7 +398,7 @@ export class ReleaseDeploymentBridge implements ReleaseExecutionProvider {
         deploymentId: dep.id,
       };
     } finally {
-      intents.releaseLease(intent.intentKey, workerId);
+      await io.releaseLease(intent.intentKey, workerId);
     }
   }
 

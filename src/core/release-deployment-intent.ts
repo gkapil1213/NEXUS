@@ -174,4 +174,108 @@ export class ReleaseDeploymentIntentService {
     }
     return false;
   }
+
+  // ============================================================
+  // Phase 183b: async siblings. Same business logic; routes through
+  // ExecutionStore's async Postgres path when shared mode is active.
+  // Bridge selects sync vs async per call based on hasAsyncBackend().
+  // ============================================================
+
+  hasAsyncBackend(): boolean {
+    return this.store.hasAsyncBackend();
+  }
+
+  async getOrCreateAsync(input: ReleaseIntentInput): Promise<{ intent: ReleaseDeploymentIntent; created: boolean }> {
+    const intentKey = this.computeKey(input);
+    return this.store.createReleaseIntentIdempotentAsync({
+      intentKey,
+      releaseId: input.releaseId,
+      executionId: input.executionId,
+      attemptId: input.attemptId,
+      artifactId: input.artifactId,
+      artifactDigest: input.artifactDigest,
+      commitSha: input.commitSha,
+      environment: input.environment,
+      projectId: input.projectId ?? null,
+      imageRepository: input.imageRepository,
+      imageTag: input.imageTag,
+      imageId: input.imageId,
+      imageDigest: input.imageDigest,
+      containerName: input.containerName,
+      containerPort: input.containerPort,
+      intentKind: input.intentKind ?? "DEPLOY",
+      rollbackTargetReleaseId: input.rollbackTargetReleaseId ?? null,
+      rollbackJobId: input.rollbackJobId ?? null,
+    });
+  }
+
+  async getAsync(intentKey: string): Promise<ReleaseDeploymentIntent | undefined> {
+    return this.store.getReleaseIntentAsync(intentKey);
+  }
+
+  async requestCancellationAsync(intentKey: string): Promise<boolean> {
+    return this.store.requestIntentCancellationAsync(intentKey);
+  }
+
+  async acknowledgeCancellationAsync(intentKey: string): Promise<boolean> {
+    return this.store.acknowledgeIntentCancellationAsync(intentKey);
+  }
+
+  async transitionAsync(
+    intentKey: string,
+    status: ReleaseIntentStatus,
+    patch: Parameters<ReleaseDeploymentIntentService["transition"]>[2] = {},
+  ): Promise<ReleaseDeploymentIntent | undefined> {
+    return this.store.updateReleaseIntentStatusAsync(intentKey, status, patch);
+  }
+
+  async transitionIfOwnedAsync(
+    intentKey: string,
+    status: ReleaseIntentStatus,
+    workerId: string,
+    patch: Parameters<ReleaseDeploymentIntentService["transitionIfOwned"]>[3] = {},
+    expectedStatuses?: ReleaseIntentStatus[],
+  ): Promise<{ updated: boolean; intent: ReleaseDeploymentIntent | undefined }> {
+    return this.store.updateReleaseIntentStatusIfOwnedAsync(intentKey, status, workerId, patch, expectedStatuses);
+  }
+
+  async acquireLeaseAsync(intentKey: string, workerId: string, durationMs = DEFAULT_LEASE_MS): Promise<AcquireResult> {
+    return this.store.acquireReleaseIntentLeaseAsync(intentKey, workerId, durationMs);
+  }
+
+  async renewLeaseAsync(intentKey: string, workerId: string, durationMs = DEFAULT_LEASE_MS): Promise<boolean> {
+    return this.store.renewReleaseIntentLeaseAsync(intentKey, workerId, durationMs);
+  }
+
+  async releaseLeaseAsync(intentKey: string, workerId: string): Promise<boolean> {
+    return this.store.releaseReleaseIntentLeaseAsync(intentKey, workerId);
+  }
+
+  async listRecoverableAsync(): Promise<ReleaseDeploymentIntent[]> {
+    return this.store.listRecoverableReleaseIntentsAsync();
+  }
+
+  async listByStatusAsync(status: ReleaseIntentStatus): Promise<ReleaseDeploymentIntent[]> {
+    return this.store.listReleaseIntentsByStatusAsync(status);
+  }
+
+  async hasActiveIntentForEnvironmentAsync(environment: string, excludeIntentKey: string): Promise<boolean> {
+    const nonTerminal: ReleaseIntentStatus[] = [
+      'PENDING',
+      'AUTHORIZED',
+      'DEPLOYMENT_INTENT_CREATED',
+      'DEPLOYING',
+      'HEALTH_CHECKING',
+      'SMOKE_TESTING',
+      'ROLLING_BACK',
+      'RECOVERY_REQUIRED',
+    ];
+    for (const s of nonTerminal) {
+      const list = await this.store.listReleaseIntentsByStatusAsync(s);
+      for (const i of list) {
+        if (i.environment === environment && i.intentKey !== excludeIntentKey) return true;
+      }
+    }
+    return false;
+  }
 }
