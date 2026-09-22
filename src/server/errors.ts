@@ -1,8 +1,10 @@
 // src/server/errors.ts
-// Phase 179: map NexusError -> HTTP status + SystemError envelope.
+// Phase 180: NexusError -> HTTP status + SystemError envelope.
 //
-// Categories are the repository's own (src/core/errors.ts / types.ts
-// ErrorCategory). No new error format is introduced.
+// Reuses the existing core/errors.ts hierarchy -- no parallel error model.
+// Most categories map 1:1 to a status. A handful of codes override the
+// category mapping because the semantic status is more specific than the
+// category (e.g. RATE_LIMITED is authorization-category but should be 429).
 
 import type { Response } from "express";
 import { toSystemError } from "../core/errors";
@@ -20,8 +22,18 @@ const CATEGORY_TO_STATUS: Record<string, number> = {
   startup: 500,
 };
 
+const CODE_TO_STATUS: Record<string, number> = {
+  RATE_LIMITED: 429,
+  REQUEST_TIMEOUT: 503,
+  REQUEST_TOO_LARGE: 413,
+};
+
 export function sendError(res: Response, requestId: string, e: unknown): void {
+  if (res.headersSent) return;
   const err = toSystemError(e);
-  const status = CATEGORY_TO_STATUS[err.category] ?? 500;
+  const status =
+    CODE_TO_STATUS[err.code] ??
+    CATEGORY_TO_STATUS[err.category] ??
+    500;
   res.status(status).json({ requestId, error: err });
 }
