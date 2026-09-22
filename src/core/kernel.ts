@@ -14,6 +14,7 @@ import { resolvePersistenceMode } from "./persistence-mode";
 import { resolveBackendConfig } from "./backend-config";
 import { PgClient, setPgClient } from "./pg-client";
 import { bootstrapPgSchema } from "./pg-bootstrap";
+import { PgAsyncEngine } from "./pg-async-engine";
 import { Err, NexusError } from "./errors";
 import { EventService } from "./events";
 import { NexusOrchestrator } from "./orchestration";
@@ -282,7 +283,14 @@ const memberships = new ProjectMembershipStore(rawDb);
       // Wire execution stack (production)
       if (engine.kind === "sqlite") {
         if (rawDb) {
-                    const executionStore = new ExecutionStore(rawDb);
+                    // Phase 183b: in shared mode, provide a real async
+                    // Postgres engine alongside the sync SQLite engine. Async
+                    // methods (createJobAsync, transitionExecutionAsync, ...)
+                    // execute against Postgres; sync methods keep the legacy
+                    // SQLite path. Bounded slice -- other tables migrate later.
+                    const _pgClientForAsync = (await import("./pg-client")).getPgClient();
+                    const asyncDb = _pgClientForAsync ? new PgAsyncEngine(_pgClientForAsync) : undefined;
+                    const executionStore = new ExecutionStore(rawDb, asyncDb);
           const workerRegistry = new WorkerRegistry(executionStore);
           const leaseManager = new LeaseManager(executionStore);
           const retryEngine = new RetryEngine();
