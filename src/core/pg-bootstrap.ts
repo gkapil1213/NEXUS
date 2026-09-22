@@ -216,5 +216,39 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_rollback_target ON release_deployment_intents (rollback_target_release_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_kind ON release_deployment_intents (intent_kind)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_release_environment ON release_deployment_intents (release_id, environment)`);
+
+    // Phase 183c: execution_attempts. INTEGER timestamps -> BIGINT.
+    // No FOREIGN KEY declaration -- production code enforces the parent
+    // relationship at the application layer, same as execution_leases.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS execution_attempts (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        attempt_number INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        worker_id TEXT,
+        lease_id TEXT,
+        started_at BIGINT,
+        completed_at BIGINT,
+        error TEXT,
+        evidence TEXT,
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_attempts_job ON execution_attempts (job_id, attempt_number)`);
+
+    // Phase 183c: execution_workers.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS execution_workers (
+        worker_id TEXT PRIMARY KEY,
+        hostname TEXT,
+        capabilities TEXT,
+        status TEXT NOT NULL,
+        last_heartbeat_at BIGINT,
+        current_job_id TEXT,
+        registered_at BIGINT NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_workers_status ON execution_workers (status)`);
   });
 }

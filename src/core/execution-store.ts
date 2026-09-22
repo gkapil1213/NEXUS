@@ -1001,6 +1001,297 @@ export class ExecutionStore {
   }
 
   // ---------- Attempts ----------
+  // ============================================================
+  // Phase 183c: async attempts + workers persistence.
+  //
+  // Same SQL and semantics as the sync siblings; routes through this.asyncDb.
+  // Fenced variants preserve the EXISTS(ACTIVE lease) guards verbatim.
+  // completeAttemptAndTransitionJobAsync is deferred -- it is a multi-write
+  // transaction that also writes provenance and needs its own port.
+  // ============================================================
+
+  async createAttemptAsync(attempt: ExecutionAttempt): Promise<void> {
+    const engine = this.requireAsyncDb();
+    await engine.prepareAsync(`
+      INSERT INTO execution_attempts (
+        id, job_id, attempt_number, status, worker_id, lease_id,
+        started_at, completed_at, error, evidence, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      attempt.id,
+      attempt.jobId,
+      attempt.attemptNumber,
+      attempt.status,
+      attempt.workerId ?? null,
+      attempt.leaseId ?? null,
+      attempt.startedAt ?? null,
+      attempt.completedAt ?? null,
+      attempt.error ?? null,
+      attempt.evidence ? JSON.stringify(attempt.evidence) : null,
+      attempt.createdAt,
+    );
+  }
+
+  async createAttemptAsOwnerAsync(
+    attempt: ExecutionAttempt,
+    leaseId: string,
+    workerId: string,
+    now: number = Date.now(),
+  ): Promise<{ created: boolean; reason?: "WORKER_OWNERSHIP_LOST" }> {
+    const engine = this.requireAsyncDb();
+    const owned = await engine.prepareAsync(`
+      SELECT 1 FROM execution_leases
+      WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+        AND status = 'ACTIVE' AND expires_at > ?
+    `).get(leaseId, workerId, attempt.jobId, now);
+    if (!owned) return { created: false, reason: "WORKER_OWNERSHIP_LOST" };
+    try {
+      await engine.prepareAsync(`
+        INSERT INTO execution_attempts (
+          id, job_id, attempt_number, status, worker_id, lease_id,
+          started_at, completed_at, error, evidence, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        attempt.id,
+        attempt.jobId,
+        attempt.attemptNumber,
+        attempt.status,
+        attempt.workerId ?? null,
+        attempt.leaseId ?? null,
+        attempt.startedAt ?? null,
+        attempt.completedAt ?? null,
+        attempt.error ?? null,
+        attempt.evidence ? JSON.stringify(attempt.evidence) : null,
+        attempt.createdAt,
+      );
+      return { created: true };
+    } catch (err: unknown) {
+      const e = err as { code?: string; message?: string };
+      const msg = e.message ?? "";
+      const isUnique =
+        e.code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
+        e.code === "23505" ||
+        /UNIQUE constraint failed/i.test(msg) ||
+        /duplicate key value/i.test(msg);
+      if (isUnique) return { created: false };
+      throw err;
+    }
+  }
+
+  async createAttemptAsOwnerAtomicAsync(
+    jobId: string,
+    leaseId: string,
+    workerId: string,
+    status: ExecutionAttemptStatus,
+    now: number = Date.now(),
+  ): Promise<
+    | { created: true; attempt: ExecutionAttempt }
+    | { created: false; reason: "WORKER_OWNERSHIP_LOST" | "TERMINAL_STATE" | "CANCELLATION_REQUESTED" }
+  > {
+    const engine = this.requireAsyncDb();
+    let result:
+      | { created: true; attempt: ExecutionAttempt }
+      | { created: false; reason: "WORKER_OWNERSHIP_LOST" | "TERMINAL_STATE" | "CANCELLATION_REQUESTED" }
+      = { created: false, reason: "WORKER_OWNERSHIP_LOST" };
+
+    await engine.transactionAsync(async (tx) => {
+      const owned = await tx.prepareAsync(`
+        SELECT 1 FROM execution_leases
+        WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+          AND status = 'ACTIVE' AND expires_at > ?
+      `).get(leaseId, workerId, jobId, now);
+      if (!owned) { result = { created: false, reason: "WORKER_OWNERSHIP_LOST" }; return; }
+
+      const jobRow = await tx.prepareAsync(
+        "SELECT status, cancellation_requested FROM execution_jobs WHERE id = ?",
+      ).get<{ status: string; cancellation_requested: number }>(jobId);
+      if (!jobRow) { result = { created: false, reason: "WORKER_OWNERSHIP_LOST" }; return; }
+      if (
+        jobRow.status === "SUCCEEDED" ||
+        jobRow.status === "FAILED" ||
+        jobRow.status === "DEAD_LETTER" ||
+        jobRow.status === "CANCELLED"
+      ) { result = { created: false, reason: "TERMINAL_STATE" }; return; }
+      if (jobRow.cancellation_requested) { result = { created: false, reason: "CANCELLATION_REQUESTED" }; return; }
+
+      const existing = await tx.prepareAsync(
+        "SELECT * FROM execution_attempts WHERE job_id = ? AND lease_id = ? AND status = 'RUNNING' LIMIT 1",
+      ).get<any>(jobId, leaseId);
+      if (existing) { result = { created: true, attempt: this.mapAttempt(existing) }; return; }
+
+      const nextRow = await tx.prepareAsync(
+        "SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next FROM execution_attempts WHERE job_id = ?",
+      ).get<{ next: number }>(jobId);
+      const attemptNumber = Number(nextRow?.next ?? 1);
+
+      const attemptId = "attempt_" + jobId + "_" + attemptNumber;
+      await tx.prepareAsync(`
+        INSERT INTO execution_attempts (
+          id, job_id, attempt_number, status, worker_id, lease_id,
+          started_at, completed_at, error, evidence, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
+      `).run(attemptId, jobId, attemptNumber, status, workerId, leaseId, now, now);
+
+      const inserted = await tx.prepareAsync(
+        "SELECT * FROM execution_attempts WHERE id = ?",
+      ).get<any>(attemptId);
+      result = { created: true, attempt: this.mapAttempt(inserted) };
+    });
+
+    return result;
+  }
+
+  async updateAttemptAsOwnerAsync(
+    attempt: ExecutionAttempt,
+    leaseId: string,
+    workerId: string,
+    now: number = Date.now(),
+  ): Promise<{
+    updated: boolean;
+    applied?: boolean;
+    reason?: "WORKER_OWNERSHIP_LOST" | "ATTEMPT_NOT_FOUND" | "TERMINAL_STATE_CONFLICT";
+    attempt?: ExecutionAttempt;
+  }> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(`
+      UPDATE execution_attempts SET
+        status = ?, worker_id = ?, lease_id = ?, started_at = ?,
+        completed_at = ?, error = ?, evidence = ?
+      WHERE id = ?
+        AND job_id = ?
+        AND status = 'RUNNING'
+        AND EXISTS (
+          SELECT 1 FROM execution_leases
+          WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+            AND status = 'ACTIVE' AND expires_at > ?
+        )
+    `).run(
+      attempt.status,
+      workerId,
+      leaseId,
+      attempt.startedAt ?? null,
+      attempt.completedAt ?? null,
+      attempt.error ?? null,
+      attempt.evidence ? JSON.stringify(attempt.evidence) : null,
+      attempt.id,
+      attempt.jobId,
+      leaseId,
+      workerId,
+      attempt.jobId,
+      now,
+    );
+
+    if (r.changes === 1) {
+      const row = await engine.prepareAsync(
+        "SELECT * FROM execution_attempts WHERE id = ?",
+      ).get<any>(attempt.id);
+      return { updated: true, applied: true, attempt: row ? this.mapAttempt(row) : undefined };
+    }
+
+    const diag = await engine.prepareAsync(
+      "SELECT * FROM execution_attempts WHERE id = ? AND job_id = ?",
+    ).get<any>(attempt.id, attempt.jobId);
+    if (!diag) return { updated: false, reason: "ATTEMPT_NOT_FOUND" };
+    if (diag.status !== "RUNNING") return { updated: false, reason: "TERMINAL_STATE_CONFLICT" };
+    return { updated: false, reason: "WORKER_OWNERSHIP_LOST" };
+  }
+
+  async updateAttemptAsync(attempt: ExecutionAttempt): Promise<void> {
+    const engine = this.requireAsyncDb();
+    await engine.prepareAsync(`
+      UPDATE execution_attempts SET
+        status = ?, worker_id = ?, lease_id = ?, started_at = ?,
+        completed_at = ?, error = ?, evidence = ?
+      WHERE id = ?
+    `).run(
+      attempt.status,
+      attempt.workerId ?? null,
+      attempt.leaseId ?? null,
+      attempt.startedAt ?? null,
+      attempt.completedAt ?? null,
+      attempt.error ?? null,
+      attempt.evidence ? JSON.stringify(attempt.evidence) : null,
+      attempt.id,
+    );
+  }
+
+  async getAttemptAsync(id: string): Promise<ExecutionAttempt | undefined> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT * FROM execution_attempts WHERE id = ?",
+    ).get<any>(id);
+    return row ? this.mapAttempt(row) : undefined;
+  }
+
+  async listAttemptsForJobAsync(jobId: string): Promise<ExecutionAttempt[]> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync(
+      "SELECT * FROM execution_attempts WHERE job_id = ? ORDER BY attempt_number",
+    ).all<any>(jobId);
+    return rows.map((r) => this.mapAttempt(r));
+  }
+
+  // ---------- Workers (async) ----------
+
+  async registerWorkerAsync(worker: ExecutionWorker): Promise<void> {
+    const engine = this.requireAsyncDb();
+    await engine.prepareAsync(`
+      INSERT INTO execution_workers (
+        worker_id, hostname, capabilities, status, last_heartbeat_at,
+        current_job_id, registered_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      worker.workerId,
+      worker.hostname ?? null,
+      worker.capabilities ? JSON.stringify(worker.capabilities) : null,
+      worker.status,
+      worker.lastHeartbeatAt ?? null,
+      worker.currentJobId ?? null,
+      worker.registeredAt,
+    );
+  }
+
+  async updateWorkerAsync(worker: ExecutionWorker): Promise<void> {
+    const engine = this.requireAsyncDb();
+    await engine.prepareAsync(`
+      UPDATE execution_workers SET
+        hostname = ?, capabilities = ?, status = ?,
+        last_heartbeat_at = ?, current_job_id = ?
+      WHERE worker_id = ?
+    `).run(
+      worker.hostname ?? null,
+      worker.capabilities ? JSON.stringify(worker.capabilities) : null,
+      worker.status,
+      worker.lastHeartbeatAt ?? null,
+      worker.currentJobId ?? null,
+      worker.workerId,
+    );
+  }
+
+  async getWorkerAsync(workerId: string): Promise<ExecutionWorker | undefined> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT * FROM execution_workers WHERE worker_id = ?",
+    ).get<any>(workerId);
+    return row ? this.mapWorker(row) : undefined;
+  }
+
+  async listWorkersAsync(): Promise<ExecutionWorker[]> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync(
+      "SELECT * FROM execution_workers",
+    ).all<any>();
+    return rows.map((r) => this.mapWorker(r));
+  }
+
+  async listWorkersByStatusAsync(status: string): Promise<ExecutionWorker[]> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync(
+      "SELECT * FROM execution_workers WHERE status = ?",
+    ).all<any>(status);
+    return rows.map((r) => this.mapWorker(r));
+  }
+
   createAttempt(attempt: ExecutionAttempt): void {
     this.db.prepare(`
       INSERT INTO execution_attempts (
