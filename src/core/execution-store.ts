@@ -611,6 +611,390 @@ export class ExecutionStore {
     ).all(now).map(this.mapJob);
   }
 
+  // ============================================================
+  // Phase 183b: async persistence methods for shared mode.
+  //
+  // Each mirrors its synchronous sibling exactly -- same SQL, same return
+  // shape, same semantics -- but routes through this.asyncDb. Async methods
+  // throw if asyncDb is undefined; never silently fall back to sync SQLite.
+  //
+  // SQL uses `?` placeholders; PgAsyncEngine rewrites to `$N`.
+  // CAST(? AS TEXT/INTEGER) is used where Postgres cannot infer the type
+  // from context (bare `? IS NULL` and `? = 0`).
+  // ============================================================
+
+  private requireAsyncDb(): AsyncNexusEngine {
+    if (!this.asyncDb) {
+      throw new Error(
+        "ExecutionStore async method requires asyncDb (NEXUS_PERSISTENCE_MODE=shared)",
+      );
+    }
+    return this.asyncDb;
+  }
+
+  private async addEventOnEngine(engine: AsyncNexusEngine, event: ExecutionEvent): Promise<void> {
+    await engine.prepareAsync(`
+      INSERT INTO execution_events (event_id, job_id, deployment_id, event_type, payload, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      event.eventId,
+      event.jobId,
+      event.deploymentId ?? null,
+      event.eventType,
+      event.payload ? JSON.stringify(event.payload) : null,
+      event.createdAt,
+    );
+  }
+
+  async addEventAsync(event: ExecutionEvent): Promise<void> {
+    const engine = this.requireAsyncDb();
+    await this.addEventOnEngine(engine, event);
+  }
+
+  async createJobAsync(job: ExecutionJob): Promise<void> {
+    const engine = this.requireAsyncDb();
+    await engine.prepareAsync(`
+      INSERT INTO execution_jobs (
+        id, idempotency_key, job_type, payload, status, retry_policy,
+        timeout_ms, created_at, updated_at, last_attempt_at, next_attempt_at,
+        current_lease_id, cancellation_requested, cancellation_acknowledged
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      job.id,
+      job.idempotencyKey,
+      job.jobType,
+      job.payload ? JSON.stringify(job.payload) : null,
+      job.status,
+      job.retryPolicy ? JSON.stringify(job.retryPolicy) : null,
+      job.timeoutMs ?? null,
+      job.createdAt,
+      job.updatedAt,
+      job.lastAttemptAt ?? null,
+      job.nextAttemptAt ?? null,
+      job.currentLeaseId ?? null,
+      job.cancellationRequested ? 1 : 0,
+      job.cancellationAcknowledged ? 1 : 0,
+    );
+  }
+
+  async getJobAsync(id: string): Promise<ExecutionJob | undefined> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync("SELECT * FROM execution_jobs WHERE id = ?").get<any>(id);
+    return row ? this.mapJob(row) : undefined;
+  }
+
+  async getJobByIdempotencyKeyAsync(key: string): Promise<ExecutionJob | undefined> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync("SELECT * FROM execution_jobs WHERE idempotency_key = ?").get<any>(key);
+    return row ? this.mapJob(row) : undefined;
+  }
+
+  async updateJobAsync(job: ExecutionJob): Promise<void> {
+    const engine = this.requireAsyncDb();
+    await engine.prepareAsync(`
+      UPDATE execution_jobs SET
+        payload = ?, status = ?, retry_policy = ?, timeout_ms = ?,
+        updated_at = ?, last_attempt_at = ?, next_attempt_at = ?,
+        current_lease_id = ?, cancellation_requested = ?, cancellation_acknowledged = ?
+      WHERE id = ?
+    `).run(
+      job.payload ? JSON.stringify(job.payload) : null,
+      job.status,
+      job.retryPolicy ? JSON.stringify(job.retryPolicy) : null,
+      job.timeoutMs ?? null,
+      job.updatedAt,
+      job.lastAttemptAt ?? null,
+      job.nextAttemptAt ?? null,
+      job.currentLeaseId ?? null,
+      job.cancellationRequested ? 1 : 0,
+      job.cancellationAcknowledged ? 1 : 0,
+      job.id,
+    );
+  }
+
+  async updateJobAsOwnerAsync(
+    job: ExecutionJob,
+    workerId: string,
+    leaseId: string,
+    now: number = Date.now(),
+  ): Promise<{ updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" }> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(`
+      UPDATE execution_jobs SET
+        payload = ?, status = ?, retry_policy = ?, timeout_ms = ?,
+        updated_at = ?, last_attempt_at = ?, next_attempt_at = ?,
+        current_lease_id = ?, cancellation_requested = ?, cancellation_acknowledged = ?
+      WHERE id = ?
+        AND EXISTS (
+          SELECT 1 FROM execution_leases
+          WHERE lease_id = ? AND worker_id = ? AND status = 'ACTIVE' AND expires_at > ?
+        )
+    `).run(
+      job.payload ? JSON.stringify(job.payload) : null,
+      job.status,
+      job.retryPolicy ? JSON.stringify(job.retryPolicy) : null,
+      job.timeoutMs ?? null,
+      now,
+      job.lastAttemptAt ?? null,
+      job.nextAttemptAt ?? null,
+      job.currentLeaseId ?? null,
+      job.cancellationRequested ? 1 : 0,
+      job.cancellationAcknowledged ? 1 : 0,
+      job.id,
+      leaseId,
+      workerId,
+      now,
+    );
+    if (r.changes === 0) return { updated: false, reason: "WORKER_OWNERSHIP_LOST" };
+    return { updated: true };
+  }
+
+  async requestCancellationAsync(jobId: string, now: number = Date.now()): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(`
+      UPDATE execution_jobs SET cancellation_requested = 1, updated_at = ?
+      WHERE id = ? AND status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED', 'DEAD_LETTER', 'BLOCKED')
+    `).run(now, jobId);
+    return r.changes > 0;
+  }
+
+  async listJobsByStatusAsync(status: string): Promise<ExecutionJob[]> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync("SELECT * FROM execution_jobs WHERE status = ?").all<any>(status);
+    return rows.map((r) => this.mapJob(r));
+  }
+
+  async listJobsDueForRetryAsync(now: number): Promise<ExecutionJob[]> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync(
+      "SELECT * FROM execution_jobs WHERE status = 'RETRY_SCHEDULED' AND next_attempt_at <= ?",
+    ).all<any>(now);
+    return rows.map((r) => this.mapJob(r));
+  }
+
+  async recoverJobToStatusAsync(
+    jobId: string,
+    expectedStatus: string,
+    newStatus: string,
+    expectedLeaseId: string | null,
+    patch: { nextAttemptAt?: number | null; now?: number } = {},
+  ): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const now = patch.now ?? Date.now();
+    const r = await engine.prepareAsync(`
+      UPDATE execution_jobs SET
+        status = ?, updated_at = ?, next_attempt_at = ?, current_lease_id = NULL
+      WHERE id = ?
+        AND status = ?
+        AND (
+          (CAST(? AS TEXT) IS NULL AND current_lease_id IS NULL)
+          OR current_lease_id = CAST(? AS TEXT)
+        )
+    `).run(
+      newStatus,
+      now,
+      patch.nextAttemptAt ?? null,
+      jobId,
+      expectedStatus,
+      expectedLeaseId,
+      expectedLeaseId,
+    );
+    return r.changes > 0;
+  }
+
+  async recoverJobAtomicAsync(input: {
+    jobId: string;
+    expectedStatus: string;
+    newStatus: string;
+    expectedLeaseId: string | null;
+    patch?: { nextAttemptAt?: number | null };
+    event: { eventType: string; payload: Record<string, unknown> };
+    obligation?: { leaseId: string; workerId: string; reason: string };
+  }): Promise<{ ok: boolean; obligationId?: string; obligationCreated?: boolean }> {
+    const engine = this.requireAsyncDb();
+    const now = Date.now();
+    let obligationId: string | undefined;
+    let obligationCreated: boolean | undefined;
+    let changes = 0;
+
+    await engine.transactionAsync(async (tx) => {
+      const r = await tx.prepareAsync(`
+        UPDATE execution_jobs SET
+          status = ?, updated_at = ?, next_attempt_at = ?, current_lease_id = NULL
+        WHERE id = ?
+          AND status = ?
+          AND (
+            (CAST(? AS TEXT) IS NULL AND current_lease_id IS NULL)
+            OR current_lease_id = CAST(? AS TEXT)
+          )
+      `).run(
+        input.newStatus,
+        now,
+        input.patch?.nextAttemptAt ?? null,
+        input.jobId,
+        input.expectedStatus,
+        input.expectedLeaseId,
+        input.expectedLeaseId,
+      );
+
+      changes = r.changes;
+      if (changes === 0) return;
+
+      if (typeof (this as any).__testPhase143Hook === "function") {
+        (this as any).__testPhase143Hook("afterJobUpdate");
+      }
+
+      if (input.obligation) {
+        const candidateId = `oblig_${input.jobId}_${input.obligation.leaseId}`;
+        const inserted = await tx.prepareAsync(`
+          INSERT INTO execution_ownership_obligations (
+            obligation_id, job_id, lease_id, worker_id, reason, state, created_at
+          ) VALUES (?, ?, ?, ?, ?, 'OPEN', ?)
+          ON CONFLICT (job_id, lease_id) DO NOTHING
+          RETURNING obligation_id
+        `).all<{ obligation_id: string }>(
+          candidateId,
+          input.jobId,
+          input.obligation.leaseId,
+          input.obligation.workerId,
+          input.obligation.reason,
+          now,
+        );
+        if (inserted.length > 0) {
+          obligationId = inserted[0].obligation_id;
+          obligationCreated = true;
+        } else {
+          const winner = await tx.prepareAsync(
+            "SELECT obligation_id FROM execution_ownership_obligations WHERE job_id = ? AND lease_id = ?",
+          ).get<{ obligation_id: string }>(input.jobId, input.obligation.leaseId);
+          obligationId = winner?.obligation_id ?? candidateId;
+          obligationCreated = false;
+        }
+      }
+
+      if (typeof (this as any).__testPhase143Hook === "function") {
+        (this as any).__testPhase143Hook("afterObligation");
+      }
+
+      await this.addEventOnEngine(tx, {
+        eventId: "evt_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 10),
+        jobId: input.jobId,
+        eventType: input.event.eventType,
+        payload: input.event.payload,
+        createdAt: now,
+      } as ExecutionEvent);
+    });
+
+    return changes > 0 ? { ok: true, obligationId, obligationCreated } : { ok: false };
+  }
+
+  async transitionExecutionAsync(input: TransitionInput): Promise<TransitionResult> {
+    const engine = this.requireAsyncDb();
+    const now = input.now ?? Date.now();
+    const before = await this.getJobAsync(input.jobId);
+    if (!before) return { ok: false, reason: "JOB_NOT_FOUND", currentStatus: null };
+
+    if (input.actor === "worker") {
+      if (!input.leaseId || !input.workerId) {
+        return { ok: false, reason: "WORKER_OWNERSHIP_LOST", currentStatus: before.status };
+      }
+      const owned = await engine.prepareAsync(`
+        SELECT 1 FROM execution_leases
+        WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+          AND status = 'ACTIVE' AND expires_at > ?
+      `).get(input.leaseId, input.workerId, input.jobId, now);
+      if (!owned) {
+        return { ok: false, reason: "WORKER_OWNERSHIP_LOST", currentStatus: before.status };
+      }
+    }
+
+    if (before.status === input.newStatus) {
+      return { ok: true, applied: false, status: before.status, idempotent: true };
+    }
+
+    const TERMINAL: ExecutionJob["status"][] = ["SUCCEEDED", "CANCELLED", "DEAD_LETTER", "BLOCKED"];
+    if (TERMINAL.includes(input.expectedStatus) && input.expectedStatus !== input.newStatus) {
+      return { ok: false, reason: "TERMINAL_STATE", currentStatus: before.status };
+    }
+
+    const useOwner = input.actor === "worker" ? 1 : 0;
+    const p = input.patch ?? {};
+    let changes = 0;
+    let txThrew = false;
+
+    try {
+      await engine.transactionAsync(async (tx) => {
+        const r = await tx.prepareAsync(`
+          UPDATE execution_jobs SET
+            status = ?, updated_at = ?,
+            current_lease_id          = COALESCE(?, current_lease_id),
+            retry_policy              = COALESCE(?, retry_policy),
+            timeout_ms                = COALESCE(?, timeout_ms),
+            last_attempt_at           = COALESCE(?, last_attempt_at),
+            next_attempt_at           = COALESCE(?, next_attempt_at),
+            cancellation_requested    = COALESCE(?, cancellation_requested),
+            cancellation_acknowledged = COALESCE(?, cancellation_acknowledged)
+          WHERE id = ? AND status = ?
+            AND (
+              CAST(? AS INTEGER) = 0
+              OR EXISTS (
+                SELECT 1 FROM execution_leases
+                WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+                  AND status = 'ACTIVE' AND expires_at > ?
+              )
+            )
+        `).run(
+          input.newStatus, now,
+          p.currentLeaseId === undefined ? null : (p.currentLeaseId ?? null),
+          p.retryPolicy === undefined ? null : (p.retryPolicy ? JSON.stringify(p.retryPolicy) : null),
+          p.timeoutMs === undefined ? null : (p.timeoutMs ?? null),
+          p.lastAttemptAt === undefined ? null : (p.lastAttemptAt ?? null),
+          p.nextAttemptAt === undefined ? null : (p.nextAttemptAt ?? null),
+          p.cancellationRequested === undefined ? null : (p.cancellationRequested ? 1 : 0),
+          p.cancellationAcknowledged === undefined ? null : (p.cancellationAcknowledged ? 1 : 0),
+          input.jobId, input.expectedStatus,
+          useOwner, input.leaseId ?? null, input.workerId ?? null, input.jobId, now,
+        );
+        changes = r.changes;
+
+        if (r.changes > 0) {
+          await this.addEventOnEngine(tx, {
+            eventId: `evt_${input.jobId}_${now}_${Math.random().toString(36).slice(2, 10)}`,
+            jobId: input.jobId,
+            eventType: `execution.transition.${input.newStatus.toLowerCase()}`,
+            payload: {
+              from: input.expectedStatus, to: input.newStatus, actor: input.actor,
+              reason: input.reason ?? null,
+              workerId: input.workerId ?? null, leaseId: input.leaseId ?? null,
+            },
+            createdAt: now,
+          } as ExecutionEvent);
+        }
+      });
+    } catch {
+      txThrew = true;
+    }
+
+    if (txThrew) {
+      const cur = await this.getJobAsync(input.jobId);
+      return { ok: false, reason: "STATE_MISMATCH", currentStatus: cur?.status ?? null };
+    }
+
+    if (changes === 0) {
+      const cur = await this.getJobAsync(input.jobId);
+      const currentStatus = cur?.status ?? null;
+      if (currentStatus === input.newStatus) {
+        return { ok: true, applied: false, status: currentStatus, idempotent: true };
+      }
+      if (input.actor === "worker" && currentStatus === input.expectedStatus) {
+        return { ok: false, reason: "WORKER_OWNERSHIP_LOST", currentStatus };
+      }
+      return { ok: false, reason: "STATE_MISMATCH", currentStatus };
+    }
+
+    return { ok: true, applied: true, status: input.newStatus, idempotent: false };
+  }
+
   // ---------- Attempts ----------
   createAttempt(attempt: ExecutionAttempt): void {
     this.db.prepare(`

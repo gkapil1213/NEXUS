@@ -96,5 +96,64 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_ero_claim_expires
         ON execution_recovery_operations (state, claim_expires_at)
     `);
+
+    // Phase 183b: execution_leases -- required by updateJobAsOwnerAsync /
+    // transitionExecutionAsync ownership fences. Schema translated from
+    // src/db/migrations/020_phase13_execution.sql.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS execution_leases (
+        lease_id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        worker_id TEXT NOT NULL,
+        acquired_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        renewed_at BIGINT,
+        released_at BIGINT,
+        status TEXT NOT NULL
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_leases_status
+        ON execution_leases (status)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_leases_job
+        ON execution_leases (job_id)
+    `);
+
+    // execution_events -- written inside transition/recovery transactions.
+    // Schema translated from src/db/migrations/020_phase13_execution.sql.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS execution_events (
+        event_id TEXT PRIMARY KEY,
+        job_id TEXT,
+        deployment_id TEXT,
+        event_type TEXT NOT NULL,
+        payload TEXT,
+        created_at BIGINT NOT NULL
+      )
+    `);
+
+    // execution_ownership_obligations -- durable ownership-loss record.
+    // Schema translated from src/db/migrations/149_phase126_execution_ownership_obligations.sql.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS execution_ownership_obligations (
+        obligation_id TEXT PRIMARY KEY,
+        job_id        TEXT NOT NULL,
+        lease_id      TEXT NOT NULL,
+        worker_id     TEXT NOT NULL,
+        reason        TEXT NOT NULL,
+        state         TEXT NOT NULL DEFAULT 'OPEN',
+        created_at    BIGINT NOT NULL,
+        resolved_at   BIGINT,
+        resolution    TEXT,
+        UNIQUE (job_id, lease_id)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_eoo_open
+        ON execution_ownership_obligations (job_id)
+        WHERE state = 'OPEN'
+    `);
   });
 }

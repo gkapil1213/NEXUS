@@ -101,7 +101,7 @@ export interface AsyncNexusEngine {
   readonly kind: EngineKind;
   prepareAsync(sql: string): AsyncSQLStatement;
   execAsync(sql: string): Promise<void>;
-  transactionAsync<T>(fn: () => Promise<T>): Promise<T>;
+  transactionAsync<T>(fn: (tx: AsyncNexusEngine) => Promise<T>): Promise<T>;
 }
 
 export interface NexusEngine {

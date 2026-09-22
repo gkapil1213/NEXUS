@@ -187,11 +187,11 @@ export class SQLiteAsyncEngine implements AsyncNexusEngine {
     this.inner.exec(sql);
   }
 
-  async transactionAsync<T>(fn: () => Promise<T>): Promise<T> {
+  async transactionAsync<T>(fn: (tx: AsyncNexusEngine) => Promise<T>): Promise<T> {
     const run = async (): Promise<T> => {
       this.inner.exec("BEGIN IMMEDIATE");
       try {
-        const result = await fn();
+        const result = await fn(this);
         this.inner.exec("COMMIT");
         return result;
       } catch (e) {

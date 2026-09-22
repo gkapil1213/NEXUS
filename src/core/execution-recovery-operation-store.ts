@@ -458,3 +458,174 @@ export class ExecutionRecoveryOperationStore {
     return rows.map(mapRow);
   }
 }
+
+// ============================================================
+// Phase 183b: async sibling of ExecutionRecoveryOperationStore.
+//
+// Same SQL, same state semantics, same claim fencing. Routes through an
+// AsyncNexusEngine so it can run against PostgreSQL in shared mode.
+// ============================================================
+
+import { AsyncNexusEngine } from "./db";
+
+export class AsyncExecutionRecoveryOperationStore {
+  constructor(private asyncDb: AsyncNexusEngine) {}
+
+  async createOrGetOperation(input: {
+    jobId: string;
+    leaseId: string | null;
+    workerId: string | null;
+    operationType: ExecutionRecoveryOperationType;
+    idempotencyKey?: string;
+    now?: number;
+  }): Promise<{ operation: ExecutionRecoveryOperation; created: boolean }> {
+    const now = input.now ?? Date.now();
+    const key =
+      input.idempotencyKey ??
+      recoveryOperationIdempotencyKey({
+        jobId: input.jobId,
+        leaseId: input.leaseId,
+        operationType: input.operationType,
+      });
+
+    const existing = await this.asyncDb.prepareAsync(
+      "SELECT * FROM execution_recovery_operations WHERE idempotency_key = ?",
+    ).get<any>(key);
+    if (existing) return { operation: mapRow(existing), created: false };
+
+    const operationId = generateId();
+    try {
+      await this.asyncDb.prepareAsync(
+        "INSERT INTO execution_recovery_operations " +
+        "(operation_id, job_id, lease_id, worker_id, operation_type, state, " +
+        " idempotency_key, attempt_count, last_error, claim_owner, " +
+        " claim_expires_at, created_at, updated_at, completed_at) " +
+        "VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 0, NULL, NULL, NULL, ?, ?, NULL)",
+      ).run(
+        operationId,
+        input.jobId,
+        input.leaseId,
+        input.workerId,
+        input.operationType,
+        key,
+        now,
+        now,
+      );
+      const row = await this.asyncDb.prepareAsync(
+        "SELECT * FROM execution_recovery_operations WHERE operation_id = ?",
+      ).get<any>(operationId);
+      return { operation: mapRow(row), created: true };
+    } catch (err) {
+      const winner = await this.asyncDb.prepareAsync(
+        "SELECT * FROM execution_recovery_operations WHERE idempotency_key = ?",
+      ).get<any>(key);
+      if (winner) return { operation: mapRow(winner), created: false };
+      throw err;
+    }
+  }
+
+  async getOperation(operationId: string): Promise<ExecutionRecoveryOperation | undefined> {
+    const row = await this.asyncDb.prepareAsync(
+      "SELECT * FROM execution_recovery_operations WHERE operation_id = ?",
+    ).get<any>(operationId);
+    return row ? mapRow(row) : undefined;
+  }
+
+  async claimOperation(input: {
+    operationId: string;
+    owner: string;
+    durationMs: number;
+    now?: number;
+  }): Promise<{ claimed: boolean; operation?: ExecutionRecoveryOperation; reason?: string }> {
+    const now = input.now ?? Date.now();
+    const expiresAt = now + input.durationMs;
+    const r = await this.asyncDb.prepareAsync(
+      "UPDATE execution_recovery_operations " +
+      "   SET state = 'CLAIMED', " +
+      "       claim_owner = ?, " +
+      "       claim_expires_at = ?, " +
+      "       attempt_count = attempt_count + 1, " +
+      "       updated_at = ? " +
+      " WHERE operation_id = ? " +
+      "   AND (state = 'PENDING' " +
+      "        OR state = 'FAILED' " +
+      "        OR state = 'RECOVERY_REQUIRED' " +
+      "        OR (state IN ('CLAIMED','IN_PROGRESS') " +
+      "            AND (claim_expires_at IS NULL OR claim_expires_at <= ?)))",
+    ).run(input.owner, expiresAt, now, input.operationId, now);
+
+    if (r.changes === 1) {
+      return { claimed: true, operation: await this.getOperation(input.operationId) };
+    }
+    const current = await this.getOperation(input.operationId);
+    if (!current) return { claimed: false, reason: "NOT_FOUND" };
+    if (current.state === "COMPLETED") return { claimed: false, operation: current, reason: "ALREADY_COMPLETED" };
+    return { claimed: false, operation: current, reason: "ACTIVE_CLAIM" };
+  }
+
+  async markInProgress(operationId: string, owner: string, now: number = Date.now()): Promise<boolean> {
+    const r = await this.asyncDb.prepareAsync(
+      "UPDATE execution_recovery_operations " +
+      "   SET state = 'IN_PROGRESS', updated_at = ? " +
+      " WHERE operation_id = ? " +
+      "   AND claim_owner = ? " +
+      "   AND claim_expires_at IS NOT NULL AND claim_expires_at > ? " +
+      "   AND state = 'CLAIMED'",
+    ).run(now, operationId, owner, now);
+    return r.changes === 1;
+  }
+
+  async markCompleted(operationId: string, owner: string, now: number = Date.now()): Promise<boolean> {
+    const r = await this.asyncDb.prepareAsync(
+      "UPDATE execution_recovery_operations " +
+      "   SET state = 'COMPLETED', " +
+      "       claim_owner = NULL, " +
+      "       claim_expires_at = NULL, " +
+      "       completed_at = ?, " +
+      "       updated_at = ?, " +
+      "       last_error = NULL " +
+      " WHERE operation_id = ? " +
+      "   AND claim_owner = ? " +
+      "   AND claim_expires_at IS NOT NULL AND claim_expires_at > ? " +
+      "   AND state IN ('CLAIMED','IN_PROGRESS')",
+    ).run(now, now, operationId, owner, now);
+    return r.changes === 1;
+  }
+
+  async finalizeCompletedOperation(operationId: string, now: number = Date.now()): Promise<boolean> {
+    const r = await this.asyncDb.prepareAsync(
+      "UPDATE execution_recovery_operations " +
+      "   SET state = 'COMPLETED', " +
+      "       claim_owner = NULL, " +
+      "       claim_expires_at = NULL, " +
+      "       completed_at = ?, " +
+      "       updated_at = ?, " +
+      "       last_error = NULL " +
+      " WHERE operation_id = ? " +
+      "   AND state IN ('PENDING','CLAIMED','IN_PROGRESS','FAILED') " +
+      "   AND (claim_expires_at IS NULL OR claim_expires_at <= ?)",
+    ).run(now, now, operationId, now);
+    return r.changes === 1;
+  }
+
+  async markFailed(
+    operationId: string,
+    owner: string,
+    error: string,
+    now: number = Date.now(),
+  ): Promise<boolean> {
+    const r = await this.asyncDb.prepareAsync(
+      "UPDATE execution_recovery_operations " +
+      "   SET state = 'FAILED', " +
+      "       claim_owner = NULL, " +
+      "       claim_expires_at = NULL, " +
+      "       last_error = ?, " +
+      "       updated_at = ? " +
+      " WHERE operation_id = ? " +
+      "   AND claim_owner = ? " +
+      "   AND claim_expires_at IS NOT NULL AND claim_expires_at > ? " +
+      "   AND state IN ('CLAIMED','IN_PROGRESS')",
+    ).run(error, now, operationId, owner, now);
+    return r.changes === 1;
+  }
+}
