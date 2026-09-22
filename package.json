@@ -38,7 +38,8 @@
         "test:phase182": "tsx scripts/test-phase182-multi-instance-coordination.ts",
     "test:phase183a": "tsx scripts/test-phase183a-shared-idempotency.ts",
     "test:phase183b-jobs": "tsx scripts/test-phase183b-jobs-recovery.ts",
-    "test:phase183b-intents": "tsx scripts/test-phase183b-release-intents.ts"
+    "test:phase183b-intents": "tsx scripts/test-phase183b-release-intents.ts",
+    "test:phase183c-attempts": "tsx scripts/test-phase183c-attempts-workers.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",
