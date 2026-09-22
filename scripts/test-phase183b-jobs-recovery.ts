@@ -148,7 +148,7 @@ async function main() {
   section("J10 - recovery op persisted to Postgres");
   {
     const r = await recoveryOps.createOrGetOperation({
-      jobId: "j10-job", leaseId: null, workerId: null, operationType: "ORPHAN_RECOVERY",
+      jobId: "j10-job-" + Date.now(), leaseId: null, workerId: null, operationType: "ORPHAN_RECOVERY",
     });
     const back = await recoveryOps.getOperation(r.operation.operationId);
     ok(r.created === true && back?.state === "PENDING", "J10 recovery op in Postgres, PENDING");
@@ -157,7 +157,7 @@ async function main() {
   // J11 cross-process recovery
   section("J11 - cross-process recovery visibility");
   {
-    const r = await runChild(url, "create-recovery-op", "j11-job", "CANCELLATION");
+    const r = await runChild(url, "create-recovery-op", "j11-job-" + Date.now(), "CANCELLATION");
     ok(r.code === 0 && r.json?.created === true, "J11 child creates op");
     const r2 = await runChild(url, "get-recovery-op", r.json.operationId);
     ok(r2.code === 0 && r2.json?.found === true && r2.json?.state === "PENDING", "J11 second child sees op");
@@ -166,7 +166,7 @@ async function main() {
   // J12 recovery transition atomicity
   section("J12 - recovery transition atomicity");
   {
-    const r = await runChild(url, "create-recovery-op", "j12-job", "TIMEOUT");
+    const r = await runChild(url, "create-recovery-op", "j12-job-" + Date.now(), "TIMEOUT");
     const opId = r.json.operationId;
     const [a, b] = await Promise.all([
       runChild(url, "claim-recovery-op", opId, "owner-A", "60000"),
