@@ -73,7 +73,7 @@ export const NEXUS_STORES = [
  
 export type StoreName = (typeof NEXUS_STORES)[number];
 
-export type EngineKind = "indexeddb" | "memory" | "sqlite";
+export type EngineKind = "indexeddb" | "memory" | "sqlite" | "postgres";
 
 /**
  * Phase 183b: async sibling of SQLStatement for PostgreSQL-compatible
