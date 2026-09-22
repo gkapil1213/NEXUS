@@ -33,7 +33,8 @@
     "test:phase177": "tsx scripts/test-phase177-durable-recovery-control-loop.ts",
     "test:phase178": "tsx scripts/test-phase178-recovery-operations-control.ts",
     "test:phase179": "tsx scripts/test-phase179-recovery-control-api.ts",
-    "test:phase180": "tsx scripts/test-phase180-http-production-hardening.ts"
+    "test:phase180": "tsx scripts/test-phase180-http-production-hardening.ts",
+    "test:phase181": "tsx scripts/test-phase181-persistence-durability.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

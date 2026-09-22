@@ -18,7 +18,27 @@ export class SQLiteEngine implements NexusEngine {
     this.db = db;
   }
 
+  /**
+   * Phase 181: production durability pragmas. Applied by both open() (the
+   * normal kernel boot path) and fromDatabase() (callers who already hold a
+   * better-sqlite3 instance, including every test in the repository). This
+   * closes a real gap: before Phase 181, only open() set WAL, so tests and
+   * embedders got SQLite defaults.
+   */
+  private static applyProductionPragmas(db: Database.Database): void {
+    // journal_mode = WAL   concurrent readers during writers; crash-safe
+    db.pragma("journal_mode = WAL");
+    // busy_timeout = 5000  a second writer waits instead of failing instantly
+    //                      with SQLITE_BUSY. Without this, run-server + the
+    //                      recovery supervisor + any worker contend and lose
+    //                      transactions.
+    db.pragma("busy_timeout = 5000");
+    // foreign_keys = ON    SQLite default is OFF; enforce declared REFERENCES
+    db.pragma("foreign_keys = ON");
+  }
+
   static fromDatabase(db: Database.Database): SQLiteEngine {
+    SQLiteEngine.applyProductionPragmas(db);
     return new SQLiteEngine(db);
   }
   transaction<T>(fn: () => T): T {
@@ -37,7 +57,16 @@ export class SQLiteEngine implements NexusEngine {
         const migrationsDir = join(process.cwd(), 'src', 'db', 'migrations');
         const runner = new MigrationRunner(db, migrationsDir);
         runner.run();
-    db.pragma("journal_mode = WAL");
+    // Phase 181: production durability pragmas.
+    //   journal_mode = WAL       concurrent readers during writers; crash-safe
+    //   busy_timeout = 5000      a second writer waits up to 5s instead of
+    //                            failing instantly with SQLITE_BUSY. Without
+    //                            this, any concurrent writer (run-server +
+    //                            recovery supervisor + worker) hits BUSY and
+    //                            loses the transaction.
+    //   foreign_keys = ON        SQLite default is OFF; enable FK enforcement
+    //                            for any REFERENCES declared by migrations.
+    SQLiteEngine.applyProductionPragmas(db);
     db.exec(`
       CREATE TABLE IF NOT EXISTS nexus_records (
         store TEXT NOT NULL,

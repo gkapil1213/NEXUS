@@ -20,6 +20,7 @@ import type { KernelServices } from "../core/kernel";
 import type { IdempotencyStore } from "./idempotency";
 import { RateLimiter, type RateLimitOptions, type RateLimitBucket } from "./rate-limit";
 import { emitAccessLog } from "./logging";
+import { probeDbHealth } from "./db-health";
 
 /** Inbound X-Request-Id is accepted only if it matches this. Otherwise we
  *  generate one. Prevents header-injection / unbounded request IDs. */
@@ -140,7 +141,7 @@ export function createHttpApp(deps: HttpAppDeps): Application {
   // --- 8. Readiness (dependency-level). Read-only; no provider calls,
   //        no lease acquisition, no recovery state mutation. ---
   app.get("/health/ready", (req: any, res) => {
-    const checks: Record<string, boolean> = {
+    const wiring: Record<string, boolean> = {
       executionStore: !!deps.services.executionStore,
       releaseIntents: !!deps.services.releaseIntents,
       recoveryOperations: !!deps.services.recoveryOperations,
@@ -148,10 +149,34 @@ export function createHttpApp(deps: HttpAppDeps): Application {
       sessions: !!deps.services.sessions,
       audit: !!deps.services.audit,
     };
-    const ready = Object.values(checks).every(Boolean);
+    const wiringOk = Object.values(wiring).every(Boolean);
+
+    // Phase 181: durable-state health. Read-only; no provider; no leases.
+    let dbHealth: { ok: boolean; checks: Record<string, { ok: boolean; detail: string }> } = {
+      ok: false,
+      checks: { dbHealth: { ok: false, detail: "executionStore unavailable" } },
+    };
+    if (wiringOk) {
+      try {
+        const store: any = deps.services.executionStore;
+        const rawDb: any = store && typeof store === "object" ? store.db : undefined;
+        if (rawDb) {
+          dbHealth = probeDbHealth(rawDb);
+        }
+      } catch (e) {
+        dbHealth = { ok: false, checks: { dbHealth: { ok: false, detail: (e as Error).message } } };
+      }
+    }
+
+    const ready = wiringOk && dbHealth.ok;
     res.status(ready ? 200 : 503).json({
       requestId: req.requestId,
-      data: { ok: ready, kind: "ready", checks },
+      data: {
+        ok: ready,
+        kind: "ready",
+        checks: wiring,
+        persistence: dbHealth.checks,
+      },
     });
   });
 
