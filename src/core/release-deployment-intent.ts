@@ -109,7 +109,7 @@ export class ReleaseDeploymentIntentService {
   transition(
     intentKey: string,
     status: ReleaseIntentStatus,
-    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null; recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null; reconciliationEvidence?: string | null } = {},
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null; recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null; reconciliationEvidence?: string | null; lastRecoveryDecision?: string | null; lastRecoveryDecisionAt?: number | null } = {},
   ): ReleaseDeploymentIntent | undefined {
     return this.store.updateReleaseIntentStatus(intentKey, status, patch);
   }
@@ -123,7 +123,7 @@ export class ReleaseDeploymentIntentService {
     intentKey: string,
     status: ReleaseIntentStatus,
     workerId: string,
-    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null; recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null; reconciliationEvidence?: string | null } = {},
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null; recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null; reconciliationEvidence?: string | null; lastRecoveryDecision?: string | null; lastRecoveryDecisionAt?: number | null } = {},
     expectedStatuses?: ReleaseIntentStatus[],
   ): { updated: boolean; intent: ReleaseDeploymentIntent | undefined } {
     return this.store.updateReleaseIntentStatusIfOwned(intentKey, status, workerId, patch, expectedStatuses);

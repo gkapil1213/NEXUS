@@ -28,7 +28,8 @@
                     "test:phase173":  "tsx scripts/test-phase173-release-recovery-crash-safety.ts",
                     "test:phase174":  "tsx scripts/test-phase174-recovery-concurrency-and-rollback-safety.ts",
                     "test:phase175":  "tsx scripts/test-phase175-recovery-supervisor-admission.ts",
-                    "test:phase176":  "tsx scripts/test-phase176-authoritative-reconciliation.ts"
+                    "test:phase176":  "tsx scripts/test-phase176-authoritative-reconciliation.ts",
+    "test:phase177": "tsx scripts/test-phase177-durable-recovery-control-loop.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

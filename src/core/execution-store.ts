@@ -103,6 +103,11 @@ export interface ReleaseDeploymentIntent {
   // Phase 176: durable reconciliation provenance (JSON envelope) written on
   // authoritative terminal decisions. Never a decision input; audit only.
   reconciliationEvidence?: string | null;
+  // Phase 177: durable recovery decision journal (JSON envelope).
+  // Written atomically with the transition that produced it; never a
+  // decision input on its own -- a durable trace of the control loop.
+  lastRecoveryDecision?: string | null;
+  lastRecoveryDecisionAt?: number | null;
   status: ReleaseIntentStatus;
   deploymentId: string | null;
   failureReason: string | null;
@@ -1894,7 +1899,7 @@ export class ExecutionStore {
   updateReleaseIntentStatus(
     intentKey: string,
     status: ReleaseIntentStatus,
-    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null; recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null; reconciliationEvidence?: string | null } = {},
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null; recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null; reconciliationEvidence?: string | null; lastRecoveryDecision?: string | null; lastRecoveryDecisionAt?: number | null } = {},
   ): ReleaseDeploymentIntent | undefined {
     this.ensureIntentTable();
     const now = Date.now();
@@ -1914,6 +1919,8 @@ export class ExecutionStore {
         next_retry_at = COALESCE(?, next_retry_at),
         last_failure_class = COALESCE(?, last_failure_class),
         reconciliation_evidence = COALESCE(?, reconciliation_evidence),
+        last_recovery_decision = COALESCE(?, last_recovery_decision),
+        last_recovery_decision_at = COALESCE(?, last_recovery_decision_at),
         updated_at = ?
       WHERE intent_key = ?
     `).run(
@@ -1931,6 +1938,8 @@ export class ExecutionStore {
       patch.nextRetryAt ?? null,
       patch.lastFailureClass ?? null,
       patch.reconciliationEvidence ?? null,
+      patch.lastRecoveryDecision ?? null,
+      patch.lastRecoveryDecisionAt ?? null,
       now,
       intentKey,
     );
@@ -1947,7 +1956,7 @@ export class ExecutionStore {
     intentKey: string,
     status: ReleaseIntentStatus,
     workerId: string,
-    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null; recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null; reconciliationEvidence?: string | null } = {},
+    patch: { deploymentId?: string | null; failureReason?: string | null; recoveryReason?: string | null; provider?: string | null; providerStatus?: string | null; providerDeploymentId?: string | null; startedAt?: number | null; completedAt?: number | null; reconciledAt?: number | null; recoveryAttempts?: number | null; nextRetryAt?: number | null; lastFailureClass?: string | null; reconciliationEvidence?: string | null; lastRecoveryDecision?: string | null; lastRecoveryDecisionAt?: number | null } = {},
     expectedStatuses?: ReleaseIntentStatus[],
   ): { updated: boolean; intent: ReleaseDeploymentIntent | undefined } {
     this.ensureIntentTable();
@@ -1968,6 +1977,8 @@ export class ExecutionStore {
         next_retry_at = COALESCE(?, next_retry_at),
         last_failure_class = COALESCE(?, last_failure_class),
         reconciliation_evidence = COALESCE(?, reconciliation_evidence),
+        last_recovery_decision = COALESCE(?, last_recovery_decision),
+        last_recovery_decision_at = COALESCE(?, last_recovery_decision_at),
         updated_at = ?
       WHERE intent_key = ?
         AND leased_by = ?
@@ -1989,6 +2000,8 @@ export class ExecutionStore {
       patch.nextRetryAt ?? null,
       patch.lastFailureClass ?? null,
       patch.reconciliationEvidence ?? null,
+      patch.lastRecoveryDecision ?? null,
+      patch.lastRecoveryDecisionAt ?? null,
       now,
       intentKey,
       workerId,
@@ -2268,6 +2281,8 @@ export class ExecutionStore {
       nextRetryAt: row.next_retry_at ?? null,
       lastFailureClass: row.last_failure_class ?? null,
       reconciliationEvidence: row.reconciliation_evidence ?? null,
+      lastRecoveryDecision: row.last_recovery_decision ?? null,
+      lastRecoveryDecisionAt: row.last_recovery_decision_at ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

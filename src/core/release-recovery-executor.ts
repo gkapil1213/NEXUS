@@ -12,6 +12,11 @@ import type { ReleaseDeploymentIntentService } from "./release-deployment-intent
 import type { NexusEngine } from "./db";
 import type { ReleaseRecoveryService, RecoveryAction, RecoveryPlan } from "./release-recovery";
 import { inspectIntentContainer } from "./release-recovery-inspection";
+import {
+  buildRecoveryDecisionEnvelope,
+  serializeRecoveryDecision,
+  type RecoveryDecisionKind,
+} from "./release-recovery-decision";
 
 export interface RecoveryEventSink {
   emit(e: { type: string; source?: string; execution_id?: string | null; payload?: unknown }): Promise<unknown> | unknown;
@@ -177,7 +182,8 @@ export class ReleaseRecoveryExecutor {
       const authLease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
       if (!authLease.acquired) { report.leaseHeld++; return; }
       try {
-        const adv = intents.transitionIfOwned(intent.intentKey, "DEPLOYMENT_INTENT_CREATED", this.deps.workerId, { recoveryReason: "recovery: AUTHORIZED -> DEPLOYMENT_INTENT_CREATED" });
+        const authDp = this.decisionPatch(intent.intentKey, "SAFE_TO_RESUME", "RESUME_FROM_INTENT", "authorized intent ready to deploy");
+        const adv = intents.transitionIfOwned(intent.intentKey, "DEPLOYMENT_INTENT_CREATED", this.deps.workerId, { recoveryReason: "recovery: AUTHORIZED -> DEPLOYMENT_INTENT_CREATED", ...authDp });
         if (adv.updated) {
           report.acted++;
           await svc.events.emit({ type: "release.recovery.advanced", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, from: "AUTHORIZED", to: "DEPLOYMENT_INTENT_CREATED" } });
@@ -202,7 +208,8 @@ export class ReleaseRecoveryExecutor {
           report.blocked++;
           return;
         }
-        intents.transitionIfOwned(fresh.intentKey, "DEPLOYING", this.deps.workerId, { recoveryReason: "recovery: deploying under lease " + this.deps.workerId });
+        const safeDp = this.decisionPatch(fresh.intentKey, "SAFE_TO_RESUME", "RESUME_FROM_INTENT", "authorized resume under lease " + this.deps.workerId);
+        intents.transitionIfOwned(fresh.intentKey, "DEPLOYING", this.deps.workerId, { recoveryReason: "recovery: deploying under lease " + this.deps.workerId, ...safeDp });
         // Phase 171: authoritative project resolution before provider invocation.
         // When the engine is wired, verify the recovered intent's project matches
         // the execution.project_id resolved from durable state. Mismatch or
@@ -224,7 +231,7 @@ export class ReleaseRecoveryExecutor {
           }
         }
         const outcome = await this.deps.orchestrator.deploy(this.toDeploymentRequest(fresh, fresh.attemptId));
-        await this.recordDeploymentOutcome(fresh, outcome, report);
+        await this.recordDeploymentOutcome(fresh, outcome, report, "RESUME_FROM_INTENT");
       } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
       return;
     }
@@ -258,7 +265,8 @@ export class ReleaseRecoveryExecutor {
           hostPort: inspection.hostPort,
           smokeVerdict: smokeResult.verdict,
         });
-        intents.transitionIfOwned(fresh.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId: fresh.deploymentId, reconciledAt: Date.now(), reconciliationEvidence: evidence });
+        const kgDp = this.decisionPatch(fresh.intentKey, "KNOWN_GOOD", "RESUME_VERIFICATION", "resumed verification passed");
+        intents.transitionIfOwned(fresh.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId: fresh.deploymentId, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...kgDp });
         report.acted++;
         await this.deps.svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, deploymentId: fresh.deploymentId } });
         await this.deps.svc.events.emit({ type: "reconciliation.authoritative_success", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, deploymentId: fresh.deploymentId, containerId: inspection.containerId, runningImageId: inspection.runningImageId, expectedImageId: inspection.expectedImageId, smokeVerdict: smokeResult.verdict } });
@@ -497,13 +505,42 @@ export class ReleaseRecoveryExecutor {
     return JSON.stringify(envelope);
   }
 
-  private async recordDeploymentOutcome(intent: ReleaseDeploymentIntent, outcome: CanonicalDeploymentOutcome, report: RecoveryRunReport): Promise<void> {
+  /**
+   * Phase 177: durable decision journal. Builds the patch fragment that
+   * records the recovery decision alongside the state transition that
+   * produced it. Same lease, same fence, same atomic write.
+   */
+  private decisionPatch(
+    intentKey: string,
+    decision: RecoveryDecisionKind,
+    action: RecoveryAction,
+    reason: string,
+    extra?: { attempts?: number; maxAttempts?: number; nextRetryAt?: number | null },
+  ): { lastRecoveryDecision: string; lastRecoveryDecisionAt: number } {
+    const env = buildRecoveryDecisionEnvelope({
+      decision,
+      action,
+      reason,
+      attempts: extra?.attempts,
+      maxAttempts: extra?.maxAttempts,
+      nextRetryAt: extra?.nextRetryAt,
+      workerId: this.deps.workerId,
+      intentKey,
+    });
+    return {
+      lastRecoveryDecision: serializeRecoveryDecision(env),
+      lastRecoveryDecisionAt: env.timestamp,
+    };
+  }
+
+  private async recordDeploymentOutcome(intent: ReleaseDeploymentIntent, outcome: CanonicalDeploymentOutcome, report: RecoveryRunReport, action: RecoveryAction): Promise<void> {
     const { intents, svc } = this.deps;
     const status = outcome.deployment.status;
     const deploymentId = outcome.deployment.id;
     if (status === "KNOWN_GOOD") {
       const evidence = this.buildReconciliationEvidence({ source: "executor.recordDeploymentOutcome", intent, deploymentId, providerStatus: status });
-      intents.transitionIfOwned(intent.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId, providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence });
+      const rdoKgDp = this.decisionPatch(intent.intentKey, "KNOWN_GOOD", action, "provider returned KNOWN_GOOD");
+      intents.transitionIfOwned(intent.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId, providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...rdoKgDp });
       report.acted++;
       await svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId } });
       await svc.events.emit({ type: "reconciliation.authoritative_success", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId, providerStatus: status } });
@@ -511,13 +548,15 @@ export class ReleaseRecoveryExecutor {
     }
     if (status === "BLOCKED") {
       const evidence = this.buildReconciliationEvidence({ source: "executor.recordDeploymentOutcome", intent, deploymentId, providerStatus: status, reason: "provider returned BLOCKED" });
-      intents.transitionIfOwned(intent.intentKey, "BLOCKED", this.deps.workerId, { deploymentId, failureReason: "deployment blocked", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence });
+      const rdoBDp = this.decisionPatch(intent.intentKey, "BLOCKED", action, "provider returned BLOCKED");
+      intents.transitionIfOwned(intent.intentKey, "BLOCKED", this.deps.workerId, { deploymentId, failureReason: "deployment blocked", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...rdoBDp });
       report.blocked++;
       await svc.events.emit({ type: "reconciliation.authoritative_failure", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId, providerStatus: status, terminal: "BLOCKED" } });
       return;
     }
     const evidence = this.buildReconciliationEvidence({ source: "executor.recordDeploymentOutcome", intent, deploymentId, providerStatus: status, reason: "provider returned non-success status" });
-    intents.transitionIfOwned(intent.intentKey, "FAILED", this.deps.workerId, { deploymentId, failureReason: "deployment failed", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence });
+    const rdoFDp = this.decisionPatch(intent.intentKey, "FAILED", action, "provider returned non-success status");
+    intents.transitionIfOwned(intent.intentKey, "FAILED", this.deps.workerId, { deploymentId, failureReason: "deployment failed", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...rdoFDp });
     report.acted++;
     await svc.events.emit({ type: "reconciliation.authoritative_failure", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId, providerStatus: status, terminal: "FAILED" } });
   }
@@ -573,11 +612,20 @@ export class ReleaseRecoveryExecutor {
       }
       lastFailureClass = "RECOVERY_REQUIRED";
     }
+    const decision: RecoveryDecisionKind = policy
+      ? (exhausted ? "EXHAUST" : "RETRY")
+      : "REMAIN_RECOVERY_REQUIRED";
+    const dp = this.decisionPatch(intent.intentKey, decision, "RECOVERY_REQUIRED", reason, {
+      attempts,
+      maxAttempts: policy?.maxAttempts,
+      nextRetryAt,
+    });
     this.deps.intents.transitionIfOwned(intent.intentKey, "RECOVERY_REQUIRED", this.deps.workerId, {
       recoveryReason: reason,
       providerStatus: "UNKNOWN",
       reconciledAt: Date.now(),
       ...(policy ? { recoveryAttempts: attempts, nextRetryAt, lastFailureClass } : {}),
+      ...dp,
     });
     if (policy) {
       const auditAction = exhausted ? "release.recovery.retry_exhausted" : "release.recovery.retry_scheduled";
