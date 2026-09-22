@@ -64,7 +64,7 @@ export class MigrationRunner {
             }
             const hasExplicitTransaction = /^\s*BEGIN\b/im.test(mig.sql);
             const insertHistory = () => {
-                this.db.prepare(`INSERT INTO ${this.tableName} (id, filename, checksum, applied_at) VALUES (?, ?, ?, ?)`).run(
+                this.db.prepare(`INSERT OR IGNORE INTO ${this.tableName} (id, filename, checksum, applied_at) VALUES (?, ?, ?, ?)`).run(
                     mig.id,
                     mig.filename,
                     mig.checksum,
@@ -77,10 +77,29 @@ export class MigrationRunner {
                 insertHistory();
             } else {
                 const apply = this.db.transaction(() => {
+                    // Phase 182: BEGIN IMMEDIATE + in-transaction recheck.
+                    //
+                    // The previous deferred transaction read the history under a snapshot
+                    // and only upgraded to a write lock at the first DDL statement. Two
+                    // processes could both observe an empty history, then the first
+                    // committed; the second's upgrade saw a stale snapshot and SQLite
+                    // returned SQLITE_BUSY_SNAPSHOT immediately (busy_timeout does not
+                    // retry it -- that would risk deadlock). The loser threw.
+                    //
+                    // IMMEDIATE acquires the write lock at BEGIN, so concurrent runners
+                    // serialize. The winner applies; the losers' recheck inside the
+                    // transaction sees the committed history row and skips.
+                    const recheck = this.db.prepare(`SELECT * FROM ${this.tableName} WHERE id = ?`).get(mig.id) as MigrationRecord | undefined;
+                    if (recheck) {
+                        if (recheck.checksum !== mig.checksum) {
+                            throw new Error(`Checksum mismatch for migration ${mig.filename}`);
+                        }
+                        return;
+                    }
                     this.db.exec(mig.sql);
                     insertHistory();
                 });
-                apply();
+                apply.immediate();
             }
         }
     }

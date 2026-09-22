@@ -15,9 +15,18 @@ export interface DbHealthDetail {
   detail: string;
 }
 
+export interface DbHealthMeta {
+  persistence_mode: string;
+  coordination_mode: string;
+  instance_id: string | null;
+  reason: string;
+}
+
 export interface DbHealthResult {
   ok: boolean;
   checks: Record<string, DbHealthDetail>;
+  /** Present when the caller supplied persistence-mode context. */
+  meta?: DbHealthMeta;
 }
 
 const REQUIRED_TABLES = [
@@ -26,7 +35,7 @@ const REQUIRED_TABLES = [
   "release_deployment_intents",
 ];
 
-export function probeDbHealth(db: Database.Database): DbHealthResult {
+export function probeDbHealth(db: Database.Database, meta?: DbHealthMeta): DbHealthResult {
   const checks: Record<string, DbHealthDetail> = {};
 
   // 1. Readable
@@ -86,5 +95,7 @@ export function probeDbHealth(db: Database.Database): DbHealthResult {
   }
 
   const ok = Object.values(checks).every((c) => c.ok);
-  return { ok, checks };
+  const result: DbHealthResult = { ok, checks };
+  if (meta) result.meta = meta;
+  return result;
 }

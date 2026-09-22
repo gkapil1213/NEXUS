@@ -21,6 +21,7 @@ import type { IdempotencyStore } from "./idempotency";
 import { RateLimiter, type RateLimitOptions, type RateLimitBucket } from "./rate-limit";
 import { emitAccessLog } from "./logging";
 import { probeDbHealth } from "./db-health";
+import { resolvePersistenceMode } from "../core/persistence-mode";
 
 /** Inbound X-Request-Id is accepted only if it matches this. Otherwise we
  *  generate one. Prevents header-injection / unbounded request IDs. */
@@ -152,7 +153,17 @@ export function createHttpApp(deps: HttpAppDeps): Application {
     const wiringOk = Object.values(wiring).every(Boolean);
 
     // Phase 181: durable-state health. Read-only; no provider; no leases.
-    let dbHealth: { ok: boolean; checks: Record<string, { ok: boolean; detail: string }> } = {
+    type DbHealthLocal = {
+      ok: boolean;
+      checks: Record<string, { ok: boolean; detail: string }>;
+      meta?: {
+        persistence_mode: string;
+        coordination_mode: string;
+        instance_id: string | null;
+        reason: string;
+      };
+    };
+    let dbHealth: DbHealthLocal = {
       ok: false,
       checks: { dbHealth: { ok: false, detail: "executionStore unavailable" } },
     };
@@ -160,11 +171,30 @@ export function createHttpApp(deps: HttpAppDeps): Application {
       try {
         const store: any = deps.services.executionStore;
         const rawDb: any = store && typeof store === "object" ? store.db : undefined;
+        const pm = resolvePersistenceMode();
+        const meta = {
+          persistence_mode: pm.mode,
+          coordination_mode: pm.coordination,
+          instance_id: pm.instanceId,
+          reason: pm.reason,
+        };
         if (rawDb) {
-          dbHealth = probeDbHealth(rawDb);
+          dbHealth = probeDbHealth(rawDb, meta);
+        } else {
+          dbHealth = { ok: false, checks: { dbHealth: { ok: false, detail: "raw db unavailable" } }, meta };
         }
       } catch (e) {
-        dbHealth = { ok: false, checks: { dbHealth: { ok: false, detail: (e as Error).message } } };
+        const pm = resolvePersistenceMode();
+        dbHealth = {
+          ok: false,
+          checks: { dbHealth: { ok: false, detail: (e as Error).message } },
+          meta: {
+            persistence_mode: pm.mode,
+            coordination_mode: pm.coordination,
+            instance_id: pm.instanceId,
+            reason: pm.reason,
+          },
+        };
       }
     }
 

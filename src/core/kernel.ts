@@ -10,6 +10,7 @@ import { AuditService } from "./audit";
 import { AgentRegistry, InspectorAgent } from "./agents";
 import { CONFIG, configBlocked, safeConfigView } from "./config";
 import { openEngine, probeEngine, nid, type NexusEngine } from "./db";
+import { resolvePersistenceMode } from "./persistence-mode";
 import { Err, NexusError } from "./errors";
 import { EventService } from "./events";
 import { NexusOrchestrator } from "./orchestration";
@@ -200,6 +201,21 @@ export class NexusKernel {
         throw Err.startup("CONFIG_INVALID", `configuration validation failed: ${CONFIG.issues.join("; ")}`);
       }
       this.step("config", "ok", `${CONFIG.env} Ãƒâ€šÃ‚Â· v${CONFIG.version}`);
+
+      // Phase 182: persistence-mode guard. When the operator requests a
+      // shared backend, refuse to boot rather than silently degrade to
+      // SQLite. The exact reason is surfaced in the startup error and in
+      // readiness/observability. NEXUS_PERSISTENCE_MODE=sqlite (default)
+      // reports coordination_mode = multi_process because SQLite WAL +
+      // busy_timeout=5000 supports real multi-process coordination on a
+      // shared filesystem path.
+      {
+        const pm = resolvePersistenceMode();
+        if (pm.mode === "shared") {
+          this.step("persistence", "fail", pm.reason);
+          throw Err.startup("SHARED_PERSISTENCE_UNAVAILABLE", pm.reason);
+        }
+      }
 
       // 2. persistence
       this.step("persistence", "running");

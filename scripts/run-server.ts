@@ -10,11 +10,31 @@ import { NexusKernel } from "../src/core/kernel";
 import { createHttpApp } from "../src/server/http";
 import { IdempotencyStore } from "../src/server/idempotency";
 import { CONFIG } from "../src/core/config";
+import { nid } from "../src/core/db";
+import { resolvePersistenceMode } from "../src/core/persistence-mode";
 import { emitServerEvent } from "../src/server/logging";
 
 const SHUTDOWN_GRACE_MS = 10_000;
 
 async function main(): Promise<void> {
+  // Phase 182: stable per-process instance id for observability and
+  // multi-process coordination diagnostics. Honours an operator-supplied
+  // value so log correlation across a deliberate restart keeps working.
+  if (!process.env.NEXUS_INSTANCE_ID) {
+    process.env.NEXUS_INSTANCE_ID = nid("inst");
+  }
+
+  // Phase 182: truthful coordination mode. Logged at boot, surfaced through
+  // /health/ready meta, never auto-upgraded. A shared-mode request fails
+  // closed inside kernel.boot().
+  const pm = resolvePersistenceMode();
+  emitServerEvent("persistence_mode", {
+    mode: pm.mode,
+    coordination: pm.coordination,
+    instance_id: pm.instanceId,
+    reason: pm.reason,
+  });
+
   const kernel = new NexusKernel();
   const services = await kernel.boot();
 
