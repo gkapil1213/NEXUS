@@ -78,6 +78,14 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
         ON execution_jobs (status) WHERE status IN ('ADMITTED', 'CLAIMED', 'RUNNING', 'VERIFYING')
     `);
 
+    // Phase 187: attempt-level heartbeat. Independent of worker last_heartbeat_at
+    // so a stuck executor thread on a live worker is still detectable.
+    await client.query(`ALTER TABLE execution_attempts ADD COLUMN IF NOT EXISTS heartbeat_at BIGINT`);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_attempts_stale_running
+        ON execution_attempts (status, heartbeat_at) WHERE status = 'RUNNING'
+    `);
+
     // Phase 183b: durable recovery operations.
     // Translated from src/db/migrations/154_phase144_durable_execution_recovery_operations.sql.
     await client.query(`

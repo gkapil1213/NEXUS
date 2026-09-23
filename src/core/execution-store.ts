@@ -1166,7 +1166,7 @@ export class ExecutionStore {
           id, job_id, attempt_number, status, worker_id, lease_id,
           started_at, completed_at, error, evidence, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
-      `).run(attemptId, jobId, attemptNumber, status, workerId, leaseId, now, now);
+      `).run(attemptId, jobId, attemptNumber, status, workerId, leaseId, now, now, now);
 
       const inserted = await tx.prepareAsync(
         "SELECT * FROM execution_attempts WHERE id = ?",
@@ -1884,9 +1884,9 @@ export class ExecutionStore {
         //    receiving ownership.
         await tx.prepareAsync(
           "INSERT INTO execution_attempts " +
-          "(id, job_id, attempt_number, status, worker_id, lease_id, started_at, completed_at, error, evidence, created_at) " +
-          "VALUES (?, ?, ?, 'RUNNING', ?, ?, ?, NULL, NULL, NULL, ?)",
-        ).run(attemptId, input.jobId, attemptNumber, workerId, leaseId, now, now);
+          "(id, job_id, attempt_number, status, worker_id, lease_id, started_at, completed_at, error, evidence, created_at, heartbeat_at) " +
+          "VALUES (?, ?, ?, 'RUNNING', ?, ?, ?, NULL, NULL, NULL, ?, ?)",
+        ).run(attemptId, input.jobId, attemptNumber, workerId, leaseId, now, now, now);
 
         // 7. CAS the job: ADMITTED -> CLAIMED. Explicit status + cancel guard.
         const upd = await tx.prepareAsync(
@@ -3373,6 +3373,7 @@ export class ExecutionStore {
       completedAt: row.completed_at,
       error: row.error,
       evidence: row.evidence ? JSON.parse(row.evidence) : undefined,
+      heartbeatAt: row.heartbeat_at ? Number(row.heartbeat_at) : undefined,
       createdAt: row.created_at,
     };
   }
@@ -4443,7 +4444,224 @@ export class ExecutionStore {
         if (typeof maybeTx === "function") {
             maybeTx();
         }
-    }}
+    }
+
+  // ---------- Phase 187: durable attempt heartbeat ----------
+  // Atomic ownership-fenced heartbeat. Refuses to touch anything unless:
+  //   - the lease exists AND is ACTIVE AND is not expired
+  //   - the lease is owned by workerId AND bound to jobId
+  //   - the attempt exists, is RUNNING, and matches job/worker/lease
+  // Renews the lease in the same transaction so liveness and fencing move
+  // together. Returns an explicit refusal reason on failure -- never a silent
+  // success.
+  async attemptHeartbeatAsync(input: {
+    attemptId: string;
+    jobId: string;
+    workerId: string;
+    leaseId: string;
+    ttlMs?: number;
+    now?: number;
+  }): Promise<{
+    ok: boolean;
+    reason?: "LEASE_NOT_FOUND" | "LEASE_EXPIRED" | "WORKER_OWNERSHIP_LOST"
+           | "ATTEMPT_NOT_RUNNING" | "FENCED" | "JOB_STATE_INVALID";
+    expiresAt?: number;
+  }> {
+    const engine = this.requireAsyncDb();
+    const now = input.now ?? Date.now();
+    const ttlMs = input.ttlMs ?? 60000;
+
+    let result: {
+      ok: boolean;
+      reason?: "LEASE_NOT_FOUND" | "LEASE_EXPIRED" | "WORKER_OWNERSHIP_LOST"
+             | "ATTEMPT_NOT_RUNNING" | "FENCED" | "JOB_STATE_INVALID";
+      expiresAt?: number;
+    } = { ok: false };
+
+    class AbortTx extends Error {}
+
+    try {
+      await engine.transactionAsync(async (tx) => {
+        // 1. Lock and verify the lease is currently valid for this owner.
+        const lease = await tx.prepareAsync(
+          "SELECT lease_id, worker_id, status, expires_at FROM execution_leases " +
+          "WHERE lease_id = ? AND job_id = ? FOR UPDATE",
+        ).get<{ lease_id: string; worker_id: string; status: string; expires_at: string | number }>(
+          input.leaseId, input.jobId,
+        );
+        if (!lease) { result = { ok: false, reason: "LEASE_NOT_FOUND" }; throw new AbortTx(); }
+        if (lease.status !== "ACTIVE") { result = { ok: false, reason: "FENCED" }; throw new AbortTx(); }
+        if (Number(lease.expires_at) <= now) { result = { ok: false, reason: "LEASE_EXPIRED" }; throw new AbortTx(); }
+        if (lease.worker_id !== input.workerId) { result = { ok: false, reason: "WORKER_OWNERSHIP_LOST" }; throw new AbortTx(); }
+
+        // 2. Attempt must be RUNNING and bound to the same (job, worker, lease).
+        const attempt = await tx.prepareAsync(
+          "SELECT id, status, worker_id, lease_id FROM execution_attempts " +
+          "WHERE id = ? AND job_id = ? FOR UPDATE",
+        ).get<{ id: string; status: string; worker_id: string | null; lease_id: string | null }>(
+          input.attemptId, input.jobId,
+        );
+        if (!attempt) { result = { ok: false, reason: "ATTEMPT_NOT_RUNNING" }; throw new AbortTx(); }
+        if (attempt.status !== "RUNNING") { result = { ok: false, reason: "ATTEMPT_NOT_RUNNING" }; throw new AbortTx(); }
+        if (attempt.worker_id !== input.workerId || attempt.lease_id !== input.leaseId) {
+          result = { ok: false, reason: "WORKER_OWNERSHIP_LOST" };
+          throw new AbortTx();
+        }
+
+        // 3. Job must still be in an active execution state.
+        const job = await tx.prepareAsync(
+          "SELECT status, cancellation_requested FROM execution_jobs WHERE id = ? FOR UPDATE",
+        ).get<{ status: string; cancellation_requested: number }>(input.jobId);
+        if (!job) { result = { ok: false, reason: "JOB_STATE_INVALID" }; throw new AbortTx(); }
+        if (job.status !== "RUNNING" && job.status !== "VERIFYING" && job.status !== "CLAIMED") {
+          result = { ok: false, reason: "JOB_STATE_INVALID" };
+          throw new AbortTx();
+        }
+
+        const expiresAt = now + ttlMs;
+
+        // 4. Renew lease.
+        await tx.prepareAsync(
+          "UPDATE execution_leases SET renewed_at = ?, expires_at = ? WHERE lease_id = ?",
+        ).run(now, expiresAt, input.leaseId);
+
+        // 5. Update attempt heartbeat.
+        await tx.prepareAsync(
+          "UPDATE execution_attempts SET heartbeat_at = ? WHERE id = ?",
+        ).run(now, input.attemptId);
+
+        result = { ok: true, expiresAt };
+      });
+    } catch (e) {
+      if (!(e instanceof AbortTx)) throw e;
+    }
+
+    return result;
+  }
+
+  // ---------- Phase 187: list stale running attempts ----------
+  // Returns RUNNING attempts whose heartbeat has aged past maxAgeMs. Uses the
+  // partial index idx_attempts_stale_running. Ordered oldest-first so recovery
+  // processes the most-stale attempts first.
+  async listStaleAttemptsAsync(now: number, maxAgeMs: number): Promise<Array<{
+    attemptId: string;
+    jobId: string;
+    workerId: string;
+    leaseId: string;
+    heartbeatAt: number;
+  }>> {
+    const engine = this.requireAsyncDb();
+    const cutoff = now - maxAgeMs;
+    const rows = await engine.prepareAsync(
+      "SELECT id, job_id, worker_id, lease_id, heartbeat_at FROM execution_attempts " +
+      "WHERE status = 'RUNNING' AND heartbeat_at IS NOT NULL AND heartbeat_at < ? " +
+      "ORDER BY heartbeat_at ASC",
+    ).all<any>(cutoff);
+    return rows.map((r) => ({
+      attemptId: r.id,
+      jobId: r.job_id,
+      workerId: r.worker_id,
+      leaseId: r.lease_id,
+      heartbeatAt: Number(r.heartbeat_at),
+    }));
+  }
+
+  // ---------- Phase 187: fence a stale attempt ----------
+  // Atomically transitions a stale RUNNING attempt to FAILED and expires its
+  // lease. Only acts when the attempt is still RUNNING AND its heartbeat is
+  // still older than the cutoff. Returns whether the fence actually applied
+  // (so duplicate recovery calls converge to no-op) and a boolean indicating
+  // whether the caller should proceed to retry scheduling.
+  async fenceStaleAttemptAsync(input: {
+    attemptId: string;
+    jobId: string;
+    leaseId: string;
+    reason: string;
+    now?: number;
+    staleCutoffMs: number;
+  }): Promise<{
+    fenced: boolean;
+    alreadyFenced?: boolean;
+    reason?: "ATTEMPT_NOT_RUNNING" | "NOT_STALE" | "LEASE_MISMATCH";
+  }> {
+    const engine = this.requireAsyncDb();
+    const now = input.now ?? Date.now();
+    const cutoff = now - input.staleCutoffMs;
+
+    let result: {
+      fenced: boolean;
+      alreadyFenced?: boolean;
+      reason?: "ATTEMPT_NOT_RUNNING" | "NOT_STALE" | "LEASE_MISMATCH";
+    } = { fenced: false };
+
+    class AbortTx extends Error {}
+
+    try {
+      await engine.transactionAsync(async (tx) => {
+        const attempt = await tx.prepareAsync(
+          "SELECT status, heartbeat_at, lease_id FROM execution_attempts " +
+          "WHERE id = ? AND job_id = ? FOR UPDATE",
+        ).get<{ status: string; heartbeat_at: string | number | null; lease_id: string | null }>(
+          input.attemptId, input.jobId,
+        );
+        if (!attempt) { result = { fenced: false, reason: "ATTEMPT_NOT_RUNNING" }; throw new AbortTx(); }
+        if (attempt.status !== "RUNNING") { result = { fenced: false, alreadyFenced: true, reason: "ATTEMPT_NOT_RUNNING" }; throw new AbortTx(); }
+        if (attempt.lease_id !== input.leaseId) { result = { fenced: false, reason: "LEASE_MISMATCH" }; throw new AbortTx(); }
+        // Only fence if still stale -- protects against the heartbeat that
+        // raced in between the caller's read and this transaction.
+        const hb = attempt.heartbeat_at === null ? 0 : Number(attempt.heartbeat_at);
+        if (hb >= cutoff) { result = { fenced: false, reason: "NOT_STALE" }; throw new AbortTx(); }
+
+        // 1. Fail the attempt (durable history preserved).
+        const a = await tx.prepareAsync(
+          "UPDATE execution_attempts SET status = 'FAILED', completed_at = ?, error = ? " +
+          "WHERE id = ? AND status = 'RUNNING'",
+        ).run(now, input.reason, input.attemptId);
+        if ((a.changes ?? 0) !== 1) { result = { fenced: false, alreadyFenced: true }; throw new AbortTx(); }
+
+        // 2. Expire the lease so it is no longer ACTIVE.
+        await tx.prepareAsync(
+          "UPDATE execution_leases SET status = 'EXPIRED', released_at = ? " +
+          "WHERE lease_id = ? AND status = 'ACTIVE'",
+        ).run(now, input.leaseId);
+
+        // 3. Transition job RUNNING/CLAIMED/VERIFYING -> ORPHANED and clear
+        //    current_lease_id. -- Phase 187 B3: transition job to ORPHANED
+        //    so the existing Phase 184 recovery flow (recoverStaleJobs) can
+        //    apply retry policy and move it to QUEUED / RETRY_SCHEDULED.
+        await tx.prepareAsync(
+          "UPDATE execution_jobs SET status = 'ORPHANED', current_lease_id = NULL, updated_at = ? " +
+          "WHERE id = ? AND current_lease_id = ? " +
+          "  AND status IN ('RUNNING','CLAIMED','VERIFYING','CANCELLATION_REQUESTED')",
+        ).run(now, input.jobId, input.leaseId);
+
+        // 4. Event.
+        const eventId = "evt_fence_" + input.attemptId + "_" + now + "_" + Math.random().toString(36).slice(2, 8);
+        await tx.prepareAsync(
+          "INSERT INTO execution_events (event_id, job_id, event_type, payload, created_at) " +
+          "VALUES (?, ?, ?, ?, ?)",
+        ).run(
+          eventId, input.jobId, "scheduler.attempt.fenced",
+          JSON.stringify({
+            attemptId: input.attemptId,
+            leaseId: input.leaseId,
+            reason: input.reason,
+            fencedAt: now,
+            previousHeartbeatAt: hb,
+          }),
+          now,
+        );
+
+        result = { fenced: true };
+      });
+    } catch (e) {
+      if (!(e instanceof AbortTx)) throw e;
+    }
+
+    return result;
+  }
+
+}
 
 // Phase 167: service-boundary read surface for audit/provenance.
 export type ExecutionAuditStore = Pick<ExecutionStore,

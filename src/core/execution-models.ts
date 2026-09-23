@@ -54,6 +54,7 @@ export interface ExecutionAttempt {
   error?: string;
   evidence?: string[];
   createdAt: number;
+  heartbeatAt?: number;
 }
 
 // Phase 165: durable terminal outcome provenance. One immutable row per

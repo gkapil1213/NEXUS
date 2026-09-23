@@ -230,6 +230,63 @@ async function main(): Promise<void> {
         emit({ updated: true, workerId: wid, lastHeartbeatAt: Number(hbStr) });
         break;
       }
+      case "attempt-heartbeat": {
+        const [attemptId, jobId, workerId, leaseId, ttlStr] = args;
+        const r = await store.attemptHeartbeatAsync({
+          attemptId, jobId, workerId, leaseId,
+          ttlMs: ttlStr ? Number(ttlStr) : undefined,
+        });
+        emit({ result: r });
+        break;
+      }
+      case "list-stale-attempts": {
+        const [nowStr, maxAgeStr] = args;
+        const rows = await store.listStaleAttemptsAsync(Number(nowStr), Number(maxAgeStr));
+        emit({ rows });
+        break;
+      }
+      case "fence-stale-attempt": {
+        const [attemptId, jobId, leaseId, reason, cutoffStr] = args;
+        const r = await store.fenceStaleAttemptAsync({
+          attemptId, jobId, leaseId,
+          reason: reason || "HEARTBEAT_EXPIRED",
+          staleCutoffMs: Number(cutoffStr),
+        });
+        emit({ result: r });
+        break;
+      }
+      case "recover-stale-attempts-tick": {
+        const now = Number(args[0] ?? Date.now());
+        const sched = new DistributedScheduler(store, {});
+        const r = await sched.recoverStaleAttemptsTick(now);
+        emit({ report: r });
+        break;
+      }
+      case "set-attempt-heartbeat": {
+        const [attemptId, hbStr] = args;
+        const r = await pg.query(
+          "UPDATE execution_attempts SET heartbeat_at = $1 WHERE id = $2",
+          [Number(hbStr), attemptId],
+        );
+        emit({ updated: r.rowCount, attemptId, heartbeatAt: Number(hbStr) });
+        break;
+      }
+      case "read-attempt-row": {
+        const r = await pg.query(
+          "SELECT id, job_id, status, worker_id, lease_id, heartbeat_at, completed_at FROM execution_attempts WHERE id = $1",
+          [args[0]],
+        );
+        emit({ found: r.rows.length > 0, row: r.rows[0] ?? null });
+        break;
+      }
+      case "read-lease-row": {
+        const r = await pg.query(
+          "SELECT lease_id, job_id, worker_id, status, expires_at, renewed_at, released_at FROM execution_leases WHERE lease_id = $1",
+          [args[0]],
+        );
+        emit({ found: r.rows.length > 0, row: r.rows[0] ?? null });
+        break;
+      }
       case "sleep": {
         const ms = Number(args[0] ?? "0");
         await new Promise((r) => setTimeout(r, ms));

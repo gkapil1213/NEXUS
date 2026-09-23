@@ -39,6 +39,8 @@ export interface SchedulerConfig {
   maxDispatchesPerTick: number;
   maxConcurrencyPerWorker: number;
   dispatchLeaseDurationMs: number;
+  /** Phase 187: heartbeat age past which a RUNNING attempt is stale. */
+  staleAttemptMs: number;
 }
 
 const DEFAULTS: SchedulerConfig = {
@@ -49,6 +51,7 @@ const DEFAULTS: SchedulerConfig = {
   maxDispatchesPerTick: 16,
   maxConcurrencyPerWorker: 1,
   dispatchLeaseDurationMs: 60_000,
+  staleAttemptMs: 120_000,
 };
 
 function resolveConfig(overrides: Partial<SchedulerConfig> = {}): SchedulerConfig {
@@ -60,6 +63,7 @@ function resolveConfig(overrides: Partial<SchedulerConfig> = {}): SchedulerConfi
     maxDispatchesPerTick: overrides.maxDispatchesPerTick ?? Number(process.env.NEXUS_SCHEDULER_MAX_DISPATCHES_PER_TICK ?? DEFAULTS.maxDispatchesPerTick),
     maxConcurrencyPerWorker: overrides.maxConcurrencyPerWorker ?? Number(process.env.NEXUS_SCHEDULER_WORKER_CONCURRENCY ?? DEFAULTS.maxConcurrencyPerWorker),
     dispatchLeaseDurationMs: overrides.dispatchLeaseDurationMs ?? Number(process.env.NEXUS_SCHEDULER_DISPATCH_LEASE_MS ?? DEFAULTS.dispatchLeaseDurationMs),
+    staleAttemptMs: overrides.staleAttemptMs ?? Number(process.env.NEXUS_SCHEDULER_STALE_ATTEMPT_MS ?? DEFAULTS.staleAttemptMs),
   };
 }
 
@@ -158,6 +162,81 @@ export class DistributedScheduler {
       else if (r.reason === "WORKER_NOT_FOUND" || r.reason === "WORKER_AT_CAPACITY" || r.reason === "WORKER_NOT_ELIGIBLE") dispatchesDeferred++;
     }
     return { jobsDispatched, dispatchesDeferred, admissionOwner: this.ownerId };
+  }
+
+
+
+  /**
+   * Phase 187: fence stale RUNNING attempts and requeue their jobs.
+   *
+   * Reads RUNNING attempts whose heartbeat is older than staleAttemptMs,
+   * atomically fences each (attempt -> FAILED, lease -> EXPIRED, job -> ORPHANED),
+   * then applies retry policy via recoverJobAtomicAsync to move the job to QUEUED.
+   * Reuses the existing ORPHANED -> QUEUED transition; no new states.
+   *
+   * Safe under concurrent schedulers: fenceStaleAttemptAsync CAS-es on
+   * status='RUNNING' + stale heartbeat, so only one process wins per attempt.
+   * The subsequent recoverJobAtomicAsync is CAS-fenced on status='ORPHANED'.
+   */
+  async recoverStaleAttemptsTick(now: number = Date.now()): Promise<{
+    scanned: number;
+    fenced: number;
+    requeued: number;
+    recoveryRequired: number;
+  }> {
+    if (!this.store.hasAsyncBackend()) {
+      throw new Error("DistributedScheduler.recoverStaleAttemptsTick requires shared mode");
+    }
+
+    const stale = await this.store.listStaleAttemptsAsync(now, this.config.staleAttemptMs);
+    let fenced = 0;
+    let requeued = 0;
+    let recoveryRequired = 0;
+
+    for (const att of stale) {
+      const r = await this.store.fenceStaleAttemptAsync({
+        attemptId: att.attemptId,
+        jobId: att.jobId,
+        leaseId: att.leaseId,
+        reason: "HEARTBEAT_EXPIRED",
+        now,
+        staleCutoffMs: this.config.staleAttemptMs,
+      });
+      if (!r.fenced) continue;
+      fenced++;
+
+      const job = await this.store.getJobAsync(att.jobId);
+      if (!job || job.status !== "ORPHANED") continue;
+
+      let canRetry = false;
+      if (job.retryPolicy) {
+        const attempts = await this.store.listAttemptsForJobAsync(job.id);
+        canRetry = attempts.length < job.retryPolicy.maxAttempts;
+      }
+
+      if (!canRetry) { recoveryRequired++; continue; }
+
+      const r2 = await this.store.recoverJobAtomicAsync({
+        jobId: job.id,
+        expectedStatus: "ORPHANED",
+        newStatus: "QUEUED",
+        expectedLeaseId: null,
+        patch: { nextAttemptAt: now },
+        event: {
+          eventType: "execution.recovery.stale_attempt_requeued",
+          payload: {
+            jobId: job.id,
+            attemptId: att.attemptId,
+            leaseId: att.leaseId,
+            reason: "HEARTBEAT_EXPIRED",
+          },
+        },
+      });
+      if (r2.ok) requeued++;
+      else recoveryRequired++;
+    }
+
+    return { scanned: stale.length, fenced, requeued, recoveryRequired };
   }
 
 }
