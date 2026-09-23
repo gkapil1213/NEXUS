@@ -250,5 +250,29 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_workers_status ON execution_workers (status)`);
+
+    // Phase 183d: execution_outcome_provenance. Written inside the same
+    // transaction as completeAttemptAndTransitionJob -- attempt + job +
+    // event + provenance commit or roll back together.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS execution_outcome_provenance (
+        provenance_id          TEXT PRIMARY KEY,
+        job_id                 TEXT NOT NULL,
+        attempt_id             TEXT NOT NULL,
+        attempt_number         INTEGER NOT NULL,
+        outcome                TEXT NOT NULL,
+        previous_state         TEXT NOT NULL,
+        worker_id              TEXT NOT NULL,
+        lease_id               TEXT NOT NULL,
+        recovery_operation_id  TEXT,
+        predecessor_attempt_id TEXT,
+        reason                 TEXT,
+        evidence_json          TEXT,
+        evidence_hash          TEXT NOT NULL,
+        terminalized_at        BIGINT NOT NULL,
+        created_at             BIGINT NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_provenance_job ON execution_outcome_provenance (job_id, attempt_number)`);
   });
 }

@@ -1813,6 +1813,221 @@ export class ExecutionStore {
     return result;
   }
 
+  async completeAttemptAndTransitionJobAsync(input: {
+    attemptId: string;
+    jobId: string;
+    leaseId: string;
+    workerId: string;
+    attemptStatus: "SUCCEEDED" | "FAILED" | "CANCELLED";
+    attemptError?: string;
+    attemptEvidence?: string[];
+    attemptCompletedAt?: number;
+    expectedJobStatus: string;
+    newJobStatus: string;
+    patch?: {
+      currentLeaseId?: string | null;
+      retryPolicy?: unknown;
+      timeoutMs?: number | null;
+      lastAttemptAt?: number | null;
+      nextAttemptAt?: number | null;
+      cancellationRequested?: boolean;
+      cancellationAcknowledged?: boolean;
+    };
+    reason?: string;
+    now?: number;
+    recoveryOperationId?: string | null;
+  }): Promise<{
+    ok: boolean;
+    applied?: boolean;
+    idempotent?: boolean;
+    reason?: "WORKER_OWNERSHIP_LOST" | "STATE_MISMATCH" | "TERMINAL_STATE"
+           | "JOB_NOT_FOUND" | "ATTEMPT_NOT_FOUND" | "ATTEMPT_STATE_MISMATCH";
+    attempt?: ExecutionAttempt;
+    jobStatus?: string;
+  }> {
+    const engine = this.requireAsyncDb();
+    const now = input.now ?? Date.now();
+
+    class AbortTx extends Error {}
+    let result: {
+      ok: boolean;
+      applied?: boolean;
+      idempotent?: boolean;
+      reason?: any;
+      attempt?: ExecutionAttempt;
+      jobStatus?: string;
+    } = { ok: false, reason: "STATE_MISMATCH" };
+
+    try {
+      await engine.transactionAsync(async (tx) => {
+        const attemptBefore = await tx.prepareAsync(
+          "SELECT * FROM execution_attempts WHERE id = ?",
+        ).get<any>(input.attemptId);
+        const jobBefore = await tx.prepareAsync(
+          "SELECT * FROM execution_jobs WHERE id = ?",
+        ).get<any>(input.jobId);
+
+        if (!jobBefore) { result = { ok: false, reason: "JOB_NOT_FOUND" }; throw new AbortTx(); }
+        if (!attemptBefore || attemptBefore.job_id !== input.jobId) {
+          result = { ok: false, reason: "ATTEMPT_NOT_FOUND" }; throw new AbortTx();
+        }
+
+        const owned = await tx.prepareAsync(`
+          SELECT 1 FROM execution_leases
+          WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+            AND status = 'ACTIVE' AND expires_at > ?
+        `).get(input.leaseId, input.workerId, input.jobId, now);
+        if (!owned) { result = { ok: false, reason: "WORKER_OWNERSHIP_LOST" }; throw new AbortTx(); }
+
+        const attemptTerminal = attemptBefore.status === input.attemptStatus;
+        const jobAtTarget = jobBefore.status === input.newJobStatus;
+        if (attemptTerminal && jobAtTarget) {
+          result = {
+            ok: true, applied: false, idempotent: true,
+            attempt: this.mapAttempt(attemptBefore),
+            jobStatus: jobBefore.status,
+          };
+          throw new AbortTx();
+        }
+
+        const attemptIsTerminal =
+          attemptBefore.status === "SUCCEEDED" || attemptBefore.status === "FAILED" ||
+          attemptBefore.status === "CANCELLED" || attemptBefore.status === "DEAD_LETTER";
+        if (attemptIsTerminal && !attemptTerminal) {
+          result = { ok: false, reason: "ATTEMPT_STATE_MISMATCH", attempt: this.mapAttempt(attemptBefore) };
+          throw new AbortTx();
+        }
+
+        const aRes = await tx.prepareAsync(`
+          UPDATE execution_attempts SET
+            status = ?, worker_id = ?, lease_id = ?, started_at = ?,
+            completed_at = ?, error = ?, evidence = ?
+          WHERE id = ?
+            AND job_id = ?
+            AND status = 'RUNNING'
+            AND EXISTS (
+              SELECT 1 FROM execution_leases
+              WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+                AND status = 'ACTIVE' AND expires_at > ?
+            )
+        `).run(
+          input.attemptStatus,
+          input.workerId,
+          input.leaseId,
+          attemptBefore.started_at,
+          input.attemptCompletedAt ?? now,
+          input.attemptError ?? null,
+          input.attemptEvidence ? JSON.stringify(input.attemptEvidence) : null,
+          input.attemptId,
+          input.jobId,
+          input.leaseId,
+          input.workerId,
+          input.jobId,
+          now,
+        );
+        if ((aRes.changes ?? 0) !== 1) {
+          result = { ok: false, reason: "ATTEMPT_STATE_MISMATCH", attempt: this.mapAttempt(attemptBefore) };
+          throw new AbortTx();
+        }
+
+        const p = input.patch ?? {};
+        const jRes = await tx.prepareAsync(`
+          UPDATE execution_jobs SET
+            status = ?, updated_at = ?,
+            current_lease_id          = COALESCE(?, current_lease_id),
+            retry_policy              = COALESCE(?, retry_policy),
+            timeout_ms                = COALESCE(?, timeout_ms),
+            last_attempt_at           = COALESCE(?, last_attempt_at),
+            next_attempt_at           = COALESCE(?, next_attempt_at),
+            cancellation_requested    = COALESCE(?, cancellation_requested),
+            cancellation_acknowledged = COALESCE(?, cancellation_acknowledged)
+          WHERE id = ? AND status = ?
+        `).run(
+          input.newJobStatus,
+          now,
+          p.currentLeaseId === undefined ? null : (p.currentLeaseId ?? null),
+          p.retryPolicy === undefined ? null : (p.retryPolicy ? JSON.stringify(p.retryPolicy) : null),
+          p.timeoutMs === undefined ? null : (p.timeoutMs ?? null),
+          p.lastAttemptAt === undefined ? null : (p.lastAttemptAt ?? null),
+          p.nextAttemptAt === undefined ? null : (p.nextAttemptAt ?? null),
+          p.cancellationRequested === undefined ? null : (p.cancellationRequested ? 1 : 0),
+          p.cancellationAcknowledged === undefined ? null : (p.cancellationAcknowledged ? 1 : 0),
+          input.jobId,
+          input.expectedJobStatus,
+        );
+        if ((jRes.changes ?? 0) !== 1) {
+          result = { ok: false, reason: "STATE_MISMATCH" };
+          throw new AbortTx();
+        }
+
+        await this.addEventOnEngine(tx, {
+          eventId: `evt_${input.jobId}_${now}_${Math.random().toString(36).slice(2, 10)}`,
+          jobId: input.jobId,
+          eventType: `execution.transition.${input.newJobStatus.toLowerCase()}`,
+          payload: {
+            from: input.expectedJobStatus,
+            to: input.newJobStatus,
+            actor: "worker",
+            reason: input.reason ?? null,
+            workerId: input.workerId,
+            leaseId: input.leaseId,
+          },
+          createdAt: now,
+        } as ExecutionEvent);
+
+        const evidenceJson = input.attemptEvidence ? JSON.stringify(input.attemptEvidence) : null;
+        const terminalizedAt = input.attemptCompletedAt ?? now;
+        const evidenceHash = sha256(JSON.stringify({
+          outcome: input.attemptStatus,
+          previous_state: attemptBefore.status,
+          attempt_id: input.attemptId,
+          evidence_json: evidenceJson,
+          terminalized_at: terminalizedAt,
+        }));
+        const predecessorRow = await tx.prepareAsync(
+          "SELECT id FROM execution_attempts WHERE job_id = ? AND attempt_number = ?",
+        ).get<{ id: string }>(input.jobId, attemptBefore.attempt_number - 1);
+        const provenanceId = "prov_" + input.attemptId + "_" + now;
+        await tx.prepareAsync(
+          "INSERT INTO execution_outcome_provenance " +
+          "  (provenance_id, job_id, attempt_id, attempt_number, outcome, " +
+          "   previous_state, worker_id, lease_id, recovery_operation_id, " +
+          "   predecessor_attempt_id, reason, evidence_json, evidence_hash, " +
+          "   terminalized_at, created_at) " +
+          "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ).run(
+          provenanceId,
+          input.jobId,
+          input.attemptId,
+          attemptBefore.attempt_number,
+          input.attemptStatus,
+          attemptBefore.status,
+          input.workerId,
+          input.leaseId,
+          input.recoveryOperationId ?? null,
+          predecessorRow?.id ?? null,
+          input.attemptError ?? input.reason ?? null,
+          evidenceJson,
+          evidenceHash,
+          terminalizedAt,
+          now,
+        );
+
+        const attemptAfter = await tx.prepareAsync(
+          "SELECT * FROM execution_attempts WHERE id = ?",
+        ).get<any>(input.attemptId);
+        result = {
+          ok: true, applied: true, idempotent: false,
+          attempt: this.mapAttempt(attemptAfter),
+          jobStatus: input.newJobStatus,
+        };
+      });
+    } catch (err) {
+      if (!(err instanceof AbortTx)) throw err;
+    }
+    return result;
+  }
+
   listAttemptsForJob(jobId: string): ExecutionAttempt[] {
     const rows = this.db.prepare(
       "SELECT * FROM execution_attempts WHERE job_id = ? ORDER BY attempt_number"
