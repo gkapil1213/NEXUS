@@ -104,6 +104,84 @@ export class LeaseManager {
     }
   }
 
+
+  // ---------- Async variants -- Phase 183 final ----------
+  // Only valid when store.hasAsyncBackend() is true (shared mode).
+  // Never fall back to SQLite from these methods.
+
+  async acquireLeaseAsync(jobId: string, workerId: string, durationMs: number): Promise<ExecutionLease> {
+    const now = Date.now();
+    const leaseId = `lease_${jobId}_${now}_${workerId}`;
+    const lease: ExecutionLease = {
+      leaseId, jobId, workerId,
+      acquiredAt: now, expiresAt: now + durationMs,
+      renewedAt: undefined, releasedAt: undefined,
+      status: "ACTIVE",
+    };
+    const result = await this.store.acquireLeaseAsync(lease);
+    if (result.acquired) return lease;
+    if (result.existingLease) {
+      if (result.existingLease.workerId === workerId) return result.existingLease;
+      throw new Error(`Lease already held by another worker for job ${jobId}`);
+    }
+    throw new Error(`Lease acquisition failed for job ${jobId}`);
+  }
+
+  async renewLeaseAsync(leaseId: string, workerId: string, ttlMs: number, now: number = Date.now()): Promise<ExecutionLease> {
+    const lease = await this.store.getLeaseAsync(leaseId);
+    if (!lease || lease.status !== "ACTIVE") throw new Error(`Lease ${leaseId} is not active`);
+    if (lease.expiresAt <= now) {
+      lease.status = "EXPIRED";
+      await this.store.updateLeaseAsync(lease);
+      throw new Error(`Lease ${leaseId} already expired`);
+    }
+    if (lease.workerId !== workerId) {
+      throw new Error(`Lease ${leaseId} is owned by ${lease.workerId}, not ${workerId}`);
+    }
+    const renewedAt = now;
+    const expiresAt = now + ttlMs;
+    const renewed = await this.store.renewLeaseAsOwnerAsync(leaseId, workerId, renewedAt, expiresAt, now);
+    if (!renewed) throw new Error(`Lease ${leaseId} ownership was lost during renewal`);
+    lease.renewedAt = renewedAt;
+    lease.expiresAt = expiresAt;
+    return lease;
+  }
+
+  async validateLeaseAsync(leaseId: string, workerId: string, now: number = Date.now()): Promise<boolean> {
+    const lease = await this.store.getLeaseAsync(leaseId);
+    return !!(lease && lease.status === "ACTIVE" && lease.workerId === workerId && lease.expiresAt > now);
+  }
+
+  async getActiveLeaseForJobAsync(jobId: string): Promise<ExecutionLease | undefined> {
+    return this.store.getActiveLeaseForJobAsync(jobId);
+  }
+
+  async releaseLeaseAsync(leaseId: string, now: number = Date.now()): Promise<void> {
+    const lease = await this.store.getLeaseAsync(leaseId);
+    if (lease && lease.status === "ACTIVE") {
+      lease.releasedAt = now;
+      lease.status = "RELEASED";
+      await this.store.updateLeaseAsync(lease);
+      await this.store.clearJobLeaseByLeaseIdAsync(leaseId);
+    }
+  }
+
+  async expireLeaseAsync(leaseId: string, now: number = Date.now()): Promise<void> {
+    const lease = await this.store.getLeaseAsync(leaseId);
+    if (lease && lease.status === "ACTIVE" && lease.expiresAt <= now) {
+      lease.status = "EXPIRED";
+      await this.store.updateLeaseAsync(lease);
+    }
+  }
+
+  async recoverExpiredLeasesAsync(now: number = Date.now()): Promise<ExecutionLease[]> {
+    const expired = await this.store.listExpiredLeasesAsync(now);
+    for (const lease of expired) {
+      lease.status = "EXPIRED";
+      await this.store.updateLeaseAsync(lease);
+    }
+    return expired;
+  }
   recoverExpiredLeases(now: number = Date.now()): ExecutionLease[] {
     const expired = this.store.listExpiredLeases(now);
     for (const lease of expired) {

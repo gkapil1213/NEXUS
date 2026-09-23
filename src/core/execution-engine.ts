@@ -495,6 +495,9 @@ export class ExecutionEngine {
             // no second event, no compensating audit.
             const fresh = this.store.getJob(job.id);
             if (!fresh) continue;
+            // Phase 183 final: claimNextJob stays sync (worker-scheduler hot path).
+            // Shared-mode worker busy-state durability is exercised via
+            // JobDispatcher.dispatchJob -> markBusyIO. Claim path migrates in Phase 184.
             this.workerRegistry.markBusy(workerId, job.id);
             return { job: fresh, lease: r.lease };
         }
@@ -526,11 +529,60 @@ export class ExecutionEngine {
             }));
         } catch { /* isolated */ }
     }
-    async executeJob(workerId: string, jobId: string, leaseId: string): Promise<ExecutionJob> {
+  
+  // ---------- Phase 183 final: shared-mode IO helpers ----------
+  // Mirror the createAttemptAsOwnerAtomicIO pattern: pick async backend
+  // when present, sync SQLite otherwise. Never mix.
+
+  private async releaseLeaseIO(leaseId: string): Promise<void> {
+    if (this.store.hasAsyncBackend()) {
+      await this.leaseManager.releaseLeaseAsync(leaseId);
+    } else {
+      this.leaseManager.releaseLease(leaseId);
+    }
+  }
+
+  private async markIdleIO(workerId: string): Promise<void> {
+    if (this.store.hasAsyncBackend()) {
+      await this.workerRegistry.markIdleAsync(workerId);
+    } else {
+      this.workerRegistry.markIdle(workerId);
+    }
+  }
+
+  private async markBusyIO(workerId: string, jobId: string): Promise<void> {
+    if (this.store.hasAsyncBackend()) {
+      await this.workerRegistry.markBusyAsync(workerId, jobId);
+    } else {
+      this.workerRegistry.markBusy(workerId, jobId);
+    }
+  }
+
+  private async validateLeaseIO(leaseId: string, workerId: string): Promise<boolean> {
+    if (this.store.hasAsyncBackend()) {
+      return this.leaseManager.validateLeaseAsync(leaseId, workerId);
+    }
+    return this.leaseManager.validateLease(leaseId, workerId);
+  }
+
+  private async recoverExpiredLeasesIO(now: number) {
+    if (this.store.hasAsyncBackend()) {
+      return this.leaseManager.recoverExpiredLeasesAsync(now);
+    }
+    return this.leaseManager.recoverExpiredLeases(now);
+  }
+
+  private async detectLostWorkersIO(now: number, maxAgeMs: number) {
+    if (this.store.hasAsyncBackend()) {
+      return this.workerRegistry.detectLostWorkersAsync(now, maxAgeMs);
+    }
+    return this.workerRegistry.detectLostWorkers(now, maxAgeMs);
+  }
+  async executeJob(workerId: string, jobId: string, leaseId: string): Promise<ExecutionJob> {
         const job = this.store.getJob(jobId);
         if (!job) throw new Error(`Job ${jobId} not found`);
 
-        if (!this.leaseManager.validateLease(leaseId, workerId)) {
+        if (!(await this.validateLeaseIO(leaseId, workerId))) {
             // Phase 126: ownership already lost.  Do NOT clobber the job row Ã¢â‚¬â€
             // another worker may now own it.  Record the durable obligation,
             // emit telemetry, and throw a typed error so callers can react.
@@ -596,9 +648,9 @@ export class ExecutionEngine {
                 );
                 job.status = "BLOCKED";
                 job.updatedAt = Date.now();
-                this.leaseManager.releaseLease(leaseId);
+                await this.releaseLeaseIO(leaseId);
                 job.currentLeaseId = undefined;
-                this.workerRegistry.markIdle(workerId);
+                await this.markIdleIO(workerId);
                 return job;
             }
             if (decision === "APPROVAL_REQUIRED") {
@@ -620,9 +672,9 @@ export class ExecutionEngine {
                         metadata: { leaseId },
                     }));
                 } catch { /* isolated */ }
-                this.leaseManager.releaseLease(leaseId);
+                await this.releaseLeaseIO(leaseId);
                 job.currentLeaseId = undefined;
-                this.workerRegistry.markIdle(workerId);
+                await this.markIdleIO(workerId);
                 return job;
             }
         }
@@ -636,9 +688,9 @@ export class ExecutionEngine {
                 );
                 job.status = "BLOCKED";
                 job.updatedAt = Date.now();
-                this.leaseManager.releaseLease(leaseId);
+                await this.releaseLeaseIO(leaseId);
                 job.currentLeaseId = undefined;
-                this.workerRegistry.markIdle(workerId);
+                await this.markIdleIO(workerId);
                 return job;
             }
         }
@@ -695,8 +747,8 @@ export class ExecutionEngine {
             job.status = "CANCELLED";
             job.cancellationAcknowledged = true;
             job.updatedAt = Date.now();
-            this.leaseManager.releaseLease(leaseId);
-            this.workerRegistry.markIdle(workerId);
+            await this.releaseLeaseIO(leaseId);
+            await this.markIdleIO(workerId);
             return job;
         }
 
@@ -747,9 +799,9 @@ export class ExecutionEngine {
                 job.status = "CANCELLED";
                 job.cancellationAcknowledged = true;
                 job.updatedAt = Date.now();
-                this.leaseManager.releaseLease(leaseId);
+                await this.releaseLeaseIO(leaseId);
                 job.currentLeaseId = undefined;
-                this.workerRegistry.markIdle(workerId);
+                await this.markIdleIO(workerId);
                 return job;
             }
 
@@ -777,9 +829,9 @@ export class ExecutionEngine {
             job.status = nextStatus;
             if (nextAttemptAt !== undefined) job.nextAttemptAt = nextAttemptAt;
             job.updatedAt = Date.now();
-            this.leaseManager.releaseLease(leaseId);
+            await this.releaseLeaseIO(leaseId);
             job.currentLeaseId = undefined;
-            this.workerRegistry.markIdle(workerId);
+            await this.markIdleIO(workerId);
             return job;
         }
 
@@ -830,9 +882,9 @@ export class ExecutionEngine {
 
                 job.status = "SUCCEEDED";
                 job.updatedAt = Date.now();
-                this.leaseManager.releaseLease(leaseId);
+                await this.releaseLeaseIO(leaseId);
                 job.currentLeaseId = undefined;
-                this.workerRegistry.markIdle(workerId);
+                await this.markIdleIO(workerId);
                 return job;
             }
 
@@ -871,9 +923,9 @@ export class ExecutionEngine {
             job.status = nextStatus;
             if (nextAttemptAt !== undefined) job.nextAttemptAt = nextAttemptAt;
             job.updatedAt = Date.now();
-            this.leaseManager.releaseLease(leaseId);
+            await this.releaseLeaseIO(leaseId);
             job.currentLeaseId = undefined;
-            this.workerRegistry.markIdle(workerId);
+            await this.markIdleIO(workerId);
             return job;
         }
 
@@ -893,9 +945,9 @@ export class ExecutionEngine {
 
         job.status = "SUCCEEDED";
         job.updatedAt = Date.now();
-        this.leaseManager.releaseLease(leaseId);
+        await this.releaseLeaseIO(leaseId);
         job.currentLeaseId = undefined;
-        this.workerRegistry.markIdle(workerId);
+        await this.markIdleIO(workerId);
 
         return job;
     }
@@ -1137,7 +1189,7 @@ export class ExecutionEngine {
             input.jobId, input.expectedJobStatus, input.newJobStatus);
     }
 
-    recoverStaleJobs(now: number = Date.now()): void {
+    async recoverStaleJobs(now: number = Date.now()): Promise<void> {
         if (this.shuttingDown) return;
         // Phase 147: capture pre-existing RETRY_SCHEDULED job IDs before
         // any recovery runs, so same-tick recovery retries can be promoted
@@ -1147,7 +1199,7 @@ export class ExecutionEngine {
             this.store.listJobsByStatus("RETRY_SCHEDULED").map((j) => j.id),
         );
         this.reconcileExecutionRecoveryOperations(now);
-        const expiredLeases = this.leaseManager.recoverExpiredLeases(now);
+        const expiredLeases = await this.recoverExpiredLeasesIO(now);
         for (const lease of expiredLeases) {
             try {
                 this.fireAndForget(this.deps.events?.emit({
@@ -1397,7 +1449,7 @@ export class ExecutionEngine {
             } catch { /* isolated */ }
         }
 
-        const lostWorkers = this.workerRegistry.detectLostWorkers(now, 120000);
+        const lostWorkers = await this.detectLostWorkersIO(now, 120000);
         for (const worker of lostWorkers) {
             worker.status = "LOST";
             this.store.updateWorker(worker);

@@ -1292,6 +1292,102 @@ export class ExecutionStore {
     return rows.map((r) => this.mapWorker(r));
   }
 
+
+  // ---------- Leases (async) -- Phase 183 final ----------
+  // Parallel to the sync lease methods above. Route through asyncDb only.
+  // Never fall back to SQLite. Callers must check hasAsyncBackend() first.
+
+  async acquireLeaseAsync(lease: ExecutionLease): Promise<{ acquired: boolean; existingLease?: ExecutionLease }> {
+    const engine = this.requireAsyncDb();
+    try {
+      await engine.prepareAsync(`
+        INSERT INTO execution_leases (
+          lease_id, job_id, worker_id, acquired_at, expires_at,
+          renewed_at, released_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        lease.leaseId, lease.jobId, lease.workerId,
+        lease.acquiredAt, lease.expiresAt,
+        lease.renewedAt ?? null, lease.releasedAt ?? null, lease.status,
+      );
+      return { acquired: true };
+    } catch (err: any) {
+      if (err.code === "23505" || /duplicate key/i.test(String(err.message))) {
+        const existing = await this.getActiveNonExpiredLeaseForJobAsync(lease.jobId, lease.acquiredAt);
+        return { acquired: false, existingLease: existing };
+      }
+      throw err;
+    }
+  }
+
+  async updateLeaseAsync(lease: ExecutionLease): Promise<void> {
+    const engine = this.requireAsyncDb();
+    await engine.prepareAsync(`
+      UPDATE execution_leases SET
+        renewed_at = ?, released_at = ?, status = ?, expires_at = ?
+      WHERE lease_id = ?
+    `).run(
+      lease.renewedAt ?? null, lease.releasedAt ?? null,
+      lease.status, lease.expiresAt, lease.leaseId,
+    );
+  }
+
+  async renewLeaseAsOwnerAsync(
+    leaseId: string, workerId: string,
+    renewedAt: number, expiresAt: number, now: number,
+  ): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(`
+      UPDATE execution_leases SET
+        renewed_at = ?,
+        expires_at = ?
+      WHERE lease_id = ?
+        AND worker_id = ?
+        AND status = 'ACTIVE'
+        AND expires_at > ?
+    `).run(renewedAt, expiresAt, leaseId, workerId, now);
+    return (r.changes ?? 0) === 1;
+  }
+
+  async getLeaseAsync(leaseId: string): Promise<ExecutionLease | undefined> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT * FROM execution_leases WHERE lease_id = ?",
+    ).get<any>(leaseId);
+    return row ? this.mapLease(row) : undefined;
+  }
+
+  async getActiveLeaseForJobAsync(jobId: string): Promise<ExecutionLease | undefined> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT * FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE'",
+    ).get<any>(jobId);
+    return row ? this.mapLease(row) : undefined;
+  }
+
+  async getActiveNonExpiredLeaseForJobAsync(jobId: string, now: number = Date.now()): Promise<ExecutionLease | undefined> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT * FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE' AND expires_at > ?",
+    ).get<any>(jobId, now);
+    return row ? this.mapLease(row) : undefined;
+  }
+
+  async listExpiredLeasesAsync(now: number): Promise<ExecutionLease[]> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync(
+      "SELECT * FROM execution_leases WHERE status = 'ACTIVE' AND expires_at <= ?",
+    ).all<any>(now);
+    return rows.map((r: any) => this.mapLease(r));
+  }
+
+  async clearJobLeaseByLeaseIdAsync(leaseId: string): Promise<void> {
+    const engine = this.requireAsyncDb();
+    await engine.prepareAsync(`
+      UPDATE execution_jobs SET current_lease_id = NULL
+      WHERE current_lease_id = ?
+    `).run(leaseId);
+  }
   createAttempt(attempt: ExecutionAttempt): void {
     this.db.prepare(`
       INSERT INTO execution_attempts (

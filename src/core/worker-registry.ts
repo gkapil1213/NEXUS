@@ -89,6 +89,93 @@ export class WorkerRegistry {
     return status ? this.store.listWorkersByStatus(status) : this.store.listWorkers();
   }
 
+
+  // ---------- Async variants -- Phase 183 final ----------
+  // Only valid when store.hasAsyncBackend() is true (shared mode).
+  // Mirrors the sync API shape; never falls back to SQLite.
+
+  async registerAsync(worker: ExecutionWorker): Promise<void> {
+    const existing = await this.store.getWorkerAsync(worker.workerId);
+    if (existing) {
+      await this.store.updateWorkerAsync(worker);
+    } else {
+      await this.store.registerWorkerAsync(worker);
+    }
+  }
+
+  async heartbeatAsync(
+    workerId: string,
+    currentJobId?: string,
+    opts?: { leaseId?: string; ttlMs?: number; now?: number },
+  ): Promise<{ healthy: boolean; reason?: "WORKER_OWNERSHIP_LOST" | "LEASE_MANAGER_MISSING" }> {
+    const now = opts?.now ?? Date.now();
+    const worker = await this.store.getWorkerAsync(workerId);
+    if (!worker) throw new Error(`Worker ${workerId} not found`);
+
+    if (opts?.leaseId) {
+      if (!this.leaseManager) return { healthy: false, reason: "LEASE_MANAGER_MISSING" };
+      try {
+        await this.leaseManager.renewLeaseAsync(opts.leaseId, workerId, opts.ttlMs ?? 60000, now);
+      } catch {
+        return { healthy: false, reason: "WORKER_OWNERSHIP_LOST" };
+      }
+    }
+
+    worker.lastHeartbeatAt = now;
+    if (currentJobId !== undefined) worker.currentJobId = currentJobId;
+    worker.status = currentJobId ? "BUSY" : "ONLINE";
+    await this.store.updateWorkerAsync(worker);
+    return { healthy: true };
+  }
+
+  async getWorkerAsync(workerId: string): Promise<ExecutionWorker | undefined> {
+    return this.store.getWorkerAsync(workerId);
+  }
+
+  async markBusyAsync(workerId: string, jobId: string): Promise<void> {
+    const worker = await this.store.getWorkerAsync(workerId);
+    if (!worker) throw new Error(`Worker ${workerId} not found`);
+    worker.status = "BUSY";
+    worker.currentJobId = jobId;
+    await this.store.updateWorkerAsync(worker);
+  }
+
+  async markIdleAsync(workerId: string): Promise<void> {
+    const worker = await this.store.getWorkerAsync(workerId);
+    if (!worker) throw new Error(`Worker ${workerId} not found`);
+    worker.status = "ONLINE";
+    worker.currentJobId = undefined;
+    await this.store.updateWorkerAsync(worker);
+  }
+
+  async drainAsync(workerId: string): Promise<void> {
+    const worker = await this.store.getWorkerAsync(workerId);
+    if (!worker) throw new Error(`Worker ${workerId} not found`);
+    worker.status = "DRAINING";
+    await this.store.updateWorkerAsync(worker);
+  }
+
+  async unregisterAsync(workerId: string): Promise<void> {
+    const worker = await this.store.getWorkerAsync(workerId);
+    if (worker) {
+      worker.status = "OFFLINE";
+      await this.store.updateWorkerAsync(worker);
+    }
+  }
+
+  async listWorkersAsync(status?: WorkerStatus): Promise<ExecutionWorker[]> {
+    return status ? this.store.listWorkersByStatusAsync(status) : this.store.listWorkersAsync();
+  }
+
+  async detectLostWorkersAsync(now: number, maxHeartbeatAgeMs: number): Promise<ExecutionWorker[]> {
+    const workers = await this.store.listWorkersAsync();
+    return workers.filter(
+      (w) =>
+        w.status !== "OFFLINE" &&
+        w.lastHeartbeatAt !== undefined &&
+        now - w.lastHeartbeatAt > maxHeartbeatAgeMs,
+    );
+  }
   detectLostWorkers(now: number, maxHeartbeatAgeMs: number): ExecutionWorker[] {
     const workers = this.store.listWorkers();
     return workers.filter(
