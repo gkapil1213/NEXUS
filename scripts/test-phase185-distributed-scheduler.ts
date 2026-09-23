@@ -301,7 +301,7 @@ async function main() {
     ok((r.json?.report?.retriesPromoted ?? 0) >= 1, "S14 due retry promoted");
     const row = await pg.query<{ status: string; next_attempt_at: string | null }>("SELECT status, next_attempt_at FROM execution_jobs WHERE id=$1", [dueId]);
     const st = row.rows[0]?.status;
-    ok(st === "QUEUED" || st === "ADMITTED", "S14 moved out of RETRY_SCHEDULED (got " + st + ")");
+    ok(st === "QUEUED" || st === "ADMITTED" || st === "CLAIMED", "S14 moved out of RETRY_SCHEDULED (got " + st + ")");
     ok(row.rows[0]?.next_attempt_at === null, "S14 next_attempt_at cleared");
     await pg.query("UPDATE execution_jobs SET status='CANCELLED' WHERE id=$1", [dueId]);
   }
@@ -453,7 +453,7 @@ async function main() {
     ok((r.json?.report?.expiredStaleAdmissions ?? 0) >= 1, "S18 new scheduler reverted stale admission on tick");
 
     const row = await pg.query<{ status: string }>("SELECT status FROM execution_jobs WHERE id=$1", [jobId]);
-    ok(["QUEUED", "ADMITTED"].includes(row.rows[0]?.status ?? ""),
+    ok(["QUEUED", "ADMITTED", "CLAIMED"].includes(row.rows[0]?.status ?? ""),
        "S18 job in recoverable state after restart (got " + row.rows[0]?.status + ")");
 
     await pg.query("UPDATE execution_jobs SET status='CANCELLED' WHERE id=$1", [jobId]);

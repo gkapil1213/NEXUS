@@ -23,6 +23,8 @@ export interface SchedulerTickReport {
   capacityDeferred: number;
   admissionOwner: string;
   tickEpoch: number;
+  jobsDispatched: number;
+  dispatchesDeferred: number;
 }
 
 export interface SchedulerConfig {
@@ -34,6 +36,9 @@ export interface SchedulerConfig {
   agingMs: number;
   /** TTL for stale ADMITTED jobs before they revert to QUEUED. */
   admissionTtlMs: number;
+  maxDispatchesPerTick: number;
+  maxConcurrencyPerWorker: number;
+  dispatchLeaseDurationMs: number;
 }
 
 const DEFAULTS: SchedulerConfig = {
@@ -41,6 +46,9 @@ const DEFAULTS: SchedulerConfig = {
   maxAdmissionsPerTick: 16,
   agingMs: 60_000,
   admissionTtlMs: 60_000,
+  maxDispatchesPerTick: 16,
+  maxConcurrencyPerWorker: 1,
+  dispatchLeaseDurationMs: 60_000,
 };
 
 function resolveConfig(overrides: Partial<SchedulerConfig> = {}): SchedulerConfig {
@@ -49,6 +57,9 @@ function resolveConfig(overrides: Partial<SchedulerConfig> = {}): SchedulerConfi
     maxAdmissionsPerTick: overrides.maxAdmissionsPerTick ?? Number(process.env.NEXUS_SCHEDULER_MAX_PER_TICK ?? DEFAULTS.maxAdmissionsPerTick),
     agingMs: overrides.agingMs ?? Number(process.env.NEXUS_SCHEDULER_AGING_MS ?? DEFAULTS.agingMs),
     admissionTtlMs: overrides.admissionTtlMs ?? Number(process.env.NEXUS_SCHEDULER_ADMISSION_TTL_MS ?? DEFAULTS.admissionTtlMs),
+    maxDispatchesPerTick: overrides.maxDispatchesPerTick ?? Number(process.env.NEXUS_SCHEDULER_MAX_DISPATCHES_PER_TICK ?? DEFAULTS.maxDispatchesPerTick),
+    maxConcurrencyPerWorker: overrides.maxConcurrencyPerWorker ?? Number(process.env.NEXUS_SCHEDULER_WORKER_CONCURRENCY ?? DEFAULTS.maxConcurrencyPerWorker),
+    dispatchLeaseDurationMs: overrides.dispatchLeaseDurationMs ?? Number(process.env.NEXUS_SCHEDULER_DISPATCH_LEASE_MS ?? DEFAULTS.dispatchLeaseDurationMs),
   };
 }
 
@@ -115,6 +126,8 @@ export class DistributedScheduler {
       break;
     }
 
+    const dispatchReport = await this.dispatchTick(now);
+
     return {
       expiredStaleAdmissions,
       retriesPromoted,
@@ -122,6 +135,29 @@ export class DistributedScheduler {
       capacityDeferred,
       admissionOwner: this.ownerId,
       tickEpoch: now,
+      jobsDispatched: dispatchReport.jobsDispatched,
+      dispatchesDeferred: dispatchReport.dispatchesDeferred,
     };
   }
+
+
+  async dispatchTick(now: number = Date.now()): Promise<{
+    jobsDispatched: number;
+    dispatchesDeferred: number;
+    admissionOwner: string;
+  }> {
+    if (!this.store.hasAsyncBackend()) throw new Error("requires shared mode");
+    const admitted = await this.store.listJobsByStatusAsync("ADMITTED");
+    let jobsDispatched = 0;
+    let dispatchesDeferred = 0;
+    for (const job of admitted) {
+      if (jobsDispatched >= this.config.maxDispatchesPerTick) break;
+      if (job.cancellationRequested) continue;
+      const r = await this.store.dispatchAdmittedJobAsync({ jobId: job.id, maxConcurrencyPerWorker: this.config.maxConcurrencyPerWorker, leaseDurationMs: this.config.dispatchLeaseDurationMs, now });
+      if (r.dispatched) jobsDispatched++;
+      else if (r.reason === "WORKER_NOT_FOUND" || r.reason === "WORKER_AT_CAPACITY" || r.reason === "WORKER_NOT_ELIGIBLE") dispatchesDeferred++;
+    }
+    return { jobsDispatched, dispatchesDeferred, admissionOwner: this.ownerId };
+  }
+
 }

@@ -168,6 +168,68 @@ async function main(): Promise<void> {
         emit({ rows: r.rows, count: r.rows.length });
         break;
       }
+      case "dispatch-job": {
+        const [jobId, workerId, capStr, durStr] = args;
+        const r = await store.dispatchAdmittedJobAsync({
+          jobId,
+          workerId: workerId || undefined,
+          maxConcurrencyPerWorker: capStr ? Number(capStr) : undefined,
+          leaseDurationMs: durStr ? Number(durStr) : undefined,
+        });
+        emit({ result: r });
+        break;
+      }
+      case "dispatch-tick": {
+        const now = Number(args[0] ?? Date.now());
+        const maxConc = Number(process.env.NEXUS_SCHEDULER_WORKER_CONCURRENCY ?? "1");
+        const sched = new DistributedScheduler(store, { maxConcurrencyPerWorker: maxConc });
+        const r = await sched.dispatchTick(now);
+        emit({ report: r });
+        break;
+      }
+      case "read-attempt": {
+        const a = await store.getAttemptAsync(args[0]);
+        emit({ found: !!a, attempt: a ?? null });
+        break;
+      }
+      case "count-attempts-for-job": {
+        const r = await pg.query("SELECT COUNT(*)::text AS cnt FROM execution_attempts WHERE job_id = $1", [args[0]]);
+        emit({ count: Number(r.rows[0]?.cnt ?? 0) });
+        break;
+      }
+      case "count-active-leases-for-worker": {
+        const r = await pg.query("SELECT COUNT(*)::text AS cnt FROM execution_leases WHERE worker_id = $1 AND status = 'ACTIVE'", [args[0]]);
+        emit({ count: Number(r.rows[0]?.cnt ?? 0) });
+        break;
+      }
+      case "claim-admitted-as": {
+        const [jobId, workerId, durStr] = args;
+        const r = await store.atomicClaimJobAsync({ jobId, workerId, durationMs: durStr ? Number(durStr) : 60000, fromStatus: "ADMITTED" });
+        emit({ result: r });
+        break;
+      }
+      case "complete-attempt-as": {
+        const [attemptId, jobId, leaseId, workerId, st] = args;
+        const r = await store.completeAttemptAndTransitionJobAsync({
+          attemptId, jobId, leaseId, workerId,
+          attemptStatus: (st || "SUCCEEDED"),
+          expectedJobStatus: "RUNNING",
+          newJobStatus: "SUCCEEDED",
+        });
+        emit({ result: r });
+        break;
+      }
+      case "release-lease": {
+        await store.updateLeaseAsync({ leaseId: args[0], jobId: "", workerId: "", acquiredAt: 0, expiresAt: 0, releasedAt: Date.now(), status: "RELEASED" });
+        emit({ released: true });
+        break;
+      }
+      case "set-worker-heartbeat": {
+        const [wid, hbStr] = args;
+        await pg.query("UPDATE execution_workers SET last_heartbeat_at = $1 WHERE worker_id = $2", [Number(hbStr), wid]);
+        emit({ updated: true, workerId: wid, lastHeartbeatAt: Number(hbStr) });
+        break;
+      }
       case "sleep": {
         const ms = Number(args[0] ?? "0");
         await new Promise((r) => setTimeout(r, ms));

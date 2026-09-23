@@ -1753,6 +1753,185 @@ export class ExecutionStore {
 
     return expired;
   }
+
+  // ---------- Phase 186: distributed dispatch of admitted jobs ----------
+  // Moves an ADMITTED job to CLAIMED by (a) selecting a real eligible worker,
+  // (b) creating a durable attempt bound to a fresh lease, and (c) CAS-writing
+  // job.status. All in one transaction.
+  //
+  // Fencing model (unchanged from Phase 183/184):
+  //   - execution_leases.lease_id is the fencing token; the Phase 184 partial
+  //     unique index idx_leases_one_active_per_job prevents two ACTIVE leases
+  //     for the same job.
+  //   - execution_attempts.lease_id binds the attempt to that lease.
+  //   - A stale worker's attempt update is rejected by the ownership WHERE
+  //     clause in updateAttemptAsOwnerAsync / completeAttemptAndTransitionJobAsync.
+  //
+  // Worker capacity is derived, not stored: the number of ACTIVE leases held
+  // by a worker is its current execution count. maxConcurrencyPerWorker
+  // defaults to 1. This is distinct from Phase 185's global admission capacity.
+  async dispatchAdmittedJobAsync(input: {
+    jobId: string;
+    workerId?: string;
+    maxConcurrencyPerWorker?: number;
+    leaseDurationMs?: number;
+    now?: number;
+  }): Promise<{
+    dispatched: boolean;
+    attemptId?: string;
+    leaseId?: string;
+    workerId?: string;
+    reason?: "NOT_ADMITTED" | "CANCELLED" | "WORKER_NOT_FOUND" | "WORKER_NOT_ELIGIBLE" | "WORKER_AT_CAPACITY" | "DISPATCH_CONFLICT";
+  }> {
+    const engine = this.requireAsyncDb();
+    const now = input.now ?? Date.now();
+    const leaseDurationMs = input.leaseDurationMs ?? 60000;
+    const cap = input.maxConcurrencyPerWorker ?? 1;
+
+    let result: {
+      dispatched: boolean;
+      attemptId?: string;
+      leaseId?: string;
+      workerId?: string;
+      reason?: "NOT_ADMITTED" | "CANCELLED" | "WORKER_NOT_FOUND" | "WORKER_NOT_ELIGIBLE" | "WORKER_AT_CAPACITY" | "DISPATCH_CONFLICT";
+    } = { dispatched: false };
+
+    class AbortTx extends Error {}
+
+    try {
+      await engine.transactionAsync(async (tx) => {
+        // 1. Lock the job row. FOR UPDATE (not SKIP LOCKED): a concurrent
+        //    dispatch of the same job should block, then see NOT_ADMITTED,
+        //    rather than silently skipping and reporting NOT_ADMITTED for a
+        //    job it never observed.
+        const jobRow = await tx.prepareAsync(
+          "SELECT id, status, cancellation_requested, current_lease_id " +
+          "FROM execution_jobs WHERE id = ? FOR UPDATE",
+        ).get<{ id: string; status: string; cancellation_requested: number; current_lease_id: string | null }>(input.jobId);
+
+        if (!jobRow) { result = { dispatched: false, reason: "NOT_ADMITTED" }; throw new AbortTx(); }
+        if (jobRow.cancellation_requested) { result = { dispatched: false, reason: "CANCELLED" }; throw new AbortTx(); }
+        if (jobRow.status !== "ADMITTED") { result = { dispatched: false, reason: "NOT_ADMITTED" }; throw new AbortTx(); }
+        if (jobRow.current_lease_id) { result = { dispatched: false, reason: "DISPATCH_CONFLICT" }; throw new AbortTx(); }
+
+        // 2. Resolve worker.
+        let workerId = input.workerId;
+        if (workerId) {
+          const w = await tx.prepareAsync(
+            "SELECT worker_id, status FROM execution_workers WHERE worker_id = ? FOR UPDATE",
+          ).get<{ worker_id: string; status: string }>(workerId);
+          if (!w) { result = { dispatched: false, reason: "WORKER_NOT_FOUND" }; throw new AbortTx(); }
+          if (w.status !== "ONLINE" && w.status !== "BUSY") {
+            result = { dispatched: false, reason: "WORKER_NOT_ELIGIBLE" };
+            throw new AbortTx();
+          }
+        } else {
+          // Dispatcher-chosen worker: lowest active-lease count, deterministic
+          // tiebreak by worker_id. FOR UPDATE OF w SKIP LOCKED serializes
+          // concurrent dispatchers against the same candidate worker.
+          const w = await tx.prepareAsync(
+            "SELECT w.worker_id, " +
+            "  (SELECT COUNT(*)::int FROM execution_leases l " +
+            "   WHERE l.worker_id = w.worker_id AND l.status = 'ACTIVE') AS active_cnt " +
+            "FROM execution_workers w " +
+            "WHERE w.status IN ('ONLINE','BUSY') " +
+            "ORDER BY active_cnt ASC, w.worker_id ASC " +
+            "FOR UPDATE OF w SKIP LOCKED LIMIT 1",
+          ).get<{ worker_id: string; active_cnt: number }>();
+          if (!w) { result = { dispatched: false, reason: "WORKER_NOT_FOUND" }; throw new AbortTx(); }
+          workerId = w.worker_id;
+        }
+
+        // 3. Capacity check (covers the pinned-worker case; the auto-selected
+        //    case already filtered by active_cnt but we re-verify inside the
+        //    locked worker view).
+        const activeRow = await tx.prepareAsync(
+          "SELECT COUNT(*)::int AS cnt FROM execution_leases " +
+          "WHERE worker_id = ? AND status = 'ACTIVE'",
+        ).get<{ cnt: number }>(workerId);
+        const activeCount = activeRow?.cnt ?? 0;
+        if (activeCount >= cap) {
+          result = { dispatched: false, reason: "WORKER_AT_CAPACITY" };
+          throw new AbortTx();
+        }
+
+        // 4. Compute attempt number before inserting (used in both ids).
+        const nextRow = await tx.prepareAsync(
+          "SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next FROM execution_attempts WHERE job_id = ?",
+        ).get<{ next: number }>(input.jobId);
+        const attemptNumber = Number(nextRow?.next ?? 1);
+
+        const attemptId = "attempt_" + input.jobId + "_" + attemptNumber;
+        const leaseId = "lease_dispatch_" + input.jobId + "_" + attemptNumber + "_" + now + "_" + Math.random().toString(36).slice(2, 8);
+
+        // 5. INSERT lease. The partial unique index enforces single ACTIVE per job.
+        try {
+          await tx.prepareAsync(
+            "INSERT INTO execution_leases " +
+            "(lease_id, job_id, worker_id, acquired_at, expires_at, renewed_at, released_at, status) " +
+            "VALUES (?, ?, ?, ?, ?, NULL, NULL, 'ACTIVE')",
+          ).run(leaseId, input.jobId, workerId, now, now + leaseDurationMs);
+        } catch (err: any) {
+          if (err && (err.code === "23505" || /duplicate key/i.test(String(err.message)))) {
+            result = { dispatched: false, reason: "DISPATCH_CONFLICT" };
+            throw new AbortTx();
+          }
+          throw err;
+        }
+
+        // 6. INSERT attempt bound to the same lease. Status RUNNING because
+        //    the worker is expected to start execution immediately upon
+        //    receiving ownership.
+        await tx.prepareAsync(
+          "INSERT INTO execution_attempts " +
+          "(id, job_id, attempt_number, status, worker_id, lease_id, started_at, completed_at, error, evidence, created_at) " +
+          "VALUES (?, ?, ?, 'RUNNING', ?, ?, ?, NULL, NULL, NULL, ?)",
+        ).run(attemptId, input.jobId, attemptNumber, workerId, leaseId, now, now);
+
+        // 7. CAS the job: ADMITTED -> CLAIMED. Explicit status + cancel guard.
+        const upd = await tx.prepareAsync(
+          "UPDATE execution_jobs SET status = 'CLAIMED', current_lease_id = ?, updated_at = ? " +
+          "WHERE id = ? AND status = 'ADMITTED' AND cancellation_requested = 0",
+        ).run(leaseId, now, input.jobId);
+
+        if ((upd.changes ?? 0) !== 1) {
+          result = { dispatched: false, reason: "DISPATCH_CONFLICT" };
+          throw new AbortTx();
+        }
+
+        // 8. Durable event.
+        const eventId = "evt_dispatch_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 8);
+        await tx.prepareAsync(
+          "INSERT INTO execution_events (event_id, job_id, event_type, payload, created_at) " +
+          "VALUES (?, ?, ?, ?, ?)",
+        ).run(
+          eventId,
+          input.jobId,
+          "scheduler.job.dispatched",
+          JSON.stringify({
+            jobId: input.jobId,
+            attemptId,
+            leaseId,
+            workerId,
+            attemptNumber,
+            dispatchedAt: now,
+          }),
+          now,
+        );
+
+        result = {
+          dispatched: true,
+          attemptId,
+          leaseId,
+          workerId,
+        };
+      });
+    } catch (e) {
+      if (!(e instanceof AbortTx)) throw e;
+    }
+
+    return result;
+  }
   async clearJobLeaseByLeaseIdAsync(leaseId: string): Promise<void> {
     const engine = this.requireAsyncDb();
     await engine.prepareAsync(`
