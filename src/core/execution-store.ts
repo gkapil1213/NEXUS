@@ -697,8 +697,8 @@ export class ExecutionStore {
       INSERT INTO execution_jobs (
         id, idempotency_key, job_type, payload, status, retry_policy,
         timeout_ms, created_at, updated_at, last_attempt_at, next_attempt_at,
-        current_lease_id, cancellation_requested, cancellation_acknowledged
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        current_lease_id, cancellation_requested, cancellation_acknowledged, priority
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       job.id,
       job.idempotencyKey,
@@ -714,6 +714,7 @@ export class ExecutionStore {
       job.currentLeaseId ?? null,
       job.cancellationRequested ? 1 : 0,
       job.cancellationAcknowledged ? 1 : 0,
+      job.priority ?? 2,
     );
   }
 
@@ -1427,6 +1428,10 @@ export class ExecutionStore {
     jobId: string;
     workerId: string;
     durationMs: number;
+    /** Phase 185: which pre-claim status this job must be in. Defaults to
+     *  QUEUED for backward compatibility with direct claimants. The scheduler
+     *  admits first (QUEUED -> ADMITTED) then claims with fromStatus = "ADMITTED". */
+    fromStatus?: "QUEUED" | "ADMITTED";
   }): Promise<{
     claimed: boolean;
     lease?: ExecutionLease;
@@ -1459,6 +1464,8 @@ export class ExecutionStore {
           "FROM execution_jobs WHERE id = ? FOR UPDATE SKIP LOCKED",
         ).get<any>(input.jobId);
 
+        const wantStatus = input.fromStatus ?? "QUEUED";
+
         if (!row) {
           // Row either does not exist, or another claimant holds the lock.
           // Distinguish via an unlocked read for a useful reason code.
@@ -1468,13 +1475,13 @@ export class ExecutionStore {
           ).get<any>(input.jobId);
           if (!unlocked) { result = { claimed: false, reason: "NOT_QUEUED" }; }
           else if (unlocked.cancellation_requested) { result = { claimed: false, reason: "CANCELLED" }; }
-          else if (unlocked.status !== "QUEUED") { result = { claimed: false, reason: "NOT_QUEUED" }; }
+          else if (unlocked.status !== wantStatus) { result = { claimed: false, reason: "NOT_QUEUED" }; }
           else { result = { claimed: false, reason: "ALREADY_LEASED" }; }
           throw new AbortTx();
         }
 
         if (row.cancellation_requested) { result = { claimed: false, reason: "CANCELLED" }; throw new AbortTx(); }
-        if (row.status !== "QUEUED") { result = { claimed: false, reason: "NOT_QUEUED" }; throw new AbortTx(); }
+        if (row.status !== wantStatus) { result = { claimed: false, reason: "NOT_QUEUED" }; throw new AbortTx(); }
         if (row.current_lease_id) { result = { claimed: false, reason: "ALREADY_LEASED" }; throw new AbortTx(); }
 
         // 2. Expire stale ACTIVE leases for this job only.
@@ -1501,8 +1508,8 @@ export class ExecutionStore {
         // 4. CAS job UPDATE.
         const jobRes = await tx.prepareAsync(
           "UPDATE execution_jobs SET status = 'CLAIMED', current_lease_id = ?, updated_at = ? " +
-          "WHERE id = ? AND status = 'QUEUED'",
-        ).run(lease.leaseId, now, input.jobId);
+          "WHERE id = ? AND status = ?",
+        ).run(lease.leaseId, now, input.jobId, wantStatus);
 
         if ((jobRes.changes ?? 0) !== 1) {
           result = { claimed: false, reason: "ALREADY_LEASED" };
@@ -1522,7 +1529,7 @@ export class ExecutionStore {
             jobId: input.jobId,
             workerId: input.workerId,
             leaseId: lease.leaseId,
-            from: "QUEUED",
+            from: wantStatus,
             to: "CLAIMED",
           }),
           now,
@@ -1535,6 +1542,216 @@ export class ExecutionStore {
     }
 
     return result;
+  }
+
+  // ---------- Phase 185: distributed scheduler admission ----------
+  // Single transaction. pg_advisory_xact_lock serializes admission globally
+  // across all NEXUS scheduler processes. Global capacity is re-checked here
+  // so no two processes can independently admit past the shared limit.
+  //
+  // Fairness: effective priority = priority - FLOOR((now - created_at) / aging_ms).
+  // Lower value = admitted first. Aging is deterministic and durable -- derived
+  // from persisted created_at, not from any in-memory clock.
+  //
+  // Fenced write: UPDATE ... WHERE id = ? AND status = 'QUEUED' (CAS against
+  // concurrent cancellation/claim). Never admits a job that is no longer QUEUED.
+  async admitNextJobAsync(input: {
+    owner: string;
+    capacityLimit: number;
+    agingMs?: number;
+    now?: number;
+  }): Promise<{
+    admitted: boolean;
+    jobId?: string;
+    reason?: "CAPACITY_EXHAUSTED" | "NO_ELIGIBLE_JOBS" | "NO_ELIGIBLE_WORKERS";
+    activeCount?: number;
+    capacityLimit?: number;
+  }> {
+    const engine = this.requireAsyncDb();
+    const now = input.now ?? Date.now();
+    const agingMs = input.agingMs ?? 60000;
+    const ADMISSION_LOCK_KEY = 981411;
+
+    let result: {
+      admitted: boolean;
+      jobId?: string;
+      reason?: "CAPACITY_EXHAUSTED" | "NO_ELIGIBLE_JOBS" | "NO_ELIGIBLE_WORKERS";
+      activeCount?: number;
+      capacityLimit?: number;
+    } = { admitted: false, reason: "NO_ELIGIBLE_JOBS" };
+
+    class AbortTx extends Error {}
+
+    try {
+      await engine.transactionAsync(async (tx) => {
+        // Global admission lock -- serializes concurrent admit calls across all
+        // processes. Held until COMMIT/ROLLBACK.
+        await tx.prepareAsync("SELECT pg_advisory_xact_lock(?)").run(ADMISSION_LOCK_KEY);
+
+        // Phase 185: refuse to admit when no worker can execute the job.
+        const workerRow = await tx.prepareAsync(
+          "SELECT COUNT(*)::int AS cnt FROM execution_workers WHERE status IN ('ONLINE','BUSY')",
+        ).get<{ cnt: number }>();
+        const eligibleWorkers = workerRow?.cnt ?? 0;
+        if (eligibleWorkers === 0) {
+          result = {
+            admitted: false,
+            reason: "NO_ELIGIBLE_WORKERS",
+            activeCount: 0,
+            capacityLimit: input.capacityLimit,
+          };
+          throw new AbortTx();
+        }
+
+        // Count currently active executions (post-admission, pre-terminal).
+        const countRow = await tx.prepareAsync(
+          "SELECT COUNT(*)::int AS cnt FROM execution_jobs " +
+          "WHERE status IN ('ADMITTED','CLAIMED','RUNNING','VERIFYING','CANCELLATION_REQUESTED')",
+        ).get<{ cnt: number }>();
+        const activeCount = countRow?.cnt ?? 0;
+
+        if (activeCount >= input.capacityLimit) {
+          result = {
+            admitted: false,
+            reason: "CAPACITY_EXHAUSTED",
+            activeCount,
+            capacityLimit: input.capacityLimit,
+          };
+          throw new AbortTx();
+        }
+
+        // Pick highest effective priority among eligible QUEUED jobs.
+        // Lower effective priority number = admitted first.
+        // created_at ASC as a tiebreaker for deterministic FIFO within a priority class.
+        const candidate = await tx.prepareAsync(
+          "SELECT id, priority, created_at FROM execution_jobs " +
+          "WHERE status = 'QUEUED' AND cancellation_requested = 0 " +
+          "  AND (next_attempt_at IS NULL OR next_attempt_at <= ?) " +
+          "ORDER BY (priority - FLOOR((? - created_at) / ?)) ASC, created_at ASC " +
+          "FOR UPDATE SKIP LOCKED LIMIT 1",
+        ).get<{ id: string; priority: number; created_at: string | number }>(now, now, agingMs);
+
+        if (!candidate) {
+          result = {
+            admitted: false,
+            reason: "NO_ELIGIBLE_JOBS",
+            activeCount,
+            capacityLimit: input.capacityLimit,
+          };
+          throw new AbortTx();
+        }
+
+        const epoch = now;
+        const upd = await tx.prepareAsync(
+          "UPDATE execution_jobs SET status = 'ADMITTED', admitted_at = ?, " +
+          "  admission_owner = ?, admission_epoch = ?, updated_at = ? " +
+          "WHERE id = ? AND status = 'QUEUED' AND cancellation_requested = 0",
+        ).run(now, input.owner, epoch, now, candidate.id);
+
+        if ((upd.changes ?? 0) !== 1) {
+          // Lost the CAS race -- another process cancelled or claimed it.
+          result = { admitted: false, reason: "NO_ELIGIBLE_JOBS" };
+          throw new AbortTx();
+        }
+
+        // Durable event -- matches Phase 184 conventions.
+        const eventId = "evt_admit_" + candidate.id + "_" + now + "_" + Math.random().toString(36).slice(2, 8);
+        await tx.prepareAsync(
+          "INSERT INTO execution_events (event_id, job_id, event_type, payload, created_at) " +
+          "VALUES (?, ?, ?, ?, ?)",
+        ).run(
+          eventId,
+          candidate.id,
+          "scheduler.job.admitted",
+          JSON.stringify({
+            jobId: candidate.id,
+            priority: candidate.priority,
+            activeCount,
+            capacityLimit: input.capacityLimit,
+            admissionOwner: input.owner,
+            admissionEpoch: epoch,
+          }),
+          now,
+        );
+
+        result = {
+          admitted: true,
+          jobId: candidate.id,
+          activeCount,
+          capacityLimit: input.capacityLimit,
+        };
+      });
+    } catch (e) {
+      if (!(e instanceof AbortTx)) throw e;
+    }
+
+    return result;
+  }
+
+  // ---------- Phase 185: scheduler-side retry promotion ----------
+  // Moves eligible RETRY_SCHEDULED jobs to QUEUED in one atomic UPDATE.
+  // Idempotent across schedulers: the status='RETRY_SCHEDULED' filter means
+  // a second concurrent call sees the row already promoted and updates 0.
+  // Does not touch attempts -- Phase 184's attempt uniqueness fence still holds.
+  async promoteDueRetriesAsync(now: number = Date.now()): Promise<number> {
+    const engine = this.requireAsyncDb();
+    let promoted = 0;
+
+    await engine.transactionAsync(async (tx) => {
+      const rows = await tx.prepareAsync(
+        "UPDATE execution_jobs SET status = 'QUEUED', next_attempt_at = NULL, updated_at = ? " +
+        "WHERE status = 'RETRY_SCHEDULED' AND next_attempt_at IS NOT NULL AND next_attempt_at <= ? " +
+        "RETURNING id",
+      ).all<{ id: string }>(now, now);
+
+      for (const r of rows) {
+        const eventId = "evt_retry_promote_" + r.id + "_" + now + "_" + Math.random().toString(36).slice(2, 8);
+        await tx.prepareAsync(
+          "INSERT INTO execution_events (event_id, job_id, event_type, payload, created_at) " +
+          "VALUES (?, ?, ?, ?, ?)",
+        ).run(
+          eventId, r.id, "scheduler.retry.promoted",
+          JSON.stringify({ jobId: r.id, promotedAt: now }), now,
+        );
+      }
+      promoted = rows.length;
+    });
+
+    return promoted;
+  }
+
+  // ---------- Phase 185: stale ADMITTED recovery ----------
+  // A scheduler that crashes after admit but before claim leaves a job stuck
+  // in ADMITTED. This reverts such jobs to QUEUED once their admitted_at is
+  // older than ttlMs, so capacity is not permanently leaked. The CAS on
+  // status='ADMITTED' is safe under concurrent claim attempts: if the worker
+  // claimed first (status = 'CLAIMED'), this UPDATE matches 0 rows.
+  async expireStaleAdmissionsAsync(now: number = Date.now(), ttlMs: number = 60000): Promise<number> {
+    const engine = this.requireAsyncDb();
+    let expired = 0;
+    const cutoff = now - ttlMs;
+
+    await engine.transactionAsync(async (tx) => {
+      const rows = await tx.prepareAsync(
+        "UPDATE execution_jobs SET status = 'QUEUED', admitted_at = NULL, admission_owner = NULL, updated_at = ? " +
+        "WHERE status = 'ADMITTED' AND admitted_at IS NOT NULL AND admitted_at < ? " +
+        "RETURNING id, admission_owner",
+      ).all<{ id: string; admission_owner: string | null }>(now, cutoff);
+
+      for (const r of rows) {
+        const eventId = "evt_admission_expired_" + r.id + "_" + now + "_" + Math.random().toString(36).slice(2, 8);
+        await tx.prepareAsync(
+          "INSERT INTO execution_events (event_id, job_id, event_type, payload, created_at) " +
+          "VALUES (?, ?, ?, ?, ?)",
+        ).run(
+          eventId, r.id, "scheduler.admission.expired",
+          JSON.stringify({ jobId: r.id, previousOwner: r.admission_owner, expiredAt: now }), now,
+        );
+      }
+      expired = rows.length;
+    });
+
+    return expired;
   }
   async clearJobLeaseByLeaseIdAsync(leaseId: string): Promise<void> {
     const engine = this.requireAsyncDb();

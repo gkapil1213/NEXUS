@@ -60,6 +60,24 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
         ON execution_jobs (status, next_attempt_at)
     `);
 
+    // Phase 185: scheduler priority + admission bookkeeping.
+    // ALTER TABLE ADD COLUMN IF NOT EXISTS is idempotent -- safe on both
+    // fresh databases and existing Phase 183/184 databases.
+    //   priority: 0=CRITICAL, 1=HIGH, 2=NORMAL, 3=LOW (matches JobPriority enum)
+    //   admitted_at / admission_owner / admission_epoch: durable scheduler ownership
+    await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 2`);
+    await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS admitted_at BIGINT`);
+    await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS admission_owner TEXT`);
+    await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS admission_epoch BIGINT DEFAULT 0`);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_exec_jobs_admissible
+        ON execution_jobs (priority, created_at) WHERE status = 'QUEUED'
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_exec_jobs_active_capacity
+        ON execution_jobs (status) WHERE status IN ('ADMITTED', 'CLAIMED', 'RUNNING', 'VERIFYING')
+    `);
+
     // Phase 183b: durable recovery operations.
     // Translated from src/db/migrations/154_phase144_durable_execution_recovery_operations.sql.
     await client.query(`

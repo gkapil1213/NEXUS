@@ -1,6 +1,7 @@
 import { ExecutionAdapterRequest, ExecutionAdapterResult } from "./execution-adapter";
 export type ExecutionJobStatus =
   | "QUEUED"
+  | "ADMITTED"
   | "CLAIMED"
   | "RUNNING"
   | "VERIFYING"
@@ -35,7 +36,8 @@ export interface ExecutionJob {
   nextAttemptAt?: number;
   currentLeaseId?: string;
   cancellationRequested: boolean;
-  cancellationAcknowledged: boolean;
+  cancellationAcknowledged: boolean;  priority?: number;
+
 }
 
 export type ExecutionAttemptStatus = ExecutionJobStatus;

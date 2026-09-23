@@ -47,6 +47,7 @@ function stageToJobStatus(to: StageStatus): ExecutionJobStatus {
 function jobToStageStatus(job: ExecutionJob): StageStatus {
   switch (job.status) {
     case 'QUEUED':                return 'PENDING';
+    case 'ADMITTED':
     case 'CLAIMED':
     case 'RUNNING':
     case 'VERIFYING':
