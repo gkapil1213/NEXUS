@@ -1,6 +1,6 @@
 import { sha256 } from "./sha256";
 import { NexusEngine, AsyncNexusEngine } from "./db";
-import { ExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
+import { ExecutionRecoveryOperationStore, AsyncExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
 import {
   ExecutionJob,
@@ -158,6 +158,7 @@ class AtomicClaimReject extends Error {
 }
 export class ExecutionStore {
   readonly recoveryOps: ExecutionRecoveryOperationStore;
+  readonly recoveryOpsAsync?: AsyncExecutionRecoveryOperationStore;
   /** @internal Phase 142 Ã¢â‚¬â€ test-only injection hook. No-op in production. */
   public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
   /** @internal Phase 143 - test-only injection hook. No-op in production. */
@@ -171,7 +172,8 @@ export class ExecutionStore {
   constructor(
     private db: NexusEngine,
     private asyncDb?: AsyncNexusEngine,
-  ) { this.recoveryOps = new ExecutionRecoveryOperationStore(this.db); }
+  ) { this.recoveryOps = new ExecutionRecoveryOperationStore(this.db);
+    this.recoveryOpsAsync = this.asyncDb ? new AsyncExecutionRecoveryOperationStore(this.asyncDb) : undefined; }
 
   // ---------- Jobs ----------
   createJob(job: ExecutionJob): void {
@@ -447,6 +449,39 @@ export class ExecutionStore {
     }
   }
 
+  // ---------- Phase 184: async ownership obligation ----------
+  // Mirrors writeOwnershipObligation with ON CONFLICT DO NOTHING, matching
+  // the idempotency semantics already used in recoverJobAtomicAsync.
+  // Routes through asyncDb only; never falls back to SQLite.
+  async writeOwnershipObligationAsync(input: {
+    jobId: string;
+    leaseId: string;
+    workerId: string;
+    reason: string;
+    now?: number;
+  }): Promise<{ obligationId: string; created: boolean }> {
+    const engine = this.requireAsyncDb();
+    const now = input.now ?? Date.now();
+    const obligationId = `oblig_${input.jobId}_${input.leaseId}`;
+
+    const inserted = await engine.prepareAsync(`
+      INSERT INTO execution_ownership_obligations (
+        obligation_id, job_id, lease_id, worker_id, reason, state, created_at
+      ) VALUES (?, ?, ?, ?, ?, 'OPEN', ?)
+      ON CONFLICT (job_id, lease_id) DO NOTHING
+      RETURNING obligation_id
+    `).all<{ obligation_id: string }>(
+      obligationId, input.jobId, input.leaseId, input.workerId, input.reason, now,
+    );
+
+    if (inserted.length > 0) {
+      return { obligationId: inserted[0].obligation_id, created: true };
+    }
+    const winner = await engine.prepareAsync(
+      "SELECT obligation_id FROM execution_ownership_obligations WHERE job_id = ? AND lease_id = ?",
+    ).get<{ obligation_id: string }>(input.jobId, input.leaseId);
+    return { obligationId: winner?.obligation_id ?? obligationId, created: false };
+  }
   resolveOwnershipObligation(obligationId: string, resolution: string, now: number = Date.now()): boolean {
     const result = this.db.prepare(`
       UPDATE execution_ownership_obligations
@@ -1381,6 +1416,126 @@ export class ExecutionStore {
     return rows.map((r: any) => this.mapLease(r));
   }
 
+
+  // ---------- Phase 184: atomic claim (Postgres) ----------
+  // Single transaction. SELECT ... FOR UPDATE SKIP LOCKED on the target
+  // job row serializes concurrent claimants; the partial unique index
+  // idx_leases_one_active_per_job enforces single ACTIVE lease per job.
+  // Return shape is identical to sync atomicClaimJob so callers can
+  // switch on hasAsyncBackend() without any adaptation.
+  async atomicClaimJobAsync(input: {
+    jobId: string;
+    workerId: string;
+    durationMs: number;
+  }): Promise<{
+    claimed: boolean;
+    lease?: ExecutionLease;
+    reason?: AtomicClaimRejectReason;
+  }> {
+    const engine = this.requireAsyncDb();
+    const now = Date.now();
+    const lease: ExecutionLease = {
+      leaseId: "lease_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 10),
+      jobId: input.jobId,
+      workerId: input.workerId,
+      acquiredAt: now,
+      expiresAt: now + input.durationMs,
+      status: "ACTIVE",
+    };
+
+    let result: {
+      claimed: boolean;
+      lease?: ExecutionLease;
+      reason?: AtomicClaimRejectReason;
+    } = { claimed: false };
+
+    class AbortTx extends Error {}
+
+    try {
+      await engine.transactionAsync(async (tx) => {
+        // 1. Locked guard read.
+        const row = await tx.prepareAsync(
+          "SELECT status, cancellation_requested, current_lease_id " +
+          "FROM execution_jobs WHERE id = ? FOR UPDATE SKIP LOCKED",
+        ).get<any>(input.jobId);
+
+        if (!row) {
+          // Row either does not exist, or another claimant holds the lock.
+          // Distinguish via an unlocked read for a useful reason code.
+          const unlocked = await tx.prepareAsync(
+            "SELECT status, cancellation_requested, current_lease_id " +
+            "FROM execution_jobs WHERE id = ?",
+          ).get<any>(input.jobId);
+          if (!unlocked) { result = { claimed: false, reason: "NOT_QUEUED" }; }
+          else if (unlocked.cancellation_requested) { result = { claimed: false, reason: "CANCELLED" }; }
+          else if (unlocked.status !== "QUEUED") { result = { claimed: false, reason: "NOT_QUEUED" }; }
+          else { result = { claimed: false, reason: "ALREADY_LEASED" }; }
+          throw new AbortTx();
+        }
+
+        if (row.cancellation_requested) { result = { claimed: false, reason: "CANCELLED" }; throw new AbortTx(); }
+        if (row.status !== "QUEUED") { result = { claimed: false, reason: "NOT_QUEUED" }; throw new AbortTx(); }
+        if (row.current_lease_id) { result = { claimed: false, reason: "ALREADY_LEASED" }; throw new AbortTx(); }
+
+        // 2. Expire stale ACTIVE leases for this job only.
+        await tx.prepareAsync(
+          "UPDATE execution_leases SET status = 'EXPIRED', released_at = ? " +
+          "WHERE job_id = ? AND status = 'ACTIVE' AND expires_at <= ?",
+        ).run(now, input.jobId, now);
+
+        // 3. INSERT new ACTIVE lease.
+        try {
+          await tx.prepareAsync(
+            "INSERT INTO execution_leases " +
+            "(lease_id, job_id, worker_id, acquired_at, expires_at, renewed_at, released_at, status) " +
+            "VALUES (?, ?, ?, ?, ?, NULL, NULL, 'ACTIVE')",
+          ).run(lease.leaseId, lease.jobId, lease.workerId, lease.acquiredAt, lease.expiresAt);
+        } catch (err: any) {
+          if (err && (err.code === "23505" || /duplicate key/i.test(String(err.message)))) {
+            result = { claimed: false, reason: "LEASE_CONFLICT" };
+            throw new AbortTx();
+          }
+          throw err;
+        }
+
+        // 4. CAS job UPDATE.
+        const jobRes = await tx.prepareAsync(
+          "UPDATE execution_jobs SET status = 'CLAIMED', current_lease_id = ?, updated_at = ? " +
+          "WHERE id = ? AND status = 'QUEUED'",
+        ).run(lease.leaseId, now, input.jobId);
+
+        if ((jobRes.changes ?? 0) !== 1) {
+          result = { claimed: false, reason: "ALREADY_LEASED" };
+          throw new AbortTx();
+        }
+
+        // 5. Durable transition event (matches sync atomicClaimJob semantics).
+        const eventId = "evt_claim_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 8);
+        await tx.prepareAsync(
+          "INSERT INTO execution_events (event_id, job_id, event_type, payload, created_at) " +
+          "VALUES (?, ?, ?, ?, ?)",
+        ).run(
+          eventId,
+          input.jobId,
+          "execution.transition.claimed",
+          JSON.stringify({
+            jobId: input.jobId,
+            workerId: input.workerId,
+            leaseId: lease.leaseId,
+            from: "QUEUED",
+            to: "CLAIMED",
+          }),
+          now,
+        );
+
+        result = { claimed: true, lease };
+      });
+    } catch (e) {
+      if (!(e instanceof AbortTx)) throw e;
+    }
+
+    return result;
+  }
   async clearJobLeaseByLeaseIdAsync(leaseId: string): Promise<void> {
     const engine = this.requireAsyncDb();
     await engine.prepareAsync(`

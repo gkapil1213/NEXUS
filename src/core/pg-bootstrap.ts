@@ -120,6 +120,13 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_leases_job
         ON execution_leases (job_id)
     `);
+    // Phase 184: enforce invariant I01 -- at most one ACTIVE lease per job.
+    // Partial unique index; only ACTIVE rows participate, so historical
+    // RELEASED/EXPIRED leases may coexist freely.
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_leases_one_active_per_job
+        ON execution_leases (job_id) WHERE status = 'ACTIVE'
+    `);
 
     // execution_events -- written inside transition/recovery transactions.
     // Schema translated from src/db/migrations/020_phase13_execution.sql.

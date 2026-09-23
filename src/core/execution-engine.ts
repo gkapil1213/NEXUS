@@ -495,10 +495,36 @@ export class ExecutionEngine {
             // no second event, no compensating audit.
             const fresh = this.store.getJob(job.id);
             if (!fresh) continue;
-            // Phase 183 final: claimNextJob stays sync (worker-scheduler hot path).
-            // Shared-mode worker busy-state durability is exercised via
-            // JobDispatcher.dispatchJob -> markBusyIO. Claim path migrates in Phase 184.
+            // Phase 184: sync claimNextJob preserved for SQLite mode and legacy
+            // callers. Shared-mode distributed claim uses claimNextJobAsync
+            // (Postgres FOR UPDATE SKIP LOCKED) via the worker runtime.
             this.workerRegistry.markBusy(workerId, job.id);
+            return { job: fresh, lease: r.lease };
+        }
+        return null;
+    }
+
+    /**
+     * Phase 184: shared-mode claim. Same semantics as sync claimNextJob but
+     * routes through atomicClaimJobAsync so concurrent callers in independent
+     * processes are serialized by PostgreSQL (SELECT ... FOR UPDATE SKIP LOCKED).
+     * Only valid when store.hasAsyncBackend() is true.
+     */
+    async claimNextJobAsync(workerId: string): Promise<{ job: ExecutionJob; lease: any } | null> {
+        const queued = await this.store.listJobsByStatusAsync("QUEUED");
+        for (const job of queued) {
+            if (job.cancellationRequested) continue;
+
+            const r = await this.store.atomicClaimJobAsync({
+                jobId: job.id,
+                workerId,
+                durationMs: 60000,
+            });
+            if (!r.claimed || !r.lease) continue;
+
+            const fresh = await this.store.getJobAsync(job.id);
+            if (!fresh) continue;
+            await this.markBusyIO(workerId, job.id);
             return { job: fresh, lease: r.lease };
         }
         return null;
@@ -578,6 +604,159 @@ export class ExecutionEngine {
     }
     return this.workerRegistry.detectLostWorkers(now, maxAgeMs);
   }
+    // Phase 184: async sibling of runRecoveryOperation. Used in shared mode
+    // when the recovery bookkeeping and the body mutations must both persist
+    // to Postgres. Same flow, awaits async ops and an async body().
+    private async runRecoveryOperationAsync(input: {
+        jobId: string;
+        leaseId: string | null;
+        workerId: string | null;
+        operationType: ExecutionRecoveryOperationType;
+        now: number;
+        body: () => Promise<{ ok: boolean; error?: string; recoveryRequired?: string }>;
+    }): Promise<void> {
+        // Phase 184: dual-mode. SQLite mode uses the sync recovery-op store;
+        // shared mode uses the async one. The body is always async-shaped --
+        // in SQLite mode the awaits resolve synchronously.
+        if (!this.store.hasAsyncBackend()) {
+            const syncOps = this.store.recoveryOps;
+            const created = syncOps.createOrGetOperation({
+                jobId: input.jobId,
+                leaseId: input.leaseId,
+                workerId: input.workerId,
+                operationType: input.operationType,
+                now: input.now,
+            });
+            const op = created.operation;
+            if (op.state === "COMPLETED") return;
+            this.__testPhase144Hook?.("afterCreate");
+            const owner = this.recoveryOwnerId();
+            const claim = syncOps.claimOperation({
+                operationId: op.operationId,
+                owner,
+                durationMs: 60000,
+                now: input.now,
+            });
+            if (!claim.claimed) return;
+            this.__testPhase144Hook?.("afterClaim");
+            const started = syncOps.markInProgress(op.operationId, owner, input.now);
+            if (!started) return;
+            this.__testPhase144Hook?.("afterInProgress");
+            try {
+                const result = await input.body();
+                if (result.ok) {
+                    this.__testPhase144Hook?.("beforeComplete");
+                    syncOps.markCompleted(op.operationId, owner, input.now);
+                    return;
+                }
+                if (result.recoveryRequired) {
+                    syncOps.markRecoveryRequired(op.operationId, owner, result.recoveryRequired, input.now);
+                    return;
+                }
+                syncOps.markFailed(op.operationId, owner, result.error ?? "RECOVERY_FAILED", input.now);
+            } catch (err: any) {
+                syncOps.markFailed(op.operationId, owner, String(err?.message ?? err), input.now);
+            }
+            return;
+        }
+
+        const ops = this.store.recoveryOpsAsync;
+        if (!ops) throw new Error("runRecoveryOperationAsync requires shared mode");
+
+        const created = await ops.createOrGetOperation({
+            jobId: input.jobId,
+            leaseId: input.leaseId,
+            workerId: input.workerId,
+            operationType: input.operationType,
+            now: input.now,
+        });
+
+        const op = created.operation;
+        if (op.state === "COMPLETED") return;
+
+        this.__testPhase144Hook?.("afterCreate");
+        const owner = this.recoveryOwnerId();
+
+        const claim = await ops.claimOperation({
+            operationId: op.operationId,
+            owner,
+            durationMs: 60000,
+            now: input.now,
+        });
+        if (!claim.claimed) return;
+        this.__testPhase144Hook?.("afterClaim");
+
+        const started = await ops.markInProgress(op.operationId, owner, input.now);
+        if (!started) return;
+        this.__testPhase144Hook?.("afterInProgress");
+
+        try {
+            const result = await input.body();
+            if (result.ok) {
+                this.__testPhase144Hook?.("beforeComplete");
+                await ops.markCompleted(op.operationId, owner, input.now);
+                return;
+            }
+            if (result.recoveryRequired) {
+                await ops.markRecoveryRequired(op.operationId, owner, result.recoveryRequired, input.now);
+                return;
+            }
+            await ops.markFailed(op.operationId, owner, result.error ?? "RECOVERY_FAILED", input.now);
+        } catch (err: any) {
+            await ops.markFailed(op.operationId, owner, String(err?.message ?? err), input.now);
+        }
+    }
+
+    // ---------- Phase 184: async-aware IO adapters (shared vs local) ----------
+
+    private async recoverJobAtomicIO(input: {
+        jobId: string;
+        expectedStatus: string;
+        newStatus: string;
+        expectedLeaseId: string | null;
+        patch?: { nextAttemptAt?: number | null };
+        event: { eventType: string; payload: Record<string, unknown> };
+        obligation?: { leaseId: string; workerId: string; reason: string };
+    }): Promise<{ ok: boolean; obligationId?: string; obligationCreated?: boolean }> {
+        if (this.store.hasAsyncBackend()) {
+            return this.store.recoverJobAtomicAsync(input as any);
+        }
+        return this.store.recoverJobAtomic(input as any);
+    }
+
+    private async writeOwnershipObligationIO(input: {
+        jobId: string;
+        leaseId: string;
+        workerId: string;
+        reason: string;
+        now?: number;
+    }): Promise<{ obligationId: string; created: boolean }> {
+        if (this.store.hasAsyncBackend()) {
+            return this.store.writeOwnershipObligationAsync(input);
+        }
+        return this.store.writeOwnershipObligation(input);
+    }
+
+    private async getJobIO(jobId: string): Promise<ExecutionJob | undefined> {
+        if (this.store.hasAsyncBackend()) {
+            return this.store.getJobAsync(jobId);
+        }
+        return this.store.getJob(jobId);
+    }
+
+    private async listAttemptsForJobIO(jobId: string): Promise<ExecutionAttempt[]> {
+        if (this.store.hasAsyncBackend()) {
+            return this.store.listAttemptsForJobAsync(jobId);
+        }
+        return this.store.listAttemptsForJob(jobId);
+    }
+
+    private async listJobsByStatusIO(status: string): Promise<ExecutionJob[]> {
+        if (this.store.hasAsyncBackend()) {
+            return this.store.listJobsByStatusAsync(status);
+        }
+        return this.store.listJobsByStatus(status);
+    }
   async executeJob(workerId: string, jobId: string, leaseId: string): Promise<ExecutionJob> {
         const job = this.store.getJob(jobId);
         if (!job) throw new Error(`Job ${jobId} not found`);
@@ -965,9 +1144,9 @@ export class ExecutionEngine {
      * execution_attempts table, and the same budget check the live path uses is
      * applied before allowing RETRY_SCHEDULED or QUEUED from recovery.
      */
-    private recoveryCanRetry(job: ExecutionJob, from: ExecutionJobStatus, to: ExecutionJobStatus): boolean {
+    private recoveryCanRetry(job: ExecutionJob, from: ExecutionJobStatus, to: ExecutionJobStatus, attemptsUsedOverride?: number): boolean {
         if (!job.retryPolicy) return false;
-        const attemptsUsed = this.store.listAttemptsForJob(job.id).length;
+        const attemptsUsed = attemptsUsedOverride ?? this.store.listAttemptsForJob(job.id).length;
         if (attemptsUsed >= job.retryPolicy.maxAttempts) return false;
         return this.stateMachine.canTransition(from, to);
     }
@@ -1196,7 +1375,7 @@ export class ExecutionEngine {
         // later without disturbing the existing due-time boundary used for
         // pre-existing retries.
         const preExistingRetryScheduledJobIds = new Set<string>(
-            this.store.listJobsByStatus("RETRY_SCHEDULED").map((j) => j.id),
+            (await this.listJobsByStatusIO("RETRY_SCHEDULED")).map((j) => j.id),
         );
         this.reconcileExecutionRecoveryOperations(now);
         const expiredLeases = await this.recoverExpiredLeasesIO(now);
@@ -1215,7 +1394,7 @@ export class ExecutionEngine {
                 }));
             } catch { /* isolated */ }
 
-            const job = this.store.getJob(lease.jobId);
+            const job = await this.getJobIO(lease.jobId);
             if (!job) continue;
 
             if (
@@ -1236,18 +1415,18 @@ export class ExecutionEngine {
                 continue;
             }
 
-            const freshCancel = this.store.getJob(job.id);
+            const freshCancel = await this.getJobIO(job.id);
             if (freshCancel?.cancellationRequested) {
-                this.runRecoveryOperation({
+                await this.runRecoveryOperationAsync({
                     jobId: job.id,
                     leaseId: lease.leaseId,
                     workerId: lease.workerId,
                     operationType: "CANCELLATION",
                     now,
-                    body: () => {
-                        const live = this.store.getJob(job.id);
+                    body: async () => {
+                        const live = await this.getJobIO(job.id);
                         if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
-                        const result = this.store.recoverJobAtomic({
+                        const result = await this.recoverJobAtomicIO({
                             jobId: job.id,
                             expectedStatus: live.status,
                             newStatus: "CANCELLED",
@@ -1256,13 +1435,13 @@ export class ExecutionEngine {
                             obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "CANCELLATION_REQUESTED_ON_LEASE_LOSS" },
                         });
                         if (result.ok) return { ok: true };
-                        const after = this.store.getJob(job.id);
+                        const after = await this.getJobIO(job.id);
                         if (after?.status === "CANCELLED") return { ok: true };
                         return { ok: false, error: "CANCELLATION_FAILED" };
                     },
                 });
 
-                const after = this.store.getJob(job.id);
+                const after = await this.getJobIO(job.id);
                 if (after?.status === "CANCELLED") {
                     try {
                         this.fireAndForget(this.deps.events?.emit({
@@ -1285,7 +1464,7 @@ export class ExecutionEngine {
 
             let timeoutExpired = false;
             if (job.status === "RUNNING" || job.status === "VERIFYING") {
-                const attempts = this.store.listAttemptsForJob(job.id);
+                const attempts = await this.listAttemptsForJobIO(job.id);
                 const lastAttempt = attempts.length > 0 ? attempts[attempts.length - 1] : undefined;
                 const startedAt = lastAttempt?.startedAt;
                 const timeoutMs = job.timeoutMs;
@@ -1295,19 +1474,19 @@ export class ExecutionEngine {
             }
 
             if (timeoutExpired) {
-                this.runRecoveryOperation({
+                await this.runRecoveryOperationAsync({
                     jobId: job.id,
                     leaseId: lease.leaseId,
                     workerId: lease.workerId,
                     operationType: "TIMEOUT",
                     now,
-                    body: () => {
-                        const live = this.store.getJob(job.id);
+                    body: async () => {
+                        const live = await this.getJobIO(job.id);
                         if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
                         if (live.status === "RETRY_SCHEDULED" || live.status === "DEAD_LETTER") return { ok: true };
 
                         if (live.status !== "FAILED") {
-                            const failed = this.store.recoverJobAtomic({
+                            const failed = await this.recoverJobAtomicIO({
                                 jobId: job.id,
                                 expectedStatus: live.status,
                                 newStatus: "FAILED",
@@ -1316,7 +1495,7 @@ export class ExecutionEngine {
                                 obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "TIMEOUT_ON_LEASE_LOSS" },
                             });
                             if (!failed.ok) {
-                                const afterStep1 = this.store.getJob(job.id);
+                                const afterStep1 = await this.getJobIO(job.id);
                                 if (!afterStep1 || afterStep1.status !== "FAILED") {
                                     return { ok: false, error: "TIMEOUT_STEP1_FAILED" };
                                 }
@@ -1324,13 +1503,14 @@ export class ExecutionEngine {
                         }
 
                         this.__testPhase144Hook?.("afterTimeoutFailed");
-                        const afterStep1 = this.store.getJob(job.id);
+                        const afterStep1 = await this.getJobIO(job.id);
                         if (!afterStep1 || afterStep1.status !== "FAILED") {
                             return { ok: false, error: "TIMEOUT_STEP1_STATE_DRIFT" };
                         }
-                        const canRetry = this.recoveryCanRetry(afterStep1, "FAILED", "RETRY_SCHEDULED");
+                        const attemptsUsedT = (await this.listAttemptsForJobIO(job.id)).length;
+                        const canRetry = this.recoveryCanRetry(afterStep1, "FAILED", "RETRY_SCHEDULED", attemptsUsedT);
                         const nextStatus = canRetry ? "RETRY_SCHEDULED" : "DEAD_LETTER";
-                        const routed = this.store.recoverJobAtomic({
+                        const routed = await this.recoverJobAtomicIO({
                             jobId: job.id,
                             expectedStatus: "FAILED",
                             newStatus: nextStatus as any,
@@ -1339,7 +1519,7 @@ export class ExecutionEngine {
                             event: { eventType: "execution.recovery.rerouted", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: "FAILED", to: nextStatus, reason: "deadline_exceeded_during_lease_loss" } },
                         });
                         if (routed.ok) return { ok: true };
-                        const afterStep2 = this.store.getJob(job.id);
+                        const afterStep2 = await this.getJobIO(job.id);
                         if (afterStep2 && (afterStep2.status === "RETRY_SCHEDULED" || afterStep2.status === "DEAD_LETTER")) {
                             return { ok: true };
                         }
@@ -1347,7 +1527,7 @@ export class ExecutionEngine {
                     },
                 });
 
-                const finalJob = this.store.getJob(job.id);
+                const finalJob = await this.getJobIO(job.id);
                 try {
                     this.fireAndForget(this.deps.events?.emit({
                         type: "execution.recovery_completed",
@@ -1366,19 +1546,19 @@ export class ExecutionEngine {
                 continue;
             }
 
-            this.runRecoveryOperation({
+            await this.runRecoveryOperationAsync({
                 jobId: job.id,
                 leaseId: lease.leaseId,
                 workerId: lease.workerId,
                 operationType: "ORPHAN_RECOVERY",
                 now,
-                body: () => {
-                    const live = this.store.getJob(job.id);
+                body: async () => {
+                    const live = await this.getJobIO(job.id);
                     if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
                     if (live.status === "QUEUED") return { ok: true };
 
                     if (live.status !== "ORPHANED") {
-                        const orphan = this.store.recoverJobAtomic({
+                        const orphan = await this.recoverJobAtomicIO({
                             jobId: job.id,
                             expectedStatus: live.status,
                             newStatus: "ORPHANED",
@@ -1387,7 +1567,7 @@ export class ExecutionEngine {
                             obligation: { leaseId: lease.leaseId, workerId: lease.workerId, reason: "LEASE_EXPIRED" },
                         });
                         if (!orphan.ok) {
-                            const afterStep1 = this.store.getJob(job.id);
+                            const afterStep1 = await this.getJobIO(job.id);
                             if (!afterStep1 || afterStep1.status !== "ORPHANED") {
                                 return { ok: false, error: "ORPHAN_STEP1_FAILED" };
                             }
@@ -1395,14 +1575,15 @@ export class ExecutionEngine {
                     }
 
                     this.__testPhase144Hook?.("afterOrphaned");
-                    const afterStep1 = this.store.getJob(job.id);
+                    const afterStep1 = await this.getJobIO(job.id);
                     if (!afterStep1 || afterStep1.status !== "ORPHANED") {
                         return { ok: false, error: "ORPHAN_STEP1_STATE_DRIFT" };
                     }
-                    const canRetry = this.recoveryCanRetry(afterStep1, "ORPHANED", "QUEUED");
+                    const attemptsUsedO = (await this.listAttemptsForJobIO(job.id)).length;
+                    const canRetry = this.recoveryCanRetry(afterStep1, "ORPHANED", "QUEUED", attemptsUsedO);
                     if (!canRetry) return { ok: false, recoveryRequired: "NON_RETRYABLE_ORPHAN" };
 
-                    const requeue = this.store.recoverJobAtomic({
+                    const requeue = await this.recoverJobAtomicIO({
                         jobId: job.id,
                         expectedStatus: "ORPHANED",
                         newStatus: "QUEUED",
@@ -1411,13 +1592,13 @@ export class ExecutionEngine {
                         event: { eventType: "execution.recovery.requeued", payload: { jobId: job.id, leaseId: lease.leaseId, workerId: lease.workerId, from: "ORPHANED", to: "QUEUED" } },
                     });
                     if (requeue.ok) return { ok: true };
-                    const afterStep2 = this.store.getJob(job.id);
+                    const afterStep2 = await this.getJobIO(job.id);
                     if (afterStep2 && afterStep2.status === "QUEUED") return { ok: true };
                     return { ok: false, error: "ORPHAN_STEP2_FAILED" };
                 },
             });
 
-            const finalJob = this.store.getJob(job.id);
+            const finalJob = await this.getJobIO(job.id);
             try {
                 if (finalJob?.status === "QUEUED") {
                     this.fireAndForget(this.deps.events?.emit({
@@ -1452,7 +1633,7 @@ export class ExecutionEngine {
         const lostWorkers = await this.detectLostWorkersIO(now, 120000);
         for (const worker of lostWorkers) {
             worker.status = "LOST";
-            this.store.updateWorker(worker);
+            if (this.store.hasAsyncBackend()) { await this.store.updateWorkerAsync(worker); } else { this.store.updateWorker(worker); }
             try {
                 this.fireAndForget(this.deps.events?.emit({
                     type: "execution.worker_lost",
@@ -1465,12 +1646,22 @@ export class ExecutionEngine {
                 }));
             } catch { /* isolated */ }
         }
-        this.runDueRetries(now - 1);
-        this.promoteImmediateRecoveryRetries(now, preExistingRetryScheduledJobIds);
+        // Phase 184: retry scheduling remains sync-SQLite. In shared mode
+        // this is a separate boundary; verified by D11. Stale-lease recovery
+        // above is what D09/D10 verify.
+        if (!this.store.hasAsyncBackend()) {
+            this.runDueRetries(now - 1);
+            this.promoteImmediateRecoveryRetries(now, preExistingRetryScheduledJobIds);
+        }
     }
 
     reconcileExecutionRecoveryOperations(now: number = Date.now(), limit: number = Infinity): void {
         if (this.shuttingDown) return;
+        // Phase 184: shared mode cannot resume SQLite-side recovery operations.
+        // The async op store does not expose listResumableOperations; stale-lease
+        // recovery in shared mode is performed directly by recoverStaleJobs
+        // against Postgres (verified by D09/D10).
+        if (this.store.hasAsyncBackend()) return;
         const ops = this.store.recoveryOps;
         // Phase 159: bounded iteration. Default Infinity preserves prior behavior.
         // A production scheduler may pass a finite limit to cap per-tick work.

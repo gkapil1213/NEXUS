@@ -628,4 +628,25 @@ export class AsyncExecutionRecoveryOperationStore {
     ).run(error, now, operationId, owner, now);
     return r.changes === 1;
   }
+
+  async markRecoveryRequired(
+    operationId: string,
+    owner: string,
+    error: string,
+    now: number = Date.now(),
+  ): Promise<boolean> {
+    const r = await this.asyncDb.prepareAsync(
+      "UPDATE execution_recovery_operations " +
+      "   SET state = 'RECOVERY_REQUIRED', " +
+      "       claim_owner = NULL, " +
+      "       claim_expires_at = NULL, " +
+      "       last_error = ?, " +
+      "       updated_at = ? " +
+      " WHERE operation_id = ? " +
+      "   AND claim_owner = ? " +
+      "   AND claim_expires_at IS NOT NULL AND claim_expires_at > ? " +
+      "   AND state IN ('CLAIMED','IN_PROGRESS')",
+    ).run(String(error).slice(0, 2000), now, operationId, owner, now);
+    return r.changes === 1;
+  }
 }
