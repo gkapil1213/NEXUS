@@ -133,7 +133,44 @@ export class ExecutionEngine {
      */
     private shuttingDown = false;
 
-    shutdown(): void {
+    // ============================================================
+  // Phase 183d: async attempt-persistence facade.
+  // When the store has an async backend (shared mode), route the four
+  // attempt mutations through Postgres. Otherwise use the sync path.
+  // ============================================================
+
+  hasAsyncPersistence(): boolean {
+    return this.store.hasAsyncBackend();
+  }
+
+  private async createAttemptAsOwnerAtomicIO(
+    ...args: Parameters<ExecutionStore["createAttemptAsOwnerAtomic"]>
+  ): Promise<Awaited<ReturnType<ExecutionStore["createAttemptAsOwnerAtomic"]>>> {
+    if (this.store.hasAsyncBackend()) {
+      return this.store.createAttemptAsOwnerAtomicAsync(...args);
+    }
+    return this.store.createAttemptAsOwnerAtomic(...args);
+  }
+
+  private async updateAttemptAsOwnerIO(
+    ...args: Parameters<ExecutionStore["updateAttemptAsOwner"]>
+  ): Promise<Awaited<ReturnType<ExecutionStore["updateAttemptAsOwner"]>>> {
+    if (this.store.hasAsyncBackend()) {
+      return this.store.updateAttemptAsOwnerAsync(...args);
+    }
+    return this.store.updateAttemptAsOwner(...args);
+  }
+
+  private async completeAttemptAndTransitionJobIO(
+    input: Parameters<ExecutionStore["completeAttemptAndTransitionJob"]>[0],
+  ): Promise<Awaited<ReturnType<ExecutionStore["completeAttemptAndTransitionJob"]>>> {
+    if (this.store.hasAsyncBackend()) {
+      return this.store.completeAttemptAndTransitionJobAsync(input);
+    }
+    return this.store.completeAttemptAndTransitionJob(input);
+  }
+
+  shutdown(): void {
         this.shuttingDown = true;
     }
 
@@ -532,7 +569,7 @@ export class ExecutionEngine {
         job.status = "RUNNING";
         job.updatedAt = Date.now();
 
-        const attCreateRes = this.store.createAttemptAsOwnerAtomic(jobId, leaseId, workerId, "RUNNING");
+        const attCreateRes = await this.createAttemptAsOwnerAtomicIO(jobId, leaseId, workerId, "RUNNING");
         if (!attCreateRes.created) {
             this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_CREATE_" + attCreateRes.reason);
             throw new OwnershipLostError(job.id, leaseId, workerId);
@@ -651,7 +688,7 @@ export class ExecutionEngine {
             attempt.status = "CANCELLED";
             attempt.evidence = ["Execution cancelled after completion"];
             attempt.completedAt = Date.now();
-            const attResCancelPost = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
+            const attResCancelPost = await this.updateAttemptAsOwnerIO(attempt, leaseId, workerId);
             if (!attResCancelPost.updated) {
                 this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_CANCELLED");
             }
@@ -703,7 +740,7 @@ export class ExecutionEngine {
                 attempt.status = "CANCELLED";
                 attempt.error = executionError || "Execution failed";
                 attempt.completedAt = Date.now();
-                const attResFailCancel = this.store.updateAttemptAsOwner(attempt, leaseId, workerId);
+                const attResFailCancel = await this.updateAttemptAsOwnerIO(attempt, leaseId, workerId);
                 if (!attResFailCancel.updated) {
                     this.recordAttemptOwnershipLoss(job.id, leaseId, workerId, "ATTEMPT_WRITE_FAILED_CANCELLED");
                 }
@@ -716,7 +753,7 @@ export class ExecutionEngine {
                 return job;
             }
 
-            this.applyTransitionWithAttempt({
+            await this.applyTransitionWithAttempt({
                 jobId: job.id,
                 expectedJobStatus: "RUNNING",
                 newJobStatus: "FAILED",
@@ -779,7 +816,7 @@ export class ExecutionEngine {
             if (verificationSuccess) {
                 // Durable transition FIRST Ã¢â‚¬â€ ownership loss must not
                 // persist a false SUCCEEDED attempt.
-                this.applyTransitionWithAttempt({
+                await this.applyTransitionWithAttempt({
                     jobId: job.id,
                     expectedJobStatus: "VERIFYING",
                     newJobStatus: "SUCCEEDED",
@@ -811,7 +848,7 @@ export class ExecutionEngine {
                 nextStatus = "DEAD_LETTER";
             }
 
-            this.applyTransitionWithAttempt({
+            await this.applyTransitionWithAttempt({
                 jobId: job.id,
                 expectedJobStatus: "VERIFYING",
                 newJobStatus: "FAILED",
@@ -842,7 +879,7 @@ export class ExecutionEngine {
 
         // No verification configured: direct RUNNING -> SUCCEEDED.
         // Do NOT fabricate a VERIFYING transition.
-        this.applyTransitionWithAttempt({
+        await this.applyTransitionWithAttempt({
             jobId: job.id,
             expectedJobStatus: "RUNNING",
             newJobStatus: "SUCCEEDED",
@@ -1014,7 +1051,7 @@ export class ExecutionEngine {
      * store.completeAttemptAndTransitionJob so the parent UPDATE, the attempt
      * UPDATE, and the durable transition event commit or roll back together.
      */
-    private applyTransitionWithAttempt(input: {
+    private async applyTransitionWithAttempt(input: {
         jobId: string;
         expectedJobStatus: ExecutionJobStatus;
         newJobStatus: ExecutionJobStatus;
@@ -1027,7 +1064,7 @@ export class ExecutionEngine {
         leaseId?: string;
         patch?: TransitionInput["patch"];
         reason?: string;
-    }): TransitionResult {
+    }): Promise<TransitionResult> {
         if (!this.stateMachine.canTransition(input.expectedJobStatus, input.newJobStatus)) {
             this.emitTransitionAudit(input.jobId, "worker", input.expectedJobStatus, input.newJobStatus,
                 "illegal_transition", input.workerId, input.leaseId, input.reason);
@@ -1046,7 +1083,7 @@ export class ExecutionEngine {
                 input.jobId, input.expectedJobStatus, input.newJobStatus);
         }
 
-        const result = this.store.completeAttemptAndTransitionJob({
+        const result = await this.completeAttemptAndTransitionJobIO({
             attemptId: input.attemptId,
             jobId: input.jobId,
             leaseId: input.leaseId,
