@@ -507,7 +507,7 @@ async function main(): Promise<void> {
     );
   }
 
-  await pg.end();
+  await pg.close();
 
   console.log(`\nPassed: ${passed}`);
   console.log(`Failed: ${failed}`);

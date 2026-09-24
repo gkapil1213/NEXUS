@@ -287,6 +287,35 @@ async function main(): Promise<void> {
         emit({ found: r.rows.length > 0, row: r.rows[0] ?? null });
         break;
       }
+      case "complete-attempt-with-artifacts": {
+        const [attemptId, jobId, leaseId, workerId, status, artifactsJson] = args;
+        const arts = artifactsJson ? JSON.parse(artifactsJson) : [];
+        const r = await store.completeAttemptAndTransitionJobAsync({
+          attemptId, jobId, leaseId, workerId,
+          attemptStatus: (status || "SUCCEEDED") as any,
+          expectedJobStatus: "RUNNING",
+          newJobStatus: "SUCCEEDED",
+          artifacts: arts,
+        });
+        emit({ result: r });
+        break;
+      }
+      case "read-artifact": {
+        const r = await pg.query(
+          "SELECT artifact_id, job_id, release_id, attempt_id, name, type, checksum FROM execution_artifacts WHERE artifact_id = $1",
+          [args[0]],
+        );
+        emit({ found: r.rows.length > 0, row: r.rows[0] ?? null });
+        break;
+      }
+      case "count-artifacts-for-attempt": {
+        const r = await pg.query(
+          "SELECT COUNT(*)::text AS cnt FROM execution_artifacts WHERE attempt_id = $1",
+          [args[0]],
+        );
+        emit({ count: Number(r.rows[0]?.cnt ?? 0) });
+        break;
+      }
       case "sleep": {
         const ms = Number(args[0] ?? "0");
         await new Promise((r) => setTimeout(r, ms));

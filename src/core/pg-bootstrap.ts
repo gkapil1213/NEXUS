@@ -284,6 +284,31 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_workers_status ON execution_workers (status)`);
 
+    // Phase 188: execution_artifacts is now a first-class PG table so that
+    // artifact publication is transactional with attempt completion.
+    // Columns mirror the SQLite base (020) plus 025 integrity additions
+    // plus the Phase 188 attempt_id binding.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS execution_artifacts (
+        artifact_id TEXT PRIMARY KEY,
+        job_id TEXT,
+        release_id TEXT,
+        attempt_id TEXT,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        size_bytes BIGINT,
+        checksum TEXT NOT NULL,
+        storage_ref TEXT,
+        metadata TEXT,
+        integrity_verified_at BIGINT,
+        integrity_status TEXT DEFAULT 'PENDING',
+        immutable INTEGER DEFAULT 0,
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_artifacts_job ON execution_artifacts (job_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_artifacts_attempt ON execution_artifacts (attempt_id)`);
+
     // Phase 183d: execution_outcome_provenance. Written inside the same
     // transaction as completeAttemptAndTransitionJob -- attempt + job +
     // event + provenance commit or roll back together.

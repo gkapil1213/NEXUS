@@ -65,7 +65,15 @@ async function main() {
   const cleaned = await pg.query(
     "UPDATE execution_jobs SET status='CANCELLED', updated_at=$1 " +
     "WHERE status IN ('ADMITTED','CLAIMED','RUNNING','VERIFYING','CANCELLATION_REQUESTED') " +
-    "AND id LIKE 'p18%'",
+    "AND id LIKE 'p1%'",
+    [Date.now()],
+  );
+  await pg.query(
+    "UPDATE execution_attempts SET status='CANCELLED', completed_at=$1 WHERE status IN ('RUNNING','PENDING') AND job_id LIKE 'p1%'",
+    [Date.now()],
+  );
+  await pg.query(
+    "UPDATE execution_leases SET status='RELEASED', released_at=$1 WHERE status='ACTIVE' AND job_id LIKE 'p1%'",
     [Date.now()],
   );
   console.log("cleanup: cancelled " + cleaned.rowCount + " stale active test jobs\n");

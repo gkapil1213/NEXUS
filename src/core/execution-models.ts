@@ -105,6 +105,8 @@ export interface ExecutionLease {
 
 export interface ArtifactRecord {
   artifactId: string;
+  /** Phase 188: attempt that produced this artifact (immutable). */
+  attemptId?: string;
   jobId?: string;
   releaseId?: string;
   name: string;

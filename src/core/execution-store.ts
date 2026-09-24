@@ -2483,6 +2483,8 @@ export class ExecutionStore {
     reason?: string;
     now?: number;
     recoveryOperationId?: string | null;
+    /** Phase 188: artifacts to commit atomically with completion. */
+    artifacts?: ArtifactRecord[];
   }): Promise<{
     ok: boolean;
     applied?: boolean;
@@ -2507,8 +2509,13 @@ export class ExecutionStore {
 
     try {
       await engine.transactionAsync(async (tx) => {
+        // Phase 188: FOR UPDATE serializes concurrent completions on the
+        // same attempt. The loser of the race blocks here, then re-reads the
+        // terminal row (READ COMMITTED) and returns idempotent rather than
+        // racing the UPDATE. Without this lock, the loser sees RUNNING and
+        // returns ATTEMPT_STATE_MISMATCH on concurrent duplicate completion.
         const attemptBefore = await tx.prepareAsync(
-          "SELECT * FROM execution_attempts WHERE id = ?",
+          "SELECT * FROM execution_attempts WHERE id = ? FOR UPDATE",
         ).get<any>(input.attemptId);
         const jobBefore = await tx.prepareAsync(
           "SELECT * FROM execution_jobs WHERE id = ?",
@@ -2519,16 +2526,18 @@ export class ExecutionStore {
           result = { ok: false, reason: "ATTEMPT_NOT_FOUND" }; throw new AbortTx();
         }
 
-        const owned = await tx.prepareAsync(`
-          SELECT 1 FROM execution_leases
-          WHERE lease_id = ? AND worker_id = ? AND job_id = ?
-            AND status = 'ACTIVE' AND expires_at > ?
-        `).get(input.leaseId, input.workerId, input.jobId, now);
-        if (!owned) { result = { ok: false, reason: "WORKER_OWNERSHIP_LOST" }; throw new AbortTx(); }
-
+        // Phase 188: check idempotent return FIRST. A duplicate completion
+        // from the original owner must get a clean idempotent confirmation
+        // even though the lease is no longer ACTIVE (it was released when the
+        // terminal transition committed). We still verify caller identity to
+        // prevent a stale/different worker from faking idempotency.
         const attemptTerminal = attemptBefore.status === input.attemptStatus;
         const jobAtTarget = jobBefore.status === input.newJobStatus;
         if (attemptTerminal && jobAtTarget) {
+          if (attemptBefore.worker_id !== input.workerId || attemptBefore.lease_id !== input.leaseId) {
+            result = { ok: false, reason: "WORKER_OWNERSHIP_LOST" };
+            throw new AbortTx();
+          }
           result = {
             ok: true, applied: false, idempotent: true,
             attempt: this.mapAttempt(attemptBefore),
@@ -2536,6 +2545,13 @@ export class ExecutionStore {
           };
           throw new AbortTx();
         }
+
+        const owned = await tx.prepareAsync(`
+          SELECT 1 FROM execution_leases
+          WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+            AND status = 'ACTIVE' AND expires_at > ?
+        `).get(input.leaseId, input.workerId, input.jobId, now);
+        if (!owned) { result = { ok: false, reason: "WORKER_OWNERSHIP_LOST" }; throw new AbortTx(); }
 
         const attemptIsTerminal =
           attemptBefore.status === "SUCCEEDED" || attemptBefore.status === "FAILED" ||
@@ -2660,6 +2676,65 @@ export class ExecutionStore {
           now,
         );
 
+        // Phase 188: commit artifacts inside the same transaction as the
+        // attempt / job / event / provenance writes above. Any artifact
+        // that is not bound to this exact attempt or job aborts the whole
+        // transaction -- no partial artifact publication is possible.
+        if (input.artifacts && input.artifacts.length > 0) {
+          for (const art of input.artifacts) {
+            if (!art.attemptId || art.attemptId !== input.attemptId) {
+              result = { ok: false, reason: "STATE_MISMATCH" as any };
+              throw new AbortTx();
+            }
+            if (art.jobId && art.jobId !== input.jobId) {
+              result = { ok: false, reason: "STATE_MISMATCH" as any };
+              throw new AbortTx();
+            }
+            await tx.prepareAsync(
+              "INSERT INTO execution_artifacts " +
+              "(artifact_id, job_id, release_id, attempt_id, name, type, size_bytes, " +
+              " checksum, storage_ref, metadata, created_at) " +
+              "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ).run(
+              art.artifactId,
+              art.jobId ?? input.jobId,
+              art.releaseId ?? null,
+              art.attemptId,
+              art.name,
+              art.type,
+              art.sizeBytes ?? null,
+              art.checksum,
+              art.storageRef ?? null,
+              art.metadata ? JSON.stringify(art.metadata) : null,
+              art.createdAt,
+            );
+          }
+          await this.addEventOnEngine(tx, {
+            eventId: `evt_artifacts_${input.jobId}_${now}_${Math.random().toString(36).slice(2, 10)}`,
+            jobId: input.jobId,
+            eventType: "execution.completion.artifacts_committed",
+            payload: {
+              attemptId: input.attemptId,
+              leaseId: input.leaseId,
+              workerId: input.workerId,
+              artifactCount: input.artifacts.length,
+              artifactIds: input.artifacts.map((a) => a.artifactId),
+            },
+            createdAt: now,
+          } as ExecutionEvent);
+        }
+        // Phase 188: finalize the lease. Once the attempt is terminal the
+        // lease can no longer authorize execution. We RELEASE it (not EXPIRED)
+        // so the fence model treats this as a controlled terminalization.
+        await tx.prepareAsync(
+          "UPDATE execution_leases SET status = 'RELEASED', released_at = ? " +
+          "WHERE lease_id = ? AND status = 'ACTIVE'",
+        ).run(now, input.leaseId);
+
+        await tx.prepareAsync(
+          "UPDATE execution_jobs SET current_lease_id = NULL, updated_at = ? " +
+          "WHERE id = ? AND current_lease_id = ?",
+        ).run(now, input.jobId, input.leaseId);
         const attemptAfter = await tx.prepareAsync(
           "SELECT * FROM execution_attempts WHERE id = ?",
         ).get<any>(input.attemptId);
@@ -2979,13 +3054,14 @@ export class ExecutionStore {
   addArtifact(artifact: ArtifactRecord): void {
     this.db.prepare(`
       INSERT INTO execution_artifacts (
-        artifact_id, job_id, release_id, name, type, size_bytes,
+        artifact_id, job_id, release_id, attempt_id, name, type, size_bytes,
         checksum, storage_ref, metadata, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       artifact.artifactId,
       artifact.jobId,
       artifact.releaseId,
+      artifact.attemptId ?? null,
       artifact.name,
       artifact.type,
       artifact.sizeBytes,
@@ -4130,6 +4206,7 @@ export class ExecutionStore {
       artifactId: row.artifact_id,
       jobId: row.job_id,
       releaseId: row.release_id,
+      attemptId: row.attempt_id ?? undefined,
       name: row.name,
       type: row.type,
       sizeBytes: row.size_bytes,
@@ -4631,9 +4708,9 @@ export class ExecutionStore {
         //    apply retry policy and move it to QUEUED / RETRY_SCHEDULED.
         await tx.prepareAsync(
           "UPDATE execution_jobs SET status = 'ORPHANED', current_lease_id = NULL, updated_at = ? " +
-          "WHERE id = ? AND current_lease_id = ? " +
+          "WHERE id = ? " +
           "  AND status IN ('RUNNING','CLAIMED','VERIFYING','CANCELLATION_REQUESTED')",
-        ).run(now, input.jobId, input.leaseId);
+        ).run(now, input.jobId);
 
         // 4. Event.
         const eventId = "evt_fence_" + input.attemptId + "_" + now + "_" + Math.random().toString(36).slice(2, 8);
