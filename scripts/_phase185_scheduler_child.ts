@@ -316,6 +316,49 @@ async function main(): Promise<void> {
         emit({ count: Number(r.rows[0]?.cnt ?? 0) });
         break;
       }
+      case "get-attempt-result": {
+        const r = await store.getAttemptResultAsync(args[0]);
+        emit({ found: !!r, result: r ?? null });
+        break;
+      }
+      case "get-execution-result": {
+        const r = await store.getExecutionResultAsync(args[0]);
+        emit({ found: !!r, result: r ?? null });
+        break;
+      }
+      case "list-attempt-artifacts": {
+        const arts = await store.listAttemptArtifactsAsync(args[0]);
+        emit({ count: arts.length, artifacts: arts });
+        break;
+      }
+      case "list-events-for-job": {
+        const events = await store.listEventsForJobAsync(args[0]);
+        emit({ count: events.length, events });
+        break;
+      }
+      case "verify-artifact": {
+        // args: artifactId, [actualChecksum], [expectedAttemptId], [expectedJobId]
+        const [artifactId, actualChecksum, expectedAttemptId, expectedJobId] = args;
+        const r = await store.verifyArtifactAsync({
+          artifactId,
+          actualChecksum: actualChecksum || undefined,
+          expectedAttemptId: expectedAttemptId || undefined,
+          expectedJobId: expectedJobId || undefined,
+          verifier: "child-" + process.pid,
+        });
+        emit({ result: r });
+        break;
+      }
+      case "get-artifact-integrity": {
+        const r = await store.getArtifactIntegrityAsync(args[0]);
+        emit({ found: !!r, integrity: r });
+        break;
+      }
+      case "reconcile-execution": {
+        const r = await store.reconcileCompletedExecutionAsync({ jobId: args[0] });
+        emit({ result: r });
+        break;
+      }
       case "sleep": {
         const ms = Number(args[0] ?? "0");
         await new Promise((r) => setTimeout(r, ms));

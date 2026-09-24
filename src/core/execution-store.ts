@@ -4738,6 +4738,407 @@ export class ExecutionStore {
     return result;
   }
 
+
+  // ---------- Phase 189: durable result retrieval ----------
+  // Read-only queries that reassemble a completed attempt's durable state
+  // from PostgreSQL without relying on any in-memory worker state.
+
+  /** All artifacts bound to an attempt, newest first. */
+  async listAttemptArtifactsAsync(attemptId: string): Promise<ArtifactRecord[]> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync(
+      "SELECT * FROM execution_artifacts WHERE attempt_id = ? ORDER BY created_at DESC",
+    ).all<any>(attemptId);
+    return rows.map((r) => this.mapArtifact(r));
+  }
+
+  /** All durable events for a job, oldest first. */
+  async listEventsForJobAsync(jobId: string): Promise<Array<{ eventId: string; eventType: string; payload: unknown; createdAt: number }>> {
+    const engine = this.requireAsyncDb();
+    const rows = await engine.prepareAsync(
+      "SELECT event_id, event_type, payload, created_at FROM execution_events WHERE job_id = ? ORDER BY created_at ASC",
+    ).all<any>(jobId);
+    return rows.map((r) => ({
+      eventId: r.event_id,
+      eventType: r.event_type,
+      payload: r.payload ? (() => { try { return JSON.parse(r.payload); } catch { return r.payload; } })() : null,
+      createdAt: Number(r.created_at),
+    }));
+  }
+
+  /** Full durable result for an attempt: attempt row + job + provenance + artifacts. */
+  async getAttemptResultAsync(attemptId: string): Promise<{
+    attempt: ExecutionAttempt;
+    job: ExecutionJob;
+    provenance: {
+      provenanceId: string;
+      outcome: string;
+      evidenceJson: string | null;
+      evidenceHash: string;
+      terminalizedAt: number;
+    } | null;
+    artifacts: ArtifactRecord[];
+  } | null> {
+    const engine = this.requireAsyncDb();
+    const aRow = await engine.prepareAsync(
+      "SELECT * FROM execution_attempts WHERE id = ?",
+    ).get<any>(attemptId);
+    if (!aRow) return null;
+    const attempt = this.mapAttempt(aRow);
+    const jRow = await engine.prepareAsync(
+      "SELECT * FROM execution_jobs WHERE id = ?",
+    ).get<any>(attempt.jobId);
+    if (!jRow) return null;
+    const job = this.mapJob(jRow);
+
+    const pRow = await engine.prepareAsync(
+      "SELECT provenance_id, outcome, evidence_json, evidence_hash, terminalized_at " +
+      "FROM execution_outcome_provenance WHERE attempt_id = ? ORDER BY created_at DESC LIMIT 1",
+    ).get<any>(attemptId);
+    const provenance = pRow ? {
+      provenanceId: pRow.provenance_id,
+      outcome: pRow.outcome,
+      evidenceJson: pRow.evidence_json ?? null,
+      evidenceHash: pRow.evidence_hash,
+      terminalizedAt: Number(pRow.terminalized_at),
+    } : null;
+
+    const artRows = await engine.prepareAsync(
+      "SELECT * FROM execution_artifacts WHERE attempt_id = ? ORDER BY created_at ASC",
+    ).all<any>(attemptId);
+    const artifacts = artRows.map((r) => this.mapArtifact(r));
+
+    return { attempt, job, provenance, artifacts };
+  }
+
+  /**
+   * Full durable result for a job: latest attempt + its provenance + artifacts
+   * + chronological events. Returns null if the job doesn't exist.
+   */
+  async getExecutionResultAsync(jobId: string): Promise<{
+    job: ExecutionJob;
+    attempt: ExecutionAttempt | null;
+    provenance: {
+      provenanceId: string;
+      outcome: string;
+      evidenceJson: string | null;
+      evidenceHash: string;
+      terminalizedAt: number;
+    } | null;
+    artifacts: ArtifactRecord[];
+    events: Array<{ eventId: string; eventType: string; payload: unknown; createdAt: number }>;
+  } | null> {
+    const engine = this.requireAsyncDb();
+    const jRow = await engine.prepareAsync(
+      "SELECT * FROM execution_jobs WHERE id = ?",
+    ).get<any>(jobId);
+    if (!jRow) return null;
+    const job = this.mapJob(jRow);
+
+    const aRow = await engine.prepareAsync(
+      "SELECT * FROM execution_attempts WHERE job_id = ? ORDER BY attempt_number DESC LIMIT 1",
+    ).get<any>(jobId);
+    const attempt = aRow ? this.mapAttempt(aRow) : null;
+
+    let provenance: any = null;
+    let artifacts: ArtifactRecord[] = [];
+    if (attempt) {
+      const pRow = await engine.prepareAsync(
+        "SELECT provenance_id, outcome, evidence_json, evidence_hash, terminalized_at " +
+        "FROM execution_outcome_provenance WHERE attempt_id = ? ORDER BY created_at DESC LIMIT 1",
+      ).get<any>(attempt.id);
+      if (pRow) provenance = {
+        provenanceId: pRow.provenance_id,
+        outcome: pRow.outcome,
+        evidenceJson: pRow.evidence_json ?? null,
+        evidenceHash: pRow.evidence_hash,
+        terminalizedAt: Number(pRow.terminalized_at),
+      };
+      const artRows = await engine.prepareAsync(
+        "SELECT * FROM execution_artifacts WHERE attempt_id = ? ORDER BY created_at ASC",
+      ).all<any>(attempt.id);
+      artifacts = artRows.map((r) => this.mapArtifact(r));
+    }
+
+    const evRows = await engine.prepareAsync(
+      "SELECT event_id, event_type, payload, created_at FROM execution_events WHERE job_id = ? ORDER BY created_at ASC",
+    ).all<any>(jobId);
+    const events = evRows.map((r) => ({
+      eventId: r.event_id,
+      eventType: r.event_type,
+      payload: r.payload ? (() => { try { return JSON.parse(r.payload); } catch { return r.payload; } })() : null,
+      createdAt: Number(r.created_at),
+    }));
+
+    return { job, attempt, provenance, artifacts, events };
+  }
+
+
+  // ---------- Phase 189: artifact integrity verification ----------
+  //
+  // Honest verification state. Because no byte-storage adapter exists in
+  // the current codebase, we cannot read artifact bytes back for a real
+  // checksum comparison. Instead of faking VERIFIED, we:
+  //   1. Locate the artifact row durably.
+  //   2. Validate what we CAN check locally (checksum present, size present).
+  //   3. Record one of: PENDING, VERIFIED, MISMATCH, UNAVAILABLE, ERROR.
+  //
+  // If the caller supplies an `actualChecksum` (e.g. from a real storage
+  // adapter once one exists), we perform the real comparison and record
+  // VERIFIED or MISMATCH. If not, we record UNAVAILABLE and explain why.
+  // The method never claims VERIFIED unless a real comparison was made.
+  async verifyArtifactAsync(input: {
+    artifactId: string;
+    expectedAttemptId?: string;
+    expectedJobId?: string;
+    actualChecksum?: string;
+    actualSizeBytes?: number;
+    verifier?: string;
+    now?: number;
+  }): Promise<{
+    ok: boolean;
+    status: "VERIFIED" | "MISMATCH" | "UNAVAILABLE" | "ERROR";
+    reason?: "ARTIFACT_NOT_FOUND" | "CROSS_ATTEMPT_REJECTED" | "CROSS_JOB_REJECTED" | "NO_STORAGE_ADAPTER";
+    expectedChecksum?: string;
+    actualChecksum?: string;
+    expectedSizeBytes?: number;
+    actualSizeBytes?: number;
+    verifiedAt?: number;
+  }> {
+    const engine = this.requireAsyncDb();
+    const now = input.now ?? Date.now();
+
+    let result: any = { ok: false, status: "ERROR" };
+    class AbortTx extends Error {}
+
+    try {
+      await engine.transactionAsync(async (tx) => {
+        const row = await tx.prepareAsync(
+          "SELECT * FROM execution_artifacts WHERE artifact_id = ? FOR UPDATE",
+        ).get<any>(input.artifactId);
+        if (!row) { result = { ok: false, status: "ERROR", reason: "ARTIFACT_NOT_FOUND" }; throw new AbortTx(); }
+
+        // Cross-attempt / cross-job safety: if the caller pins the expected
+        // attempt or job, reject any mismatch before touching the row.
+        if (input.expectedAttemptId && row.attempt_id && row.attempt_id !== input.expectedAttemptId) {
+          result = { ok: false, status: "ERROR", reason: "CROSS_ATTEMPT_REJECTED" };
+          throw new AbortTx();
+        }
+        if (input.expectedJobId && row.job_id && row.job_id !== input.expectedJobId) {
+          result = { ok: false, status: "ERROR", reason: "CROSS_JOB_REJECTED" };
+          throw new AbortTx();
+        }
+
+        const expectedChecksum = row.checksum as string;
+        const expectedSizeBytes = row.size_bytes === null ? undefined : Number(row.size_bytes);
+
+        // If the caller did not supply actual bytes/checksum, we cannot
+        // perform real verification. Record UNAVAILABLE -- not VERIFIED.
+        if (!input.actualChecksum) {
+          await tx.prepareAsync(
+            "UPDATE execution_artifacts SET integrity_status = 'UNAVAILABLE', integrity_verified_at = ? WHERE artifact_id = ?",
+          ).run(now, input.artifactId);
+          await this.addEventOnEngine(tx, {
+            eventId: `evt_verify_${input.artifactId}_${now}_${Math.random().toString(36).slice(2,8)}`,
+            jobId: row.job_id,
+            eventType: "execution.artifact.verify_unavailable",
+            payload: {
+              artifactId: input.artifactId,
+              attemptId: row.attempt_id,
+              verifier: input.verifier ?? null,
+              reason: "NO_STORAGE_ADAPTER",
+              expectedChecksum,
+            },
+            createdAt: now,
+          } as ExecutionEvent);
+          result = {
+            ok: true, status: "UNAVAILABLE", reason: "NO_STORAGE_ADAPTER",
+            expectedChecksum, expectedSizeBytes, verifiedAt: now,
+          };
+          // Phase 189: commit the UNAVAILABLE status. Throw only for
+          // real errors (missing artifact, cross-attempt rejection).
+          return;
+        }
+
+        // Real comparison path.
+        const match = input.actualChecksum === expectedChecksum;
+        const sizeMatch = input.actualSizeBytes === undefined || input.actualSizeBytes === expectedSizeBytes;
+        const status = (match && sizeMatch) ? "VERIFIED" : "MISMATCH";
+
+        await tx.prepareAsync(
+          "UPDATE execution_artifacts SET integrity_status = ?, integrity_verified_at = ? WHERE artifact_id = ?",
+        ).run(status, now, input.artifactId);
+
+        await this.addEventOnEngine(tx, {
+          eventId: `evt_verify_${input.artifactId}_${now}_${Math.random().toString(36).slice(2,8)}`,
+          jobId: row.job_id,
+          eventType: status === "VERIFIED" ? "execution.artifact.verified" : "execution.artifact.mismatch",
+          payload: {
+            artifactId: input.artifactId,
+            attemptId: row.attempt_id,
+            verifier: input.verifier ?? null,
+            expectedChecksum,
+            actualChecksum: input.actualChecksum,
+            expectedSizeBytes,
+            actualSizeBytes: input.actualSizeBytes ?? null,
+          },
+          createdAt: now,
+        } as ExecutionEvent);
+
+        result = {
+          ok: status === "VERIFIED", status,
+          expectedChecksum, actualChecksum: input.actualChecksum,
+          expectedSizeBytes, actualSizeBytes: input.actualSizeBytes,
+          verifiedAt: now,
+        };
+        return;
+      });
+    } catch (e) {
+      if (!(e instanceof AbortTx)) throw e;
+    }
+    return result;
+  }
+
+  /**
+   * Read back the durable verification state of an artifact.
+   * Never claims VERIFIED unless the row's integrity_status literally says so.
+   */
+  async getArtifactIntegrityAsync(artifactId: string): Promise<{
+    status: string;
+    verifiedAt: number | null;
+    expectedChecksum: string | null;
+  } | null> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT integrity_status, integrity_verified_at, checksum FROM execution_artifacts WHERE artifact_id = ?",
+    ).get<any>(artifactId);
+    if (!row) return null;
+    return {
+      status: row.integrity_status ?? "PENDING",
+      verifiedAt: row.integrity_verified_at === null ? null : Number(row.integrity_verified_at),
+      expectedChecksum: row.checksum ?? null,
+    };
+  }
+
+  /**
+   * Phase 189: reconcile a completed execution. Detects structural
+   * inconsistencies and records durable findings via events. Never mutates
+   * artifact / attempt / job rows speculatively.
+   *
+   * Idempotent: repeated runs produce the same set of `finding:<kind>`
+   * events per job, keyed deterministically on jobId+attemptId.
+   */
+  async reconcileCompletedExecutionAsync(input: {
+    jobId: string;
+    now?: number;
+  }): Promise<{
+    ok: boolean;
+    findings: string[];
+    artifactsChecked: number;
+    orphanArtifacts: number;
+    missingArtifacts: number;
+    activeLeaseOnTerminal: number;
+  }> {
+    const engine = this.requireAsyncDb();
+    const now = input.now ?? Date.now();
+    const findings: string[] = [];
+    let orphanArtifacts = 0;
+    let missingArtifacts = 0;
+    let activeLeaseOnTerminal = 0;
+    let artifactsChecked = 0;
+
+    await engine.transactionAsync(async (tx) => {
+      const job = await tx.prepareAsync(
+        "SELECT * FROM execution_jobs WHERE id = ?",
+      ).get<any>(input.jobId);
+      if (!job) { findings.push("JOB_NOT_FOUND"); return; }
+
+      // Terminal-jobs-with-active-lease check.
+      const TERMINAL = ["SUCCEEDED","FAILED","CANCELLED","DEAD_LETTER"];
+      if (TERMINAL.includes(job.status)) {
+        const active = await tx.prepareAsync(
+          "SELECT lease_id FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE'",
+        ).all<{ lease_id: string }>(input.jobId);
+        if (active.length > 0) {
+          activeLeaseOnTerminal = active.length;
+          findings.push("TERMINAL_JOB_HAS_ACTIVE_LEASE");
+        }
+      }
+
+      // All artifacts whose job_id points at this job.
+      const arts = await tx.prepareAsync(
+        "SELECT artifact_id, job_id, attempt_id, checksum, integrity_status FROM execution_artifacts WHERE job_id = ?",
+      ).all<any>(input.jobId);
+      for (const a of arts) {
+        artifactsChecked++;
+        if (!a.attempt_id) { orphanArtifacts++; findings.push("ARTIFACT_WITHOUT_ATTEMPT:" + a.artifact_id); continue; }
+        const att = await tx.prepareAsync(
+          "SELECT id FROM execution_attempts WHERE id = ?",
+        ).get<any>(a.attempt_id);
+        if (!att) {
+          orphanArtifacts++;
+          findings.push("ORPHAN_ARTIFACT:" + a.artifact_id);
+          continue;
+        }
+        if (a.integrity_status === "UNAVAILABLE" || a.integrity_status === null || a.integrity_status === "PENDING") {
+          findings.push("ARTIFACT_UNVERIFIED:" + a.artifact_id);
+        }
+        if (a.integrity_status === "MISMATCH") {
+          findings.push("ARTIFACT_MISMATCH:" + a.artifact_id);
+        }
+      }
+
+      // Attempts reference artifacts: check each attempt has at least one artifact row
+      // IF the provenance or evidence declares artifacts. We can't infer that from
+      // the current schema, so this check is a no-op unless provenance.evidence_json
+      // includes an `artifacts` array (optional convention).
+      const provs = await tx.prepareAsync(
+        "SELECT attempt_id, evidence_json FROM execution_outcome_provenance WHERE job_id = ?",
+      ).all<any>(input.jobId);
+      for (const p of provs) {
+        if (!p.evidence_json) continue;
+        let parsed: any = null;
+        try { parsed = JSON.parse(p.evidence_json); } catch { continue; }
+        if (!parsed || !Array.isArray(parsed)) continue;
+        for (const artId of parsed) {
+          const exists = await tx.prepareAsync(
+            "SELECT 1 FROM execution_artifacts WHERE artifact_id = ?",
+          ).get<any>(String(artId));
+          if (!exists) {
+            missingArtifacts++;
+            findings.push("MISSING_ARTIFACT:" + String(artId));
+          }
+        }
+      }
+
+      // Emit one summary event (deterministic eventId so repeats converge).
+      const eventId = "evt_reconcile_" + input.jobId + "_" + findings.slice().sort().join("|").slice(0, 200).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
+      const existing = await tx.prepareAsync(
+        "SELECT event_id FROM execution_events WHERE event_id = ?",
+      ).get<any>(eventId);
+      if (!existing) {
+        await this.addEventOnEngine(tx, {
+          eventId,
+          jobId: input.jobId,
+          eventType: findings.length === 0 ? "execution.reconcile.clean" : "execution.reconcile.findings",
+          payload: {
+            jobId: input.jobId,
+            jobStatus: job.status,
+            findingCount: findings.length,
+            findings: findings.slice(0, 50),
+            artifactsChecked,
+            orphanArtifacts,
+            missingArtifacts,
+            activeLeaseOnTerminal,
+          },
+          createdAt: now,
+        } as ExecutionEvent);
+      }
+    });
+
+    return { ok: findings.length === 0, findings, artifactsChecked, orphanArtifacts, missingArtifacts, activeLeaseOnTerminal };
+  }
+
 }
 
 // Phase 167: service-boundary read surface for audit/provenance.
