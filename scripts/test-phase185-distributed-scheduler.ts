@@ -76,6 +76,15 @@ async function main() {
     "UPDATE execution_leases SET status='RELEASED', released_at=$1 WHERE status='ACTIVE' AND job_id LIKE 'p1%'",
     [Date.now()],
   );
+  // Phase 190: also cancel any leftover QUEUED p1% jobs from prior test runs.
+  // Leftover QUEUED jobs have older created_at and outrank current test jobs
+  // under aging, causing S05/S06/S07 to lose their admission races.
+  const queuedLeftover = await pg.query(
+    "UPDATE execution_jobs SET status='CANCELLED', updated_at=$1 " +
+    "WHERE status = 'QUEUED' AND id LIKE 'p1%' AND id NOT LIKE $2",
+    [Date.now(), PREFIX + "%"],
+  );
+  console.log("cleanup: cancelled " + queuedLeftover.rowCount + " leftover queued test jobs");
   console.log("cleanup: cancelled " + cleaned.rowCount + " stale active test jobs\n");
 
   section("S01 - shared PostgreSQL scheduler configuration");

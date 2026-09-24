@@ -90,6 +90,12 @@ async function main() {
 
   const pg = new PgClient();
   await pg.connect(url);
+
+  // Phase 190: cleanup prior test residue. Old QUEUED p1% jobs outrank
+  // current jobs under aging and cause S05/S06/S07-style flakiness.
+  await pg.query("UPDATE execution_jobs SET status='CANCELLED', updated_at=$1 WHERE status IN ('QUEUED','ADMITTED','CLAIMED','RUNNING','VERIFYING','CANCELLATION_REQUESTED') AND id LIKE 'p1%'", [Date.now()]);
+  await pg.query("UPDATE execution_attempts SET status='CANCELLED', completed_at=$1 WHERE status IN ('RUNNING','PENDING') AND job_id LIKE 'p1%'", [Date.now()]);
+  await pg.query("UPDATE execution_leases SET status='RELEASED', released_at=$1 WHERE status='ACTIVE' AND job_id LIKE 'p1%'", [Date.now()]);
   const asyncDb = new PgAsyncEngine(pg);
   const mem = new Database(":memory:");
   const sync = SQLiteEngine.fromDatabase(mem);

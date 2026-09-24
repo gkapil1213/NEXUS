@@ -359,6 +359,62 @@ async function main(): Promise<void> {
         emit({ result: r });
         break;
       }
+      case "create-release-intent": {
+        const input = JSON.parse(args[0]);
+        const r = await store.createReleaseIntentIdempotentAsync(input);
+        emit({ result: r });
+        break;
+      }
+      case "read-release-intent": {
+        const i = await store.getReleaseIntentAsync(args[0]);
+        emit({ found: !!i, intent: i ?? null });
+        break;
+      }
+      case "read-chain": {
+        const ch = await store.getReleaseDeploymentChainAsync({ intentKey: args[0] });
+        emit({ result: ch });
+        break;
+      }
+      case "chain-status": {
+        const s = await store.getReleaseIntentChainStatusAsync(args[0]);
+        emit({ result: s });
+        break;
+      }
+      case "acquire-intent-lease": {
+        const r = await store.acquireReleaseIntentLeaseAsync(args[0], args[1], args[2] ? Number(args[2]) : undefined);
+        emit({ result: r });
+        break;
+      }
+      case "renew-intent-lease": {
+        const r = await store.renewReleaseIntentLeaseAsync(args[0], args[1], args[2] ? Number(args[2]) : 60000);
+        emit({ result: r });
+        break;
+      }
+      case "release-intent-lease": {
+        const r = await store.releaseReleaseIntentLeaseAsync(args[0], args[1]);
+        emit({ result: r });
+        break;
+      }
+      case "update-intent-status": {
+        const r = await store.updateReleaseIntentStatusAsync(args[0], args[1] as any, args[2] ? JSON.parse(args[2]) : {});
+        emit({ result: r });
+        break;
+      }
+      case "update-intent-status-if-owned": {
+        const r = await store.updateReleaseIntentStatusIfOwnedAsync(args[0], args[1] as any, args[2], args[3] ? JSON.parse(args[3]) : {}, args[4] ? JSON.parse(args[4]) : undefined);
+        emit({ result: r });
+        break;
+      }
+      case "list-intents-by-status": {
+        const r = await store.listReleaseIntentsByStatusAsync(args[0] as any);
+        emit({ count: r.length, intents: r });
+        break;
+      }
+      case "list-recoverable-intents": {
+        const r = await store.listRecoverableReleaseIntentsAsync();
+        emit({ count: r.length, intents: r });
+        break;
+      }
       case "sleep": {
         const ms = Number(args[0] ?? "0");
         await new Promise((r) => setTimeout(r, ms));

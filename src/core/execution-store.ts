@@ -3475,7 +3475,7 @@ export class ExecutionStore {
   async createReleaseIntentIdempotentAsync(
     input: Omit<ReleaseDeploymentIntent, "status" | "deploymentId" | "failureReason" | "recoveryReason" | "leasedBy" | "leaseExpiresAt" | "createdAt" | "updatedAt">,
     now: number = Date.now(),
-  ): Promise<{ intent: ReleaseDeploymentIntent; created: boolean }> {
+  ): Promise<{ intent: ReleaseDeploymentIntent; created: boolean; conflict?: boolean }> {
     const engine = this.requireAsyncDb();
     const r = await engine.prepareAsync(`
       INSERT INTO release_deployment_intents (
@@ -3515,7 +3515,19 @@ export class ExecutionStore {
     );
     const existing = await this.getReleaseIntentAsync(input.intentKey);
     if (!existing) throw new Error("release intent missing after INSERT ON CONFLICT DO NOTHING");
-    return { intent: existing, created: r.changes > 0 };
+    // Phase 190: detect conflicting reuse of the same intent_key. ON CONFLICT
+    // DO NOTHING preserves idempotency for exact-match retries, but if any
+    // immutable provenance field differs, the caller must be told so they do
+    // not silently continue against the wrong release.
+    const inputKind = input.intentKind ?? "DEPLOY";
+    const existingKind = existing.intentKind ?? "DEPLOY";
+    const conflict =
+      existing.releaseId !== input.releaseId ||
+      existing.artifactId !== input.artifactId ||
+      existing.environment !== input.environment ||
+      (existing.attemptId ?? null) !== (input.attemptId ?? null) ||
+      existingKind !== inputKind;
+    return { intent: existing, created: r.changes > 0, conflict: conflict || undefined };
   }
 
   async getReleaseIntentAsync(intentKey: string): Promise<ReleaseDeploymentIntent | undefined> {
@@ -3612,6 +3624,7 @@ export class ExecutionStore {
         AND leased_by = ?
         AND lease_expires_at IS NOT NULL
         AND lease_expires_at > ?
+        AND (status NOT IN ('KNOWN_GOOD','FAILED','BLOCKED','CANCELLED','VERIFICATION_FAILED','UNKNOWN') OR status = ?)
     `;
     const params: unknown[] = [
       status,
@@ -3632,6 +3645,7 @@ export class ExecutionStore {
       intentKey,
       workerId,
       now,
+      status,
     ];
     if (expectedStatuses && expectedStatuses.length > 0) {
       sql += " AND status IN (" + expectedStatuses.map(() => "?").join(",") + ")";
@@ -5139,6 +5153,182 @@ export class ExecutionStore {
     return { ok: findings.length === 0, findings, artifactsChecked, orphanArtifacts, missingArtifacts, activeLeaseOnTerminal };
   }
 
+
+  // ---------- Phase 190: release/deployment chain provenance ----------
+  //
+  // Reassembles execution -> attempt -> artifact -> release intent -> deployment
+  // from durable PostgreSQL state. Every node is read fresh; nothing is
+  // inferred from in-memory state. The result exposes both the raw nodes
+  // and a classifier so callers can act on the shape without re-deriving it.
+  async getReleaseDeploymentChainAsync(input: {
+    intentKey: string;
+  }): Promise<{
+    found: boolean;
+    intent: ReleaseDeploymentIntent | null;
+    execution: {
+      job: ExecutionJob | null;
+      attempt: ExecutionAttempt | null;
+      provenance: {
+        provenanceId: string;
+        outcome: string;
+        evidenceJson: string | null;
+        evidenceHash: string;
+        terminalizedAt: number;
+      } | null;
+    };
+    artifact: {
+      artifactId: string;
+      attemptId: string | null;
+      jobId: string | null;
+      releaseId: string | null;
+      checksum: string;
+      sizeBytes: number | null;
+      storageRef: string | null;
+      integrityStatus: string;
+      integrityVerifiedAt: number | null;
+      boundToIntent: boolean;
+    } | null;
+    events: Array<{ eventId: string; eventType: string; payload: unknown; createdAt: number }>;
+    chainComplete: boolean;
+    chainStatus: "INTENT_NOT_FOUND" | "EXECUTION_INCOMPLETE" | "EXECUTION_COMPLETE_NO_PROVENANCE" | "ARTIFACT_MISSING" | "ARTIFACT_UNBOUND" | "ARTIFACT_UNVERIFIED" | "CHAIN_COMPLETE" | "CHAIN_INCOMPLETE";
+  }> {
+    const engine = this.requireAsyncDb();
+    const empty = {
+      found: false,
+      intent: null,
+      execution: { job: null, attempt: null, provenance: null },
+      artifact: null,
+      events: [],
+      chainComplete: false,
+      chainStatus: "INTENT_NOT_FOUND" as const,
+    };
+
+    const intent = await this.getReleaseIntentAsync(input.intentKey);
+    if (!intent) return empty;
+
+    // Execution job (intent.executionId is the job id in current NEXUS
+    // convention; if a future schema changes this we surface null).
+    const jobRow = await engine.prepareAsync(
+      "SELECT * FROM execution_jobs WHERE id = ?",
+    ).get<any>(intent.executionId);
+    const job = jobRow ? this.mapJob(jobRow) : null;
+
+    // Attempt: prefer explicit intent.attemptId, else latest attempt for the job.
+    let attempt: ExecutionAttempt | null = null;
+    if (intent.attemptId) {
+      const aRow = await engine.prepareAsync(
+        "SELECT * FROM execution_attempts WHERE id = ?",
+      ).get<any>(intent.attemptId);
+      if (aRow) attempt = this.mapAttempt(aRow);
+    }
+    if (!attempt && job) {
+      const aRow = await engine.prepareAsync(
+        "SELECT * FROM execution_attempts WHERE job_id = ? ORDER BY attempt_number DESC LIMIT 1",
+      ).get<any>(job.id);
+      if (aRow) attempt = this.mapAttempt(aRow);
+    }
+
+    // Provenance for the resolved attempt.
+    let provenance: any = null;
+    if (attempt) {
+      const pRow = await engine.prepareAsync(
+        "SELECT provenance_id, outcome, evidence_json, evidence_hash, terminalized_at " +
+        "FROM execution_outcome_provenance WHERE attempt_id = ? ORDER BY created_at DESC LIMIT 1",
+      ).get<any>(attempt.id);
+      if (pRow) provenance = {
+        provenanceId: pRow.provenance_id,
+        outcome: pRow.outcome,
+        evidenceJson: pRow.evidence_json ?? null,
+        evidenceHash: pRow.evidence_hash,
+        terminalizedAt: Number(pRow.terminalized_at),
+      };
+    }
+
+    // Artifact via intent.artifactId — strictly bound or reported unbound.
+    let artifact: any = null;
+    let artifactBound = false;
+    const artRow = await engine.prepareAsync(
+      "SELECT * FROM execution_artifacts WHERE artifact_id = ?",
+    ).get<any>(intent.artifactId);
+    if (artRow) {
+      const artAttemptId = artRow.attempt_id ?? null;
+      const artJobId = artRow.job_id ?? null;
+      // Strict binding: attemptId must match if intent declares it, and
+      // jobId must match intent.executionId when both are non-null.
+      artifactBound = true;
+      if (intent.attemptId && artAttemptId !== intent.attemptId) artifactBound = false;
+      if (artJobId && intent.executionId && artJobId !== intent.executionId) artifactBound = false;
+      artifact = {
+        artifactId: artRow.artifact_id,
+        attemptId: artAttemptId,
+        jobId: artJobId,
+        releaseId: artRow.release_id ?? null,
+        checksum: artRow.checksum,
+        sizeBytes: artRow.size_bytes === null ? null : Number(artRow.size_bytes),
+        storageRef: artRow.storage_ref ?? null,
+        integrityStatus: artRow.integrity_status ?? "PENDING",
+        integrityVerifiedAt: artRow.integrity_verified_at === null ? null : Number(artRow.integrity_verified_at),
+        boundToIntent: artifactBound,
+      };
+    }
+
+    // Events scoped to the execution id (job).
+    const evRows = await engine.prepareAsync(
+      "SELECT event_id, event_type, payload, created_at FROM execution_events WHERE job_id = ? ORDER BY created_at ASC",
+    ).all<any>(intent.executionId);
+    const events = evRows.map((r) => ({
+      eventId: r.event_id,
+      eventType: r.event_type,
+      payload: r.payload ? (() => { try { return JSON.parse(r.payload); } catch { return r.payload; } })() : null,
+      createdAt: Number(r.created_at),
+    }));
+
+    // Classify.
+    let chainStatus: any = "CHAIN_INCOMPLETE";
+    let chainComplete = false;
+    if (!job) {
+      chainStatus = "EXECUTION_INCOMPLETE";
+    } else if (!attempt || (attempt.status !== "SUCCEEDED" && attempt.status !== "FAILED" && attempt.status !== "CANCELLED" && attempt.status !== "DEAD_LETTER")) {
+      chainStatus = "EXECUTION_INCOMPLETE";
+    } else if (!provenance) {
+      chainStatus = "EXECUTION_COMPLETE_NO_PROVENANCE";
+    } else if (!artifact) {
+      chainStatus = "ARTIFACT_MISSING";
+    } else if (!artifact.boundToIntent) {
+      chainStatus = "ARTIFACT_UNBOUND";
+    } else if (artifact.integrityStatus === "VERIFIED") {
+      chainComplete = true;
+      chainStatus = "CHAIN_COMPLETE";
+    } else if (artifact.integrityStatus === "PENDING" || artifact.integrityStatus === "UNAVAILABLE") {
+      chainStatus = "ARTIFACT_UNVERIFIED";
+    } else {
+      chainStatus = "CHAIN_INCOMPLETE";
+    }
+
+    return {
+      found: true,
+      intent,
+      execution: { job, attempt, provenance },
+      artifact,
+      events,
+      chainComplete,
+      chainStatus,
+    };
+  }
+
+  // ---------- Phase 190: chain status classifier ----------
+  //
+  // Light-weight version of getReleaseDeploymentChainAsync. Returns just the
+  // classifier + a boolean, without assembling the full node set. Intended
+  // for reconciliation sweeps over many intents.
+  async getReleaseIntentChainStatusAsync(intentKey: string): Promise<{
+    found: boolean;
+    chainStatus: string;
+    chainComplete: boolean;
+  }> {
+    const chain = await this.getReleaseDeploymentChainAsync({ intentKey });
+    return { found: chain.found, chainStatus: chain.chainStatus, chainComplete: chain.chainComplete };
+  }
 }
 
 // Phase 167: service-boundary read surface for audit/provenance.
