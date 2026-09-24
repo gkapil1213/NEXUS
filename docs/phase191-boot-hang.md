@@ -1,89 +1,58 @@
-﻿# Phase 191 — Kernel boot hang (open finding, leading hypothesis)
+﻿# Phase 191 — Kernel boot hang (open finding, narrowed location)
 
 ## Symptom
 
-`NexusKernel.boot()` does not return in the shared-persistence
-environment when no Node host bridge is installed on
-`globalThis.window.__NEXUS_HOST__`. Instrumented traces reach
-`recovery:running` and stop. Event trace reaches ~30 x
-`release.recovery.blocked` then stops before
+`NexusKernel.boot()` does not return when no Node host bridge is installed
+on `globalThis.window.__NEXUS_HOST__`. Instrumented `step()` trace reaches
+`recovery:running` and stops. Instrumented event trace stops before
 `release.recovery.completed`.
 
-## What was eliminated
+## Eliminated (every one confirmed by isolation test)
 
-Every subsystem boot reaches was exercised in isolation and passes
-under 600ms: config, shared-PG bootstrap, openEngine() (sqlite),
-EventService.init(), AuditService.probe(), LocalSecretProvider, and
-all dynamic imports in the orchestration block.
+- config, shared-PG bootstrap, `openEngine()` (sqlite), `EventService.init()`,
+  `AuditService.probe()`, `LocalSecretProvider`, all dynamic imports under
+  the orchestration block.
+- Silent `docker pull` on uncached image — ruled out: runtime class is
+  MANAGED_BROWSER_RUNTIME so docker ops return BLOCKED immediately.
+- `maxIntentsPerRun` cap of 50 — confirmed working; the loop runs to
+  completion.
+- **The dispatch loop does NOT hang.** A `dispatch()` trace shows 50
+  ENTER/RETURN pairs, `reportBlocked` incrementing 1→50, all returning.
+- **The canonical binder await is NOT the hang.** Same trace: no
+  `orchestrator.deploy()` was entered, because every intent is either
+  RECOVERY_REQUIRED or DEPLOYMENT_INTENT_CREATED without a projectId,
+  so `resumeFromIntent` short-circuits to `blockIntent` in every case.
 
-## Where the recoverable set lives
+## Where the hang is (narrowed, not confirmed)
 
-`listRecoverable()` reads the **SQLite** store, not Postgres. At the
-time of the trace, SQLite held 482 non-terminal intents:
+Immediately after the dispatch loop returns, `runOnce()` runs:
 
-    DEPLOYMENT_INTENT_CREATED  326
-    RECOVERY_REQUIRED          126
-    DEPLOYING                    1
-    VERIFICATION_FAILED         29
-
-`runOnce()` is bounded by `deps.maxIntentsPerRun ?? 50` and processes
-at most 50 per cycle. Each `blockIntent` emits one
-`release.recovery.blocked` event (release-recovery-executor.ts:589).
-The trace stopped after roughly 30 such events.
-
-## Leading hypothesis (not proven)
-
-Within the 50-item window, at least one intent is
-`DEPLOYMENT_INTENT_CREATED` with a valid `projectId` and complete
-immutable fields. That routes through `resumeFromIntent`:
-
-    intents.transitionIfOwned(..., "DEPLOYING", ...)
-    const outcome = await this.deps.orchestrator.deploy(
-      this.toDeploymentRequest(fresh, fresh.attemptId));
-
-Inside `CanonicalDeploymentOrchestrator.deploy()`, the binder supplied
-by kernel.ts (lines 517-539) runs:
-
-    const bridge = getHostBridge();
-    if (!bridge || typeof bridge.materializeWorkspace !== "function"
-                || typeof bridge.cleanupWorkspace !== "function") {
-      throw new Error("host bridge does not implement workspace ...");
+    if (this.deps.reconciler) {
+      const terminalStatuses = ["FAILED","VERIFICATION_FAILED","RECOVERY_REQUIRED","BLOCKED"];
+      for (const status of terminalStatuses) {
+        for (const intent of intents.listByStatus(status)) {
+          const kind = intent.intentKind ?? "DEPLOY";
+          if (kind !== "ROLLBACK") continue;
+          ...
+          await this.deps.reconciler.reconcile(intent.intentKey);
+        }
+      }
     }
-    await bridge.materializeWorkspace({ token, files: [...] });
+    await svc.events.emit({ type: "release.recovery.completed", ... });
 
-In MANAGED_BROWSER_RUNTIME with no real host bridge, that await may
-never settle — the stub returns a promise that does not resolve.
-
-Consistent with every observation: no exception, no exit, no
-docker call, no `release.recovery.completed`, hang reproduces
-regardless of SQLite intent count once a DEPLOYMENT_INTENT_CREATED
-intent with valid fields reaches the front of the 50-item window.
-
-## Not root-caused
-
-The hypothesis needs one clean probe: install an instrumented
-`getHostBridge` and confirm whether `materializeWorkspace` resolves
-in the MANAGED_BROWSER_RUNTIME case. That probe has not been run.
-
-## Workaround (not a fix)
-
-Terminalize SQLite non-terminal intents before boot. With an empty
-recoverable set, `runOnce()` returns in a single cycle. This is a
-test-environment cleanup, not a code change.
+SQLite at last count held ~1598 terminal rows. Many are `rollback:*`
+intents (ROLLBACK kind). The reconciler pass iterates them and awaits
+`reconciler.reconcile()` per row. That is the only remaining long
+loop. Confirmation requires an event trace on the reconciler pass.
 
 ## Does NOT block Phase 191
 
-`CanonicalDeploymentOrchestrator` is constructible without the kernel
-and exercises the canonical path against real Docker:
-`scripts/test-phase191-deployment-execution.ts` passes 11/0/0.
+`CanonicalDeploymentOrchestrator` is constructible without the kernel.
+`scripts/test-phase191-deployment-execution.ts` exercises the canonical
+path against real Docker: 11/0/0.
 
-## Recommended next step
+## Recommended next step (dedicated session)
 
-A dedicated debugging session:
-  1. Fresh SQLite intent table (no stale rows).
-  2. Install a logging `getHostBridge` stub.
-  3. Single `NexusKernel.boot()` call with an event trace on
-     `materializeWorkspace` and its resolution.
-  4. If it hangs, the fix is a per-binder timeout in
-     `CanonicalDeploymentOrchestrator.deploy()`; if it does not, the
-     hang is elsewhere and the hypothesis is wrong.
+Instrument `ReleaseRecoveryEvidenceReconciler.reconcile()` and re-run
+`kernel.boot()` against a fresh SQLite intent table. The location is
+narrowed to that method. Do not interleave with Phase 191.
