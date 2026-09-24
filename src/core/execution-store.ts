@@ -2546,13 +2546,10 @@ export class ExecutionStore {
           throw new AbortTx();
         }
 
-        const owned = await tx.prepareAsync(`
-          SELECT 1 FROM execution_leases
-          WHERE lease_id = ? AND worker_id = ? AND job_id = ?
-            AND status = 'ACTIVE' AND expires_at > ?
-        `).get(input.leaseId, input.workerId, input.jobId, now);
-        if (!owned) { result = { ok: false, reason: "WORKER_OWNERSHIP_LOST" }; throw new AbortTx(); }
-
+        // Terminal conflict check BEFORE lease check: if the attempt is
+        // already terminal but the caller targets a different terminal,
+        // the request is invalid regardless of lease state. The lease
+        // was released when the terminal transition committed.
         const attemptIsTerminal =
           attemptBefore.status === "SUCCEEDED" || attemptBefore.status === "FAILED" ||
           attemptBefore.status === "CANCELLED" || attemptBefore.status === "DEAD_LETTER";
@@ -2560,6 +2557,13 @@ export class ExecutionStore {
           result = { ok: false, reason: "ATTEMPT_STATE_MISMATCH", attempt: this.mapAttempt(attemptBefore) };
           throw new AbortTx();
         }
+
+        const owned = await tx.prepareAsync(`
+          SELECT 1 FROM execution_leases
+          WHERE lease_id = ? AND worker_id = ? AND job_id = ?
+            AND status = 'ACTIVE' AND expires_at > ?
+        `).get(input.leaseId, input.workerId, input.jobId, now);
+        if (!owned) { result = { ok: false, reason: "WORKER_OWNERSHIP_LOST" }; throw new AbortTx(); }
 
         const aRes = await tx.prepareAsync(`
           UPDATE execution_attempts SET
