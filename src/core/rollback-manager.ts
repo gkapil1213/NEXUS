@@ -1,5 +1,5 @@
-﻿import { ExecutionStore } from "./execution-store";
-import { DeploymentRecord } from "./execution-models";
+import { ExecutionStore } from "./execution-store";
+import { ExecutionDeploymentRecord } from "./execution-models";
 
 export class RollbackManager {
   constructor(
@@ -8,8 +8,8 @@ export class RollbackManager {
     private verificationFn: (deploymentId: string) => Promise<boolean>
   ) {}
 
-  async rollback(deployment: DeploymentRecord): Promise<DeploymentRecord> {
-    const rollbackDeployment: DeploymentRecord = {
+  async rollback(deployment: ExecutionDeploymentRecord): Promise<ExecutionDeploymentRecord> {
+    const rollbackDeployment: ExecutionDeploymentRecord = {
       deploymentId: `rollback_${deployment.deploymentId}_${Date.now()}`,
       releaseId: deployment.releaseId,
       environment: deployment.environment,

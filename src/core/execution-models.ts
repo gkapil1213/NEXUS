@@ -143,7 +143,7 @@ export type DeploymentStatus =
   | "ROLLED_BACK"
   | "INTERVENTION_REQUIRED";
 
-export interface DeploymentRecord {
+export interface ExecutionDeploymentRecord {
   deploymentId: string;
   releaseId: string;
   environment: string;

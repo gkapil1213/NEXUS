@@ -10,7 +10,7 @@ import {
   ExecutionLease,
   ArtifactRecord,
   ReleaseRecord,
-  DeploymentRecord,
+  ExecutionDeploymentRecord,
   ApprovalRequest,
   ExecutionEvent,
   ExecutionOutcomeProvenance,
@@ -3114,7 +3114,7 @@ export class ExecutionStore {
   }
 
   // ---------- Deployments ----------
-  addDeployment(deployment: DeploymentRecord): void {
+  addDeployment(deployment: ExecutionDeploymentRecord): void {
     this.db.prepare(`
       INSERT INTO execution_deployments (
         deployment_id, release_id, environment, status, created_at,
@@ -3132,7 +3132,7 @@ export class ExecutionStore {
     );
   }
 
-  updateDeployment(deployment: DeploymentRecord): void {
+  updateDeployment(deployment: ExecutionDeploymentRecord): void {
     this.db.prepare(`
       UPDATE execution_deployments SET
         status = ?, updated_at = ?, rollback_deployment_id = ?, evidence = ?
@@ -3146,7 +3146,7 @@ export class ExecutionStore {
     );
   }
 
-  getDeployment(deploymentId: string): DeploymentRecord | undefined {
+  getDeployment(deploymentId: string): ExecutionDeploymentRecord | undefined {
     const row = this.db.prepare("SELECT * FROM execution_deployments WHERE deployment_id = ?").get(deploymentId);
     return row ? this.mapDeployment(row) : undefined;
   }
@@ -4243,7 +4243,7 @@ export class ExecutionStore {
     };
   }
 
-  private mapDeployment(row: any): DeploymentRecord {
+  private mapDeployment(row: any): ExecutionDeploymentRecord {
     return {
       deploymentId: row.deployment_id,
       releaseId: row.release_id,

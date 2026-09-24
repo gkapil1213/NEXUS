@@ -12,7 +12,7 @@ export interface ReleaseRecord {
   status: "DRAFT" | "READY" | "DEPLOYING" | "VERIFIED" | "FAILED" | "ROLLING_BACK" | "ROLLED_BACK";
 }
 
-export interface DeploymentRecord {
+export interface RollbackDeploymentRecord {
   deployment_id: string;
   release_id: string;
   environment: string;
@@ -38,7 +38,7 @@ class DockerRollbackService {
   private statePath = path.join(process.cwd(), "rollback-state.json");
   private state: {
     releases: ReleaseRecord[];
-    deployments: DeploymentRecord[];
+    deployments: RollbackDeploymentRecord[];
     current_deployment_id?: string;
   } = { releases: [], deployments: [] };
 
@@ -139,10 +139,10 @@ class DockerRollbackService {
     return release;
   }
 
-  async deploy(release: ReleaseRecord, environment: string, containerName: string, port: number): Promise<DeploymentRecord> {
+  async deploy(release: ReleaseRecord, environment: string, containerName: string, port: number): Promise<RollbackDeploymentRecord> {
     release.status = "DEPLOYING";
     await this.saveState();
-    const deployment: DeploymentRecord = {
+    const deployment: RollbackDeploymentRecord = {
       deployment_id: nid("dep"),
       release_id: release.release_id,
       environment,
@@ -236,7 +236,7 @@ class DockerRollbackService {
     // Update states
     previousRelease.status = "VERIFIED";
     failedRelease.status = "ROLLED_BACK";
-    const rollbackDeployment: DeploymentRecord = {
+    const rollbackDeployment: RollbackDeploymentRecord = {
       deployment_id: nid("dep"),
       release_id: previousRelease.release_id,
       environment,

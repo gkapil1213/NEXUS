@@ -1,10 +1,10 @@
-﻿import { ExecutionStore } from "./execution-store";
+import { ExecutionStore } from "./execution-store";
 import { DeploymentGates } from "./deployment-gates";
 import { DeploymentVerifier } from "./deployment-verifier";
 import { RollbackManager } from "./rollback-manager";
 import { ApprovalGate } from "./approval-gate";
 import {
-  DeploymentRecord,
+  ExecutionDeploymentRecord,
   ReleaseRecord,
   ArtifactRecord,
   ApprovalRequest,
@@ -28,8 +28,8 @@ export class DeploymentManager {
     environment: string,
     artifact?: ArtifactRecord,
     evidence: string[] = []
-  ): Promise<DeploymentRecord> {
-    const deployment: DeploymentRecord = {
+  ): Promise<ExecutionDeploymentRecord> {
+    const deployment: ExecutionDeploymentRecord = {
       deploymentId: `deploy_${release.releaseId}_${Date.now()}`,
       releaseId: release.releaseId,
       environment,
@@ -147,7 +147,7 @@ export class DeploymentManager {
     return await rollbackManager.rollback(deployment);
   }
 
-  getDeployment(deploymentId: string): DeploymentRecord | undefined {
+  getDeployment(deploymentId: string): ExecutionDeploymentRecord | undefined {
     return this.store.getDeployment(deploymentId);
   }
 }
