@@ -757,6 +757,84 @@ export class ExecutionEngine {
         }
         return this.store.listJobsByStatus(status);
     }
+  // ============================================================
+  // Phase 196: execution supervision.
+  // ============================================================
+
+  async recordHeartbeat(
+    jobId: string, attemptId: string, workerId: string, leaseId: string,
+    now: number = Date.now(),
+  ): Promise<{ ok: boolean; reason?: string }> {
+    if (this.store.hasAsyncBackend()) return { ok: false, reason: "SHARED_MODE_NOT_IMPLEMENTED" };
+    const res = this.store.recordAttemptHeartbeatAsOwner(attemptId, jobId, leaseId, workerId, now);
+    if (res.updated) {
+      try {
+        this.fireAndForget(this.deps.events?.emit({
+          type: "execution.supervision.heartbeat",
+          source: "ExecutionEngine",
+          execution_id: jobId,
+          payload: { jobId, attemptId, workerId, leaseId, at: now },
+        }));
+      } catch { /* isolated */ }
+      return { ok: true };
+    }
+    return { ok: false, reason: res.reason ?? "HEARTBEAT_REJECTED" };
+  }
+
+  async recordProgress(
+    jobId: string, attemptId: string, workerId: string, leaseId: string,
+    now: number = Date.now(),
+  ): Promise<{ ok: boolean; reason?: string }> {
+    if (this.store.hasAsyncBackend()) return { ok: false, reason: "SHARED_MODE_NOT_IMPLEMENTED" };
+    const res = this.store.recordAttemptProgressAsOwner(attemptId, jobId, leaseId, workerId, now);
+    if (res.updated) {
+      try {
+        this.fireAndForget(this.deps.events?.emit({
+          type: "execution.supervision.progress",
+          source: "ExecutionEngine",
+          execution_id: jobId,
+          payload: { jobId, attemptId, workerId, leaseId, at: now },
+        }));
+      } catch { /* isolated */ }
+      return { ok: true };
+    }
+    return { ok: false, reason: res.reason ?? "PROGRESS_REJECTED" };
+  }
+
+  classifySupervision(
+    jobId: string,
+    now: number = Date.now(),
+    heartbeatTimeoutMs: number = 30_000,
+    progressTimeoutMs: number = 300_000,
+  ): {
+    verdict: "HEALTHY" | "HEARTBEAT_TIMEOUT" | "PROGRESS_TIMEOUT" | "NOT_RUNNING" | "NO_ATTEMPT";
+    jobStatus: string | null; attemptId: string | null;
+    lastHeartbeatAt: number | null; lastProgressAt: number | null;
+    heartbeatDeadline: number | null; progressDeadline: number | null;
+    reason: string;
+  } {
+    const empty = { jobStatus: null, attemptId: null, lastHeartbeatAt: null, lastProgressAt: null, heartbeatDeadline: null, progressDeadline: null };
+    const job = this.store.getJob(jobId);
+    if (!job) return { ...empty, verdict: "NOT_RUNNING", reason: "JOB_NOT_FOUND" };
+    if (job.status !== "RUNNING" && job.status !== "VERIFYING" && job.status !== "CLAIMED") {
+      return { ...empty, verdict: "NOT_RUNNING", jobStatus: job.status, reason: "STATUS_" + job.status };
+    }
+    const attempts = this.store.listAttemptsForJob(jobId);
+    const running = attempts.filter((a) => a.status === "RUNNING");
+    if (running.length === 0) return { ...empty, verdict: "NO_ATTEMPT", jobStatus: job.status, reason: "NO_RUNNING_ATTEMPT" };
+    const attempt = running[running.length - 1];
+    const prog = this.store.getAttemptProgress(attempt.id);
+    const hb = prog.heartbeatAt;
+    const pr = prog.lastProgressAt;
+    const hbDeadline = hb === null ? null : hb + heartbeatTimeoutMs;
+    const prDeadline = pr === null ? null : pr + progressTimeoutMs;
+    const base = { jobStatus: job.status, attemptId: attempt.id, lastHeartbeatAt: hb, lastProgressAt: pr, heartbeatDeadline: hbDeadline, progressDeadline: prDeadline };
+    if (hb === null) return { ...base, verdict: "HEARTBEAT_TIMEOUT", reason: "NO_HEARTBEAT_RECORDED" };
+    if (hbDeadline !== null && hbDeadline < now) return { ...base, verdict: "HEARTBEAT_TIMEOUT", reason: "HEARTBEAT_DEADLINE_EXCEEDED" };
+    if (prDeadline !== null && prDeadline < now) return { ...base, verdict: "PROGRESS_TIMEOUT", reason: "PROGRESS_DEADLINE_EXCEEDED" };
+    return { ...base, verdict: "HEALTHY", reason: "OK" };
+  }
+
   async executeJob(workerId: string, jobId: string, leaseId: string): Promise<ExecutionJob> {
         const job = this.store.getJob(jobId);
         if (!job) throw new Error(`Job ${jobId} not found`);

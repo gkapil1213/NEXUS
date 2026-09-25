@@ -28,6 +28,9 @@ export const CONFIG: {
   recovery: {
     enabled: boolean;
     intervalMs: number;
+    heartbeatTimeoutMs: number;
+    progressTimeoutMs: number;
+    staleAttemptMs: number;
   };
 } = {
   env: "DEVELOPMENT",
@@ -48,6 +51,9 @@ export const CONFIG: {
   recovery: {
     enabled: false,
     intervalMs: 30_000,
+    heartbeatTimeoutMs: 30_000,
+    progressTimeoutMs: 300_000,
+    staleAttemptMs: 30_000,
   },
 };
 

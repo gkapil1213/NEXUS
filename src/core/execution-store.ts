@@ -4673,6 +4673,68 @@ export class ExecutionStore {
   // Returns RUNNING attempts whose heartbeat has aged past maxAgeMs. Uses the
   // partial index idx_attempts_stale_running. Ordered oldest-first so recovery
   // processes the most-stale attempts first.
+  // ---------- Phase 196: sync supervision primitives ----------
+  // Phase 187 async siblings use requireAsyncDb() (shared Postgres only).
+  // These are the structurally identical SQLite forms.
+
+  listStaleAttempts(now: number, maxAgeMs: number): Array<{
+    attemptId: string; jobId: string; workerId: string; leaseId: string; heartbeatAt: number;
+  }> {
+    const cutoff = now - maxAgeMs;
+    const rows = this.db.prepare(
+      "SELECT id, job_id, worker_id, lease_id, heartbeat_at FROM execution_attempts " +
+      "WHERE status = 'RUNNING' AND heartbeat_at IS NOT NULL AND heartbeat_at < ? " +
+      "ORDER BY heartbeat_at ASC"
+    ).all(cutoff) as Array<{ id: string; job_id: string; worker_id: string; lease_id: string; heartbeat_at: number | string }>;
+    return rows.map((r) => ({
+      attemptId: r.id, jobId: r.job_id, workerId: r.worker_id,
+      leaseId: r.lease_id, heartbeatAt: Number(r.heartbeat_at),
+    }));
+  }
+
+  recordAttemptHeartbeatAsOwner(
+    attemptId: string, jobId: string, leaseId: string, workerId: string,
+    now: number = Date.now(),
+  ): { updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" | "ATTEMPT_NOT_FOUND" } {
+    const r = this.db.prepare(
+      "UPDATE execution_attempts SET heartbeat_at = ? " +
+      "WHERE id = ? AND job_id = ? AND status = 'RUNNING' " +
+      "AND EXISTS (SELECT 1 FROM execution_leases " +
+      "  WHERE lease_id = ? AND worker_id = ? AND job_id = ? " +
+      "    AND status = 'ACTIVE' AND expires_at > ?)"
+    ).run(now, attemptId, jobId, leaseId, workerId, jobId, now);
+    if ((r.changes ?? 0) === 1) return { updated: true };
+    const exists = this.getAttempt(attemptId);
+    return { updated: false, reason: exists ? "WORKER_OWNERSHIP_LOST" : "ATTEMPT_NOT_FOUND" };
+  }
+
+  recordAttemptProgressAsOwner(
+    attemptId: string, jobId: string, leaseId: string, workerId: string,
+    now: number = Date.now(),
+  ): { updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" | "ATTEMPT_NOT_FOUND" } {
+    const r = this.db.prepare(
+      "UPDATE execution_attempts SET last_progress_at = ? " +
+      "WHERE id = ? AND job_id = ? AND status = 'RUNNING' " +
+      "AND EXISTS (SELECT 1 FROM execution_leases " +
+      "  WHERE lease_id = ? AND worker_id = ? AND job_id = ? " +
+      "    AND status = 'ACTIVE' AND expires_at > ?)"
+    ).run(now, attemptId, jobId, leaseId, workerId, jobId, now);
+    if ((r.changes ?? 0) === 1) return { updated: true };
+    const exists = this.getAttempt(attemptId);
+    return { updated: false, reason: exists ? "WORKER_OWNERSHIP_LOST" : "ATTEMPT_NOT_FOUND" };
+  }
+
+  getAttemptProgress(attemptId: string): { heartbeatAt: number | null; lastProgressAt: number | null } {
+    const row = this.db.prepare(
+      "SELECT heartbeat_at, last_progress_at FROM execution_attempts WHERE id = ?"
+    ).get(attemptId) as { heartbeat_at: number | string | null; last_progress_at: number | string | null } | undefined;
+    if (!row) return { heartbeatAt: null, lastProgressAt: null };
+    return {
+      heartbeatAt: row.heartbeat_at === null ? null : Number(row.heartbeat_at),
+      lastProgressAt: row.last_progress_at === null ? null : Number(row.last_progress_at),
+    };
+  }
+
   async listStaleAttemptsAsync(now: number, maxAgeMs: number): Promise<Array<{
     attemptId: string;
     jobId: string;
