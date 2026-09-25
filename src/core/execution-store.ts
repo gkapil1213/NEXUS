@@ -4818,7 +4818,9 @@ export class ExecutionStore {
     leaseId: string;
     reason: string;
     now?: number;
+    mode?: "heartbeat" | "progress";
     staleCutoffMs: number;
+    heartbeatFreshMs?: number;
   }): {
     fenced: boolean;
     alreadyFenced?: boolean;
@@ -4826,6 +4828,8 @@ export class ExecutionStore {
   } {
     const now = input.now ?? Date.now();
     const cutoff = now - input.staleCutoffMs;
+    const mode = input.mode ?? "heartbeat";
+    const hbFloor = now - (input.heartbeatFreshMs ?? 0);
     let result: {
       fenced: boolean;
       alreadyFenced?: boolean;
@@ -4834,10 +4838,10 @@ export class ExecutionStore {
 
     const run = (): void => {
       const attempt = this.db.prepare(
-        "SELECT status, heartbeat_at, lease_id FROM execution_attempts " +
+        "SELECT status, heartbeat_at, last_progress_at, lease_id FROM execution_attempts " +
         "WHERE id = ? AND job_id = ?"
       ).get(input.attemptId, input.jobId) as
-        | { status: string; heartbeat_at: number | string | null; lease_id: string | null }
+        | { status: string; heartbeat_at: number | string | null; last_progress_at: number | string | null; lease_id: string | null }
         | undefined;
       if (!attempt) { result = { fenced: false, reason: "ATTEMPT_NOT_RUNNING" }; return; }
       if (attempt.status !== "RUNNING") {
@@ -4846,25 +4850,27 @@ export class ExecutionStore {
       if (attempt.lease_id !== input.leaseId) {
         result = { fenced: false, reason: "LEASE_MISMATCH" }; return;
       }
-      const hb = attempt.heartbeat_at === null ? 0 : Number(attempt.heartbeat_at);
-      if (hb >= cutoff) { result = { fenced: false, reason: "NOT_STALE" }; return; }
+      if (mode === "heartbeat") {
+        const hb = attempt.heartbeat_at === null ? 0 : Number(attempt.heartbeat_at);
+        if (hb >= cutoff) { result = { fenced: false, reason: "NOT_STALE" }; return; }
+      } else {
+        const pr = attempt.last_progress_at === null ? 0 : Number(attempt.last_progress_at);
+        const hb = attempt.heartbeat_at === null ? 0 : Number(attempt.heartbeat_at);
+        if (pr >= cutoff) { result = { fenced: false, reason: "NOT_STALE" }; return; }
+        if (hb <= hbFloor) { result = { fenced: false, reason: "NOT_STALE" }; return; }
+      }
 
-      // 1. Fail the attempt (durable history preserved).
       const a = this.db.prepare(
         "UPDATE execution_attempts SET status = 'FAILED', completed_at = ?, error = ? " +
         "WHERE id = ? AND status = 'RUNNING'"
       ).run(now, input.reason, input.attemptId);
       if ((a.changes ?? 0) !== 1) { result = { fenced: false, alreadyFenced: true }; return; }
 
-      // 2. Expire the lease so it is no longer ACTIVE.
       this.db.prepare(
         "UPDATE execution_leases SET status = 'EXPIRED', released_at = ? " +
         "WHERE lease_id = ? AND status = 'ACTIVE'"
       ).run(now, input.leaseId);
 
-      // 3. Transition job RUNNING/CLAIMED/VERIFYING -> ORPHANED and clear
-      //    current_lease_id. The existing Phase 184 recovery path
-      //    (recoverStaleJobs) can then requeue the job if retry allows.
       this.db.prepare(
         "UPDATE execution_jobs SET status = 'ORPHANED', current_lease_id = NULL, " +
         "updated_at = ? WHERE id = ? AND status IN ('RUNNING', 'CLAIMED', 'VERIFYING')"
@@ -4873,9 +4879,6 @@ export class ExecutionStore {
       result = { fenced: true };
     };
 
-    // Same transaction-shape detection idiom used by every other
-    // transactional method in this file: SQLiteEngine returns T,
-    // raw better-sqlite3 returns a callable.
     const maybeTx: any = (this.db as any).transaction(run);
     if (typeof maybeTx === "function") maybeTx();
 

@@ -877,6 +877,109 @@ export class ExecutionEngine {
     return { scanned: stale.length, flagged };
   }
 
+  // ============================================================
+  // Phase 197: sync supervisor recovery driver (SQLite).
+  // Mirrors DistributedScheduler.recoverStaleAttemptsTick for the
+  // default runtime. For each heartbeat-stale OR progress-stale
+  // RUNNING attempt: fenceStaleAttempt (attempt FAILED, lease EXPIRED,
+  // job ORPHANED), then requeue via recoverJobAtomic iff the retry
+  // policy allows. When it does not, the job remains ORPHANED with
+  // failure_class set and recovery.blocked is emitted.
+  //
+  // Idempotent: fenceStaleAttempt's CAS makes a second tick a no-op.
+  // Concurrency-safe: the CAS on status='RUNNING' + lease_id + cutoff
+  // means only one supervisor ever wins per attempt.
+  // ============================================================
+
+  recoverStalledAttemptsTick(
+    now: number = Date.now(),
+    staleAttemptMs: number = CONFIG.recovery.staleAttemptMs,
+    heartbeatTimeoutMs: number = CONFIG.recovery.heartbeatTimeoutMs,
+    progressTimeoutMs: number = CONFIG.recovery.progressTimeoutMs,
+  ): { scanned: number; fenced: number; requeued: number; blocked: number } {
+    // Heartbeat-stale first, then progress-stale with fresh heartbeat.
+    const hbStale = this.store.listStaleAttempts(now, staleAttemptMs);
+    const prStale = this.store.listProgressStaleAttempts(now, progressTimeoutMs, heartbeatTimeoutMs);
+
+    // Dedupe by attemptId in case an attempt somehow appears in both
+    // (defensive: with heartbeatFreshMs < heartbeatTimeoutMs this
+    // cannot happen, but guard anyway).
+    const seen = new Set<string>();
+    const queue: Array<{ attemptId: string; jobId: string; leaseId: string; kind: string }> = [];
+    for (const a of hbStale) {
+      if (seen.has(a.attemptId)) continue;
+      seen.add(a.attemptId);
+      queue.push({ attemptId: a.attemptId, jobId: a.jobId, leaseId: a.leaseId, kind: 'HEARTBEAT_TIMEOUT' });
+    }
+    for (const a of prStale) {
+      if (seen.has(a.attemptId)) continue;
+      seen.add(a.attemptId);
+      queue.push({ attemptId: a.attemptId, jobId: a.jobId, leaseId: a.leaseId, kind: 'PROGRESS_TIMEOUT' });
+    }
+
+    let fenced = 0, requeued = 0, blocked = 0;
+    for (const q of queue) {
+      const fr = this.store.fenceStaleAttempt({
+        attemptId: q.attemptId,
+        jobId: q.jobId,
+        leaseId: q.leaseId,
+        reason: q.kind,
+        now,
+        mode: q.kind === 'PROGRESS_TIMEOUT' ? 'progress' : 'heartbeat',
+        staleCutoffMs: q.kind === 'PROGRESS_TIMEOUT' ? progressTimeoutMs : staleAttemptMs,
+        heartbeatFreshMs: heartbeatTimeoutMs,
+      });
+      if (!fr.fenced) continue;
+      fenced++;
+
+      try { this.store.setJobSupervision(q.jobId, 'RECOVERY_PENDING', q.kind, now); } catch { /* isolated */ }
+
+      const job = this.store.getJob(q.jobId);
+      if (!job || job.status !== 'ORPHANED') continue;
+
+      let canRetry = false;
+      if (job.retryPolicy) {
+        const attempts = this.store.listAttemptsForJob(job.id);
+        canRetry = attempts.length < job.retryPolicy.maxAttempts;
+      }
+
+      if (!canRetry) {
+        blocked++;
+        try { this.store.setJobSupervision(q.jobId, 'RECOVERY_BLOCKED', 'RETRY_EXHAUSTED', now); } catch { /* isolated */ }
+        try {
+          this.fireAndForget(this.deps.events?.emit({
+            type: 'execution.recovery.blocked',
+            source: 'ExecutionEngine',
+            execution_id: q.jobId,
+            payload: { jobId: q.jobId, attemptId: q.attemptId, leaseId: q.leaseId, reason: 'RETRY_EXHAUSTED', stall: q.kind },
+          }));
+        } catch { /* isolated */ }
+        continue;
+      }
+
+      const rr = this.store.recoverJobAtomic({
+        jobId: job.id,
+        expectedStatus: 'ORPHANED',
+        newStatus: 'QUEUED',
+        expectedLeaseId: null,
+        patch: { nextAttemptAt: now } as any,
+        event: {
+          eventType: 'execution.recovery.stale_attempt_requeued',
+          payload: { jobId: job.id, attemptId: q.attemptId, leaseId: q.leaseId, reason: q.kind },
+        },
+      });
+      if (rr.ok) {
+        requeued++;
+        try { this.store.setJobSupervision(q.jobId, 'RECOVERED', q.kind, now); } catch { /* isolated */ }
+      } else {
+        blocked++;
+      }
+    }
+
+    return { scanned: queue.length, fenced, requeued, blocked };
+  }
+
+
   async executeJob(workerId: string, jobId: string, leaseId: string): Promise<ExecutionJob> {
         const job = this.store.getJob(jobId);
         if (!job) throw new Error(`Job ${jobId} not found`);
