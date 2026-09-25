@@ -244,7 +244,7 @@ async function T6() {
   j.status = "RUNNING"; j.currentLeaseId = lease.leaseId;
   store.updateJob(j);
   await sleep(150);
-  engine.recoverStaleJobs(Date.now());
+  await engine.recoverStaleJobs(Date.now());
   const after = store.getJob("job-6")!;
   ok(after.status === "QUEUED", "recoverable job re-queued");
   await cleanupDb();
@@ -262,7 +262,7 @@ async function T7() {
   j.status = "RUNNING"; j.currentLeaseId = lease.leaseId;
   store.updateJob(j);
   await sleep(150);
-  engine.recoverStaleJobs(Date.now());
+  await engine.recoverStaleJobs(Date.now());
   const open = store.listOpenOwnershipObligations();
   ok(open.some((o) => o.jobId === "job-7"), "ownership obligation written");
   await cleanupDb();
@@ -280,10 +280,10 @@ async function T8() {
   j.status = "RUNNING"; j.currentLeaseId = lease.leaseId;
   store.updateJob(j);
   await sleep(150);
-  engine.recoverStaleJobs(Date.now());
+  await engine.recoverStaleJobs(Date.now());
   const first = store.listOpenOwnershipObligations().filter((o) => o.jobId === "job-8").length;
-  engine.recoverStaleJobs(Date.now());
-  engine.recoverStaleJobs(Date.now());
+  await engine.recoverStaleJobs(Date.now());
+  await engine.recoverStaleJobs(Date.now());
   const second = store.listOpenOwnershipObligations().filter((o) => o.jobId === "job-8").length;
   ok(first === 1 && second === 1, "obligation count stable across repeated detection");
   await cleanupDb();
