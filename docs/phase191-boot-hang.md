@@ -51,3 +51,23 @@ consumer expected a different shape. If it is literally `undefined`,
 instrument the last three lines of `boot()` before the return.
 
 Separate session. Do not interleave with Phase 191.
+
+## Separate finding: _phase135Ownership never assigned
+
+kernel.ts:440 declares `_phase135Ownership` and line 441's guard has an
+empty body. The variable stays undefined for the entire boot.
+
+Downstream consequences:
+  L453  _phase132ArtifactReconciler receives undefined ownership
+  L489  the CicdReconciliationScheduler guard never fires
+  L492  this.cicdOwnership = undefined
+  L495  (cicd as any).ownership = undefined
+
+Net effect: Phase 135's durable cross-instance ownership of the CI
+reconciliation scheduler has never been active. The scheduler is
+constructed only when _phase135Ownership is truthy, so it never starts.
+
+Not the boot hang. Not in Phase 191's scope. Fixing it requires a
+design decision about scheduler worker identity, TTL, and the
+relationship between CI reconciliation ownership and release recovery
+worker identity. Dedicated session.
