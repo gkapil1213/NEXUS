@@ -1,4 +1,5 @@
 import { ExecutionRecoveryOperationType } from "./execution-recovery-operation-store";
+import { CONFIG } from "./config";
 import { ExecutionStore } from "./execution-store";
 import { ExecutionStateMachine } from "./execution-state-machine";
 import { WorkerRegistry } from "./worker-registry";
@@ -835,6 +836,47 @@ export class ExecutionEngine {
     return { ...base, verdict: "HEALTHY", reason: "OK" };
   }
 
+  // ============================================================
+  // Phase 196: supervisor tick — supervision pass.
+  // Read-only with respect to ExecutionJobStatus. Writes only the
+  // supervision_state / failure_class columns added by migration 166
+  // and emits a stall_detected event when a running attempt has aged
+  // past the configured stale-attempt window while its lease is still
+  // ACTIVE (the exact case Phase 194's expired-lease path cannot see).
+  // ============================================================
+
+  runSupervisionPass(
+    now: number = Date.now(),
+    staleAttemptMs: number = CONFIG.recovery.staleAttemptMs,
+    heartbeatTimeoutMs: number = CONFIG.recovery.heartbeatTimeoutMs,
+    progressTimeoutMs: number = CONFIG.recovery.progressTimeoutMs,
+  ): { scanned: number; flagged: number } {
+    const stale = this.store.listStaleAttempts(now, staleAttemptMs);
+    let flagged = 0;
+    for (const att of stale) {
+      const verdict = this.classifySupervision(att.jobId, now, heartbeatTimeoutMs, progressTimeoutMs);
+      if (verdict.verdict !== "HEARTBEAT_TIMEOUT" && verdict.verdict !== "PROGRESS_TIMEOUT") continue;
+      try { this.store.setJobSupervision(att.jobId, "SUSPECTED_STALL", verdict.verdict, now); }
+      catch { /* store failures must not break the tick */ }
+      flagged++;
+      try {
+        this.fireAndForget(this.deps.events?.emit({
+          type: "execution.supervision.stall_detected",
+          source: "ExecutionEngine",
+          execution_id: att.jobId,
+          payload: {
+            jobId: att.jobId, attemptId: att.attemptId,
+            leaseId: att.leaseId, workerId: att.workerId,
+            verdict: verdict.verdict, reason: verdict.reason,
+            lastHeartbeatAt: verdict.lastHeartbeatAt,
+            lastProgressAt: verdict.lastProgressAt,
+          },
+        }));
+      } catch { /* isolated */ }
+    }
+    return { scanned: stale.length, flagged };
+  }
+
   async executeJob(workerId: string, jobId: string, leaseId: string): Promise<ExecutionJob> {
         const job = this.store.getJob(jobId);
         if (!job) throw new Error(`Job ${jobId} not found`);
@@ -1456,6 +1498,10 @@ export class ExecutionEngine {
             (await this.listJobsByStatusIO("RETRY_SCHEDULED")).map((j) => j.id),
         );
         this.reconcileExecutionRecoveryOperations(now);
+        // Phase 196: supervision pass first. Does not touch ExecutionJobStatus;
+        // writes only supervision_state / failure_class and emits stall_detected.
+        try { this.runSupervisionPass(now); } catch { /* isolated */ }
+
         const expiredLeases = await this.recoverExpiredLeasesIO(now);
         for (const lease of expiredLeases) {
             try {

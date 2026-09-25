@@ -4735,6 +4735,24 @@ export class ExecutionStore {
     };
   }
 
+  /**
+   * Phase 196: durable supervision signal on the job. Pure UPDATE of the
+   * columns added by migration 166. Never touches ExecutionJobStatus.
+   */
+  setJobSupervision(
+    jobId: string,
+    supervisionState: string,
+    failureClass: string | null,
+    now: number = Date.now(),
+  ): { updated: boolean } {
+    const r = this.db.prepare(
+      "UPDATE execution_jobs SET supervision_state = ?, failure_class = ?, " +
+      "supervision_updated_at = ? WHERE id = ?"
+    ).run(supervisionState, failureClass, now, jobId);
+    return { updated: (r.changes ?? 0) === 1 };
+  }
+
+
   async listStaleAttemptsAsync(now: number, maxAgeMs: number): Promise<Array<{
     attemptId: string;
     jobId: string;
