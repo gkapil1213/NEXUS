@@ -199,7 +199,19 @@ export class NexusKernel {
   }
 
   /** Boot in enforced order. Any failure aborts startup with a structured error. */
+  /** Phase 193: single in-flight boot promise. Concurrent callers share it. */
+  private bootPromise?: Promise<KernelServices>;
+
   async boot(): Promise<KernelServices> {
+    if (this.bootPromise) return this.bootPromise;
+    this.bootPromise = this._boot().catch((e) => {
+      this.bootPromise = undefined;
+      throw e;
+    });
+    return this.bootPromise;
+  }
+
+  private async _boot(): Promise<KernelServices> {
     try {
       // 1. config
       this.step("config", "running");
@@ -808,6 +820,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       this.pgClient = undefined;
     }
     await this.stopGateway();
+    this.bootPromise = undefined;
   }
 
   /** Phase 133: stop the CI reconciliation scheduler; never throws. Idempotent. */
