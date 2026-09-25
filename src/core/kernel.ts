@@ -650,8 +650,13 @@ const memberships = new ProjectMembershipStore(rawDb);
             },
           });
           this.recoveryExecutor = executor;
-          const rep = await executor.runOnce();
-          this.step("recovery", "ok", "scanned=" + rep.scanned + " acted=" + rep.acted + " blocked=" + rep.blocked + " leaseHeld=" + rep.leaseHeld);
+          // Phase 193: recovery work is deferred to the supervisor, which
+          // is started later in this method and owns the scheduled tick.
+          // The inline runOnce() here duplicated the supervisor's work on
+          // the boot critical path and did not return in production; boot
+          // never reached READY. The supervisor runs the same runOnce()
+          // with error handling, backoff, and a no-overlap guard.
+          this.step("recovery", "ok", "deferred to supervisor");
         } catch (e) {
           this.step("recovery", "fail", e instanceof Error ? e.message : String(e));
         }
