@@ -726,6 +726,13 @@ const memberships = new ProjectMembershipStore(rawDb);
       this.failure = e instanceof NexusError ? e : Err.startup("STARTUP_FAILED", (e as Error).message ?? "startup failed");
       const running = this.steps.find((s) => s.status === "running");
       if (running) this.step(running.id, "fail", this.failure.message);
+
+      // Phase 193 §7: boot is a transaction-like lifecycle. Release any
+      // resources already acquired so a subsequent boot does not inherit
+      // leaked state. Reuses the same idempotent stop methods shutdown()
+      // uses. Never throws — the original boot failure is the root cause.
+      await this.cleanupOnFailedBoot();
+
       throw this.failure;
     }
   }
@@ -808,6 +815,22 @@ const memberships = new ProjectMembershipStore(rawDb);
 
   /** Phase 134: durable cross-instance ownership for the CI reconciliation scheduler. */
   private cicdOwnership?: CiReconciliationOwnershipService;
+
+  /**
+   * Phase 193 §7: best-effort cleanup after a failed boot. Reverse order of
+   * acquisition. Never throws; the original boot failure is the root cause.
+   */
+  private async cleanupOnFailedBoot(): Promise<void> {
+    try { await this.stopCicdReconciliationScheduler(); } catch { /* best-effort */ }
+    try { await this.stopRecoverySupervisor({ finalPass: false }); } catch { /* best-effort */ }
+    if (this.pgClient) {
+      try { await this.pgClient.close(); } catch { /* best-effort */ }
+      setPgClient(null);
+      this.pgClient = undefined;
+    }
+    try { await this.stopGateway(); } catch { /* best-effort */ }
+    this.cicdOwnership = undefined;
+  }
 
   async shutdown(options?: { finalRecoveryPass?: boolean }): Promise<void> {
     await this.stopCicdReconciliationScheduler();
