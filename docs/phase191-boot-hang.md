@@ -1,58 +1,53 @@
-﻿# Phase 191 — Kernel boot hang (open finding, narrowed location)
+﻿# Phase 191 — Kernel boot does not return KernelServices
 
 ## Symptom
 
-`NexusKernel.boot()` does not return when no Node host bridge is installed
-on `globalThis.window.__NEXUS_HOST__`. Instrumented `step()` trace reaches
-`recovery:running` and stops. Instrumented event trace stops before
-`release.recovery.completed`.
+`NexusKernel.boot()` returns `undefined` in the shared-persistence
+environment when no Node host bridge is installed on
+`globalThis.window.__NEXUS_HOST__`. It does not throw. It does not hang.
+The instrumented trace runs the reconciler sweep to completion and then
+prints `[P191] BOOT RETURNED undefined`.
 
-## Eliminated (every one confirmed by isolation test)
+## What this rules out
 
-- config, shared-PG bootstrap, `openEngine()` (sqlite), `EventService.init()`,
-  `AuditService.probe()`, `LocalSecretProvider`, all dynamic imports under
-  the orchestration block.
-- Silent `docker pull` on uncached image — ruled out: runtime class is
-  MANAGED_BROWSER_RUNTIME so docker ops return BLOCKED immediately.
-- `maxIntentsPerRun` cap of 50 — confirmed working; the loop runs to
-  completion.
-- **The dispatch loop does NOT hang.** A `dispatch()` trace shows 50
-  ENTER/RETURN pairs, `reportBlocked` incrementing 1→50, all returning.
-- **The canonical binder await is NOT the hang.** Same trace: no
-  `orchestrator.deploy()` was entered, because every intent is either
-  RECOVERY_REQUIRED or DEPLOYMENT_INTENT_CREATED without a projectId,
-  so `resumeFromIntent` short-circuits to `blockIntent` in every case.
+The earlier committed hypothesis — "boot hangs in the post-loop
+reconciler pass" — is falsified. The reconciler sweep completes. Every
+`[RECON] ENTER / EXIT` pair returns. Boot then returns.
 
-## Where the hang is (narrowed, not confirmed)
+## What this narrows to
 
-Immediately after the dispatch loop returns, `runOnce()` runs:
+`boot()` has exactly one success `return`:
 
-    if (this.deps.reconciler) {
-      const terminalStatuses = ["FAILED","VERIFICATION_FAILED","RECOVERY_REQUIRED","BLOCKED"];
-      for (const status of terminalStatuses) {
-        for (const intent of intents.listByStatus(status)) {
-          const kind = intent.intentKind ?? "DEPLOY";
-          if (kind !== "ROLLBACK") continue;
-          ...
-          await this.deps.reconciler.reconcile(intent.intentKey);
-        }
-      }
-    }
-    await svc.events.emit({ type: "release.recovery.completed", ... });
+    return this.services;
 
-SQLite at last count held ~1598 terminal rows. Many are `rollback:*`
-intents (ROLLBACK kind). The reconciler pass iterates them and awaits
-`reconciler.reconcile()` per row. That is the only remaining long
-loop. Confirmation requires an event trace on the reconciler pass.
+The only way it can return `undefined` is if `this.services` is
+`undefined` at the point of return, or if a code path exits the
+try-block early via a `return` with no value. The failure `catch` block
+throws, so a thrown error would surface, not silently return.
+
+The candidates, in order:
+
+1. `this.services = { ... }` assignment is somehow skipped — e.g. an
+   `await` above it resolves to a shape that bypasses the assignment.
+2. A `return` statement inside the try-block that returns nothing.
+3. The probe is printing `result.status` where the probe's helper
+   returns `undefined` for a non-thrown success.
+
+Candidate 3 is not a kernel bug — it would be a probe artifact. It needs
+to be eliminated before any fix to `kernel.ts`.
 
 ## Does NOT block Phase 191
 
 `CanonicalDeploymentOrchestrator` is constructible without the kernel.
 `scripts/test-phase191-deployment-execution.ts` exercises the canonical
-path against real Docker: 11/0/0.
+path against real Docker: 11/0/0, committed at 2704022.
 
 ## Recommended next step (dedicated session)
 
-Instrument `ReleaseRecoveryEvidenceReconciler.reconcile()` and re-run
-`kernel.boot()` against a fresh SQLite intent table. The location is
-narrowed to that method. Do not interleave with Phase 191.
+Print the raw `result` value, not `result.status`, from a clean boot
+probe. If it is `{}` or a services object, the "hang" never existed and
+the finding is that `kernel.boot()` returns services while a downstream
+consumer expected a different shape. If it is literally `undefined`,
+instrument the last three lines of `boot()` before the return.
+
+Separate session. Do not interleave with Phase 191.
