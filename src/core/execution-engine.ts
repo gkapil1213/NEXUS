@@ -841,8 +841,12 @@ export class ExecutionEngine {
   // Read-only with respect to ExecutionJobStatus. Writes only the
   // supervision_state / failure_class columns added by migration 166
   // and emits a stall_detected event when a running attempt has aged
-  // past the configured stale-attempt window while its lease is still
-  // ACTIVE (the exact case Phase 194's expired-lease path cannot see).
+  // past the configured stale-attempt window. Detection is based on
+  // heartbeat/progress deadlines only; lease state is not consulted,
+  // so an already-expired-but-not-yet-swept lease can also be flagged
+  // here. The expired-lease path in recoverStaleJobs may therefore see
+  // the same job in the same tick; that is intentional and the atomic
+  // writes are idempotent.
   // ============================================================
 
   runSupervisionPass(
@@ -879,8 +883,11 @@ export class ExecutionEngine {
 
   // ============================================================
   // Phase 197: sync supervisor recovery driver (SQLite).
-  // Mirrors DistributedScheduler.recoverStaleAttemptsTick for the
-  // default runtime. For each heartbeat-stale OR progress-stale
+  // This is the default-runtime implementation. A distributed
+  // scheduler variant, if introduced, must preserve the same
+  // classification ordering (heartbeat-stale first) and the same
+  // fence-then-requeue-or-block contract below. For each
+  // heartbeat-stale OR progress-stale
   // RUNNING attempt: fenceStaleAttempt (attempt FAILED, lease EXPIRED,
   // job ORPHANED), then requeue via recoverJobAtomic iff the retry
   // policy allows. When it does not, the job remains ORPHANED with
@@ -897,6 +904,7 @@ export class ExecutionEngine {
     heartbeatTimeoutMs: number = CONFIG.recovery.heartbeatTimeoutMs,
     progressTimeoutMs: number = CONFIG.recovery.progressTimeoutMs,
   ): { scanned: number; fenced: number; requeued: number; blocked: number } {
+    if (this.shuttingDown) return { scanned: 0, fenced: 0, requeued: 0, blocked: 0 };
     // Heartbeat-stale first, then progress-stale with fresh heartbeat.
     const hbStale = this.store.listStaleAttempts(now, staleAttemptMs);
     const prStale = this.store.listProgressStaleAttempts(now, progressTimeoutMs, heartbeatTimeoutMs);
@@ -973,6 +981,15 @@ export class ExecutionEngine {
         try { this.store.setJobSupervision(q.jobId, 'RECOVERED', q.kind, now); } catch { /* isolated */ }
       } else {
         blocked++;
+        try { this.store.setJobSupervision(q.jobId, 'RECOVERY_BLOCKED', 'RECOVER_JOB_ATOMIC_FAILED', now); } catch { /* isolated */ }
+        try {
+          this.fireAndForget(this.deps.events?.emit({
+            type: 'execution.recovery.blocked',
+            source: 'ExecutionEngine',
+            execution_id: q.jobId,
+            payload: { jobId: q.jobId, attemptId: q.attemptId, leaseId: q.leaseId, reason: 'RECOVER_JOB_ATOMIC_FAILED', stall: q.kind },
+          }));
+        } catch { /* isolated */ }
       }
     }
 
