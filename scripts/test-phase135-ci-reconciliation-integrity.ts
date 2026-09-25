@@ -50,6 +50,10 @@ function newDb(): Database.Database {
   const m151 = readFileSync(join(process.cwd(), "src", "db", "migrations", "151_phase134_reconciliation_worker_ownership.sql"), "utf8");
   db.exec(m150);
   db.exec(m151);
+  db.exec("CREATE TABLE IF NOT EXISTS nexus_records (store TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (store, key))");
+  db.prepare("INSERT OR REPLACE INTO nexus_records (store, key, value) VALUES (?, ?, ?)")
+    .run("executions", "exec_t01", JSON.stringify({ project_id: "proj_t01" }));
+
   return db;
 }
 
@@ -126,7 +130,7 @@ function fakeArtifacts(): FakeArtifacts {
   const records: FakeArtifacts["records"] = [];
   let n = 0;
   const service = {
-    register: async (executionId: string, input: { kind: string; name: string; content: string; canWrite?: () => boolean }) => {
+    register: async (_actor: unknown, executionId: string, input: { kind: string; name: string; content: string; canWrite?: () => boolean }) => {
       const id = "art_test_" + (++n).toString().padStart(3, "0");
       records.push({ id, executionId, kind: input.kind, name: input.name });
       return { id, execution_id: executionId, kind: input.kind, name: input.name, digest: "deadbeef", size: input.content.length, location: "artifact://" + id, created_at: Date.now() };

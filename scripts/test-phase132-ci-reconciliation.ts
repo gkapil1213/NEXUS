@@ -52,6 +52,10 @@ function newDb(): Database.Database {
     "utf8",
   );
   db.exec(sql);
+  db.exec("CREATE TABLE IF NOT EXISTS nexus_records (store TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (store, key))");
+  db.prepare("INSERT OR REPLACE INTO nexus_records (store, key, value) VALUES (?, ?, ?)")
+    .run("executions", "exec_t01", JSON.stringify({ project_id: "proj_t01" }));
+
   return db;
 }
 
@@ -128,7 +132,7 @@ function fakeArtifacts(): FakeArtifacts {
   const records: FakeArtifacts["records"] = [];
   let n = 0;
   const service = {
-    register: async (executionId: string, input: { kind: string; name: string; content: string }) => {
+    register: async (_actor: unknown, executionId: string, input: { kind: string; name: string; content: string }) => {
       const id = "art_test_" + (++n).toString().padStart(3, "0");
       records.push({ id, executionId, kind: input.kind, name: input.name, content: input.content });
       return {
