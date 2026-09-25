@@ -1335,25 +1335,35 @@ export class ExecutionStore {
 
   async acquireLeaseAsync(lease: ExecutionLease): Promise<{ acquired: boolean; existingLease?: ExecutionLease }> {
     const engine = this.requireAsyncDb();
-    try {
-      await engine.prepareAsync(`
-        INSERT INTO execution_leases (
-          lease_id, job_id, worker_id, acquired_at, expires_at,
-          renewed_at, released_at, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        lease.leaseId, lease.jobId, lease.workerId,
-        lease.acquiredAt, lease.expiresAt,
-        lease.renewedAt ?? null, lease.releasedAt ?? null, lease.status,
+    // Phase 194: same expired-lease retirement as the sync path.
+    return engine.transactionAsync(async (tx) => {
+      await tx.execAsync(
+        "UPDATE execution_leases SET status = 'EXPIRED' " +
+        "WHERE job_id = ? AND status = 'ACTIVE' AND expires_at <= ?"
       );
-      return { acquired: true };
-    } catch (err: any) {
-      if (err.code === "23505" || /duplicate key/i.test(String(err.message))) {
-        const existing = await this.getActiveNonExpiredLeaseForJobAsync(lease.jobId, lease.acquiredAt);
-        return { acquired: false, existingLease: existing };
+
+      try {
+        await tx.prepareAsync(
+          "INSERT INTO execution_leases (" +
+          "  lease_id, job_id, worker_id, acquired_at, expires_at, " +
+          "  renewed_at, released_at, status" +
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          lease.leaseId, lease.jobId, lease.workerId,
+          lease.acquiredAt, lease.expiresAt,
+          lease.renewedAt ?? null, lease.releasedAt ?? null, lease.status,
+        );
+        return { acquired: true };
+      } catch (err: any) {
+        if (err.code === "23505" || /duplicate key/i.test(String(err.message))) {
+          const row = await tx.prepareAsync(
+            "SELECT * FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE' AND expires_at > ?"
+          ).get<any>(lease.jobId, lease.acquiredAt);
+          return { acquired: false, existingLease: row ? this.mapLease(row) : undefined };
+        }
+        throw err;
       }
-      throw err;
-    }
+    });
   }
 
   async updateLeaseAsync(lease: ExecutionLease): Promise<void> {
@@ -2916,32 +2926,57 @@ export class ExecutionStore {
     }
   }
   acquireLease(lease: ExecutionLease): { acquired: boolean; existingLease?: ExecutionLease } {
-    try {
-      this.db.prepare(`
-        INSERT INTO execution_leases (
-          lease_id, job_id, worker_id, acquired_at, expires_at,
-          renewed_at, released_at, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        lease.leaseId,
-        lease.jobId,
-        lease.workerId,
-        lease.acquiredAt,
-        lease.expiresAt,
-        lease.renewedAt,
-        lease.releasedAt ?? null,
-        lease.status
-      );
-      return { acquired: true };
-    } catch (err: any) {
-      if (err.code === "SQLITE_CONSTRAINT_UNIQUE" || /UNIQUE constraint failed/i.test(err.message)) {
-        // Phase 127 STEP 5: exclude expired rows so a dead worker's stale
-        // ACTIVE lease does not block reacquisition until recovery sweeps.
-        const existing = this.getActiveNonExpiredLeaseForJob(lease.jobId, lease.acquiredAt);
-        return { acquired: false, existingLease: existing };
+    // Phase 194: atomically retire expired ACTIVE leases before acquiring a
+    // replacement. The partial unique index on execution_leases(job_id)
+    // WHERE status='ACTIVE' requires the expiry transition and INSERT to
+    // happen in the same write transaction.
+    //
+    // The callback form works with both runtime shapes used by this store:
+    //   - SQLiteEngine.transaction(fn) executes fn immediately.
+    //   - raw better-sqlite3 Database.transaction(fn) returns a callable.
+    const run = (): { acquired: boolean; existingLease?: ExecutionLease } => {
+      const now = lease.acquiredAt;
+
+      this.db.prepare(
+        "UPDATE execution_leases SET status = 'EXPIRED' " +
+        "WHERE job_id = ? AND status = 'ACTIVE' AND expires_at <= ?"
+      ).run(lease.jobId, now);
+
+      try {
+        this.db.prepare(
+          "INSERT INTO execution_leases (" +
+          "  lease_id, job_id, worker_id, acquired_at, expires_at, " +
+          "  renewed_at, released_at, status" +
+          ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          lease.leaseId,
+          lease.jobId,
+          lease.workerId,
+          lease.acquiredAt,
+          lease.expiresAt,
+          lease.renewedAt,
+          lease.releasedAt ?? null,
+          lease.status
+        );
+
+        return { acquired: true };
+      } catch (err: any) {
+        if (
+          err.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+          /UNIQUE constraint failed/i.test(String(err.message))
+        ) {
+          const existing = this.getActiveNonExpiredLeaseForJob(
+            lease.jobId,
+            lease.acquiredAt
+          );
+          return { acquired: false, existingLease: existing };
+        }
+        throw err;
       }
-      throw err;
-    }
+    };
+
+    const maybeTx: any = (this.db as any).transaction(run);
+    return typeof maybeTx === "function" ? maybeTx() : maybeTx;
   }
 
   updateLease(lease: ExecutionLease): void {
