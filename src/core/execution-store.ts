@@ -4692,6 +4692,54 @@ export class ExecutionStore {
     }));
   }
 
+  /**
+   * Phase 197: progress-only stale scan. Returns RUNNING attempts whose
+   * last_progress_at has aged past maxAgeMs WHILE heartbeat_at is still
+   * fresh (within heartbeatFreshMs). This is the case Phase 196's
+   * listStaleAttempts cannot see: the heartbeat is being renewed, so the
+   * attempt is not in listStaleAttempts, but the worker is not making
+   * meaningful progress.
+   *
+   * Uses idx_attempts_progress_running (migration 165). Read-only.
+   */
+  listProgressStaleAttempts(
+    now: number,
+    maxAgeMs: number,
+    heartbeatFreshMs: number,
+  ): Array<{
+    attemptId: string;
+    jobId: string;
+    workerId: string;
+    leaseId: string;
+    heartbeatAt: number;
+    lastProgressAt: number;
+  }> {
+    const progressCutoff = now - maxAgeMs;
+    const heartbeatFloor = now - heartbeatFreshMs;
+    const rows = this.db.prepare(
+      "SELECT id, job_id, worker_id, lease_id, heartbeat_at, last_progress_at " +
+      "FROM execution_attempts " +
+      "WHERE status = 'RUNNING' " +
+      "  AND last_progress_at IS NOT NULL " +
+      "  AND last_progress_at < ? " +
+      "  AND heartbeat_at IS NOT NULL " +
+      "  AND heartbeat_at > ? " +
+      "ORDER BY last_progress_at ASC"
+    ).all(progressCutoff, heartbeatFloor) as Array<{
+      id: string; job_id: string; worker_id: string; lease_id: string;
+      heartbeat_at: number | string; last_progress_at: number | string;
+    }>;
+    return rows.map((r) => ({
+      attemptId: r.id,
+      jobId: r.job_id,
+      workerId: r.worker_id,
+      leaseId: r.lease_id,
+      heartbeatAt: Number(r.heartbeat_at),
+      lastProgressAt: Number(r.last_progress_at),
+    }));
+  }
+
+
   recordAttemptHeartbeatAsOwner(
     attemptId: string, jobId: string, leaseId: string, workerId: string,
     now: number = Date.now(),
@@ -4750,6 +4798,88 @@ export class ExecutionStore {
       "supervision_updated_at = ? WHERE id = ?"
     ).run(supervisionState, failureClass, now, jobId);
     return { updated: (r.changes ?? 0) === 1 };
+  }
+
+
+  // ---------- Phase 197: sync stale-attempt fence ----------
+  // Phase 187 built fenceStaleAttemptAsync for shared (Postgres) mode.
+  // SQLite mode had no equivalent, so a stalled attempt with a still-
+  // ACTIVE lease could never be recovered in the default runtime. This
+  // mirrors the async primitive: CAS on status='RUNNING' and stale
+  // heartbeat; fail the attempt, expire the lease, orphan the job.
+  // Transition RUNNING/CLAIMED/VERIFYING -> ORPHANED uses the existing
+  // state-machine rule. Idempotent under repeated ticks: the second
+  // call sees status != 'RUNNING' and returns { fenced: false,
+  // alreadyFenced: true }.
+
+  fenceStaleAttempt(input: {
+    attemptId: string;
+    jobId: string;
+    leaseId: string;
+    reason: string;
+    now?: number;
+    staleCutoffMs: number;
+  }): {
+    fenced: boolean;
+    alreadyFenced?: boolean;
+    reason?: "ATTEMPT_NOT_RUNNING" | "NOT_STALE" | "LEASE_MISMATCH";
+  } {
+    const now = input.now ?? Date.now();
+    const cutoff = now - input.staleCutoffMs;
+    let result: {
+      fenced: boolean;
+      alreadyFenced?: boolean;
+      reason?: "ATTEMPT_NOT_RUNNING" | "NOT_STALE" | "LEASE_MISMATCH";
+    } = { fenced: false };
+
+    const run = (): void => {
+      const attempt = this.db.prepare(
+        "SELECT status, heartbeat_at, lease_id FROM execution_attempts " +
+        "WHERE id = ? AND job_id = ?"
+      ).get(input.attemptId, input.jobId) as
+        | { status: string; heartbeat_at: number | string | null; lease_id: string | null }
+        | undefined;
+      if (!attempt) { result = { fenced: false, reason: "ATTEMPT_NOT_RUNNING" }; return; }
+      if (attempt.status !== "RUNNING") {
+        result = { fenced: false, alreadyFenced: true, reason: "ATTEMPT_NOT_RUNNING" }; return;
+      }
+      if (attempt.lease_id !== input.leaseId) {
+        result = { fenced: false, reason: "LEASE_MISMATCH" }; return;
+      }
+      const hb = attempt.heartbeat_at === null ? 0 : Number(attempt.heartbeat_at);
+      if (hb >= cutoff) { result = { fenced: false, reason: "NOT_STALE" }; return; }
+
+      // 1. Fail the attempt (durable history preserved).
+      const a = this.db.prepare(
+        "UPDATE execution_attempts SET status = 'FAILED', completed_at = ?, error = ? " +
+        "WHERE id = ? AND status = 'RUNNING'"
+      ).run(now, input.reason, input.attemptId);
+      if ((a.changes ?? 0) !== 1) { result = { fenced: false, alreadyFenced: true }; return; }
+
+      // 2. Expire the lease so it is no longer ACTIVE.
+      this.db.prepare(
+        "UPDATE execution_leases SET status = 'EXPIRED', released_at = ? " +
+        "WHERE lease_id = ? AND status = 'ACTIVE'"
+      ).run(now, input.leaseId);
+
+      // 3. Transition job RUNNING/CLAIMED/VERIFYING -> ORPHANED and clear
+      //    current_lease_id. The existing Phase 184 recovery path
+      //    (recoverStaleJobs) can then requeue the job if retry allows.
+      this.db.prepare(
+        "UPDATE execution_jobs SET status = 'ORPHANED', current_lease_id = NULL, " +
+        "updated_at = ? WHERE id = ? AND status IN ('RUNNING', 'CLAIMED', 'VERIFYING')"
+      ).run(now, input.jobId);
+
+      result = { fenced: true };
+    };
+
+    // Same transaction-shape detection idiom used by every other
+    // transactional method in this file: SQLiteEngine returns T,
+    // raw better-sqlite3 returns a callable.
+    const maybeTx: any = (this.db as any).transaction(run);
+    if (typeof maybeTx === "function") maybeTx();
+
+    return result;
   }
 
 
