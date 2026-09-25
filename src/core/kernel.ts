@@ -439,6 +439,17 @@ const memberships = new ProjectMembershipStore(rawDb);
       }
       let _phase135Ownership: CiReconciliationOwnershipService | undefined;
       if (_phase132Db && CiReconciliationOwnershipServiceCtor) {
+        // Phase 135: durable singleton ownership for the CI reconciliation
+        // scheduler. This identity is deliberately separate from the release
+        // recovery worker identity because the two leases represent different
+        // domains and lifecycles.
+        const ciSchedulerWorkerId = "nexus-cicd-scheduler-" + crypto.randomUUID();
+        _phase135Ownership = new CiReconciliationOwnershipServiceCtor(
+          _phase132Db as never,
+          ciSchedulerWorkerId,
+          events,
+          audit,
+        );
       }
 
       const _phase132ArtifactReconciler: CiArtifactReconciliationService | undefined =
