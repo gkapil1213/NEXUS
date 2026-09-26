@@ -309,6 +309,26 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_artifacts_job ON execution_artifacts (job_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_artifacts_attempt ON execution_artifacts (attempt_id)`);
+    // Phase 201: canonical dependency edges for stage execution graphs.
+    // Mirrors migration 167_phase201_stage_dependencies.sql.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS execution_stage_dependencies (
+        execution_id     TEXT NOT NULL,
+        stage_name       TEXT NOT NULL,
+        depends_on_stage TEXT NOT NULL,
+        created_at       BIGINT NOT NULL,
+        PRIMARY KEY (execution_id, stage_name, depends_on_stage),
+        CHECK (stage_name <> depends_on_stage)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_stage_deps_exec_stage
+        ON execution_stage_dependencies (execution_id, stage_name)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_stage_deps_exec_dep
+        ON execution_stage_dependencies (execution_id, depends_on_stage)
+    `);
 
     // Phase 183d: execution_outcome_provenance. Written inside the same
     // transaction as completeAttemptAndTransitionJob -- attempt + job +

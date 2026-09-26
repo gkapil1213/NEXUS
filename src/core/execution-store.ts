@@ -1,6 +1,7 @@
 import { sha256 } from "./sha256";
 import { NexusEngine, AsyncNexusEngine } from "./db";
 import { ExecutionRecoveryOperationStore, AsyncExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
+import { StageDependencyStore, AsyncStageDependencyStore } from "./stage-dependency-store";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
 import {
   ExecutionJob,
@@ -159,6 +160,8 @@ class AtomicClaimReject extends Error {
 export class ExecutionStore {
   readonly recoveryOps: ExecutionRecoveryOperationStore;
   readonly recoveryOpsAsync?: AsyncExecutionRecoveryOperationStore;
+  readonly stageDeps: StageDependencyStore;
+  readonly stageDepsAsync?: AsyncStageDependencyStore;
   /** @internal Phase 142 Ã¢â‚¬â€ test-only injection hook. No-op in production. */
   public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
   /** @internal Phase 143 - test-only injection hook. No-op in production. */
@@ -173,7 +176,9 @@ export class ExecutionStore {
     private db: NexusEngine,
     private asyncDb?: AsyncNexusEngine,
   ) { this.recoveryOps = new ExecutionRecoveryOperationStore(this.db);
-    this.recoveryOpsAsync = this.asyncDb ? new AsyncExecutionRecoveryOperationStore(this.asyncDb) : undefined; }
+    this.recoveryOpsAsync = this.asyncDb ? new AsyncExecutionRecoveryOperationStore(this.asyncDb) : undefined;
+    this.stageDeps = new StageDependencyStore(this.db);
+    this.stageDepsAsync = this.asyncDb ? new AsyncStageDependencyStore(this.asyncDb) : undefined; }
 
   // ---------- Jobs ----------
   createJob(job: ExecutionJob): void {
