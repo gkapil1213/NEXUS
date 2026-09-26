@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { createPipelineDefinition, validatePipelineDefinition } from './worker-pipeline-definition';
 import { PipelineExecution, PipelineExecutionStatus } from './worker-pipeline-execution';
 import { createStageExecution, StageExecution } from './worker-stage-execution';
+import { isStageEligible } from './stage-eligibility';
 import { StageExecutionStoreAdapter } from './stage-execution-store-adapter';
 import type {
   ProductionReleaseEnforcementService,
@@ -275,6 +276,20 @@ export async function orchestrateCICD(request: CICDRequest): Promise<CICDResult>
     auditEvents.push(createProductionAuditEvent({ tenantId: request.tenantId, correlationId: request.correlationId, environmentId: 'CI', eventType: status === 'BLOCKED' ? 'PIPELINE_BLOCKED' : 'PIPELINE_FAILED', reason, decision: status }));
   };
 
+  // Phase 201b: validate the declared dependency graph before any stage runs.
+  // A cycle or missing ref means the graph cannot reach a terminal state and
+  // must be rejected here, before any lease or transition occurs.
+  {
+    const graphValidation = request.store.stageDeps.validateGraph(
+      pipelineJob.id,
+      pipeline.stages as unknown as string[],
+    );
+    if (!graphValidation.ok) {
+      const reason = 'invalid dependency graph: ' + graphValidation.errors.join('; ');
+      failPipeline(reason, 'BLOCKED');
+      return { status: 'BLOCKED' as const, reason, blockedReason: 'INVALID_DEPENDENCY_GRAPH', pipeline, execution, auditEvents, evidence };
+    }
+  }
   for (const stageName of pipeline.stages) {
     const candidateStage = createStageExecution({
       executionId: pipelineJob.id,
@@ -302,6 +317,28 @@ export async function orchestrateCICD(request: CICDRequest): Promise<CICDResult>
       return { status: 'BLOCKED' as const, reason, blockedReason: 'RECOVERY_REQUIRED', pipeline, execution, stages, auditEvents, evidence };
     }
 
+    // Phase 201b: dependency eligibility gate. In this sequential loop every
+    // previously processed stage is already present in `stages`; a dependency
+    // that has not yet appeared (declared later) or that terminated without
+    // success blocks this stage.
+    {
+      const deps = request.store.stageDeps.getDependencies(pipelineJob.id, stageName);
+      if (deps.length > 0) {
+        const stagesByName = new Map<string, StageExecution>();
+        for (const s of stages) stagesByName.set(s.stageName, s);
+        const elig = isStageEligible({
+          stage: stored,
+          dependencyNames: deps,
+          stagesByName,
+          executionCancelled: Boolean(pipelineJob.cancellationRequested),
+        });
+        if (!elig.eligible) {
+          const reason = `stage ${stageName} ineligible: ${elig.reason}`;
+          failPipeline(reason, 'BLOCKED');
+          return { status: 'BLOCKED' as const, reason, blockedReason: elig.reason, pipeline, execution, stages, auditEvents, evidence };
+        }
+      }
+    }
     // Acquire stage lease
     let stageLease;
     try {
