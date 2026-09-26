@@ -163,18 +163,16 @@ export class ExecutionStore {
   // whose payload.executionId matches. SQLite-only for now; async sibling
   // arrives in a later slice when PostgreSQL runtime admission is exercised.
   listStageJobsForExecution(executionId: string): ExecutionJob[] {
+    // Single query; mapJob applied inline. An earlier version selected only
+    // id and called getJob per row (N+1); the Phase 202e stress test caught
+    // this (1000 admissions x 100 stages = 100k queries, ~10s).
     const rows = this.db.prepare(
-      "SELECT id FROM execution_jobs " +
+      "SELECT * FROM execution_jobs " +
       "WHERE job_type = 'pipeline.stage' " +
       "  AND json_extract(payload, '$.executionId') = ? " +
       "ORDER BY id ASC"
-    ).all(executionId) as Array<{ id: string }>;
-    const out: ExecutionJob[] = [];
-    for (const r of rows) {
-      const j = this.getJob(r.id);
-      if (j) out.push(j);
-    }
-    return out;
+    ).all(executionId) as any[];
+    return rows.map((r) => this.mapJob(r));
   }
 
   // Phase 202d: shared-mode sibling of listStageJobsForExecution. Uses
@@ -182,18 +180,14 @@ export class ExecutionStore {
   // variant's json_extract is SQLite-only syntax.
   async listStageJobsForExecutionAsync(executionId: string): Promise<ExecutionJob[]> {
     if (!this.asyncDb) throw new Error("listStageJobsForExecutionAsync requires shared mode");
+    // Single query; mapJob applied inline. See sync sibling for N+1 note.
     const rows = await this.asyncDb.prepareAsync(
-      "SELECT id FROM execution_jobs " +
+      "SELECT * FROM execution_jobs " +
       "WHERE job_type = 'pipeline.stage' " +
       "  AND (payload::jsonb ->> 'executionId') = ? " +
       "ORDER BY id ASC"
-    ).all<{ id: string }>(executionId);
-    const out: ExecutionJob[] = [];
-    for (const r of rows) {
-      const j = await this.getJobAsync(r.id);
-      if (j) out.push(j);
-    }
-    return out;
+    ).all<any>(executionId);
+    return rows.map((r) => this.mapJob(r));
   }
   readonly recoveryOps: ExecutionRecoveryOperationStore;
   readonly recoveryOpsAsync?: AsyncExecutionRecoveryOperationStore;
