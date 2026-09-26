@@ -270,7 +270,7 @@ async function main() {
     h.store.requestCancellation("j13");
     expireLease(h.db, "j13");
     h.pushExpired("j13", c.lease!.leaseId, "w13");
-    h.engine.recoverStaleJobs();
+    await h.engine.recoverStaleJobs();
     ok(getJob(h.db, "j13").status === "CANCELLED", "144-13 status CANCELLED");
     const op = getRecoveryOp(h.db, "j13", "CANCELLATION");
     ok(!!op && op.state === "COMPLETED", "144-13 CANCELLATION op COMPLETED");
@@ -289,7 +289,7 @@ async function main() {
     h.store.requestCancellation("j14");
     expireLease(h.db, "j14");
     h.pushExpired("j14", c.lease!.leaseId, "w14");
-    h.engine.recoverStaleJobs();
+    await h.engine.recoverStaleJobs();
     ok(getJob(h.db, "j14").status === "CANCELLED", "144-14 CANCELLATION wins over timeout");
     ok(countRecoveryOps(h.db, "j14", "TIMEOUT") === 0, "144-14 no TIMEOUT op created");
   }
@@ -304,7 +304,7 @@ async function main() {
     h.db.prepare("UPDATE execution_jobs SET status='RUNNING' WHERE id=?").run("j15");
     expireLease(h.db, "j15");
     h.pushExpired("j15", c.lease!.leaseId, "w15");
-    h.engine.recoverStaleJobs();
+    await h.engine.recoverStaleJobs();
     // Phase 147 (commit 2c8aa91): a recovery operation that routes to
     // RETRY_SCHEDULED with nextAttemptAt === now is promoted to QUEUED by
     // promoteImmediateRecoveryRetries within the same recoverStaleJobs tick.
@@ -332,7 +332,7 @@ async function main() {
     h.db.prepare("UPDATE execution_jobs SET status='RUNNING' WHERE id=?").run("j16");
     expireLease(h.db, "j16");
     h.pushExpired("j16", c.lease!.leaseId, "w16");
-    h.engine.recoverStaleJobs();
+    await h.engine.recoverStaleJobs();
     ok(getJob(h.db, "j16").status === "DEAD_LETTER", "144-16 status DEAD_LETTER");
     const op = getRecoveryOp(h.db, "j16", "TIMEOUT");
     ok(!!op && op.state === "COMPLETED", "144-16 TIMEOUT op COMPLETED");
@@ -352,7 +352,7 @@ async function main() {
       h1.db.close();
 
       const h2 = makeEngineHarness(dbFile, "e2");
-      h2.engine.reconcileExecutionRecoveryOperations();
+      await h2.engine.reconcileExecutionRecoveryOperations();
       ok(getJob(h2.db, "j17").status === "RETRY_SCHEDULED", "144-17 step2 completed after restart");
       const op = getRecoveryOp(h2.db, "j17", "TIMEOUT");
       ok(op.state === "COMPLETED", "144-17 TIMEOUT op COMPLETED");
@@ -369,7 +369,7 @@ async function main() {
     const c = h.store.atomicClaimJob({ jobId: "j18", workerId: "w18", durationMs: 60000 });
     expireLease(h.db, "j18");
     h.pushExpired("j18", c.lease!.leaseId, "w18");
-    h.engine.recoverStaleJobs();
+    await h.engine.recoverStaleJobs();
     ok(getJob(h.db, "j18").status === "QUEUED", "144-18 QUEUED");
     ok(countObligations(h.db, "j18") === 1, "144-18 one obligation");
     ok(countEvents(h.db, "j18", "execution.recovery.orphaned") === 1, "144-18 one orphaned event");
@@ -397,7 +397,7 @@ async function main() {
       h1.db.close();
 
       const h2 = makeEngineHarness(dbFile, "e2");
-      h2.engine.reconcileExecutionRecoveryOperations();
+      await h2.engine.reconcileExecutionRecoveryOperations();
       ok(getJob(h2.db, "j19").status === "QUEUED", "144-19 QUEUED after restart");
       ok(countObligations(h2.db, "j19") === 1, "144-19 no duplicate obligation");
       ok(countEvents(h2.db, "j19", "execution.recovery.orphaned") === 1, "144-19 one orphaned event");
@@ -413,7 +413,7 @@ async function main() {
     const c = h.store.atomicClaimJob({ jobId: "j20", workerId: "w20", durationMs: 60000 });
     expireLease(h.db, "j20");
     h.pushExpired("j20", c.lease!.leaseId, "w20");
-    h.engine.recoverStaleJobs();
+    await h.engine.recoverStaleJobs();
     ok(getJob(h.db, "j20").status === "ORPHANED", "144-20 stays ORPHANED");
     const op = getRecoveryOp(h.db, "j20", "ORPHAN_RECOVERY");
     ok(!!op && op.state === "RECOVERY_REQUIRED", "144-20 op RECOVERY_REQUIRED");
@@ -427,10 +427,10 @@ async function main() {
     const c = h.store.atomicClaimJob({ jobId: "j21", workerId: "w21", durationMs: 60000 });
     expireLease(h.db, "j21");
     h.pushExpired("j21", c.lease!.leaseId, "w21");
-    h.engine.recoverStaleJobs();
-    h.engine.reconcileExecutionRecoveryOperations();
-    h.engine.reconcileExecutionRecoveryOperations();
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.recoverStaleJobs();
+    await h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     ok(getJob(h.db, "j21").status === "QUEUED", "144-21 stable QUEUED");
     ok(countRecoveryOps(h.db, "j21", "ORPHAN_RECOVERY") === 1, "144-21 one operation row");
     ok(countObligations(h.db, "j21") === 1, "144-21 one obligation");
@@ -448,7 +448,7 @@ async function main() {
       const c = h1.store.atomicClaimJob({ jobId: "j22", workerId: "w22", durationMs: 60000 });
       expireLease(h1.db, "j22");
       h1.pushExpired("j22", c.lease!.leaseId, "w22");
-      h1.engine.recoverStaleJobs();
+      await h1.engine.recoverStaleJobs();
       h1.db.close();
 
       const h2 = makeEngineHarness(dbFile, "e2");
@@ -467,8 +467,8 @@ async function main() {
       const h = makeEngineHarness();
       h.store.createJob(queuedJob("j23-" + terminal, { retryPolicy: { maxAttempts: 3, initialDelayMs: 100 } as any }));
       h.db.prepare("UPDATE execution_jobs SET status = ? WHERE id = ?").run(terminal, "j23-" + terminal);
-      h.engine.recoverStaleJobs();
-      h.engine.reconcileExecutionRecoveryOperations();
+      await h.engine.recoverStaleJobs();
+      await h.engine.reconcileExecutionRecoveryOperations();
       ok(getJob(h.db, "j23-" + terminal).status === terminal, "144-23 " + terminal + " unchanged");
       ok(countRecoveryOps(h.db, "j23-" + terminal) === 0, "144-23 " + terminal + " no op created");
     }
@@ -481,9 +481,9 @@ async function main() {
     const c = h.store.atomicClaimJob({ jobId: "j24", workerId: "w24", durationMs: 60000 });
     expireLease(h.db, "j24");
     h.pushExpired("j24", c.lease!.leaseId, "w24");
-    h.engine.recoverStaleJobs();
-    h.engine.reconcileExecutionRecoveryOperations();
-    h.engine.recoverStaleJobs();
+    await h.engine.recoverStaleJobs();
+    await h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.recoverStaleJobs();
     ok(countObligations(h.db, "j24") === 1, "144-24 one obligation total");
     ok(countEvents(h.db, "j24", "execution.recovery.orphaned") === 1, "144-24 one orphaned event");
     ok(countEvents(h.db, "j24", "execution.recovery.requeued") === 1, "144-24 one requeued event");
@@ -538,9 +538,9 @@ async function main() {
     const engineB = new ExecutionEngine(h.store, { detectLostWorkers: () => [] } as any, { recoverExpiredLeases: () => [] } as any, {} as any, {});
 
     // Both attempt reconciliation; only one should reach QUEUED via CAS.
-    engineA.reconcileExecutionRecoveryOperations();
-    engineB.reconcileExecutionRecoveryOperations();
-    engineA.reconcileExecutionRecoveryOperations();
+    await engineA.reconcileExecutionRecoveryOperations();
+    await engineB.reconcileExecutionRecoveryOperations();
+    await engineA.reconcileExecutionRecoveryOperations();
 
     ok(getJob(h.db, "j26").status === "QUEUED", "144-26 job QUEUED");
     ok(countRecoveryOps(h.db, "j26", "ORPHAN_RECOVERY") === 1, "144-26 one op row");

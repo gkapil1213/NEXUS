@@ -1619,7 +1619,7 @@ export class ExecutionEngine {
         const preExistingRetryScheduledJobIds = new Set<string>(
             (await this.listJobsByStatusIO("RETRY_SCHEDULED")).map((j) => j.id),
         );
-        this.reconcileExecutionRecoveryOperations(now);
+        await this.reconcileExecutionRecoveryOperations(now);
         // Phase 196: supervision pass first. Does not touch ExecutionJobStatus;
         // writes only supervision_state / failure_class and emits stall_detected.
         try { this.runSupervisionPass(now); } catch { /* isolated */ }
@@ -1906,26 +1906,25 @@ export class ExecutionEngine {
         }
     }
 
-    reconcileExecutionRecoveryOperations(now: number = Date.now(), limit: number = Infinity): void {
+    async reconcileExecutionRecoveryOperations(now: number = Date.now(), limit: number = Infinity): Promise<void> {
         if (this.shuttingDown) return;
-        // Phase 184: shared mode cannot resume SQLite-side recovery operations.
-        // The async op store does not expose listResumableOperations; stale-lease
-        // recovery in shared mode is performed directly by recoverStaleJobs
-        // against Postgres (verified by D09/D10).
-        if (this.store.hasAsyncBackend()) return;
-        const ops = this.store.recoveryOps;
+        // Phase 199: dispatch to the async recovery-op store in shared mode.
+        // Awaiting a non-Promise value is a no-op, so both stores share one body.
+        const ops: any = this.store.hasAsyncBackend()
+            ? this.store.recoveryOpsAsync
+            : this.store.recoveryOps;
         // Phase 159: bounded iteration. Default Infinity preserves prior behavior.
         // A production scheduler may pass a finite limit to cap per-tick work.
-        const allCandidates = ops.listResumableOperations();
+        const allCandidates = await ops.listResumableOperations();
         const candidates = Number.isFinite(limit) && limit >= 0 ? allCandidates.slice(0, limit) : allCandidates;
         for (const op of candidates) {
             // Phase 145: a FAILED operation whose retry budget is exhausted
             // escalates to RECOVERY_REQUIRED rather than looping forever.
             if (op.state === "FAILED" && op.attemptCount >= 5) {
                 const owner = this.recoveryOwnerId();
-                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                const claim = await ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
                 if (claim.claimed) {
-                    ops.markRecoveryRequired(
+                    await ops.markRecoveryRequired(
                         op.operationId, owner,
                         "MAX_RECOVERY_ATTEMPTS_EXCEEDED_5: " + (op.lastError ?? "UNKNOWN"),
                         now
@@ -1934,11 +1933,11 @@ export class ExecutionEngine {
                 continue;
             }
 
-            const job = this.store.getJob(op.jobId);
+            const job = await this.getJobIO(op.jobId);
             if (!job) {
                 const owner = this.recoveryOwnerId();
-                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
-                if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "JOB_NOT_FOUND_DURING_RECONCILE", now);
+                const claim = await ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                if (claim.claimed) await ops.markRecoveryRequired(op.operationId, owner, "JOB_NOT_FOUND_DURING_RECONCILE", now);
                 continue;
             }
             const leaseId = op.leaseId ?? "";
@@ -1946,19 +1945,19 @@ export class ExecutionEngine {
 
             if (op.operationType === "CANCELLATION") {
                 if (job.status === "CANCELLED") {
-                    ops.finalizeCompletedOperation(op.operationId, now);
+                    await ops.finalizeCompletedOperation(op.operationId, now);
                     continue;
                 }
                 if (job.cancellationRequested &&
                     (job.status === "RUNNING" || job.status === "CLAIMED" ||
                      job.status === "VERIFYING" || job.status === "CANCELLATION_REQUESTED")) {
-                    this.runRecoveryOperation({
+                    await this.runRecoveryOperationAsync({
                         jobId: job.id, leaseId, workerId,
                         operationType: "CANCELLATION", now,
-                        body: () => {
-                            const live = this.store.getJob(job.id);
+                        body: async () => {
+                            const live = await this.getJobIO(job.id);
                             if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
-                            const result = this.store.recoverJobAtomic({
+                            const result = await this.recoverJobAtomicIO({
                                 jobId: job.id,
                                 expectedStatus: live.status,
                                 newStatus: "CANCELLED",
@@ -1967,7 +1966,7 @@ export class ExecutionEngine {
                                 obligation: { leaseId, workerId, reason: "CANCELLATION_REQUESTED_ON_LEASE_LOSS" },
                             });
                             if (result.ok) return { ok: true };
-                            const after = this.store.getJob(job.id);
+                            const after = await this.getJobIO(job.id);
                             if (after?.status === "CANCELLED") return { ok: true };
                             return { ok: false, error: "RECONCILE_CANCELLATION_FAILED" };
                         },
@@ -1975,28 +1974,28 @@ export class ExecutionEngine {
                     continue;
                 }
                 const owner = this.recoveryOwnerId();
-                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
-                if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "INCONSISTENT_JOB_STATE_" + job.status, now);
+                const claim = await ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                if (claim.claimed) await ops.markRecoveryRequired(op.operationId, owner, "INCONSISTENT_JOB_STATE_" + job.status, now);
                 continue;
             }
 
             if (op.operationType === "TIMEOUT") {
                 if (job.status === "RETRY_SCHEDULED" || job.status === "DEAD_LETTER") {
-                    ops.finalizeCompletedOperation(op.operationId, now);
+                    await ops.finalizeCompletedOperation(op.operationId, now);
                     continue;
                 }
                 if (job.status === "FAILED") {
-                    this.runRecoveryOperation({
+                    await this.runRecoveryOperationAsync({
                         jobId: job.id, leaseId, workerId,
                         operationType: "TIMEOUT", now,
-                        body: () => {
-                            const live = this.store.getJob(job.id);
+                        body: async () => {
+                            const live = await this.getJobIO(job.id);
                             if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
                             if (live.status === "RETRY_SCHEDULED" || live.status === "DEAD_LETTER") return { ok: true };
                             if (live.status !== "FAILED") return { ok: false, error: "UNEXPECTED_" + live.status };
                             const canRetry = this.recoveryCanRetry(live, "FAILED", "RETRY_SCHEDULED");
                             const nextStatus = canRetry ? "RETRY_SCHEDULED" : "DEAD_LETTER";
-                            const routed = this.store.recoverJobAtomic({
+                            const routed = await this.recoverJobAtomicIO({
                                 jobId: job.id,
                                 expectedStatus: "FAILED",
                                 newStatus: nextStatus as any,
@@ -2005,7 +2004,7 @@ export class ExecutionEngine {
                                 event: { eventType: "execution.recovery.rerouted", payload: { jobId: job.id, from: "FAILED", to: nextStatus, reason: "reconcile_timeout_step2" } },
                             });
                             if (routed.ok) return { ok: true };
-                            const after = this.store.getJob(job.id);
+                            const after = await this.getJobIO(job.id);
                             if (after && (after.status === "RETRY_SCHEDULED" || after.status === "DEAD_LETTER")) return { ok: true };
                             return { ok: false, error: "RECONCILE_TIMEOUT_STEP2_FAILED" };
                         },
@@ -2013,16 +2012,16 @@ export class ExecutionEngine {
                     continue;
                 }
                 if (job.status === "RUNNING" || job.status === "VERIFYING" || job.status === "CLAIMED") {
-                    this.runRecoveryOperation({
+                    await this.runRecoveryOperationAsync({
                         jobId: job.id, leaseId, workerId,
                         operationType: "TIMEOUT", now,
-                        body: () => {
-                            const live = this.store.getJob(job.id);
+                        body: async () => {
+                            const live = await this.getJobIO(job.id);
                             if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
                             if (live.status !== "RUNNING" && live.status !== "VERIFYING" && live.status !== "CLAIMED") {
                                 return { ok: false, error: "UNEXPECTED_" + live.status };
                             }
-                            const failed = this.store.recoverJobAtomic({
+                            const failed = await this.recoverJobAtomicIO({
                                 jobId: job.id,
                                 expectedStatus: live.status,
                                 newStatus: "FAILED",
@@ -2031,7 +2030,7 @@ export class ExecutionEngine {
                                 obligation: { leaseId, workerId, reason: "TIMEOUT_ON_LEASE_LOSS" },
                             });
                             if (failed.ok) return { ok: true };
-                            const after = this.store.getJob(job.id);
+                            const after = await this.getJobIO(job.id);
                             if (after?.status === "FAILED") return { ok: true };
                             return { ok: false, error: "RECONCILE_TIMEOUT_STEP1_FAILED" };
                         },
@@ -2039,33 +2038,33 @@ export class ExecutionEngine {
                     continue;
                 }
                 const owner = this.recoveryOwnerId();
-                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
-                if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "INCONSISTENT_JOB_STATE_" + job.status, now);
+                const claim = await ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                if (claim.claimed) await ops.markRecoveryRequired(op.operationId, owner, "INCONSISTENT_JOB_STATE_" + job.status, now);
                 continue;
             }
 
             if (op.operationType === "ORPHAN_RECOVERY") {
                 if (job.status === "QUEUED") {
-                    ops.finalizeCompletedOperation(op.operationId, now);
+                    await ops.finalizeCompletedOperation(op.operationId, now);
                     continue;
                 }
                 if (job.status === "ORPHANED") {
                     const canRetry = this.recoveryCanRetry(job, "ORPHANED", "QUEUED");
                     if (!canRetry) {
                         const owner = this.recoveryOwnerId();
-                        const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
-                        if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "NON_RETRYABLE_ORPHAN", now);
+                        const claim = await ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                        if (claim.claimed) await ops.markRecoveryRequired(op.operationId, owner, "NON_RETRYABLE_ORPHAN", now);
                         continue;
                     }
-                    this.runRecoveryOperation({
+                    await this.runRecoveryOperationAsync({
                         jobId: job.id, leaseId, workerId,
                         operationType: "ORPHAN_RECOVERY", now,
-                        body: () => {
-                            const live = this.store.getJob(job.id);
+                        body: async () => {
+                            const live = await this.getJobIO(job.id);
                             if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
                             if (live.status === "QUEUED") return { ok: true };
                             if (live.status !== "ORPHANED") return { ok: false, error: "UNEXPECTED_" + live.status };
-                            const requeue = this.store.recoverJobAtomic({
+                            const requeue = await this.recoverJobAtomicIO({
                                 jobId: job.id,
                                 expectedStatus: "ORPHANED",
                                 newStatus: "QUEUED",
@@ -2074,7 +2073,7 @@ export class ExecutionEngine {
                                 event: { eventType: "execution.recovery.requeued", payload: { jobId: job.id, from: "ORPHANED", to: "QUEUED", reason: "reconcile_orphan_step2" } },
                             });
                             if (requeue.ok) return { ok: true };
-                            const after = this.store.getJob(job.id);
+                            const after = await this.getJobIO(job.id);
                             if (after?.status === "QUEUED") return { ok: true };
                             return { ok: false, error: "RECONCILE_ORPHAN_STEP2_FAILED" };
                         },
@@ -2083,11 +2082,11 @@ export class ExecutionEngine {
                 }
                 if (job.status === "RUNNING" || job.status === "CLAIMED" ||
                     job.status === "VERIFYING" || job.status === "CANCELLATION_REQUESTED") {
-                    this.runRecoveryOperation({
+                    await this.runRecoveryOperationAsync({
                         jobId: job.id, leaseId, workerId,
                         operationType: "ORPHAN_RECOVERY", now,
-                        body: () => {
-                            const live = this.store.getJob(job.id);
+                        body: async () => {
+                            const live = await this.getJobIO(job.id);
                             if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
                             if (live.status === "QUEUED") return { ok: true };
 
@@ -2096,7 +2095,7 @@ export class ExecutionEngine {
                                     live.status !== "VERIFYING" && live.status !== "CANCELLATION_REQUESTED") {
                                     return { ok: false, error: "UNEXPECTED_" + live.status };
                                 }
-                                const orphan = this.store.recoverJobAtomic({
+                                const orphan = await this.recoverJobAtomicIO({
                                     jobId: job.id,
                                     expectedStatus: live.status,
                                     newStatus: "ORPHANED",
@@ -2105,21 +2104,21 @@ export class ExecutionEngine {
                                     obligation: { leaseId, workerId, reason: "LEASE_EXPIRED" },
                                 });
                                 if (!orphan.ok) {
-                                    const after = this.store.getJob(job.id);
+                                    const after = await this.getJobIO(job.id);
                                     if (!after || after.status !== "ORPHANED") {
                                         return { ok: false, error: "RECONCILE_ORPHAN_STEP1_FAILED" };
                                     }
                                 }
                             }
 
-                            const afterStep1 = this.store.getJob(job.id);
+                            const afterStep1 = await this.getJobIO(job.id);
                             if (!afterStep1 || afterStep1.status !== "ORPHANED") {
                                 return { ok: false, error: "RECONCILE_ORPHAN_STEP1_STATE_DRIFT" };
                             }
                             const canRetry = this.recoveryCanRetry(afterStep1, "ORPHANED", "QUEUED");
                             if (!canRetry) return { ok: false, recoveryRequired: "NON_RETRYABLE_ORPHAN" };
 
-                            const requeue = this.store.recoverJobAtomic({
+                            const requeue = await this.recoverJobAtomicIO({
                                 jobId: job.id,
                                 expectedStatus: "ORPHANED",
                                 newStatus: "QUEUED",
@@ -2128,7 +2127,7 @@ export class ExecutionEngine {
                                 event: { eventType: "execution.recovery.requeued", payload: { jobId: job.id, from: "ORPHANED", to: "QUEUED", reason: "reconcile_orphan_step2" } },
                             });
                             if (requeue.ok) return { ok: true };
-                            const afterStep2 = this.store.getJob(job.id);
+                            const afterStep2 = await this.getJobIO(job.id);
                             if (afterStep2?.status === "QUEUED") return { ok: true };
                             return { ok: false, error: "RECONCILE_ORPHAN_STEP2_FAILED" };
                         },
@@ -2136,14 +2135,14 @@ export class ExecutionEngine {
                     continue;
                 }
                 const owner = this.recoveryOwnerId();
-                const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
-                if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "INCONSISTENT_JOB_STATE_" + job.status, now);
+                const claim = await ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+                if (claim.claimed) await ops.markRecoveryRequired(op.operationId, owner, "INCONSISTENT_JOB_STATE_" + job.status, now);
                 continue;
             }
 
             const owner = this.recoveryOwnerId();
-            const claim = ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
-            if (claim.claimed) ops.markRecoveryRequired(op.operationId, owner, "UNSUPPORTED_OPERATION_TYPE_" + op.operationType, now);
+            const claim = await ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
+            if (claim.claimed) await ops.markRecoveryRequired(op.operationId, owner, "UNSUPPORTED_OPERATION_TYPE_" + op.operationType, now);
         }
     }
     requestCancellation(jobId: string): ExecutionJob | undefined {

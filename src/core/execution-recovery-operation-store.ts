@@ -649,4 +649,25 @@ export class AsyncExecutionRecoveryOperationStore {
     ).run(String(error).slice(0, 2000), now, operationId, owner, now);
     return r.changes === 1;
   }
+
+  // Phase 199: mirrors the sync listIncompleteOperations / listResumableOperations.
+  // Same SQL and same state semantics so reconciliation logic is backend-agnostic.
+  async listIncompleteOperations(): Promise<ExecutionRecoveryOperation[]> {
+    const rows = await this.asyncDb.prepareAsync(
+      "SELECT * FROM execution_recovery_operations " +
+      " WHERE state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
+      " ORDER BY created_at ASC"
+    ).all<any>();
+    return rows.map(mapRow);
+  }
+
+  async listResumableOperations(): Promise<ExecutionRecoveryOperation[]> {
+    const rows = await this.asyncDb.prepareAsync(
+      "SELECT * FROM execution_recovery_operations " +
+      " WHERE state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
+      "    OR state = 'FAILED' " +
+      " ORDER BY created_at ASC"
+    ).all<any>();
+    return rows.map(mapRow);
+  }
 }
