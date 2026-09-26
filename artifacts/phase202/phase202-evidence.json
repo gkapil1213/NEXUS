@@ -1,0 +1,58 @@
+{
+  "phase": "202",
+  "timestamp": "2026-09-26T17:05:29.669Z",
+  "commit": "f24680668ed06a6e270013ab41c97c45065f52d3",
+  "results": [
+    {
+      "name": "phase202a",
+      "command": "npx tsx scripts/test-phase202-durable-admission.ts",
+      "exit_code": 0,
+      "pass": 11,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "phase202b",
+      "command": "npx tsx scripts/test-phase202b-retry-eligibility.ts",
+      "exit_code": 0,
+      "pass": 13,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "phase202c",
+      "command": "npx tsx scripts/test-phase202c-concurrency.ts",
+      "exit_code": 0,
+      "pass": 19,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "phase202d",
+      "command": "npx tsx scripts/test-phase202d-shared-admission.ts",
+      "exit_code": 0,
+      "pass": 15,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "phase202e",
+      "command": "npx tsx scripts/test-phase202e-admission-stress.ts",
+      "exit_code": 0,
+      "pass": 10,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    }
+  ],
+  "summary": {
+    "total_pass": 68,
+    "total_fail": 0,
+    "total_blocked": 0,
+    "overall": "PASS"
+  }
+}
