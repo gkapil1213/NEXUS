@@ -84,6 +84,12 @@ export class StageExecutionStoreAdapter implements StageExecutionPersistencePort
     return this.store.listStageJobsForExecution(executionId).map((j) => this.toStage(j));
   }
 
+  // Phase 202d: shared-mode sibling. Reads via Postgres JSON operators.
+  async listForExecutionAsync(executionId: string): Promise<StageExecution[]> {
+    const jobs = await this.store.listStageJobsForExecutionAsync(executionId);
+    return jobs.map((j) => this.toStage(j));
+  }
+
   async insertIfAbsent(stage: StageExecution): Promise<StageExecution> {
     const existing = this.store.getJobByIdempotencyKey(stage.idempotencyKey);
     if (existing) return this.toStage(existing);

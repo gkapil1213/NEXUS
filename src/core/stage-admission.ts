@@ -56,3 +56,43 @@ export function evaluateStageAdmission(ctx: StageAdmissionContext): EligibilityR
     executionCancelled,
   });
 }
+
+/**
+ * Phase 202d: shared-mode sibling of evaluateStageAdmission. Reads from the
+ * async backend via listForExecutionAsync / getJobAsync / stageDepsAsync.
+ * Callers that know they are in shared mode (or that dispatch on
+ * hasAsyncBackend()) should prefer this. The sync variant remains valid for
+ * the SQLite path.
+ */
+export async function evaluateStageAdmissionAsync(
+  ctx: StageAdmissionContext,
+): Promise<EligibilityResult> {
+  const { store, executionId, stageName } = ctx;
+
+  if (!store.hasAsyncBackend()) {
+    // Defensive: if someone calls this in local mode, fall back to sync.
+    return evaluateStageAdmission(ctx);
+  }
+
+  const execJob = await store.getJobAsync(executionId);
+  const executionCancelled = Boolean(execJob?.cancellationRequested);
+
+  const adapter = new StageExecutionStoreAdapter(store);
+  const allStages: StageExecution[] = await adapter.listForExecutionAsync(executionId);
+  const stagesByName = new Map<string, StageExecution>();
+  for (const s of allStages) stagesByName.set(s.stageName, s);
+
+  const target = stagesByName.get(stageName);
+  if (!target) {
+    return { eligible: false, reason: "STAGE_NOT_FOUND" };
+  }
+
+  const deps = await store.stageDepsAsync!.getDependencies(executionId, stageName);
+
+  return isStageEligible({
+    stage: target,
+    dependencyNames: deps,
+    stagesByName,
+    executionCancelled,
+  });
+}

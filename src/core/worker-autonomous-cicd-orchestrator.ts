@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { createPipelineDefinition, validatePipelineDefinition } from './worker-pipeline-definition';
 import { PipelineExecution, PipelineExecutionStatus } from './worker-pipeline-execution';
 import { createStageExecution, StageExecution } from './worker-stage-execution';
-import { evaluateStageAdmission } from './stage-admission';
+import { evaluateStageAdmission, evaluateStageAdmissionAsync } from './stage-admission';
 import { StageExecutionStoreAdapter } from './stage-execution-store-adapter';
 import type {
   ProductionReleaseEnforcementService,
@@ -321,11 +321,17 @@ export async function orchestrateCICD(request: CICDRequest): Promise<CICDResult>
     // states, cancellation, and derived job status from the durable store
     // (no reliance on the in-memory `stages` array).
     {
-      const elig = evaluateStageAdmission({
-        store: request.store,
-        executionId: pipelineJob.id,
-        stageName,
-      });
+      const elig = request.store.hasAsyncBackend()
+        ? await evaluateStageAdmissionAsync({
+            store: request.store,
+            executionId: pipelineJob.id,
+            stageName,
+          })
+        : evaluateStageAdmission({
+            store: request.store,
+            executionId: pipelineJob.id,
+            stageName,
+          });
       const eventBase = {
         eventId: randomUUID(),
         jobId: pipelineJob.id,

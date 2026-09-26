@@ -176,6 +176,25 @@ export class ExecutionStore {
     }
     return out;
   }
+
+  // Phase 202d: shared-mode sibling of listStageJobsForExecution. Uses
+  // payload::jsonb ->> 'executionId' (Postgres JSON operator); the sync
+  // variant's json_extract is SQLite-only syntax.
+  async listStageJobsForExecutionAsync(executionId: string): Promise<ExecutionJob[]> {
+    if (!this.asyncDb) throw new Error("listStageJobsForExecutionAsync requires shared mode");
+    const rows = await this.asyncDb.prepareAsync(
+      "SELECT id FROM execution_jobs " +
+      "WHERE job_type = 'pipeline.stage' " +
+      "  AND (payload::jsonb ->> 'executionId') = ? " +
+      "ORDER BY id ASC"
+    ).all<{ id: string }>(executionId);
+    const out: ExecutionJob[] = [];
+    for (const r of rows) {
+      const j = await this.getJobAsync(r.id);
+      if (j) out.push(j);
+    }
+    return out;
+  }
   readonly recoveryOps: ExecutionRecoveryOperationStore;
   readonly recoveryOpsAsync?: AsyncExecutionRecoveryOperationStore;
   readonly stageDeps: StageDependencyStore;
