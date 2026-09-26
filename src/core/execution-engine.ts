@@ -766,8 +766,9 @@ export class ExecutionEngine {
     jobId: string, attemptId: string, workerId: string, leaseId: string,
     now: number = Date.now(),
   ): Promise<{ ok: boolean; reason?: string }> {
-    if (this.store.hasAsyncBackend()) return { ok: false, reason: "SHARED_MODE_NOT_IMPLEMENTED" };
-    const res = this.store.recordAttemptHeartbeatAsOwner(attemptId, jobId, leaseId, workerId, now);
+    const res = this.store.hasAsyncBackend()
+      ? await this.store.recordAttemptHeartbeatAsOwnerAsync(attemptId, jobId, leaseId, workerId, now)
+      : this.store.recordAttemptHeartbeatAsOwner(attemptId, jobId, leaseId, workerId, now);
     if (res.updated) {
       try {
         this.fireAndForget(this.deps.events?.emit({
@@ -786,8 +787,9 @@ export class ExecutionEngine {
     jobId: string, attemptId: string, workerId: string, leaseId: string,
     now: number = Date.now(),
   ): Promise<{ ok: boolean; reason?: string }> {
-    if (this.store.hasAsyncBackend()) return { ok: false, reason: "SHARED_MODE_NOT_IMPLEMENTED" };
-    const res = this.store.recordAttemptProgressAsOwner(attemptId, jobId, leaseId, workerId, now);
+    const res = this.store.hasAsyncBackend()
+      ? await this.store.recordAttemptProgressAsOwnerAsync(attemptId, jobId, leaseId, workerId, now)
+      : this.store.recordAttemptProgressAsOwner(attemptId, jobId, leaseId, workerId, now);
     if (res.updated) {
       try {
         this.fireAndForget(this.deps.events?.emit({

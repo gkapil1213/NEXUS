@@ -4772,6 +4772,46 @@ export class ExecutionStore {
     return { updated: false, reason: exists ? "WORKER_OWNERSHIP_LOST" : "ATTEMPT_NOT_FOUND" };
   }
 
+  // Phase 198: async (Postgres) twins of the heartbeat/progress CAS.
+  // Same WHERE predicate as the sync versions -- same ownership boundary
+  // enforced on the shared backend. Owner identity (lease_id, worker_id,
+  // job_id) and lease validity (ACTIVE, unexpired) are required atomically
+  // in the UPDATE; a zero-row result is distinguished by reading the
+  // attempt back. Never treat ownership loss as success.
+  async recordAttemptHeartbeatAsOwnerAsync(
+    attemptId: string, jobId: string, leaseId: string, workerId: string,
+    now: number = Date.now(),
+  ): Promise<{ updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" | "ATTEMPT_NOT_FOUND" }> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(
+      "UPDATE execution_attempts SET heartbeat_at = ? " +
+      "WHERE id = ? AND job_id = ? AND status = 'RUNNING' " +
+      "AND EXISTS (SELECT 1 FROM execution_leases " +
+      "  WHERE lease_id = ? AND worker_id = ? AND job_id = ? " +
+      "    AND status = 'ACTIVE' AND expires_at > ?)"
+    ).run(now, attemptId, jobId, leaseId, workerId, jobId, now);
+    if ((r.changes ?? 0) === 1) return { updated: true };
+    const exists = await this.getAttemptAsync(attemptId);
+    return { updated: false, reason: exists ? "WORKER_OWNERSHIP_LOST" : "ATTEMPT_NOT_FOUND" };
+  }
+
+  async recordAttemptProgressAsOwnerAsync(
+    attemptId: string, jobId: string, leaseId: string, workerId: string,
+    now: number = Date.now(),
+  ): Promise<{ updated: boolean; reason?: "WORKER_OWNERSHIP_LOST" | "ATTEMPT_NOT_FOUND" }> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(
+      "UPDATE execution_attempts SET last_progress_at = ? " +
+      "WHERE id = ? AND job_id = ? AND status = 'RUNNING' " +
+      "AND EXISTS (SELECT 1 FROM execution_leases " +
+      "  WHERE lease_id = ? AND worker_id = ? AND job_id = ? " +
+      "    AND status = 'ACTIVE' AND expires_at > ?)"
+    ).run(now, attemptId, jobId, leaseId, workerId, jobId, now);
+    if ((r.changes ?? 0) === 1) return { updated: true };
+    const exists = await this.getAttemptAsync(attemptId);
+    return { updated: false, reason: exists ? "WORKER_OWNERSHIP_LOST" : "ATTEMPT_NOT_FOUND" };
+  }
+
   getAttemptProgress(attemptId: string): { heartbeatAt: number | null; lastProgressAt: number | null } {
     const row = this.db.prepare(
       "SELECT heartbeat_at, last_progress_at FROM execution_attempts WHERE id = ?"
