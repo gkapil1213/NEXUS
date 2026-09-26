@@ -78,6 +78,26 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
         ON execution_jobs (status) WHERE status IN ('ADMITTED', 'CLAIMED', 'RUNNING', 'VERIFYING')
     `);
 
+
+    // Phase 183c: execution_attempts. INTEGER timestamps -> BIGINT.
+    // No FOREIGN KEY declaration -- production code enforces the parent
+    // relationship at the application layer, same as execution_leases.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS execution_attempts (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        attempt_number INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        worker_id TEXT,
+        lease_id TEXT,
+        started_at BIGINT,
+        completed_at BIGINT,
+        error TEXT,
+        evidence TEXT,
+        created_at BIGINT NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_attempts_job ON execution_attempts (job_id, attempt_number)`);
     // Phase 187: attempt-level heartbeat. Independent of worker last_heartbeat_at
     // so a stuck executor thread on a live worker is still detectable.
     await client.query(`ALTER TABLE execution_attempts ADD COLUMN IF NOT EXISTS heartbeat_at BIGINT`);
@@ -250,25 +270,6 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_kind ON release_deployment_intents (intent_kind)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_release_environment ON release_deployment_intents (release_id, environment)`);
 
-    // Phase 183c: execution_attempts. INTEGER timestamps -> BIGINT.
-    // No FOREIGN KEY declaration -- production code enforces the parent
-    // relationship at the application layer, same as execution_leases.
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS execution_attempts (
-        id TEXT PRIMARY KEY,
-        job_id TEXT NOT NULL,
-        attempt_number INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        worker_id TEXT,
-        lease_id TEXT,
-        started_at BIGINT,
-        completed_at BIGINT,
-        error TEXT,
-        evidence TEXT,
-        created_at BIGINT NOT NULL
-      )
-    `);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_attempts_job ON execution_attempts (job_id, attempt_number)`);
 
     // Phase 183c: execution_workers.
     await client.query(`

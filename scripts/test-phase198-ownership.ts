@@ -16,6 +16,8 @@ import { LeaseManager } from "../src/core/lease-manager";
 import { ExecutionEngine } from "../src/core/execution-engine";
 import { RetryEngine } from "../src/core/retry-engine";
 import { WorkerRegistry } from "../src/core/worker-registry";
+import { PgClient } from "../src/core/pg-client";
+import { bootstrapPgSchema } from "../src/core/pg-bootstrap";
 
 let pass = 0, fail = 0, blocked = 0;
 function ok(n: string, c: boolean, d = "") {
@@ -275,6 +277,14 @@ async function main() {
     blocked++;
     console.log("[BLOCKED] S7 DATABASE_URL not set; async path not exercised");
   } else {
+    // Self-contained schema setup -- matches the phase183a convention of
+    // applying the shared schema inside the test rather than requiring an
+    // external bootstrap step.
+    const pgBoot = new PgClient();
+    await pgBoot.connect(url);
+    try { await bootstrapPgSchema(pgBoot); }
+    finally { await pgBoot.close(); }
+
     const res = await runChild(url, "race-lease", "job_p198_s7");
     if (res.code !== 0) {
       blocked++;

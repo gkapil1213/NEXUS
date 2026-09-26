@@ -51,19 +51,39 @@ Test suite: `scripts/test-phase198-ownership.ts` — 25 PASS / 0 FAIL.
 | New worker acquires and mutates cleanly | H |
 | Old worker cannot renew/heartbeat/progress after fence | I |
 
-## BLOCKED
+## Test J — async lease race (Postgres)
 
-Test J (concurrent async lease acquisition against Postgres) is
-`BLOCKED` on the current machine:
+PASS: `[PASSED] J exactly one ACTIVE lease wins`, `[PASSED] J loser sees
+{ acquired: false }`, `[PASSED] J single ACTIVE lease in DB`.
 
-    [BLOCKED] S7 child exit=1 stderr=CHILD_FAIL: AggregateError
-    [ECONNREFUSED]
+Running the S7 harness against a live Postgres surfaced three latent
+defects in the shared-backend code path. All three are fixed and the
+race now passes end-to-end:
 
-Cause: `DATABASE_URL` is set but no Postgres server is listening on
-that port. The child harness (`scripts/_phase198_pg_child.ts`) exists
-and would run if a reachable Postgres were available. This is not a
-code defect — it is the explicit missing-dependency case allowed by
-the phase specification.
+1. `ExecutionStore.acquireLeaseAsync` passed parameterized SQL
+   (`... WHERE job_id = ? ...`) to `tx.execAsync(sql)` — which accepts
+   no parameters. Postgres rejected the unsubstituted `?` with a
+   syntax error. Fixed to use `tx.prepareAsync(sql).run(jobId,
+   acquiredAt)`, matching the convention used by every other
+   parameterized async method in the store.
+
+2. `bootstrapPgSchema` (`src/core/pg-bootstrap.ts`) executed
+   `ALTER TABLE execution_attempts ADD COLUMN ... heartbeat_at`
+   before the corresponding `CREATE TABLE execution_attempts`, causing
+   `relation "execution_attempts" does not exist`. The CREATE and its
+   `idx_attempts_job` index now precede the ALTER.
+
+3. `acquireLeaseAsync`'s duplicate-key handler ran a follow-up
+   `SELECT` inside the same `transactionAsync` block as the failed
+   `INSERT`. Postgres aborts a transaction on any statement failure,
+   so the follow-up read was rejected with
+   `current transaction is aborted`. The try/catch now wraps the
+   `transactionAsync` call instead of living inside it, so the
+   duplicate-key check runs after rollback on a fresh connection
+   state.
+
+Test J is self-contained: S7 applies `bootstrapPgSchema` (idempotent)
+before spawning the child.
 
 ## Files touched
 

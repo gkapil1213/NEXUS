@@ -1336,13 +1336,19 @@ export class ExecutionStore {
   async acquireLeaseAsync(lease: ExecutionLease): Promise<{ acquired: boolean; existingLease?: ExecutionLease }> {
     const engine = this.requireAsyncDb();
     // Phase 194: same expired-lease retirement as the sync path.
-    return engine.transactionAsync(async (tx) => {
-      await tx.execAsync(
-        "UPDATE execution_leases SET status = 'EXPIRED' " +
-        "WHERE job_id = ? AND status = 'ACTIVE' AND expires_at <= ?"
-      );
+    // Postgres aborts a transaction on any statement failure, so a
+    // duplicate-key violation must be handled AFTER the transaction has
+    // rolled back -- not with a SELECT inside the aborted transaction.
+    // The retire-UPDATE commits atomically with the winner's INSERT;
+    // the loser's retire-UPDATE rolls back with its failed INSERT, which
+    // is correct (it retired nothing that mattered on the winner's behalf).
+    try {
+      return await engine.transactionAsync(async (tx) => {
+        await tx.prepareAsync(
+          "UPDATE execution_leases SET status = 'EXPIRED' " +
+          "WHERE job_id = ? AND status = 'ACTIVE' AND expires_at <= ?"
+        ).run(lease.jobId, lease.acquiredAt);
 
-      try {
         await tx.prepareAsync(
           "INSERT INTO execution_leases (" +
           "  lease_id, job_id, worker_id, acquired_at, expires_at, " +
@@ -1354,16 +1360,16 @@ export class ExecutionStore {
           lease.renewedAt ?? null, lease.releasedAt ?? null, lease.status,
         );
         return { acquired: true };
-      } catch (err: any) {
-        if (err.code === "23505" || /duplicate key/i.test(String(err.message))) {
-          const row = await tx.prepareAsync(
-            "SELECT * FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE' AND expires_at > ?"
-          ).get<any>(lease.jobId, lease.acquiredAt);
-          return { acquired: false, existingLease: row ? this.mapLease(row) : undefined };
-        }
-        throw err;
+      });
+    } catch (err: any) {
+      if (err.code === "23505" || /duplicate key/i.test(String(err.message))) {
+        const row = await engine.prepareAsync(
+          "SELECT * FROM execution_leases WHERE job_id = ? AND status = 'ACTIVE' AND expires_at > ?"
+        ).get<any>(lease.jobId, lease.acquiredAt);
+        return { acquired: false, existingLease: row ? this.mapLease(row) : undefined };
       }
-    });
+      throw err;
+    }
   }
 
   async updateLeaseAsync(lease: ExecutionLease): Promise<void> {
