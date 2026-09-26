@@ -13,6 +13,8 @@ export type EligibilityReason =
   | "STAGE_TERMINAL"
   | "STAGE_NOT_PENDING"
   | "DEPENDENCY_NOT_SUCCEEDED"
+  | "DEPENDENCY_IN_FLIGHT"
+  | "DEPENDENCY_RETRY_PENDING"
   | "DEPENDENCY_TERMINAL_FAILURE"
   | "EXECUTION_CANCELLED";
 
@@ -28,6 +30,8 @@ export interface EligibilityResult {
   reason: EligibilityReason;
   missingDependencies?: string[];
   failingDependencies?: string[];
+  inFlightDependencies?: string[];
+  retryPendingDependencies?: string[];
 }
 
 const TERMINAL_FAILURE_STATES: readonly StageStatus[] = ["FAILED", "CANCELLED", "SKIPPED"];
@@ -51,17 +55,36 @@ export function isStageEligible(input: EligibilityInput): EligibilityResult {
 
   const missing: string[] = [];
   const failing: string[] = [];
+  const inFlight: string[] = [];
+  const retryPending: string[] = [];
 
   for (const depName of input.dependencyNames) {
     const dep = input.stagesByName.get(depName);
     if (!dep) { missing.push(depName); continue; }
     if (dep.status === "SUCCEEDED") continue;
+
+    // Phase 202b: read the durable underlying job status when available.
+    // StageStatus collapses RETRY_SCHEDULED/DEAD_LETTER into FAILED, so we
+    // consult derivedJobStatus to distinguish transient states from terminal.
+    const dj = dep.derivedJobStatus;
+    if (dj === "RETRY_SCHEDULED") { retryPending.push(depName); continue; }
+    if (dj === "RUNNING" || dj === "CLAIMED" || dj === "VERIFYING" || dj === "ADMITTED") {
+      inFlight.push(depName);
+      continue;
+    }
+
     if (TERMINAL_FAILURE_STATES.includes(dep.status)) { failing.push(depName); continue; }
     missing.push(depName);
   }
 
   if (failing.length > 0) {
     return { eligible: false, reason: "DEPENDENCY_TERMINAL_FAILURE", failingDependencies: failing };
+  }
+  if (retryPending.length > 0) {
+    return { eligible: false, reason: "DEPENDENCY_RETRY_PENDING", retryPendingDependencies: retryPending };
+  }
+  if (inFlight.length > 0) {
+    return { eligible: false, reason: "DEPENDENCY_IN_FLIGHT", inFlightDependencies: inFlight };
   }
   if (missing.length > 0) {
     return { eligible: false, reason: "DEPENDENCY_NOT_SUCCEEDED", missingDependencies: missing };

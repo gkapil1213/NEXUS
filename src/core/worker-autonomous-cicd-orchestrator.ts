@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { createPipelineDefinition, validatePipelineDefinition } from './worker-pipeline-definition';
 import { PipelineExecution, PipelineExecutionStatus } from './worker-pipeline-execution';
 import { createStageExecution, StageExecution } from './worker-stage-execution';
-import { isStageEligible } from './stage-eligibility';
+import { evaluateStageAdmission } from './stage-admission';
 import { StageExecutionStoreAdapter } from './stage-execution-store-adapter';
 import type {
   ProductionReleaseEnforcementService,
@@ -317,27 +317,50 @@ export async function orchestrateCICD(request: CICDRequest): Promise<CICDResult>
       return { status: 'BLOCKED' as const, reason, blockedReason: 'RECOVERY_REQUIRED', pipeline, execution, stages, auditEvents, evidence };
     }
 
-    // Phase 201b: dependency eligibility gate. In this sequential loop every
-    // previously processed stage is already present in `stages`; a dependency
-    // that has not yet appeared (declared later) or that terminated without
-    // success blocks this stage.
+    // Phase 202b: durable runtime admission. Reads dependency graph, stage
+    // states, cancellation, and derived job status from the durable store
+    // (no reliance on the in-memory `stages` array).
     {
-      const deps = request.store.stageDeps.getDependencies(pipelineJob.id, stageName);
-      if (deps.length > 0) {
-        const stagesByName = new Map<string, StageExecution>();
-        for (const s of stages) stagesByName.set(s.stageName, s);
-        const elig = isStageEligible({
-          stage: stored,
-          dependencyNames: deps,
-          stagesByName,
-          executionCancelled: Boolean(pipelineJob.cancellationRequested),
-        });
-        if (!elig.eligible) {
-          const reason = `stage ${stageName} ineligible: ${elig.reason}`;
-          failPipeline(reason, 'BLOCKED');
-          return { status: 'BLOCKED' as const, reason, blockedReason: elig.reason, pipeline, execution, stages, auditEvents, evidence };
-        }
+      const elig = evaluateStageAdmission({
+        store: request.store,
+        executionId: pipelineJob.id,
+        stageName,
+      });
+      const eventBase = {
+        eventId: randomUUID(),
+        jobId: pipelineJob.id,
+        createdAt: Date.now(),
+      };
+      if (!elig.eligible) {
+        try {
+          request.store.addEvent({
+            ...eventBase,
+            eventType: 'execution.dependency.blocked',
+            payload: {
+              executionId: pipelineJob.id,
+              stageName,
+              reason: elig.reason,
+              missingDependencies: elig.missingDependencies ?? null,
+              failingDependencies: elig.failingDependencies ?? null,
+              inFlightDependencies: elig.inFlightDependencies ?? null,
+              retryPendingDependencies: elig.retryPendingDependencies ?? null,
+            },
+          });
+        } catch { /* audit best-effort */ }
+        const reason = `stage ${stageName} ineligible: ${elig.reason}`;
+        failPipeline(reason, 'BLOCKED');
+        return { status: 'BLOCKED' as const, reason, blockedReason: elig.reason, pipeline, execution, stages, auditEvents, evidence };
       }
+      try {
+        request.store.addEvent({
+          ...eventBase,
+          eventType: 'execution.dependency.satisfied',
+          payload: {
+            executionId: pipelineJob.id,
+            stageName,
+          },
+        });
+      } catch { /* audit best-effort */ }
     }
     // Acquire stage lease
     let stageLease;

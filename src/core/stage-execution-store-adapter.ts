@@ -210,6 +210,7 @@ export class StageExecutionStoreAdapter implements StageExecutionPersistencePort
       stageName: p.stageName,
       attempt: p.attempt,
       status: jobToStageStatus(job), // durable status wins over projection
+      derivedJobStatus: job.status,  // Phase 202b: preserve true job state for retry-aware eligibility
       executor: p.executor,
       inputFingerprint: p.inputFingerprint,
       outputFingerprint: p.outputFingerprint,

@@ -26,6 +26,14 @@ export interface StageExecution {
   workerId?: string;
   leaseId?: string;
   evidenceRef?: string;
+  /**
+   * Phase 202b: durable projection of the underlying ExecutionJob.status.
+   * Stage status collapses RETRY_SCHEDULED and DEAD_LETTER into FAILED;
+   * this field preserves the true job state so dependency eligibility can
+   * distinguish "retrying" from "terminal failure". Optional so existing
+   * callers that construct StageExecution literals remain valid.
+   */
+  derivedJobStatus?: string;
 }
 
 const VALID_TRANSITIONS: Record<StageStatus, StageStatus[]> = {
