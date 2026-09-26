@@ -1622,6 +1622,11 @@ export class ExecutionEngine {
         // writes only supervision_state / failure_class and emits stall_detected.
         try { this.runSupervisionPass(now); } catch { /* isolated */ }
 
+        // Phase 197: fence and recover heartbeat/progress-stalled attempts.
+        // Uses CONFIG.recovery.* defaults; idempotent CAS prevents duplicate recovery.
+        try { this.recoverStalledAttemptsTick(now); } catch { /* isolated */ }
+
+
         const expiredLeases = await this.recoverExpiredLeasesIO(now);
         for (const lease of expiredLeases) {
             try {

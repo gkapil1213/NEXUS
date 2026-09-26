@@ -179,6 +179,31 @@ async function main() {
          && e.payload?.reason === "RECOVER_JOB_ATOMIC_FAILED").length === 1);
   }
 
+  console.log("\nS7 recoverStaleJobs integration");
+  {
+    const JOB_INT = "job_p197_int";
+    store.createJob(makeJob(JOB_INT, NOW));
+    const lInt = leases.acquireLease(JOB_INT, "worker-A", 600_000);
+    store.createAttempt(makeAttempt("att_p197_int", JOB_INT, "worker-A", lInt.leaseId, NOW));
+    await execEngine.recordHeartbeat(JOB_INT, "att_p197_int", "worker-A", lInt.leaseId, NOW);
+    await execEngine.recordProgress(JOB_INT, "att_p197_int", "worker-A", lInt.leaseId, NOW);
+
+    // recoverStaleJobs uses CONFIG.recovery.* defaults
+    // (staleAttemptMs=30s, heartbeatTimeoutMs=30s), so LATER_INT must
+    // exceed those. Lease is 10 min so it stays active — the tick,
+    // not lease-expiry, is what fences this attempt.
+    const LATER_INT = NOW + 40_000;
+
+    // Drive the production entry point, not the tick directly.
+    await execEngine.recoverStaleJobs(LATER_INT);
+
+    ok("7 recoverStaleJobs wired to tick: attempt FAILED",
+       store.getAttempt("att_p197_int")?.status === "FAILED",
+       "status=" + store.getAttempt("att_p197_int")?.status);
+    ok("7 recoverStaleJobs wired to tick: job QUEUED",
+       store.getJob(JOB_INT)?.status === "QUEUED",
+       "status=" + store.getJob(JOB_INT)?.status);
+  }
   console.log("\nS5 restart durability");
   engine.close();
   const h2 = await open(DB);
