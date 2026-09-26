@@ -1386,9 +1386,9 @@ export class ExecutionEngine {
      * execution_attempts table, and the same budget check the live path uses is
      * applied before allowing RETRY_SCHEDULED or QUEUED from recovery.
      */
-    private recoveryCanRetry(job: ExecutionJob, from: ExecutionJobStatus, to: ExecutionJobStatus, attemptsUsedOverride?: number): boolean {
+    private async recoveryCanRetry(job: ExecutionJob, from: ExecutionJobStatus, to: ExecutionJobStatus, attemptsUsedOverride?: number): Promise<boolean> {
         if (!job.retryPolicy) return false;
-        const attemptsUsed = attemptsUsedOverride ?? this.store.listAttemptsForJob(job.id).length;
+        const attemptsUsed = attemptsUsedOverride ?? (await this.listAttemptsForJobIO(job.id)).length;
         if (attemptsUsed >= job.retryPolicy.maxAttempts) return false;
         return this.stateMachine.canTransition(from, to);
     }
@@ -1759,7 +1759,7 @@ export class ExecutionEngine {
                             return { ok: false, error: "TIMEOUT_STEP1_STATE_DRIFT" };
                         }
                         const attemptsUsedT = (await this.listAttemptsForJobIO(job.id)).length;
-                        const canRetry = this.recoveryCanRetry(afterStep1, "FAILED", "RETRY_SCHEDULED", attemptsUsedT);
+                        const canRetry = await this.recoveryCanRetry(afterStep1, "FAILED", "RETRY_SCHEDULED", attemptsUsedT);
                         const nextStatus = canRetry ? "RETRY_SCHEDULED" : "DEAD_LETTER";
                         const routed = await this.recoverJobAtomicIO({
                             jobId: job.id,
@@ -1831,7 +1831,7 @@ export class ExecutionEngine {
                         return { ok: false, error: "ORPHAN_STEP1_STATE_DRIFT" };
                     }
                     const attemptsUsedO = (await this.listAttemptsForJobIO(job.id)).length;
-                    const canRetry = this.recoveryCanRetry(afterStep1, "ORPHANED", "QUEUED", attemptsUsedO);
+                    const canRetry = await this.recoveryCanRetry(afterStep1, "ORPHANED", "QUEUED", attemptsUsedO);
                     if (!canRetry) return { ok: false, recoveryRequired: "NON_RETRYABLE_ORPHAN" };
 
                     const requeue = await this.recoverJobAtomicIO({
@@ -1993,7 +1993,7 @@ export class ExecutionEngine {
                             if (!live) return { ok: false, error: "JOB_NOT_FOUND" };
                             if (live.status === "RETRY_SCHEDULED" || live.status === "DEAD_LETTER") return { ok: true };
                             if (live.status !== "FAILED") return { ok: false, error: "UNEXPECTED_" + live.status };
-                            const canRetry = this.recoveryCanRetry(live, "FAILED", "RETRY_SCHEDULED");
+                            const canRetry = await this.recoveryCanRetry(live, "FAILED", "RETRY_SCHEDULED");
                             const nextStatus = canRetry ? "RETRY_SCHEDULED" : "DEAD_LETTER";
                             const routed = await this.recoverJobAtomicIO({
                                 jobId: job.id,
@@ -2049,7 +2049,7 @@ export class ExecutionEngine {
                     continue;
                 }
                 if (job.status === "ORPHANED") {
-                    const canRetry = this.recoveryCanRetry(job, "ORPHANED", "QUEUED");
+                    const canRetry = await this.recoveryCanRetry(job, "ORPHANED", "QUEUED");
                     if (!canRetry) {
                         const owner = this.recoveryOwnerId();
                         const claim = await ops.claimOperation({ operationId: op.operationId, owner, durationMs: 60000, now });
@@ -2115,7 +2115,7 @@ export class ExecutionEngine {
                             if (!afterStep1 || afterStep1.status !== "ORPHANED") {
                                 return { ok: false, error: "RECONCILE_ORPHAN_STEP1_STATE_DRIFT" };
                             }
-                            const canRetry = this.recoveryCanRetry(afterStep1, "ORPHANED", "QUEUED");
+                            const canRetry = await this.recoveryCanRetry(afterStep1, "ORPHANED", "QUEUED");
                             if (!canRetry) return { ok: false, recoveryRequired: "NON_RETRYABLE_ORPHAN" };
 
                             const requeue = await this.recoverJobAtomicIO({
