@@ -158,6 +158,24 @@ class AtomicClaimReject extends Error {
   }
 }
 export class ExecutionStore {
+  // Phase 202a: load all stage jobs belonging to an execution from durable
+  // storage. Stage jobs are execution_jobs rows with job_type = 'pipeline.stage'
+  // whose payload.executionId matches. SQLite-only for now; async sibling
+  // arrives in a later slice when PostgreSQL runtime admission is exercised.
+  listStageJobsForExecution(executionId: string): ExecutionJob[] {
+    const rows = this.db.prepare(
+      "SELECT id FROM execution_jobs " +
+      "WHERE job_type = 'pipeline.stage' " +
+      "  AND json_extract(payload, '$.executionId') = ? " +
+      "ORDER BY id ASC"
+    ).all(executionId) as Array<{ id: string }>;
+    const out: ExecutionJob[] = [];
+    for (const r of rows) {
+      const j = this.getJob(r.id);
+      if (j) out.push(j);
+    }
+    return out;
+  }
   readonly recoveryOps: ExecutionRecoveryOperationStore;
   readonly recoveryOpsAsync?: AsyncExecutionRecoveryOperationStore;
   readonly stageDeps: StageDependencyStore;

@@ -9,6 +9,7 @@ import type { StageExecution, StageStatus } from "./worker-stage-execution";
 
 export type EligibilityReason =
   | "ELIGIBLE"
+  | "STAGE_NOT_FOUND"
   | "STAGE_TERMINAL"
   | "STAGE_NOT_PENDING"
   | "DEPENDENCY_NOT_SUCCEEDED"

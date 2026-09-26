@@ -79,6 +79,11 @@ export class StageExecutionStoreAdapter implements StageExecutionPersistencePort
     return job ? this.toStage(job) : null;
   }
 
+  // Phase 202a: load every stage in an execution from durable storage.
+  listForExecutionSync(executionId: string): StageExecution[] {
+    return this.store.listStageJobsForExecution(executionId).map((j) => this.toStage(j));
+  }
+
   async insertIfAbsent(stage: StageExecution): Promise<StageExecution> {
     const existing = this.store.getJobByIdempotencyKey(stage.idempotencyKey);
     if (existing) return this.toStage(existing);
@@ -192,7 +197,7 @@ export class StageExecutionStoreAdapter implements StageExecutionPersistencePort
     };
   }
 
-  private toStage(job: ExecutionJob): StageExecution {
+  toStage(job: ExecutionJob): StageExecution {
     const p = job.payload as StagePayload | undefined;
     if (!p || p.kind !== 'pipeline.stage') {
       throw new Error('job ' + job.id + ' is not a pipeline.stage');
