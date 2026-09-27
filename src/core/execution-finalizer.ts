@@ -45,6 +45,14 @@ export function computeExecutionOutcome(
     return { outcome: "CANCELLED", reason: "STAGE_CANCELLED" };
   }
 
+  // Phase 205: retry-pending stages keep the parent non-terminal even
+  // though StageStatus collapses RETRY_SCHEDULED to FAILED. Without
+  // this check a retrying pipeline would finalize FAILED prematurely.
+  const retrying = stages.filter((s) => s.derivedJobStatus === "RETRY_SCHEDULED");
+  if (retrying.length > 0) {
+    return { outcome: "RUNNING", reason: "STAGES_RETRY_PENDING:" + retrying.length };
+  }
+
   // Any terminal stage failure ? parent FAILED.
   if (stages.some((s) => STAGE_TERMINAL_FAILURE.includes(s.status))) {
     return { outcome: "FAILED", reason: "STAGE_TERMINAL_FAILURE" };
