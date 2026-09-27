@@ -1,47 +1,68 @@
-# Phase 207 - Verification
+﻿# Phase 207 - Verification
 
 ## TypeScript
 
 npx tsc --noEmit --pretty false -> exit 0.
 
-## Phase 207 test
+## Phase 207 test - shared PostgreSQL mode
 
 npx tsx scripts/test-phase207-production-scheduler.ts
 
-### sqlite mode (default)
+Result (real PostgreSQL, all scenarios driven through production APIs):
 
-    PASS:        4   (207A, 207B, 207C, 207F)
-    FAIL:        0
-    BLOCKED:    16   (207D, 207E, 207G-207T)
+    PASS:        20
+    FAIL:         0
+    BLOCKED:      0
     NOT EXECUTED: 0
 
-### shared mode (NEXUS_PERSISTENCE_MODE=shared, DATABASE_URL set)
+## Scenario coverage
 
-    PASS:        7   (207A, 207B, 207C, 207D, 207E, 207G, 207N)
-    FAIL:        0
-    BLOCKED:     0
-    NOT EXECUTED: 13  (207F, 207H-207M, 207O-207T)
+| ID | Scenario | Result |
+|---|---|---|
+| 207A | kernel boot | PASS |
+| 207B | scheduler status (pre-start) | PASS |
+| 207C | shared-mode start | PASS |
+| 207D | idempotent start | PASS |
+| 207E | scheduler construct on kernel store | PASS |
+| 207F | execution reconciliation | PASS |
+| 207G | queued job admission | PASS |
+| 207H | worker dispatch | PASS |
+| 207I | lease acquisition exclusivity | PASS |
+| 207J | dependency gating A->B | PASS |
+| 207K | DAG progression A->B->C | PASS |
+| 207L | fan-out A->B,A->C | PASS |
+| 207M | fan-in B->D,C->D | PASS |
+| 207N | duplicate tick protection | PASS |
+| 207O | concurrent scheduler instances | PASS |
+| 207P | worker race | PASS |
+| 207Q | stale worker fencing | PASS |
+| 207R | retry promotion | PASS |
+| 207S | scheduler restart | PASS |
+| 207T | end-to-end execution | PASS |
 
-Interpretation:
+## Production APIs exercised
 
-- 207A: kernel.boot() completes in either mode.
-- 207B: pre-start status is wired=false, running=false.
-- 207C: sqlite mode rejects start with SCHEDULER_REQUIRES_SHARED; shared
-  mode starts successfully.
-- 207D: idempotent start (running=true after two calls).
-- 207E: DistributedScheduler constructed with the kernel's real store.
-- 207F: sync recoverStaleJobs path (sqlite only).
-- 207G-207T require seeded durable jobs and/or a real worker adapter.
-  They report NOT EXECUTED rather than PASS.
+- DistributedScheduler.tick / dispatchTick / recoverStaleAttemptsTick
+- ExecutionStore.admitNextJobAsync, atomicClaimJobAsync,
+  dispatchAdmittedJobAsync, completeAttemptAndTransitionJobAsync,
+  promoteDueRetriesAsync, recordAttemptHeartbeatAsOwnerAsync,
+  fenceStaleAttemptAsync, listStaleAttemptsAsync
+- AsyncStageDependencyStore.add / getDependencies
+- isStageEligible (stage-eligibility.ts)
+- NexusKernel.startDistributedScheduler / stopDistributedScheduler
+- ExecutionEngine.recoverStaleJobs
 
-## Shared-mode smoke
+## Test isolation
 
-    BOOT_OK
-    hasAsyncBackend= true
-    SCHEDULER_STATUS= { wired: true, running: true, ... }
-    smoke=0
+Every row created by this test uses the run prefix
+phase207-<timestamp>-<random>. finish() deletes only rows whose job_id,
+execution_id or worker_id matches that prefix. No pre-existing
+production/test rows are modified by the test itself.
 
-## Regression
+Note: recoverStaleAttemptsTick operates on all stale RUNNING attempts in
+the shared database by design. Other pre-existing stale attempts may be
+fenced as a side effect of exercising the production recovery path.
 
-Existing phase scripts under scripts/ run separately. See the phase 207
-evidence artifact for the current run.
+## Regression 201-206
+
+All 15 scripts exit 0; see artifacts/phase207/regression-summary.json.
