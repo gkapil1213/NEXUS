@@ -1,0 +1,117 @@
+{
+  "phase": 209,
+  "generatedAt": "2026-09-27T15:23:36.404Z",
+  "repositoryCommit": "70d30e2aee0c6e90499b049d3fad12c58986f310",
+  "repositoryBranch": "master",
+  "verificationRunId": "verify-209-1790522611396-xvch3wcd",
+  "verificationRunCommit": "70d30e2aee0c6e90499b049d3fad12c58986f310",
+  "testScript": "scripts/test-phase209-verification-integrity.ts",
+  "requestedTestCount": 15,
+  "executedTestCount": 15,
+  "passCount": 15,
+  "failCount": 0,
+  "blockedCount": 0,
+  "notExecutedCount": 0,
+  "unverifiedCount": 0,
+  "exitCode": 0,
+  "status": "PASS",
+  "resultDigest": "179b8bc4794deda35c521c2ce0616514ad513d8fb48d45cc27a6ffe3e4153fea",
+  "evidenceDigest": "f3eb903655a6a0c30103b670ef0fd866315dacd8d965b566f3f34b4f0b6be2c1",
+  "integrity": {
+    "verdict": "VERIFIED_PASS",
+    "resultDigestMatches": true,
+    "evidenceDigestMatches": true
+  },
+  "results": [
+    {
+      "testId": "209A",
+      "name": "manifest validation",
+      "status": "PASS",
+      "note": "208 has 20 required ids; unknown phase rejected"
+    },
+    {
+      "testId": "209B",
+      "name": "actual-result aggregation",
+      "status": "PASS",
+      "note": "verdict=PASS pass=20"
+    },
+    {
+      "testId": "209C",
+      "name": "missing test detection",
+      "status": "PASS",
+      "note": "missing=208S notExecuted=1"
+    },
+    {
+      "testId": "209D",
+      "name": "unexpected test detection",
+      "status": "PASS",
+      "note": "unexpected=999Z blocked from PASS"
+    },
+    {
+      "testId": "209E",
+      "name": "result hashing determinism",
+      "status": "PASS",
+      "note": "digest=5fce3823c42a0339... stable across order; changed on status"
+    },
+    {
+      "testId": "209F",
+      "name": "evidence hashing determinism",
+      "status": "PASS",
+      "note": "digest=915ca54409e619ab... stable across identical runs; changes on edit"
+    },
+    {
+      "testId": "209G",
+      "name": "commit mismatch detection",
+      "status": "PASS",
+      "note": "VERIFIED_PASS -> TAMPERED on commit change"
+    },
+    {
+      "testId": "209H",
+      "name": "tamper detection (PASS count edit)",
+      "status": "PASS",
+      "note": "counts edited -> TAMPERED / EVIDENCE_DIGEST_MISMATCH"
+    },
+    {
+      "testId": "209I",
+      "name": "result digest tamper",
+      "status": "PASS",
+      "note": "single-result edit -> TAMPERED / RESULT_DIGEST_MISMATCH"
+    },
+    {
+      "testId": "209J",
+      "name": "duplicate result detection",
+      "status": "PASS",
+      "note": "duplicate 208A -> FAIL"
+    },
+    {
+      "testId": "209K",
+      "name": "non-zero exit code handling",
+      "status": "PASS",
+      "note": "exit=1 -> FAIL / NONZERO_EXIT:1"
+    },
+    {
+      "testId": "209L",
+      "name": "BLOCKED handling",
+      "status": "PASS",
+      "note": "one BLOCKED -> verdict=BLOCKED blockedCount=1"
+    },
+    {
+      "testId": "209M",
+      "name": "NOT_EXECUTED handling",
+      "status": "PASS",
+      "note": "missing 208T -> UNVERIFIED notExecuted=1"
+    },
+    {
+      "testId": "209N",
+      "name": "canonical + sha256 correctness",
+      "status": "PASS",
+      "note": "canonicalize key-order independent; sha256(\"hello\") matches standard vector"
+    },
+    {
+      "testId": "209O",
+      "name": "concurrent verification determinism",
+      "status": "PASS",
+      "note": "3 concurrent verdicts all PASS with identical digests"
+    }
+  ]
+}

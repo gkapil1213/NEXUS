@@ -1,0 +1,62 @@
+﻿[
+    {
+        "Test":  "test-phase201-orchestrator-deps.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase201-stage-dag.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase202b-retry-eligibility.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase202c-concurrency.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase202d-shared-admission.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase202-durable-admission.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase202e-admission-stress.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase203a-stage-dispatch.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase203b-worker-failure.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase203c-dag-convergence.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase203d-restart-durability.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase203e-concurrency-stress.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase204-execution-lifecycle.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase205-execution-reconciliation.ts",
+        "Exit":  0
+    },
+    {
+        "Test":  "test-phase206-worker-fencing.ts",
+        "Exit":  0
+    }
+]

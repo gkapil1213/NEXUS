@@ -1,0 +1,143 @@
+{
+  "runId": "verify-208-1790522546521-bfht0oeb",
+  "phase": 208,
+  "suite": "worker-execution-runtime",
+  "startedAt": "2026-09-27T15:22:26.521Z",
+  "completedAt": "2026-09-27T15:22:53.740Z",
+  "status": "PASS",
+  "requestedTestCount": 20,
+  "executedTestCount": 20,
+  "passCount": 20,
+  "failCount": 0,
+  "blockedCount": 0,
+  "notExecutedCount": 0,
+  "unverifiedCount": 0,
+  "exitCode": 0,
+  "repositoryCommit": "70d30e2aee0c6e90499b049d3fad12c58986f310",
+  "repositoryBranch": "master",
+  "testScript": "scripts/test-phase208-worker-execution-runtime.ts",
+  "results": [
+    {
+      "testId": "208A",
+      "name": "execution runtime initialization",
+      "status": "PASS",
+      "note": "kernel.boot() ok (shared)"
+    },
+    {
+      "testId": "208B",
+      "name": "worker-owned execution",
+      "status": "PASS",
+      "note": "job=CLAIMED attempt=RUNNING lease=ACTIVE"
+    },
+    {
+      "testId": "208C",
+      "name": "heartbeat durability",
+      "status": "PASS",
+      "note": "attempt.heartbeatAt advanced"
+    },
+    {
+      "testId": "208D",
+      "name": "progress durability",
+      "status": "PASS",
+      "note": "last_progress_at=1790522562297"
+    },
+    {
+      "testId": "208E",
+      "name": "successful completion",
+      "status": "PASS",
+      "note": "job=SUCCEEDED attempt=SUCCEEDED no-active-lease"
+    },
+    {
+      "testId": "208F",
+      "name": "failed completion",
+      "status": "PASS",
+      "note": "job=FAILED attempt=FAILED error persisted"
+    },
+    {
+      "testId": "208G",
+      "name": "cancellation",
+      "status": "PASS",
+      "note": "job=CANCELLED attempt=CANCELLED"
+    },
+    {
+      "testId": "208H",
+      "name": "result persistence",
+      "status": "PASS",
+      "note": "attempt=attempt_phase208-1790522550387-job-h-1790522562034-bxbjvo_1 provenance=prov_attempt_phase208-1790522550387-job-h-1790522562034-bxbjvo_1_1790522562074 outcome=SUCCEEDED"
+    },
+    {
+      "testId": "208I",
+      "name": "artifact persistence",
+      "status": "PASS",
+      "note": "artifactId=art-phase208-1790522550387-job-i-1790522562123-wossj4 bound to attempt"
+    },
+    {
+      "testId": "208J",
+      "name": "completion idempotency",
+      "status": "PASS",
+      "note": "second=idempotent"
+    },
+    {
+      "testId": "208K",
+      "name": "concurrent completion race",
+      "status": "PASS",
+      "note": "applied=1 terminal-events=1"
+    },
+    {
+      "testId": "208L",
+      "name": "stale worker completion rejection",
+      "status": "PASS",
+      "note": "fenced=17 rejection=ATTEMPT_STATE_MISMATCH"
+    },
+    {
+      "testId": "208M",
+      "name": "timeout detection",
+      "status": "PASS",
+      "note": "fenced=1 attempt=FAILED"
+    },
+    {
+      "testId": "208N",
+      "name": "late completion after timeout rejection",
+      "status": "PASS",
+      "note": "rejection=ATTEMPT_STATE_MISMATCH"
+    },
+    {
+      "testId": "208O",
+      "name": "retry after execution failure",
+      "status": "PASS",
+      "note": "CLAIMED->FAILED->RETRY_SCHEDULED->QUEUED"
+    },
+    {
+      "testId": "208P",
+      "name": "retry creates new attempt",
+      "status": "PASS",
+      "note": "attempt#1=1 attempt#2=2"
+    },
+    {
+      "testId": "208Q",
+      "name": "restart durability",
+      "status": "PASS",
+      "note": "job=CLAIMED attempt=RUNNING after new kernel"
+    },
+    {
+      "testId": "208R",
+      "name": "reconciliation after worker/process failure",
+      "status": "PASS",
+      "note": "attempt=FAILED"
+    },
+    {
+      "testId": "208S",
+      "name": "concurrent recovery/completion race",
+      "status": "PASS",
+      "note": "job=SUCCEEDED attempt=SUCCEEDED consistent"
+    },
+    {
+      "testId": "208T",
+      "name": "end-to-end execution lifecycle",
+      "status": "PASS",
+      "note": "job=SUCCEEDED attempt=SUCCEEDED provenance=prov_attempt_phase208-1790522550387-job-t-1790522573485-pmq93p_1_1790522573529 artifacts=1 no-active-lease"
+    }
+  ],
+  "resultDigest": "fb84748bc41c67e07099d11c1a7c901814833be75d305eeea7f3c350693179ca",
+  "evidenceDigest": "0782d4597cb9625a03a0144e7b8b735e9d7dd7d1a486aba76afb9f300580fccc"
+}

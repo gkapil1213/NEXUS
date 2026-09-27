@@ -1,4 +1,4 @@
-﻿// scripts/test-phase207-production-scheduler.ts
+// scripts/test-phase207-production-scheduler.ts
 // Phase 207 production scheduler integration test.
 // Drives real DistributedScheduler + ExecutionStore + WorkerRegistry
 // + StageDependencyStore + isStageEligible production code paths.
@@ -367,14 +367,21 @@ async function main(): Promise<void> {
     const sched = new DistributedScheduler(store, { maxConcurrency: 100000, maxAdmissionsPerTick: 500 });
     for (let i = 0; i < 20; i++) {
       const j = await store.getJobAsync(jobId);
-      if (j?.status === "ADMITTED") break;
+      if (j?.status === "ADMITTED" || j?.status === "CLAIMED") break;
       await sched.tick(Date.now());
     }
     await sched.tick(Date.now());
-    const r = await pgQuery<{cnt:string}>(
-      "SELECT COUNT(*)::text AS cnt FROM execution_jobs WHERE id = $1 AND status = 'ADMITTED'", [jobId]);
-    ok(Number(r[0].cnt) === 1, `ADMITTED rows=${r[0].cnt}`);
-    record("207N", "duplicate tick protection", "PASS", "exactly one ADMITTED after two ticks");
+    const jf = await store.getJobAsync(jobId);
+    ok(jf?.status === "ADMITTED" || jf?.status === "CLAIMED",
+       `expected ADMITTED or CLAIMED, got ${jf?.status}`);
+    const attempts = await pgQuery<{c:string}>(
+      "SELECT COUNT(*)::text AS c FROM execution_attempts WHERE job_id = $1", [jobId]);
+    ok(Number(attempts[0].c) <= 1, `duplicate attempts: ${attempts[0].c}`);
+    const leases = await pgQuery<{c:string}>(
+      "SELECT COUNT(*)::text AS c FROM execution_leases WHERE job_id = $1", [jobId]);
+    ok(Number(leases[0].c) <= 1, `duplicate leases: ${leases[0].c}`);
+    record("207N", "duplicate tick protection", "PASS",
+      `job=${jf?.status} attempts<=1 leases<=1`);
   } catch (e) { record("207N", "duplicate tick protection", "FAIL", e instanceof Error ? e.message : String(e)); }
 
   // 207O concurrent schedulers
