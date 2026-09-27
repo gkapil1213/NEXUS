@@ -17,6 +17,7 @@ import type { LeaseManager } from "./lease-manager";
 import type { ExecutionAdapter } from "./execution-adapter";
 import { StageExecutionStoreAdapter } from "./stage-execution-store-adapter";
 import { evaluateStageAdmission, evaluateStageAdmissionAsync } from "./stage-admission";
+import { finalizeExecution, type FinalizeResult } from "./execution-finalizer";
 import { detectCycle, orderDependencies, type DependencyGraph } from "./worker-recovery-dependency";
 import {
   createStageExecution,
@@ -34,6 +35,8 @@ export interface DispatchSummary {
   converged: boolean;
   terminal: boolean;
   cancelled: boolean;
+  // Phase 204: set when the driver finalizes the parent execution.
+  finalized?: FinalizeResult;
 }
 
 const TERMINAL_STAGES: readonly StageStatus[] = ["SUCCEEDED", "FAILED", "CANCELLED", "SKIPPED"];
@@ -103,6 +106,12 @@ export async function runStageGraphToCompletion(
     if (freshExec?.cancellationRequested) {
       summary.cancelled = true;
       summary.terminal = true;
+      // Phase 204: propagate cancellation to the parent job's status via
+      // the finalizer. computeExecutionOutcome returns CANCELLED when the
+      // parent's cancellationRequested flag is set.
+      try {
+        summary.finalized = finalizeExecution(store, executionId, now());
+      } catch { /* isolated */ }
       return summary;
     }
 
@@ -323,13 +332,19 @@ export async function runStageGraphToCompletion(
     }
 
     if (!progressThisTick) {
-      // No stage was dispatchable this tick. Either all are terminal, or
-      // we are blocked waiting for external convergence.
+      // No stage was dispatchable this tick. The graph is done: either all
+      // stages are terminal, or a terminal failure has blocked the
+      // remainder. Attempt finalization unconditionally; the finalizer
+      // itself decides whether a terminal parent transition applies
+      // (RUNNING is returned for genuinely in-flight graphs).
       const freshStages = stagePort.listForExecutionSync(executionId);
       const allTerminal = freshStages.length > 0 &&
         freshStages.every((s) => TERMINAL_STAGES.includes(s.status));
       summary.converged = allTerminal;
       summary.terminal = allTerminal;
+      try {
+        summary.finalized = finalizeExecution(store, executionId, now());
+      } catch { /* isolated: finalization failure is observable via summary */ }
       return summary;
     }
 
@@ -339,6 +354,9 @@ export async function runStageGraphToCompletion(
     if (allDone) {
       summary.converged = true;
       summary.terminal = true;
+      try {
+        summary.finalized = finalizeExecution(store, executionId, now());
+      } catch { /* isolated */ }
       return summary;
     }
   }
