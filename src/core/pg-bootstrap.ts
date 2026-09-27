@@ -101,6 +101,13 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
     // Phase 187: attempt-level heartbeat. Independent of worker last_heartbeat_at
     // so a stuck executor thread on a live worker is still detectable.
     await client.query(`ALTER TABLE execution_attempts ADD COLUMN IF NOT EXISTS heartbeat_at BIGINT`);
+    // Phase 208: supervision classifier reads last_progress_at. Migration 165
+    // adds it for SQLite; mirror it here for Postgres so both backends agree.
+    await client.query(`ALTER TABLE execution_attempts ADD COLUMN IF NOT EXISTS last_progress_at BIGINT`);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_attempts_progress_running
+        ON execution_attempts (status, last_progress_at) WHERE status = 'RUNNING'
+    `);
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_attempts_stale_running
         ON execution_attempts (status, heartbeat_at) WHERE status = 'RUNNING'
