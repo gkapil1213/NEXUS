@@ -1,9 +1,9 @@
 {
-  "runId": "verify-207-1790524209015-h4p6v85g",
+  "runId": "verify-207-1790526493431-c7ke68f2",
   "phase": 207,
   "suite": "production-scheduler",
-  "startedAt": "2026-09-27T15:50:09.015Z",
-  "completedAt": "2026-09-27T15:50:36.807Z",
+  "startedAt": "2026-09-27T16:28:13.431Z",
+  "completedAt": "2026-09-27T16:28:40.816Z",
   "status": "PASS",
   "requestedTestCount": 20,
   "executedTestCount": 20,
@@ -13,7 +13,7 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 0,
-  "repositoryCommit": "85772b07291a21525941202d2619a241aee86b0e",
+  "repositoryCommit": "6cb8a113bba78f6f9c99643d70421b8b06252c77",
   "repositoryBranch": "master",
   "testScript": "scripts/test-phase207-production-scheduler.ts",
   "results": [
@@ -45,7 +45,7 @@
       "testId": "207E",
       "name": "scheduler construct on kernel store",
       "status": "PASS",
-      "note": "ownerId=scheduler-8992-10m3zhrr"
+      "note": "ownerId=scheduler-6100-1q211k6u"
     },
     {
       "testId": "207F",
@@ -63,37 +63,37 @@
       "testId": "207H",
       "name": "worker dispatch",
       "status": "PASS",
-      "note": "job=phase207-1790524212072-job-h-1790524222716-g068c6 worker=phase207-1790524212072-w-h attempt=attempt_phase207-1790524212072-job-h-1790524222716-g068c6_1 lease=lease_dispatch_phase207-1790524212072-job-h-1790524222716-g068c6_1_1790524222737_d8wj7r"
+      "note": "job=phase207-1790526496435-job-h-1790526506601-7v6fa1 worker=phase207-1790526496435-w-h attempt=attempt_phase207-1790526496435-job-h-1790526506601-7v6fa1_1 lease=lease_dispatch_phase207-1790526496435-job-h-1790526506601-7v6fa1_1_1790526506626_ros4zt"
     },
     {
       "testId": "207I",
       "name": "lease acquisition exclusivity",
       "status": "PASS",
-      "note": "winner=phase207-1790524212072-w-i1 loser=phase207-1790524212072-w-i2 reason=NOT_ADMITTED"
+      "note": "winner=phase207-1790526496435-w-i1 loser=phase207-1790526496435-w-i2 reason=NOT_ADMITTED"
     },
     {
       "testId": "207J",
       "name": "dependency gating A->B",
       "status": "PASS",
-      "note": "execId=phase207-1790524212072-exec-207j-1790524222858-wziil7 stages=A,B"
+      "note": "execId=phase207-1790526496435-exec-207j-1790526506755-rv4ovf stages=A,B"
     },
     {
       "testId": "207K",
       "name": "DAG progression A->B->C",
       "status": "PASS",
-      "note": "execId=phase207-1790524212072-exec-207k-1790524223025-nhohmo stages=A,B,C"
+      "note": "execId=phase207-1790526496435-exec-207k-1790526506933-1vjp1v stages=A,B,C"
     },
     {
       "testId": "207L",
       "name": "fan-out A->B,A->C",
       "status": "PASS",
-      "note": "execId=phase207-1790524212072-exec-207l-1790524223261-e6rvdg stages=A,B,C"
+      "note": "execId=phase207-1790526496435-exec-207l-1790526507190-a0w19i stages=A,B,C"
     },
     {
       "testId": "207M",
       "name": "fan-in B->D,C->D",
       "status": "PASS",
-      "note": "execId=phase207-1790524212072-exec-207m-1790524223486-0zu9ic stages=B,D,C"
+      "note": "execId=phase207-1790526496435-exec-207m-1790526507438-vt9qr8 stages=B,D,C"
     },
     {
       "testId": "207N",
@@ -111,7 +111,7 @@
       "testId": "207P",
       "name": "worker race",
       "status": "PASS",
-      "note": "winner=phase207-1790524212072-w-p2"
+      "note": "winner=phase207-1790526496435-w-p2"
     },
     {
       "testId": "207Q",
@@ -135,9 +135,9 @@
       "testId": "207T",
       "name": "end-to-end execution",
       "status": "PASS",
-      "note": "job=phase207-1790524212072-job-t-1790524236343-4xocdd attempt=attempt_phase207-1790524212072-job-t-1790524236343-4xocdd_1 terminal=SUCCEEDED"
+      "note": "job=phase207-1790526496435-job-t-1790526520326-9eh3fq attempt=attempt_phase207-1790526496435-job-t-1790526520326-9eh3fq_1 terminal=SUCCEEDED"
     }
   ],
   "resultDigest": "dfb71aa9add92322ea706c412051f3569b2b6fedfb95c19a04f018e4b8dfaa8f",
-  "evidenceDigest": "3fdc2c2a979b87c6f2c7e4e282e98889f7a0e6d6815d87a2f95a161ba0704254"
+  "evidenceDigest": "f33a9a36f57124dda7d129bdf1258e213c37cec8191e8158420bdb184b7bc908"
 }

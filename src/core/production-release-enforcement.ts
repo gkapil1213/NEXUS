@@ -366,7 +366,13 @@ export class ProductionReleaseEnforcementService {
         providerAvailable: this.provider !== undefined,
       };
     }
-    const attempt = this.store.getAttempt(attemptId);
+    // Phase 211: in shared (Postgres) mode the sync reads hit the empty SQLite
+    // mirror. Use the async siblings when hasAsyncBackend() so the durable
+    // attempt/job rows are authoritative.
+    const asyncMode = this.store.hasAsyncBackend();
+    const attempt = asyncMode
+      ? await this.store.getAttemptAsync(attemptId)
+      : this.store.getAttempt(attemptId);
     if (!attempt) {
       return {
         status: "BLOCKED",
@@ -374,7 +380,9 @@ export class ProductionReleaseEnforcementService {
         providerAvailable: this.provider !== undefined,
       };
     }
-    const attemptJob = this.store.getJob(attempt.jobId);
+    const attemptJob = asyncMode
+      ? await this.store.getJobAsync(attempt.jobId)
+      : this.store.getJob(attempt.jobId);
     if (!attemptJob) {
       return {
         status: "BLOCKED",

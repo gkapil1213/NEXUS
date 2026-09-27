@@ -1,9 +1,9 @@
 {
-  "runId": "verify-208-1790524251811-qiqdmr0q",
+  "runId": "verify-208-1790526465170-1esr1keh",
   "phase": 208,
   "suite": "worker-execution-runtime",
-  "startedAt": "2026-09-27T15:50:51.811Z",
-  "completedAt": "2026-09-27T15:51:16.566Z",
+  "startedAt": "2026-09-27T16:27:45.170Z",
+  "completedAt": "2026-09-27T16:28:10.552Z",
   "status": "PASS",
   "requestedTestCount": 20,
   "executedTestCount": 20,
@@ -13,7 +13,7 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 0,
-  "repositoryCommit": "85772b07291a21525941202d2619a241aee86b0e",
+  "repositoryCommit": "6cb8a113bba78f6f9c99643d70421b8b06252c77",
   "repositoryBranch": "master",
   "testScript": "scripts/test-phase208-worker-execution-runtime.ts",
   "results": [
@@ -39,7 +39,7 @@
       "testId": "208D",
       "name": "progress durability",
       "status": "PASS",
-      "note": "last_progress_at=1790524265331"
+      "note": "last_progress_at=1790526479172"
     },
     {
       "testId": "208E",
@@ -63,13 +63,13 @@
       "testId": "208H",
       "name": "result persistence",
       "status": "PASS",
-      "note": "attempt=attempt_phase208-1790524254292-job-h-1790524265027-yinb2j_1 provenance=prov_attempt_phase208-1790524254292-job-h-1790524265027-yinb2j_1_1790524265059 outcome=SUCCEEDED"
+      "note": "attempt=attempt_phase208-1790526467882-job-h-1790526478903-zgsm9p_1 provenance=prov_attempt_phase208-1790526467882-job-h-1790526478903-zgsm9p_1_1790526478944 outcome=SUCCEEDED"
     },
     {
       "testId": "208I",
       "name": "artifact persistence",
       "status": "PASS",
-      "note": "artifactId=art-phase208-1790524254292-job-i-1790524265100-oxdya4 bound to attempt"
+      "note": "artifactId=art-phase208-1790526467882-job-i-1790526478994-9vrxrd bound to attempt"
     },
     {
       "testId": "208J",
@@ -87,7 +87,7 @@
       "testId": "208L",
       "name": "stale worker completion rejection",
       "status": "PASS",
-      "note": "fenced=17 rejection=ATTEMPT_STATE_MISMATCH"
+      "note": "fenced=1 rejection=ATTEMPT_STATE_MISMATCH"
     },
     {
       "testId": "208M",
@@ -135,9 +135,9 @@
       "testId": "208T",
       "name": "end-to-end execution lifecycle",
       "status": "PASS",
-      "note": "job=SUCCEEDED attempt=SUCCEEDED provenance=prov_attempt_phase208-1790524254292-job-t-1790524276208-kpzlek_1_1790524276244 artifacts=1 no-active-lease"
+      "note": "job=SUCCEEDED attempt=SUCCEEDED provenance=prov_attempt_phase208-1790526467882-job-t-1790526490196-vlygyt_1_1790526490253 artifacts=1 no-active-lease"
     }
   ],
   "resultDigest": "fb84748bc41c67e07099d11c1a7c901814833be75d305eeea7f3c350693179ca",
-  "evidenceDigest": "40abb53d70a31443f5eabd05a76403860081ae67a2f434c9d61fb74882ec8861"
+  "evidenceDigest": "3eb3d597edb06cdca2d2200e91ac9c701f720c9e14e94a678485b7ce0b97fff1"
 }

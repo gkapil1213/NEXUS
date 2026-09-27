@@ -1,0 +1,194 @@
+[
+  {
+    "testId": "211A",
+    "name": "valid authorized execution path",
+    "status": "PASS",
+    "note": "status=EXECUTED verdict=ALLOWED"
+  },
+  {
+    "testId": "211AA",
+    "name": "restart after deployment request",
+    "status": "PASS",
+    "note": "DEPLOYING persisted + recoverable"
+  },
+  {
+    "testId": "211AB",
+    "name": "duplicate rollback request",
+    "status": "PASS",
+    "note": "status remains ROLLING_BACK"
+  },
+  {
+    "testId": "211AC",
+    "name": "audit/event persistence",
+    "status": "PASS",
+    "note": "status=HEALTH_CHECKING updatedAt=1790526446944"
+  },
+  {
+    "testId": "211AD",
+    "name": "secret leakage protection",
+    "status": "PASS",
+    "note": "intent key + row contain no secret tokens"
+  },
+  {
+    "testId": "211AE",
+    "name": "deterministic execution decision",
+    "status": "PASS",
+    "note": "status=ALLOWED identical outputs"
+  },
+  {
+    "testId": "211AF",
+    "name": "Phase 210 regression",
+    "status": "PASS",
+    "note": "Phase 210 gate still ALLOWED"
+  },
+  {
+    "testId": "211B",
+    "name": "missing Phase 210 authorization",
+    "status": "PASS",
+    "note": "verdict=REJECTED_MISSING"
+  },
+  {
+    "testId": "211C",
+    "name": "authorization mismatch",
+    "status": "PASS",
+    "note": "verdict=REJECTED_MISMATCH"
+  },
+  {
+    "testId": "211D",
+    "name": "source commit mismatch",
+    "status": "PASS",
+    "note": "verdict=REJECTED_MISMATCH"
+  },
+  {
+    "testId": "211E",
+    "name": "artifact mismatch",
+    "status": "PASS",
+    "note": "verdict=REJECTED_MISMATCH"
+  },
+  {
+    "testId": "211F",
+    "name": "duplicate idempotency request",
+    "status": "PASS",
+    "note": "same intentKey, second created=false"
+  },
+  {
+    "testId": "211G",
+    "name": "concurrent duplicate execution",
+    "status": "PASS",
+    "note": "executed=1 blocked=1"
+  },
+  {
+    "testId": "211H",
+    "name": "lease acquisition conflict",
+    "status": "PASS",
+    "note": "holder=worker-A"
+  },
+  {
+    "testId": "211I",
+    "name": "lease expiration recovery",
+    "status": "PASS",
+    "note": "expired lease re-acquired by worker-next"
+  },
+  {
+    "testId": "211J",
+    "name": "worker/process restart recovery",
+    "status": "PASS",
+    "note": "intent persisted across service restart"
+  },
+  {
+    "testId": "211K",
+    "name": "heartbeat timeout",
+    "status": "PASS",
+    "note": "renewal after expiry rejected"
+  },
+  {
+    "testId": "211L",
+    "name": "unknown external deployment outcome",
+    "status": "PASS",
+    "note": "status=NOT_EXECUTED provider=UNKNOWN"
+  },
+  {
+    "testId": "211M",
+    "name": "provider status reconciliation",
+    "status": "PASS",
+    "note": "status=DEPLOYED"
+  },
+  {
+    "testId": "211N",
+    "name": "deployment failure",
+    "status": "PASS",
+    "note": "status=BLOCKED provider=NOT_DEPLOYED"
+  },
+  {
+    "testId": "211O",
+    "name": "successful rollback",
+    "status": "PASS",
+    "note": "FAILED -> ROLLING_BACK -> KNOWN_GOOD"
+  },
+  {
+    "testId": "211P",
+    "name": "rollback failure",
+    "status": "PASS",
+    "note": "ROLLING_BACK -> FAILED with reason"
+  },
+  {
+    "testId": "211Q",
+    "name": "health verification failure",
+    "status": "PASS",
+    "note": "HEALTH_CHECKING -> VERIFICATION_FAILED"
+  },
+  {
+    "testId": "211R",
+    "name": "health verification unavailable",
+    "status": "PASS",
+    "note": "HEALTH_CHECKING -> BLOCKED"
+  },
+  {
+    "testId": "211S",
+    "name": "illegal state transition",
+    "status": "PASS",
+    "note": "terminal status preserved"
+  },
+  {
+    "testId": "211T",
+    "name": "unauthorized cancellation",
+    "status": "PASS",
+    "note": "non-owner transition rejected"
+  },
+  {
+    "testId": "211U",
+    "name": "cancellation after execution",
+    "status": "PASS",
+    "note": "terminal KNOWN_GOOD preserved"
+  },
+  {
+    "testId": "211V",
+    "name": "retryable infrastructure failure",
+    "status": "PASS",
+    "note": "RECOVERY_REQUIRED present in recoverable list"
+  },
+  {
+    "testId": "211W",
+    "name": "non-retryable authorization failure",
+    "status": "PASS",
+    "note": "no intent created on rejection"
+  },
+  {
+    "testId": "211X",
+    "name": "replay attempt",
+    "status": "PASS",
+    "note": "first=EXECUTED second=BLOCKED"
+  },
+  {
+    "testId": "211Y",
+    "name": "tampered execution record/event",
+    "status": "PASS",
+    "note": "durable state survives fresh service"
+  },
+  {
+    "testId": "211Z",
+    "name": "concurrent workers",
+    "status": "PASS",
+    "note": "1 of 3 executed"
+  }
+]
