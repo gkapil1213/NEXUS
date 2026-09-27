@@ -1,10 +1,10 @@
 {
   "phase": 212,
-  "generatedAt": "2026-09-27T16:53:17.178Z",
-  "repositoryCommit": "37139eed8b692fa66ebc45f29dd8e34a6f171b5f",
+  "generatedAt": "2026-09-27T17:27:27.288Z",
+  "repositoryCommit": "e749725728ae91bca877b8efcc0066c3d085bce7",
   "repositoryBranch": "master",
-  "verificationRunId": "verify-212-1790527678679-e43sw3rz",
-  "verificationRunCommit": "37139eed8b692fa66ebc45f29dd8e34a6f171b5f",
+  "verificationRunId": "verify-212-1790530029653-l1vq477d",
+  "verificationRunCommit": "e749725728ae91bca877b8efcc0066c3d085bce7",
   "testScript": "scripts/test-phase212-release-recovery.ts",
   "requestedTestCount": 32,
   "executedTestCount": 32,
@@ -16,7 +16,7 @@
   "exitCode": 0,
   "status": "PASS",
   "resultDigest": "3c75086c66ef4ecff40c27402a618ecf764985fb5879dd562b284827eb7610cf",
-  "evidenceDigest": "0d573187d6c25b1c2c3bdd8374aeb180a019134578983fee2d39ff24cca7bf71",
+  "evidenceDigest": "c36ee013685fa57c3e5cc7640e8cb59e42c2cb33ed354dd079f08cae6ab3012f",
   "integrity": {
     "verdict": "VERIFIED_PASS",
     "resultDigestMatches": true,
@@ -45,7 +45,7 @@
       "testId": "212AC",
       "name": "audit/event persistence",
       "status": "PASS",
-      "note": "updatedAt=1790527693857 createdAt=1790527693852"
+      "note": "updatedAt=1790530044585 createdAt=1790530044581"
     },
     {
       "testId": "212AD",
