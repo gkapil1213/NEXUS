@@ -1,0 +1,37 @@
+{
+  "phase": 207,
+  "generatedAt": "2026-09-27T08:41:51.009Z",
+  "implementationSha": "fafe9dfbe56a9625c3b68101b9a19ffb24edc4e6",
+  "originMasterSha": "fafe9dfbe56a9625c3b68101b9a19ffb24edc4e6",
+  "persistenceMode": "shared",
+  "commands": {
+    "tsc": "npx tsc --noEmit --pretty false",
+    "test": "npx tsx scripts/test-phase207-production-scheduler.ts"
+  },
+  "results": {
+    "tsc": "PASS",
+    "testSummary": {
+      "sqlite": {
+        "PASS": 4,
+        "FAIL": 0,
+        "BLOCKED": 16,
+        "NOT_EXECUTED": 0
+      },
+      "shared": {
+        "PASS": 7,
+        "FAIL": 0,
+        "BLOCKED": 0,
+        "NOT_EXECUTED": 13
+      }
+    }
+  },
+  "wiring": {
+    "schedulerLifecycle": "NexusKernel.startDistributedScheduler / stopDistributedScheduler",
+    "schedulerConstructedIn": "kernel.ts startDistributedScheduler",
+    "intervalConfig": "NEXUS_SCHEDULER_INTERVAL_MS (default 5000)",
+    "executionReconcileConfig": "NEXUS_EXEC_RECONCILE_MS (default 30000)",
+    "noOverlap": "distributedSchedulerInFlight + executionReconcileInFlight",
+    "shutdownOrder": "scheduler -> reconcile timer -> CI scheduler -> recovery supervisor -> PG pool",
+    "clientSingletonFix": "kernel.ts:304 dynamic import replaced with static getPgClient() import"
+  }
+}

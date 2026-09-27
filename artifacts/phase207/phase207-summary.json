@@ -1,0 +1,13 @@
+{
+  "phase": 207,
+  "status": "COMPLETE",
+  "implementationSha": "fafe9dfbe56a9625c3b68101b9a19ffb24edc4e6",
+  "schedulerWired": true,
+  "tsc": "PASS",
+  "testSharedMode": {
+    "PASS": 7,
+    "FAIL": 0,
+    "BLOCKED": 0,
+    "NOT_EXECUTED": 13
+  }
+}

@@ -8,6 +8,8 @@ import { RetryEngine } from "./retry-engine";
 import { ExecutionDispatchPort } from "./execution-dispatch-port";
 import { ExecutionJob, ExecutionAttempt, ExecutionJobStatus, RetryPolicy } from "./execution-models";
 import { ExecutionAdapterRequest } from "./execution-adapter";
+import { finalizeExecution } from "./execution-finalizer";
+import { listExecutionsNeedingReconciliation } from "./execution-reconciler";
 
 
 function generateUUID(): string {
@@ -1903,6 +1905,18 @@ export class ExecutionEngine {
         if (!this.store.hasAsyncBackend()) {
             this.runDueRetries(now - 1);
             this.promoteImmediateRecoveryRetries(now, preExistingRetryScheduledJobIds);
+        }
+        // Phase 207: finalize converged executions. Uses the Phase 204
+        // finalizer (recoverJobAtomic CAS) so concurrent recovery ticks
+        // cannot double-transition the parent. Sync path only.
+        if (!this.store.hasAsyncBackend()) {
+            try {
+                const candidates = listExecutionsNeedingReconciliation(this.store);
+                for (const executionId of candidates) {
+                    try { finalizeExecution(this.store, executionId, now); }
+                    catch { /* isolated per execution */ }
+                }
+            } catch { /* isolated */ }
         }
     }
 

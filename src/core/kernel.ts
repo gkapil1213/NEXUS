@@ -12,7 +12,7 @@ import { CONFIG, configBlocked, safeConfigView } from "./config";
 import { openEngine, probeEngine, nid, type NexusEngine } from "./db";
 import { resolvePersistenceMode } from "./persistence-mode";
 import { resolveBackendConfig } from "./backend-config";
-import { PgClient, setPgClient } from "./pg-client";
+import { PgClient, setPgClient, getPgClient } from "./pg-client";
 import { bootstrapPgSchema } from "./pg-bootstrap";
 import { PgAsyncEngine } from "./pg-async-engine";
 import { Err, NexusError } from "./errors";
@@ -84,6 +84,7 @@ import { ReleaseRecoveryService } from "./release-recovery";
 import { ReleaseRecoveryExecutor, type RecoveryRunReport } from "./release-recovery-executor";
 import { ReleaseRecoveryEvidenceReconciler } from "./release-recovery-evidence-reconciliation";
 import { ReleaseRecoverySupervisor, type RecoverySupervisorStatus } from "./release-recovery-supervisor";
+import { DistributedScheduler, type SchedulerTickReport } from "./distributed-scheduler";
 import { RecoveryOperationsService } from "./recovery-operations";
 import { RecoveryControlService } from "./recovery-control-service";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
@@ -300,7 +301,7 @@ const memberships = new ProjectMembershipStore(rawDb);
                     // methods (createJobAsync, transitionExecutionAsync, ...)
                     // execute against Postgres; sync methods keep the legacy
                     // SQLite path. Bounded slice -- other tables migrate later.
-                    const _pgClientForAsync = (await import("./pg-client")).getPgClient();
+                    const _pgClientForAsync = getPgClient();
                     const asyncDb = _pgClientForAsync ? new PgAsyncEngine(_pgClientForAsync) : undefined;
                     const executionStore = new ExecutionStore(rawDb, asyncDb);
           const workerRegistry = new WorkerRegistry(executionStore);
@@ -351,6 +352,32 @@ const memberships = new ProjectMembershipStore(rawDb);
           const executionEngine = new ExecutionEngine(executionStore, workerRegistry, leaseManager, retryEngine, executionDeps);
 
           this.executionEngine = executionEngine;
+          // Phase 207: durable execution recovery tick.
+          const _execTickMs = Number(process.env.NEXUS_EXEC_RECONCILE_MS ?? 30_000);
+          if (Number.isFinite(_execTickMs) && _execTickMs > 0) {
+            this.executionReconcileTimer = setInterval(() => {
+              if (this.executionReconcileInFlight) return;
+              this.executionReconcileInFlight = true;
+              const _tickNow = Date.now();
+              this.executionEngine!.recoverStaleJobs(_tickNow)
+                .catch((err) => {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  this.executionReconcileLastError = msg;
+                  if (this.services?.events) {
+                    void this.services.events.emit({
+                      type: "execution.reconcile.tick_error",
+                      source: "NexusKernel.executionReconcile",
+                      payload: { error: msg, at: _tickNow },
+                    });
+                  }
+                })
+                .finally(() => {
+                  this.executionReconcileInFlight = false;
+                });
+            }, _execTickMs);
+            const _t = this.executionReconcileTimer as { unref?: () => void };
+            if (typeof _t.unref === "function") _t.unref();
+          }
           this.jobDispatcher = jobDispatcher;
           this.remoteWorkerRegistry = remoteWorkerRegistry;
           this.remoteExecutionManager = remoteExecutionManager;
@@ -788,6 +815,94 @@ const memberships = new ProjectMembershipStore(rawDb);
     await this.recoverySupervisor.start();
   }
 
+  /**
+   * Phase 207: start the production DistributedScheduler tick loop.
+   * Shared (PostgreSQL) mode only. NOT called by boot(); server-mode
+   * callers opt in explicitly, mirroring startGateway().
+   * Interval: NEXUS_SCHEDULER_INTERVAL_MS (default 5000). 0 disables. Idempotent.
+   */
+  async startDistributedScheduler(): Promise<void> {
+    if (this.distributedSchedulerTimer) return;
+    if (!this.executionStore) {
+      throw Err.startup("SCHEDULER_NOT_WIRED", "kernel did not construct an ExecutionStore");
+    }
+    if (!this.executionStore.hasAsyncBackend()) {
+      throw Err.startup(
+        "SCHEDULER_REQUIRES_SHARED",
+        "DistributedScheduler requires NEXUS_PERSISTENCE_MODE=shared",
+      );
+    }
+    const intervalMs = Number(process.env.NEXUS_SCHEDULER_INTERVAL_MS ?? 5_000);
+    if (!Number.isFinite(intervalMs) || intervalMs <= 0) return;
+
+    if (!this.distributedScheduler) {
+      this.distributedScheduler = new DistributedScheduler(
+        this.executionStore,
+        {},
+        this.recoveryWorkerId ?? undefined,
+      );
+    }
+    const scheduler = this.distributedScheduler;
+    this.distributedSchedulerTimer = setInterval(() => {
+      if (this.distributedSchedulerInFlight) {
+        this.distributedSchedulerSkippedTicks++;
+        return;
+      }
+      this.distributedSchedulerInFlight = true;
+      const now = Date.now();
+      void (async () => {
+        try {
+          await scheduler.recoverStaleAttemptsTick(now);
+          const result = await scheduler.tick(now);
+          this.distributedSchedulerLastResult = result;
+          this.distributedSchedulerLastTickAt = now;
+          this.distributedSchedulerLastError = null;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.distributedSchedulerLastError = msg;
+          if (this.services?.events) {
+            void this.services.events.emit({
+              type: "scheduler.tick_error",
+              source: "NexusKernel.distributedScheduler",
+              payload: { error: msg, at: now },
+            });
+          }
+        } finally {
+          this.distributedSchedulerInFlight = false;
+        }
+      })();
+    }, intervalMs);
+    const t = this.distributedSchedulerTimer as { unref?: () => void };
+    if (typeof t.unref === "function") t.unref();
+  }
+
+  /** Phase 207: stop the DistributedScheduler tick loop. Idempotent. */
+  async stopDistributedScheduler(): Promise<void> {
+    if (this.distributedSchedulerTimer) {
+      try { clearInterval(this.distributedSchedulerTimer); } catch { /* ignore */ }
+      this.distributedSchedulerTimer = undefined;
+    }
+    const deadline = Date.now() + 5_000;
+    while (this.distributedSchedulerInFlight && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
+  /** Phase 207: scheduler status snapshot. */
+  getDistributedSchedulerStatus(): {
+    wired: boolean; running: boolean; inFlight: boolean; skippedTicks: number;
+    lastTickAt: number | null; lastResult: SchedulerTickReport | null; lastError: string | null;
+  } {
+    return {
+      wired: !!this.distributedScheduler,
+      running: !!this.distributedSchedulerTimer,
+      inFlight: this.distributedSchedulerInFlight,
+      skippedTicks: this.distributedSchedulerSkippedTicks,
+      lastTickAt: this.distributedSchedulerLastTickAt,
+      lastResult: this.distributedSchedulerLastResult,
+      lastError: this.distributedSchedulerLastError,
+    };
+  }
   /** Stop the recovery supervisor. Idempotent. */
   async stopRecoverySupervisor(options?: { finalPass?: boolean }): Promise<void> {
     if (!this.recoverySupervisor) return;
@@ -812,6 +927,18 @@ const memberships = new ProjectMembershipStore(rawDb);
    */
   /** Phase 133: durable CI reconciliation scheduler (undefined when SQLite store isn't wired). */
   private cicdScheduler?: CicdReconciliationScheduler;
+  /** Phase 207: production distributed scheduler (shared mode only). */
+  private distributedScheduler?: DistributedScheduler;
+  private distributedSchedulerTimer?: ReturnType<typeof setInterval>;
+  private distributedSchedulerInFlight = false;
+  private distributedSchedulerLastResult: SchedulerTickReport | null = null;
+  private distributedSchedulerLastError: string | null = null;
+  private distributedSchedulerLastTickAt: number | null = null;
+  private distributedSchedulerSkippedTicks = 0;
+  /** Phase 207: execution reconcile tick timer (all modes). */
+  private executionReconcileTimer?: ReturnType<typeof setInterval>;
+  private executionReconcileInFlight = false;
+  private executionReconcileLastError: string | null = null;
 
   /** Phase 134: durable cross-instance ownership for the CI reconciliation scheduler. */
   private cicdOwnership?: CiReconciliationOwnershipService;
@@ -821,6 +948,11 @@ const memberships = new ProjectMembershipStore(rawDb);
    * acquisition. Never throws; the original boot failure is the root cause.
    */
   private async cleanupOnFailedBoot(): Promise<void> {
+    try { await this.stopDistributedScheduler(); } catch { /* best-effort */ }
+    if (this.executionReconcileTimer) {
+      try { clearInterval(this.executionReconcileTimer); } catch { /* ignore */ }
+      this.executionReconcileTimer = undefined;
+    }
     try { await this.stopCicdReconciliationScheduler(); } catch { /* best-effort */ }
     try { await this.stopRecoverySupervisor({ finalPass: false }); } catch { /* best-effort */ }
     if (this.pgClient) {
@@ -833,6 +965,11 @@ const memberships = new ProjectMembershipStore(rawDb);
   }
 
   async shutdown(options?: { finalRecoveryPass?: boolean }): Promise<void> {
+    await this.stopDistributedScheduler();
+    if (this.executionReconcileTimer) {
+      try { clearInterval(this.executionReconcileTimer); } catch { /* ignore */ }
+      this.executionReconcileTimer = undefined;
+    }
     await this.stopCicdReconciliationScheduler();
     await this.stopRecoverySupervisor({ finalPass: options?.finalRecoveryPass ?? false });
 

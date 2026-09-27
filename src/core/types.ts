@@ -381,7 +381,10 @@ export type NexusEventType =
   | "pipeline.started"
   | "pipeline.completed"
   | "pipeline.failed"
-  | "pipeline.blocked";
+  | "pipeline.blocked"
+  // Phase 207: scheduler and execution reconciliation observability
+  | "execution.reconcile.tick_error"
+  | "scheduler.tick_error";
 
 export interface NexusEvent {
   id: Id;
