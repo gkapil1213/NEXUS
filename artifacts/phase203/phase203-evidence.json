@@ -1,0 +1,58 @@
+{
+  "phase": "203",
+  "timestamp": "2026-09-27T03:35:57.681Z",
+  "commit": "fc492bd700e40e2515d2f37ba4f79bfcb0c52536",
+  "results": [
+    {
+      "name": "phase203a",
+      "command": "npx tsx scripts/test-phase203a-stage-dispatch.ts",
+      "exit_code": 0,
+      "pass": 22,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "phase203b",
+      "command": "npx tsx scripts/test-phase203b-worker-failure.ts",
+      "exit_code": 0,
+      "pass": 17,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "phase203c",
+      "command": "npx tsx scripts/test-phase203c-dag-convergence.ts",
+      "exit_code": 0,
+      "pass": 16,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "phase203d",
+      "command": "npx tsx scripts/test-phase203d-restart-durability.ts",
+      "exit_code": 0,
+      "pass": 20,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    },
+    {
+      "name": "phase203e",
+      "command": "npx tsx scripts/test-phase203e-concurrency-stress.ts",
+      "exit_code": 0,
+      "pass": 14,
+      "fail": 0,
+      "blocked": 0,
+      "status": "PASS"
+    }
+  ],
+  "summary": {
+    "total_pass": 89,
+    "total_fail": 0,
+    "total_blocked": 0,
+    "overall": "PASS"
+  }
+}
