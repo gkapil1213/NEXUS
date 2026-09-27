@@ -1,0 +1,122 @@
+[
+  {
+    "testId": "210A",
+    "name": "valid release candidate",
+    "status": "PASS",
+    "note": "status=ALLOWED"
+  },
+  {
+    "testId": "210B",
+    "name": "commit mismatch",
+    "status": "PASS",
+    "note": "status=REJECTED_MISMATCH"
+  },
+  {
+    "testId": "210C",
+    "name": "evidence digest mismatch",
+    "status": "PASS",
+    "note": "status=REJECTED_TAMPERED"
+  },
+  {
+    "testId": "210D",
+    "name": "result digest mismatch",
+    "status": "PASS",
+    "note": "status=REJECTED_TAMPERED"
+  },
+  {
+    "testId": "210E",
+    "name": "missing required test",
+    "status": "PASS",
+    "note": "status=REJECTED_UNVERIFIED"
+  },
+  {
+    "testId": "210F",
+    "name": "BLOCKED verification",
+    "status": "PASS",
+    "note": "status=REJECTED_BLOCKED"
+  },
+  {
+    "testId": "210G",
+    "name": "NOT_EXECUTED verification",
+    "status": "PASS",
+    "note": "status=REJECTED_NOT_EXECUTED"
+  },
+  {
+    "testId": "210H",
+    "name": "verification FAIL",
+    "status": "PASS",
+    "note": "status=REJECTED_FAIL"
+  },
+  {
+    "testId": "210I",
+    "name": "stale evidence",
+    "status": "PASS",
+    "note": "status=REJECTED_STALE"
+  },
+  {
+    "testId": "210J",
+    "name": "artifact mismatch",
+    "status": "PASS",
+    "note": "status=REJECTED_MISMATCH"
+  },
+  {
+    "testId": "210K",
+    "name": "duplicate verification results",
+    "status": "PASS",
+    "note": "status=REJECTED_FAIL"
+  },
+  {
+    "testId": "210L",
+    "name": "process restart durability",
+    "status": "PASS",
+    "note": "status=ALLOWED"
+  },
+  {
+    "testId": "210M",
+    "name": "repeated evaluation",
+    "status": "PASS",
+    "note": "status=ALLOWED x3, reasons identical"
+  },
+  {
+    "testId": "210N",
+    "name": "concurrent evaluation",
+    "status": "PASS",
+    "note": "4 concurrent, single status=ALLOWED"
+  },
+  {
+    "testId": "210O",
+    "name": "modified repository after verification",
+    "status": "PASS",
+    "note": "status=REJECTED_MISMATCH"
+  },
+  {
+    "testId": "210P",
+    "name": "evidence replay against another candidate",
+    "status": "PASS",
+    "note": "status=REJECTED_MISMATCH"
+  },
+  {
+    "testId": "210Q",
+    "name": "malformed evidence",
+    "status": "PASS",
+    "note": "status=REJECTED_MISSING"
+  },
+  {
+    "testId": "210R",
+    "name": "missing evidence",
+    "status": "PASS",
+    "note": "status=REJECTED_MISSING"
+  },
+  {
+    "testId": "210S",
+    "name": "valid complete chain",
+    "status": "PASS",
+    "note": "status=ALLOWED"
+  },
+  {
+    "testId": "210T",
+    "name": "deterministic gate evaluation",
+    "status": "PASS",
+    "note": "status=ALLOWED identical outputs"
+  }
+]

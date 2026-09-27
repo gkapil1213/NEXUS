@@ -1,4 +1,4 @@
-﻿// src/core/verification-manifest.ts
+// src/core/verification-manifest.ts
 // Phase 209: deterministic required-test manifests per phase. A missing
 // required test must surface as NOT_EXECUTED, never disappear.
 
@@ -34,10 +34,20 @@ export const PHASE_209: Manifest = {
   ],
 };
 
+export const PHASE_210: Manifest = {
+  phase: 210,
+  suite: "release-safety",
+  testScript: "scripts/test-phase210-release-safety.ts",
+  requiredTestIds: [
+    "210A","210B","210C","210D","210E","210F","210G","210H","210I","210J",
+    "210K","210L","210M","210N","210O","210P","210Q","210R","210S","210T",
+  ],
+};
 export const MANIFESTS: Record<number, Manifest> = {
   207: PHASE_207,
   208: PHASE_208,
   209: PHASE_209,
+  210: PHASE_210,
 };
 
 export function getManifest(phase: number): Manifest {

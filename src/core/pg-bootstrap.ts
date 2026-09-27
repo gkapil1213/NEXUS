@@ -360,5 +360,39 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_provenance_job ON execution_outcome_provenance (job_id, attempt_number)`);
+
+    // Phase 210: evidence-backed release safety attestations.
+    // Mirrors migration 168_phase210_release_attestations.sql.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS release_attestations (
+        attestation_id      TEXT PRIMARY KEY,
+        release_id          TEXT NOT NULL,
+        execution_id        TEXT NOT NULL,
+        verification_run_id TEXT NOT NULL,
+        commit_sha          TEXT NOT NULL,
+        artifact_id         TEXT,
+        artifact_digest     TEXT,
+        verification_status TEXT NOT NULL,
+        result_digest       TEXT NOT NULL,
+        evidence_digest     TEXT NOT NULL,
+        decision            TEXT NOT NULL,
+        reasons_json        TEXT,
+        policy_version      TEXT NOT NULL,
+        decided_at          BIGINT NOT NULL,
+        created_at          BIGINT NOT NULL
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_release_attestations_unique
+        ON release_attestations(release_id, verification_run_id, commit_sha)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_release_attestations_release
+        ON release_attestations(release_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_release_attestations_commit
+        ON release_attestations(commit_sha)
+    `);
   });
 }

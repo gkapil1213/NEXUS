@@ -1,9 +1,9 @@
 {
-  "runId": "verify-208-1790522546521-bfht0oeb",
+  "runId": "verify-208-1790524251811-qiqdmr0q",
   "phase": 208,
   "suite": "worker-execution-runtime",
-  "startedAt": "2026-09-27T15:22:26.521Z",
-  "completedAt": "2026-09-27T15:22:53.740Z",
+  "startedAt": "2026-09-27T15:50:51.811Z",
+  "completedAt": "2026-09-27T15:51:16.566Z",
   "status": "PASS",
   "requestedTestCount": 20,
   "executedTestCount": 20,
@@ -13,7 +13,7 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 0,
-  "repositoryCommit": "70d30e2aee0c6e90499b049d3fad12c58986f310",
+  "repositoryCommit": "85772b07291a21525941202d2619a241aee86b0e",
   "repositoryBranch": "master",
   "testScript": "scripts/test-phase208-worker-execution-runtime.ts",
   "results": [
@@ -39,7 +39,7 @@
       "testId": "208D",
       "name": "progress durability",
       "status": "PASS",
-      "note": "last_progress_at=1790522562297"
+      "note": "last_progress_at=1790524265331"
     },
     {
       "testId": "208E",
@@ -63,13 +63,13 @@
       "testId": "208H",
       "name": "result persistence",
       "status": "PASS",
-      "note": "attempt=attempt_phase208-1790522550387-job-h-1790522562034-bxbjvo_1 provenance=prov_attempt_phase208-1790522550387-job-h-1790522562034-bxbjvo_1_1790522562074 outcome=SUCCEEDED"
+      "note": "attempt=attempt_phase208-1790524254292-job-h-1790524265027-yinb2j_1 provenance=prov_attempt_phase208-1790524254292-job-h-1790524265027-yinb2j_1_1790524265059 outcome=SUCCEEDED"
     },
     {
       "testId": "208I",
       "name": "artifact persistence",
       "status": "PASS",
-      "note": "artifactId=art-phase208-1790522550387-job-i-1790522562123-wossj4 bound to attempt"
+      "note": "artifactId=art-phase208-1790524254292-job-i-1790524265100-oxdya4 bound to attempt"
     },
     {
       "testId": "208J",
@@ -135,9 +135,9 @@
       "testId": "208T",
       "name": "end-to-end execution lifecycle",
       "status": "PASS",
-      "note": "job=SUCCEEDED attempt=SUCCEEDED provenance=prov_attempt_phase208-1790522550387-job-t-1790522573485-pmq93p_1_1790522573529 artifacts=1 no-active-lease"
+      "note": "job=SUCCEEDED attempt=SUCCEEDED provenance=prov_attempt_phase208-1790524254292-job-t-1790524276208-kpzlek_1_1790524276244 artifacts=1 no-active-lease"
     }
   ],
   "resultDigest": "fb84748bc41c67e07099d11c1a7c901814833be75d305eeea7f3c350693179ca",
-  "evidenceDigest": "0782d4597cb9625a03a0144e7b8b735e9d7dd7d1a486aba76afb9f300580fccc"
+  "evidenceDigest": "40abb53d70a31443f5eabd05a76403860081ae67a2f434c9d61fb74882ec8861"
 }

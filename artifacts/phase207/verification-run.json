@@ -1,9 +1,9 @@
 {
-  "runId": "verify-207-1790522119431-voiugofu",
+  "runId": "verify-207-1790524209015-h4p6v85g",
   "phase": 207,
   "suite": "production-scheduler",
-  "startedAt": "2026-09-27T15:15:19.431Z",
-  "completedAt": "2026-09-27T15:15:48.762Z",
+  "startedAt": "2026-09-27T15:50:09.015Z",
+  "completedAt": "2026-09-27T15:50:36.807Z",
   "status": "PASS",
   "requestedTestCount": 20,
   "executedTestCount": 20,
@@ -13,7 +13,7 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 0,
-  "repositoryCommit": "70d30e2aee0c6e90499b049d3fad12c58986f310",
+  "repositoryCommit": "85772b07291a21525941202d2619a241aee86b0e",
   "repositoryBranch": "master",
   "testScript": "scripts/test-phase207-production-scheduler.ts",
   "results": [
@@ -45,7 +45,7 @@
       "testId": "207E",
       "name": "scheduler construct on kernel store",
       "status": "PASS",
-      "note": "ownerId=scheduler-3788-mufz7bim"
+      "note": "ownerId=scheduler-8992-10m3zhrr"
     },
     {
       "testId": "207F",
@@ -63,37 +63,37 @@
       "testId": "207H",
       "name": "worker dispatch",
       "status": "PASS",
-      "note": "job=phase207-1790522122402-job-h-1790522132739-ixj1t3 worker=phase207-1790522122402-w-h attempt=attempt_phase207-1790522122402-job-h-1790522132739-ixj1t3_1 lease=lease_dispatch_phase207-1790522122402-job-h-1790522132739-ixj1t3_1_1790522132764_h1dixv"
+      "note": "job=phase207-1790524212072-job-h-1790524222716-g068c6 worker=phase207-1790524212072-w-h attempt=attempt_phase207-1790524212072-job-h-1790524222716-g068c6_1 lease=lease_dispatch_phase207-1790524212072-job-h-1790524222716-g068c6_1_1790524222737_d8wj7r"
     },
     {
       "testId": "207I",
       "name": "lease acquisition exclusivity",
       "status": "PASS",
-      "note": "winner=phase207-1790522122402-w-i1 loser=phase207-1790522122402-w-i2 reason=NOT_ADMITTED"
+      "note": "winner=phase207-1790524212072-w-i1 loser=phase207-1790524212072-w-i2 reason=NOT_ADMITTED"
     },
     {
       "testId": "207J",
       "name": "dependency gating A->B",
       "status": "PASS",
-      "note": "execId=phase207-1790522122402-exec-207j-1790522132896-6kw9fg stages=A,B"
+      "note": "execId=phase207-1790524212072-exec-207j-1790524222858-wziil7 stages=A,B"
     },
     {
       "testId": "207K",
       "name": "DAG progression A->B->C",
       "status": "PASS",
-      "note": "execId=phase207-1790522122402-exec-207k-1790522133073-ly1f9o stages=A,B,C"
+      "note": "execId=phase207-1790524212072-exec-207k-1790524223025-nhohmo stages=A,B,C"
     },
     {
       "testId": "207L",
       "name": "fan-out A->B,A->C",
       "status": "PASS",
-      "note": "execId=phase207-1790522122402-exec-207l-1790522133328-d2fx9d stages=A,B,C"
+      "note": "execId=phase207-1790524212072-exec-207l-1790524223261-e6rvdg stages=A,B,C"
     },
     {
       "testId": "207M",
       "name": "fan-in B->D,C->D",
       "status": "PASS",
-      "note": "execId=phase207-1790522122402-exec-207m-1790522133581-89j6wk stages=B,D,C"
+      "note": "execId=phase207-1790524212072-exec-207m-1790524223486-0zu9ic stages=B,D,C"
     },
     {
       "testId": "207N",
@@ -111,13 +111,13 @@
       "testId": "207P",
       "name": "worker race",
       "status": "PASS",
-      "note": "winner=phase207-1790522122402-w-p2"
+      "note": "winner=phase207-1790524212072-w-p2"
     },
     {
       "testId": "207Q",
       "name": "stale worker fencing",
       "status": "PASS",
-      "note": "fenced=11 lateHB=WORKER_OWNERSHIP_LOST"
+      "note": "fenced=10 lateHB=WORKER_OWNERSHIP_LOST"
     },
     {
       "testId": "207R",
@@ -135,9 +135,9 @@
       "testId": "207T",
       "name": "end-to-end execution",
       "status": "PASS",
-      "note": "job=phase207-1790522122402-job-t-1790522148131-vj6iah attempt=attempt_phase207-1790522122402-job-t-1790522148131-vj6iah_1 terminal=SUCCEEDED"
+      "note": "job=phase207-1790524212072-job-t-1790524236343-4xocdd attempt=attempt_phase207-1790524212072-job-t-1790524236343-4xocdd_1 terminal=SUCCEEDED"
     }
   ],
   "resultDigest": "dfb71aa9add92322ea706c412051f3569b2b6fedfb95c19a04f018e4b8dfaa8f",
-  "evidenceDigest": "003f6e4337e4e93052e7cd19a525b11860903322611d2391fa621e1bb6868e4b"
+  "evidenceDigest": "3fdc2c2a979b87c6f2c7e4e282e98889f7a0e6d6815d87a2f95a161ba0704254"
 }

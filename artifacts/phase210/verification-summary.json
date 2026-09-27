@@ -1,7 +1,7 @@
 {
-  "phase": 207,
-  "suite": "production-scheduler",
-  "runId": "verify-207-1790524209015-h4p6v85g",
+  "phase": 210,
+  "suite": "release-safety",
+  "runId": "verify-210-1790523865248-meql0f9h",
   "status": "PASS",
   "requestedTestCount": 20,
   "executedTestCount": 20,
@@ -13,8 +13,8 @@
   "exitCode": 0,
   "repositoryCommit": "85772b07291a21525941202d2619a241aee86b0e",
   "repositoryBranch": "master",
-  "resultDigest": "dfb71aa9add92322ea706c412051f3569b2b6fedfb95c19a04f018e4b8dfaa8f",
-  "evidenceDigest": "3fdc2c2a979b87c6f2c7e4e282e98889f7a0e6d6815d87a2f95a161ba0704254",
+  "resultDigest": "b8f2e5d06ee0df46feeb3b3b529d54d0892b0edacd64591ada208ebe4703189a",
+  "evidenceDigest": "62e801bec8d206116b11c3f1cea6db0c1368e2cde77148f774044fd8b01d7a10",
   "reasons": [],
-  "generatedAt": "2026-09-27T15:50:36.807Z"
+  "generatedAt": "2026-09-27T15:44:27.706Z"
 }
