@@ -212,6 +212,39 @@ export async function runStageGraphToCompletion(
         continue;
       }
 
+      // Phase 203b: create a durable attempt row so the recovery machinery
+      // (recoverStalledAttemptsTick -> listStaleAttempts) can see this stage
+      // if the worker dies mid-execution. Without this, a RUNNING stage with
+      // an ACTIVE lease has no heartbeat and is invisible to stall recovery.
+      const attemptId = `att_${stored.stageExecutionId}_${now()}`;
+      const attemptCreatedAt = now();
+      try {
+        store.createAttempt({
+          id: attemptId,
+          jobId: stored.stageExecutionId,
+          attemptNumber: 1,
+          status: "RUNNING",
+          workerId,
+          leaseId: stageLease.leaseId,
+          startedAt: attemptCreatedAt,
+          createdAt: attemptCreatedAt,
+        } as any);
+        // Seed heartbeat so recovery sees a fresh attempt immediately.
+        // Ownership predicate in recordAttemptHeartbeatAsOwner requires the
+        // ACTIVE lease we are still holding; call must not throw.
+        try {
+          store.recordAttemptHeartbeatAsOwner(
+            attemptId, stored.stageExecutionId, stageLease.leaseId, workerId, attemptCreatedAt,
+          );
+        } catch { /* isolated: heartbeat seed failure is non-fatal */ }
+      } catch (e: any) {
+        // Attempt creation failure is treated as a hard dispatch failure:
+        // we cannot safely leave a RUNNING stage with no attempt row.
+        try { leaseManager.releaseLease(stageLease.leaseId); } catch {}
+        summary.failed.push({ stage: stageName, error: `createAttempt: ${e?.message ?? e}` });
+        continue;
+      }
+
       // Execute via the existing adapter.
       let adapterResult: { success: boolean; externalId?: string; stderr?: string };
       try {
@@ -254,6 +287,29 @@ export async function runStageGraphToCompletion(
             at: endNow,
           },
         });
+
+        // Phase 203b: finalize the attempt while ownership is still valid.
+        // updateAttemptAsOwner CAS requires the ACTIVE lease, so this must
+        // run before releaseLease.
+        try {
+          store.updateAttemptAsOwner(
+            {
+              id: attemptId,
+              jobId: stored.stageExecutionId,
+              attemptNumber: 1,
+              status: nextStatus,
+              workerId,
+              leaseId: stageLease.leaseId,
+              startedAt: attemptCreatedAt,
+              completedAt: now(),
+              error: failureReason ?? undefined,
+              createdAt: attemptCreatedAt,
+            } as any,
+            stageLease.leaseId,
+            workerId,
+            now(),
+          );
+        } catch { /* isolated: attempt finalization failure is non-fatal */ }
       } finally {
         try { leaseManager.releaseLease(stageLease.leaseId); } catch {}
       }
