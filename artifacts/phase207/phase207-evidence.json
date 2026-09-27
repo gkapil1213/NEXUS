@@ -1,16 +1,16 @@
 {
   "phase": 207,
-  "generatedAt": "2026-09-27T08:41:51.009Z",
-  "implementationSha": "fafe9dfbe56a9625c3b68101b9a19ffb24edc4e6",
-  "originMasterSha": "fafe9dfbe56a9625c3b68101b9a19ffb24edc4e6",
-  "persistenceMode": "shared",
+  "generatedAt": "2026-09-27T08:59:17.959Z",
+  "implementationSha": "beecb1c82df6d890696e919f71042d0594db3f7d",
+  "originMasterSha": "beecb1c82df6d890696e919f71042d0594db3f7d",
   "commands": {
     "tsc": "npx tsc --noEmit --pretty false",
-    "test": "npx tsx scripts/test-phase207-production-scheduler.ts"
+    "test": "npx tsx scripts/test-phase207-production-scheduler.ts",
+    "regression": "npx tsx scripts/test-phase20[1-6]*.ts"
   },
   "results": {
     "tsc": "PASS",
-    "testSummary": {
+    "test": {
       "sqlite": {
         "PASS": 4,
         "FAIL": 0,
@@ -23,7 +23,69 @@
         "BLOCKED": 0,
         "NOT_EXECUTED": 13
       }
-    }
+    },
+    "regression": [
+      {
+        "Test": "test-phase201-orchestrator-deps.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase201-stage-dag.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase202b-retry-eligibility.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase202c-concurrency.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase202d-shared-admission.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase202-durable-admission.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase202e-admission-stress.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase203a-stage-dispatch.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase203b-worker-failure.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase203c-dag-convergence.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase203d-restart-durability.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase203e-concurrency-stress.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase204-execution-lifecycle.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase205-execution-reconciliation.ts",
+        "Exit": 0
+      },
+      {
+        "Test": "test-phase206-worker-fencing.ts",
+        "Exit": 0
+      }
+    ]
   },
   "wiring": {
     "schedulerLifecycle": "NexusKernel.startDistributedScheduler / stopDistributedScheduler",
@@ -33,5 +95,19 @@
     "noOverlap": "distributedSchedulerInFlight + executionReconcileInFlight",
     "shutdownOrder": "scheduler -> reconcile timer -> CI scheduler -> recovery supervisor -> PG pool",
     "clientSingletonFix": "kernel.ts:304 dynamic import replaced with static getPgClient() import"
+  },
+  "finalReport": {
+    "canonicalScheduler": "DistributedScheduler",
+    "productionDriver": "NexusKernel.startDistributedScheduler (opt-in, server-mode)",
+    "kernelIntegration": "PASS",
+    "reconciliationTimer": "KEPT (complements ReleaseRecoverySupervisor; separate control loop)",
+    "dagIntegration": "PASS via ExecutionEngine.recoverStaleJobs -> listExecutionsNeedingReconciliation -> finalizeExecution",
+    "admission": "PASS",
+    "dispatch": "NOT EXECUTED (requires live worker process)",
+    "multiWorkerConcurrency": "NOT EXECUTED (requires live worker process)",
+    "leaseFencing": "NOT EXECUTED (requires live worker process)",
+    "retry": "NOT EXECUTED (requires live worker process)",
+    "restartRecovery": "NOT EXECUTED (requires live worker process)",
+    "terminalProtection": "PASS via recoverStaleJobs terminal-skip + CAS"
   }
 }
