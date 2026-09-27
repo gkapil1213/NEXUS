@@ -1,0 +1,215 @@
+{
+  "runId": "verify-212-1790528247682-6q5y8bge",
+  "phase": 212,
+  "suite": "release-recovery",
+  "startedAt": "2026-09-27T16:57:27.682Z",
+  "completedAt": "2026-09-27T16:57:42.022Z",
+  "status": "PASS",
+  "requestedTestCount": 32,
+  "executedTestCount": 32,
+  "passCount": 32,
+  "failCount": 0,
+  "blockedCount": 0,
+  "notExecutedCount": 0,
+  "unverifiedCount": 0,
+  "exitCode": 0,
+  "repositoryCommit": "37139eed8b692fa66ebc45f29dd8e34a6f171b5f",
+  "repositoryBranch": "master",
+  "testScript": "scripts/test-phase212-release-recovery.ts",
+  "results": [
+    {
+      "testId": "212A",
+      "name": "successful deployment reconciliation",
+      "status": "PASS",
+      "note": "classifier=RECOVERY_REQUIRED inspection_required=true"
+    },
+    {
+      "testId": "212AA",
+      "name": "tampered recovery state",
+      "status": "PASS",
+      "note": "durable state survives fresh service without drift"
+    },
+    {
+      "testId": "212AB",
+      "name": "illegal state transition",
+      "status": "PASS",
+      "note": "status=DEPLOYING (no corruption)"
+    },
+    {
+      "testId": "212AC",
+      "name": "audit/event persistence",
+      "status": "PASS",
+      "note": "updatedAt=1790528261774 createdAt=1790528261768"
+    },
+    {
+      "testId": "212AD",
+      "name": "secret leakage protection",
+      "status": "PASS",
+      "note": "intent row has no secret tokens"
+    },
+    {
+      "testId": "212AE",
+      "name": "deterministic recovery decision",
+      "status": "PASS",
+      "note": "classifier identical x3 = RECOVERY_REQUIRED"
+    },
+    {
+      "testId": "212AF",
+      "name": "Phase 211 regression",
+      "status": "PASS",
+      "note": "Phase 210 gate still ALLOWED"
+    },
+    {
+      "testId": "212B",
+      "name": "unknown provider outcome",
+      "status": "PASS",
+      "note": "status=UNKNOWN classifier=RECOVERY_REQUIRED"
+    },
+    {
+      "testId": "212C",
+      "name": "restart after unknown outcome",
+      "status": "PASS",
+      "note": "UNKNOWN durable; classifier=RECOVERY_REQUIRED"
+    },
+    {
+      "testId": "212D",
+      "name": "provider reports deployed",
+      "status": "PASS",
+      "note": "status=DEPLOYED"
+    },
+    {
+      "testId": "212E",
+      "name": "provider reports failed",
+      "status": "PASS",
+      "note": "status=FAILED"
+    },
+    {
+      "testId": "212F",
+      "name": "provider reports pending",
+      "status": "PASS",
+      "note": "status=PENDING"
+    },
+    {
+      "testId": "212G",
+      "name": "provider reports not found",
+      "status": "PASS",
+      "note": "status=NOT_FOUND"
+    },
+    {
+      "testId": "212H",
+      "name": "reconciliation idempotency",
+      "status": "PASS",
+      "note": "classifier determinism x3 = RECOVERY_REQUIRED"
+    },
+    {
+      "testId": "212I",
+      "name": "concurrent recovery workers",
+      "status": "PASS",
+      "note": "1 of 2 acquired lease"
+    },
+    {
+      "testId": "212J",
+      "name": "recovery lease conflict",
+      "status": "PASS",
+      "note": "holder=w-J-a"
+    },
+    {
+      "testId": "212K",
+      "name": "lease expiration recovery",
+      "status": "PASS",
+      "note": "reacquired by w-K-next"
+    },
+    {
+      "testId": "212L",
+      "name": "stale worker fencing",
+      "status": "PASS",
+      "note": "attacker rejected, owner accepted"
+    },
+    {
+      "testId": "212M",
+      "name": "restart during reconciliation",
+      "status": "PASS",
+      "note": "RECOVERY_REQUIRED persists; classifier=RECOVERY_REQUIRED"
+    },
+    {
+      "testId": "212N",
+      "name": "restart after deployed before verification",
+      "status": "PASS",
+      "note": "classifier=RESUME_VERIFICATION"
+    },
+    {
+      "testId": "212O",
+      "name": "health verification success",
+      "status": "PASS",
+      "note": "classifier=RESUME_VERIFICATION"
+    },
+    {
+      "testId": "212P",
+      "name": "health verification failure",
+      "status": "PASS",
+      "note": "classifier=MARK_FAILED_AND_ROLLBACK"
+    },
+    {
+      "testId": "212Q",
+      "name": "rollback required",
+      "status": "PASS",
+      "note": "VERIFICATION_FAILED -> ROLLING_BACK"
+    },
+    {
+      "testId": "212R",
+      "name": "rollback succeeds",
+      "status": "PASS",
+      "note": "ROLLING_BACK -> FAILED (terminal)"
+    },
+    {
+      "testId": "212S",
+      "name": "rollback failure",
+      "status": "PASS",
+      "note": "ROLLING_BACK -> BLOCKED with reason"
+    },
+    {
+      "testId": "212T",
+      "name": "restart during rollback",
+      "status": "PASS",
+      "note": "ROLLING_BACK persists; classifier=RESUME_ROLLBACK"
+    },
+    {
+      "testId": "212U",
+      "name": "duplicate rollback prevention",
+      "status": "PASS",
+      "note": "status remains ROLLING_BACK, classifier=RESUME_ROLLBACK"
+    },
+    {
+      "testId": "212V",
+      "name": "deployment intent idempotency",
+      "status": "PASS",
+      "note": "same intentKey across 3 calls, created only on first"
+    },
+    {
+      "testId": "212W",
+      "name": "artifact identity enforcement",
+      "status": "PASS",
+      "note": "different artifactDigest => different intentKey"
+    },
+    {
+      "testId": "212X",
+      "name": "commit identity enforcement",
+      "status": "PASS",
+      "note": "different commitSha => different intentKey"
+    },
+    {
+      "testId": "212Y",
+      "name": "environment identity enforcement",
+      "status": "PASS",
+      "note": "different environment => different intentKey"
+    },
+    {
+      "testId": "212Z",
+      "name": "authorization enforcement",
+      "status": "PASS",
+      "note": "RECOVERY_REQUIRED not executable; classifier=RECOVERY_REQUIRED"
+    }
+  ],
+  "resultDigest": "3c75086c66ef4ecff40c27402a618ecf764985fb5879dd562b284827eb7610cf",
+  "evidenceDigest": "58c3db910c7035a5d827b43e47b20ca3c991de7d3aaa35876d3722515d073d9a"
+}

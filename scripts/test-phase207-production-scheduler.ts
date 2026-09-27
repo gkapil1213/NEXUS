@@ -42,7 +42,12 @@ async function seedJob(store: Store, id: string, status: string, opts: {
     id, idempotencyKey: "p207-" + id,
     jobType: opts.jobType ?? "engineering",
     payload: opts.payload ?? {},
-    status, priority: opts.priority ?? -1000000,
+    status, // Phase 212 fix: with priority -1000000, decades of accumulated QUEUED
+// stage jobs (from previous 207 runs, which don't clean up) age to a MORE
+// negative effective priority and always win admitNextJobAsync's ordering.
+// -2000000000 (INTEGER min + 1 headroom) ensures this run's fresh jobs
+// always sort first regardless of how large the backlog has grown.
+    priority: opts.priority ?? -2000000000,
     nextAttemptAt: opts.nextAttemptAt ?? null,
     createdAt: opts.createdAt ?? (now - 10_000_000_000),
     updatedAt: now,
@@ -82,15 +87,18 @@ async function pgCleanup(prefixes: string[]): Promise<void> {
   } finally { await c.close(); }
 }
 
-async function admitFully(store: Store, jobId: string, sched: DistributedScheduler): Promise<string> {
-  for (let i = 0; i < 20; i++) {
+async function admitFully(store: Store, jobId: string, _sched: DistributedScheduler): Promise<string> {
+  // Pure admitNextJobAsync loop. Deliberately does NOT call sched.tick():
+  // tick() runs dispatchTick(), which can move ADMITTED -> CLAIMED behind
+  // the caller with a random worker, breaking tests that need to dispatch
+  // to a specific worker. Same fix as Phase 208 admitFully.
+  for (let i = 0; i < 500; i++) {
     const j = await store.getJobAsync(jobId);
     if (!j) throw new Error("job not found: " + jobId);
     if (j.status === "ADMITTED") return j.status;
+    if (j.status === "CLAIMED") return j.status;
     if (j.status === "QUEUED") {
       await store.admitNextJobAsync({ owner: "p207", capacityLimit: 100000, now: Date.now() });
-      const j2 = await store.getJobAsync(jobId);
-      if (j2?.status !== "ADMITTED") await sched.tick(Date.now());
       continue;
     }
     return j.status;
@@ -177,6 +185,13 @@ async function main(): Promise<void> {
       }
     }
   }
+
+  // Phase 212: stop the kernel-owned background scheduler before the DAG
+  // scenarios. Its setInterval fires tick()->dispatchTick() on ADMITTED jobs
+  // and races the test's explicit admit+dispatch. The DAG scenarios instantiate
+  // their own DistributedScheduler and call tick() explicitly, so they are
+  // deterministic once the background timer is stopped.
+  try { await kernel.stopDistributedScheduler(); } catch { /* ignore */ }
 
   if (!(shared && hasDb && store)) {
     for (const [id, name] of [
@@ -323,10 +338,24 @@ async function main(): Promise<void> {
           const reason = await eligibilityOf(s);
           ok(reason === "ELIGIBLE", `stage ${s} not eligible before drive: ${reason}`);
           // Real admit
-          await admitFully(store, `${execId}__${s}`, sched);
-          // Real dispatch
-          const d = await store.dispatchAdmittedJobAsync({
-            jobId: `${execId}__${s}`, workerId, maxConcurrencyPerWorker: 10 });
+          // Race-safe admit+dispatch: between admitFully returning ADMITTED and
+          // dispatch, another scheduler tick can move the job ADMITTED -> CLAIMED
+          // or reset it. Retry admit+dispatch together until we win or timeout.
+          let dispatched: any = null;
+          let lastReason = "";
+          for (let attempt = 0; attempt < 10 && !dispatched; attempt++) {
+            const cur = await store.getJobAsync(`${execId}__${s}`);
+            if (cur && cur.status === "QUEUED") {
+              await admitFully(store, `${execId}__${s}`, sched);
+            }
+            const d = await store.dispatchAdmittedJobAsync({
+              jobId: `${execId}__${s}`, workerId, maxConcurrencyPerWorker: 10 });
+            if (d.dispatched) { dispatched = d; break; }
+            lastReason = d.reason ?? "UNKNOWN";
+            await new Promise((r) => setTimeout(r, 25));
+          }
+          if (!dispatched) throw new Error(`dispatch ${s} never succeeded: ${lastReason}`);
+          const d = dispatched;
           ok(d.dispatched, `dispatch ${s}: ${d.reason}`);
           // Real completion
           const comp = await store.completeAttemptAndTransitionJobAsync({
@@ -534,6 +563,16 @@ async function main(): Promise<void> {
 async function finish(kernel: NexusKernel, prefix: string): Promise<void> {
   try { await kernel.stopDistributedScheduler(); } catch { /* ignore */ }
   try { await kernel.shutdown({ finalRecoveryPass: false }); } catch { /* ignore */ }
+  // Phase 212: purge this run's durable rows so subsequent runs start clean.
+  try {
+    await pgExec("DELETE FROM execution_events WHERE job_id LIKE $1", [prefix + "%"]);
+    await pgExec("DELETE FROM execution_artifacts WHERE job_id LIKE $1", [prefix + "%"]);
+    await pgExec("DELETE FROM execution_attempts WHERE job_id LIKE $1", [prefix + "%"]);
+    await pgExec("DELETE FROM execution_leases WHERE job_id LIKE $1", [prefix + "%"]);
+    await pgExec("DELETE FROM execution_stage_dependencies WHERE execution_id LIKE $1", [prefix + "%"]);
+    await pgExec("DELETE FROM execution_jobs WHERE id LIKE $1", [prefix + "%"]);
+    await pgExec("DELETE FROM execution_workers WHERE worker_id LIKE $1", [prefix + "%"]);
+  } catch (e) { console.log("207 cleanup warning:", e); }
   try { await pgCleanup([prefix]); } catch (e) { console.log("cleanup warning:", e); }
 
   const counts = rows.reduce<Record<Result, number>>(

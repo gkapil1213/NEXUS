@@ -1,9 +1,9 @@
 {
-  "runId": "verify-208-1790526465170-1esr1keh",
+  "runId": "verify-208-1790528297156-f81v0pi3",
   "phase": 208,
   "suite": "worker-execution-runtime",
-  "startedAt": "2026-09-27T16:27:45.170Z",
-  "completedAt": "2026-09-27T16:28:10.552Z",
+  "startedAt": "2026-09-27T16:58:17.156Z",
+  "completedAt": "2026-09-27T16:58:42.189Z",
   "status": "PASS",
   "requestedTestCount": 20,
   "executedTestCount": 20,
@@ -13,7 +13,7 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 0,
-  "repositoryCommit": "6cb8a113bba78f6f9c99643d70421b8b06252c77",
+  "repositoryCommit": "37139eed8b692fa66ebc45f29dd8e34a6f171b5f",
   "repositoryBranch": "master",
   "testScript": "scripts/test-phase208-worker-execution-runtime.ts",
   "results": [
@@ -39,7 +39,7 @@
       "testId": "208D",
       "name": "progress durability",
       "status": "PASS",
-      "note": "last_progress_at=1790526479172"
+      "note": "last_progress_at=1790528310852"
     },
     {
       "testId": "208E",
@@ -63,13 +63,13 @@
       "testId": "208H",
       "name": "result persistence",
       "status": "PASS",
-      "note": "attempt=attempt_phase208-1790526467882-job-h-1790526478903-zgsm9p_1 provenance=prov_attempt_phase208-1790526467882-job-h-1790526478903-zgsm9p_1_1790526478944 outcome=SUCCEEDED"
+      "note": "attempt=attempt_phase208-1790528299747-job-h-1790528310574-7vwa92_1 provenance=prov_attempt_phase208-1790528299747-job-h-1790528310574-7vwa92_1_1790528310614 outcome=SUCCEEDED"
     },
     {
       "testId": "208I",
       "name": "artifact persistence",
       "status": "PASS",
-      "note": "artifactId=art-phase208-1790526467882-job-i-1790526478994-9vrxrd bound to attempt"
+      "note": "artifactId=art-phase208-1790528299747-job-i-1790528310659-3i1gw5 bound to attempt"
     },
     {
       "testId": "208J",
@@ -135,9 +135,9 @@
       "testId": "208T",
       "name": "end-to-end execution lifecycle",
       "status": "PASS",
-      "note": "job=SUCCEEDED attempt=SUCCEEDED provenance=prov_attempt_phase208-1790526467882-job-t-1790526490196-vlygyt_1_1790526490253 artifacts=1 no-active-lease"
+      "note": "job=SUCCEEDED attempt=SUCCEEDED provenance=prov_attempt_phase208-1790528299747-job-t-1790528321895-sdl6ht_1_1790528321948 artifacts=1 no-active-lease"
     }
   ],
   "resultDigest": "fb84748bc41c67e07099d11c1a7c901814833be75d305eeea7f3c350693179ca",
-  "evidenceDigest": "3eb3d597edb06cdca2d2200e91ac9c701f720c9e14e94a678485b7ce0b97fff1"
+  "evidenceDigest": "886ca84f1f7d464a74e2734de0d492dea9ad444ba34740a815b8c252bfb167c1"
 }

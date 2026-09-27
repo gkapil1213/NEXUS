@@ -27,7 +27,7 @@
     "testId": "207E",
     "name": "scheduler construct on kernel store",
     "status": "PASS",
-    "note": "ownerId=scheduler-6100-1q211k6u"
+    "note": "ownerId=scheduler-13344-dsq4m06j"
   },
   {
     "testId": "207F",
@@ -45,61 +45,61 @@
     "testId": "207H",
     "name": "worker dispatch",
     "status": "PASS",
-    "note": "job=phase207-1790526496435-job-h-1790526506601-7v6fa1 worker=phase207-1790526496435-w-h attempt=attempt_phase207-1790526496435-job-h-1790526506601-7v6fa1_1 lease=lease_dispatch_phase207-1790526496435-job-h-1790526506601-7v6fa1_1_1790526506626_ros4zt"
+    "note": "job=phase207-1790529996780-job-h-1790530008581-dni6jx worker=phase207-1790529996780-w-h attempt=attempt_phase207-1790529996780-job-h-1790530008581-dni6jx_1 lease=lease_dispatch_phase207-1790529996780-job-h-1790530008581-dni6jx_1_1790530008603_8o12hm"
   },
   {
     "testId": "207I",
     "name": "lease acquisition exclusivity",
     "status": "PASS",
-    "note": "winner=phase207-1790526496435-w-i1 loser=phase207-1790526496435-w-i2 reason=NOT_ADMITTED"
+    "note": "winner=phase207-1790529996780-w-i1 loser=phase207-1790529996780-w-i2 reason=NOT_ADMITTED"
   },
   {
     "testId": "207J",
     "name": "dependency gating A->B",
     "status": "PASS",
-    "note": "execId=phase207-1790526496435-exec-207j-1790526506755-rv4ovf stages=A,B"
+    "note": "execId=phase207-1790529996780-exec-207j-1790530008711-7kxrvd stages=A,B"
   },
   {
     "testId": "207K",
     "name": "DAG progression A->B->C",
     "status": "PASS",
-    "note": "execId=phase207-1790526496435-exec-207k-1790526506933-1vjp1v stages=A,B,C"
+    "note": "execId=phase207-1790529996780-exec-207k-1790530008852-yyuih6 stages=A,B,C"
   },
   {
     "testId": "207L",
     "name": "fan-out A->B,A->C",
     "status": "PASS",
-    "note": "execId=phase207-1790526496435-exec-207l-1790526507190-a0w19i stages=A,B,C"
+    "note": "execId=phase207-1790529996780-exec-207l-1790530009063-l0aql8 stages=A,B,C"
   },
   {
     "testId": "207M",
     "name": "fan-in B->D,C->D",
     "status": "PASS",
-    "note": "execId=phase207-1790526496435-exec-207m-1790526507438-vt9qr8 stages=B,D,C"
+    "note": "execId=phase207-1790529996780-exec-207m-1790530009291-wfbo87 stages=B,D,C"
   },
   {
     "testId": "207N",
     "name": "duplicate tick protection",
     "status": "PASS",
-    "note": "job=ADMITTED attempts<=1 leases<=1"
+    "note": "job=CLAIMED attempts<=1 leases<=1"
   },
   {
     "testId": "207O",
     "name": "concurrent scheduler instances",
     "status": "PASS",
-    "note": "2 schedulers admitted=20 of 20 seeded no-duplicates"
+    "note": "2 schedulers admitted=14 of 20 seeded no-duplicates"
   },
   {
     "testId": "207P",
     "name": "worker race",
     "status": "PASS",
-    "note": "winner=phase207-1790526496435-w-p2"
+    "note": "winner=phase207-1790529996780-w-p1"
   },
   {
     "testId": "207Q",
     "name": "stale worker fencing",
     "status": "PASS",
-    "note": "fenced=10 lateHB=WORKER_OWNERSHIP_LOST"
+    "note": "fenced=3 lateHB=WORKER_OWNERSHIP_LOST"
   },
   {
     "testId": "207R",
@@ -111,12 +111,12 @@
     "testId": "207S",
     "name": "scheduler restart",
     "status": "PASS",
-    "note": "job persisted across scheduler instances (mid=ADMITTED)"
+    "note": "job persisted across scheduler instances (mid=CLAIMED)"
   },
   {
     "testId": "207T",
     "name": "end-to-end execution",
     "status": "PASS",
-    "note": "job=phase207-1790526496435-job-t-1790526520326-9eh3fq attempt=attempt_phase207-1790526496435-job-t-1790526520326-9eh3fq_1 terminal=SUCCEEDED"
+    "note": "job=phase207-1790529996780-job-t-1790530021508-2ab445 attempt=attempt_phase207-1790529996780-job-t-1790530021508-2ab445_1 terminal=SUCCEEDED"
   }
 ]

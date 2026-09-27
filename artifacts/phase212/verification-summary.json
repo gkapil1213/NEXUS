@@ -1,7 +1,7 @@
 {
-  "phase": 211,
-  "suite": "release-execution",
-  "runId": "verify-211-1790528264966-cdbqy8c1",
+  "phase": 212,
+  "suite": "release-recovery",
+  "runId": "verify-212-1790528247682-6q5y8bge",
   "status": "PASS",
   "requestedTestCount": 32,
   "executedTestCount": 32,
@@ -13,8 +13,8 @@
   "exitCode": 0,
   "repositoryCommit": "37139eed8b692fa66ebc45f29dd8e34a6f171b5f",
   "repositoryBranch": "master",
-  "resultDigest": "4141d6755d88b0a1d7d4b61681b5dda37b0379193b32e976a5ff30d61ab38ca8",
-  "evidenceDigest": "35459732d394f293fb5a41daa4068b573e042a0adc48672deef799898c65f1f5",
+  "resultDigest": "3c75086c66ef4ecff40c27402a618ecf764985fb5879dd562b284827eb7610cf",
+  "evidenceDigest": "58c3db910c7035a5d827b43e47b20ca3c991de7d3aaa35876d3722515d073d9a",
   "reasons": [],
-  "generatedAt": "2026-09-27T16:58:04.276Z"
+  "generatedAt": "2026-09-27T16:57:42.022Z"
 }

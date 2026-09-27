@@ -1,9 +1,9 @@
 {
-  "runId": "verify-211-1790526701845-cgyi80s8",
+  "runId": "verify-211-1790528264966-cdbqy8c1",
   "phase": 211,
   "suite": "release-execution",
-  "startedAt": "2026-09-27T16:31:41.845Z",
-  "completedAt": "2026-09-27T16:31:57.069Z",
+  "startedAt": "2026-09-27T16:57:44.966Z",
+  "completedAt": "2026-09-27T16:58:04.276Z",
   "status": "PASS",
   "requestedTestCount": 32,
   "executedTestCount": 32,
@@ -13,7 +13,7 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 0,
-  "repositoryCommit": "d3eed6cb7cf5c1c647ed585ff52a39b81ae8fa1a",
+  "repositoryCommit": "37139eed8b692fa66ebc45f29dd8e34a6f171b5f",
   "repositoryBranch": "master",
   "testScript": "scripts/test-phase211-release-execution.ts",
   "results": [
@@ -39,7 +39,7 @@
       "testId": "211AC",
       "name": "audit/event persistence",
       "status": "PASS",
-      "note": "status=HEALTH_CHECKING updatedAt=1790526716874"
+      "note": "status=HEALTH_CHECKING updatedAt=1790528284139"
     },
     {
       "testId": "211AD",
@@ -211,5 +211,5 @@
     }
   ],
   "resultDigest": "4141d6755d88b0a1d7d4b61681b5dda37b0379193b32e976a5ff30d61ab38ca8",
-  "evidenceDigest": "a3fad7aec50d0e87f0cec50a6199ccc3390332cd3cc5aaa9f4daf63b8ea9bd77"
+  "evidenceDigest": "35459732d394f293fb5a41daa4068b573e042a0adc48672deef799898c65f1f5"
 }

@@ -54,12 +54,24 @@ export const PHASE_211: Manifest = {
     "211AE","211AF",
   ],
 };
+export const PHASE_212: Manifest = {
+  phase: 212,
+  suite: "release-recovery",
+  testScript: "scripts/test-phase212-release-recovery.ts",
+  requiredTestIds: [
+    "212A","212B","212C","212D","212E","212F","212G","212H","212I","212J",
+    "212K","212L","212M","212N","212O","212P","212Q","212R","212S","212T",
+    "212U","212V","212W","212X","212Y","212Z","212AA","212AB","212AC","212AD",
+    "212AE","212AF",
+  ],
+};
 export const MANIFESTS: Record<number, Manifest> = {
   207: PHASE_207,
   208: PHASE_208,
   209: PHASE_209,
   210: PHASE_210,
   211: PHASE_211,
+  212: PHASE_212,
 };
 
 export function getManifest(phase: number): Manifest {
