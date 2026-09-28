@@ -1,9 +1,9 @@
 {
-  "runId": "verify-216-1790587445817-ocisch7s",
+  "runId": "verify-216-1790589441259-w4zc6rd7",
   "phase": 216,
   "suite": "ai-provider",
-  "startedAt": "2026-09-28T09:24:05.817Z",
-  "completedAt": "2026-09-28T09:24:25.655Z",
+  "startedAt": "2026-09-28T09:57:21.259Z",
+  "completedAt": "2026-09-28T09:57:41.475Z",
   "status": "BLOCKED",
   "requestedTestCount": 26,
   "executedTestCount": 26,
@@ -13,7 +13,7 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 0,
-  "repositoryCommit": "d7aabe62a65b3d1de81f1d336d2953baa5765df5",
+  "repositoryCommit": "b8fb66a923e72d80be3bf9f876251ae6eb6c48d0",
   "repositoryBranch": "master",
   "testScript": "scripts/test-phase216-ai-provider.ts",
   "results": [
@@ -175,5 +175,5 @@
     }
   ],
   "resultDigest": "79149c1057a574a86a930decba84cda4e54d6e72a1f3ef09daaf26b0516ff9e1",
-  "evidenceDigest": "a9bcf603086306a7d0ac05be5e0f5baa87a3aeab0eaf5d9be8fec92fbfe69f45"
+  "evidenceDigest": "156510085c631633953d7948ea493d23793382137c8855dec9b70c98ae2fbd9c"
 }

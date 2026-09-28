@@ -1,0 +1,179 @@
+{
+  "runId": "verify-217-1790606084570-y7bzws86",
+  "phase": 217,
+  "suite": "implementation-execution",
+  "startedAt": "2026-09-28T14:34:44.570Z",
+  "completedAt": "2026-09-28T14:39:32.375Z",
+  "status": "BLOCKED",
+  "requestedTestCount": 26,
+  "executedTestCount": 26,
+  "passCount": 25,
+  "failCount": 0,
+  "blockedCount": 1,
+  "notExecutedCount": 0,
+  "unverifiedCount": 0,
+  "exitCode": 2,
+  "repositoryCommit": "b8fb66a923e72d80be3bf9f876251ae6eb6c48d0",
+  "repositoryBranch": "master",
+  "testScript": "scripts/test-phase217-implementation.ts",
+  "results": [
+    {
+      "testId": "217A",
+      "name": "implementation contract schema",
+      "status": "PASS",
+      "note": "FileOperation union enforced"
+    },
+    {
+      "testId": "217B",
+      "name": "operation schema + path policy",
+      "status": "PASS",
+      "note": "path security enforces 7 rejection classes"
+    },
+    {
+      "testId": "217C",
+      "name": "deterministic serialization and hash",
+      "status": "PASS",
+      "note": "canonical hash stable; 7021ec0481cc..."
+    },
+    {
+      "testId": "217D",
+      "name": "gateway registration (deterministic provider)",
+      "status": "PASS",
+      "note": "providerId=deterministic-test"
+    },
+    {
+      "testId": "217E",
+      "name": "implementation provider request shape",
+      "status": "PASS",
+      "note": "systemPrompt.length=1212 responseFormat=json_object"
+    },
+    {
+      "testId": "217F",
+      "name": "implementation provider response shape",
+      "status": "PASS",
+      "note": "status=SUCCEEDED ops=1"
+    },
+    {
+      "testId": "217G",
+      "name": "structured parsing rejection (invalid-json)",
+      "status": "PASS",
+      "note": "status=FAILED reason=INVALID_RESPONSE"
+    },
+    {
+      "testId": "217H",
+      "name": "no-operations rejection",
+      "status": "PASS",
+      "note": "status=INVALID reason=VALIDATION_FAILED"
+    },
+    {
+      "testId": "217I",
+      "name": "CREATE UPDATE RENAME DELETE applied atomically",
+      "status": "PASS",
+      "note": "created+updated+renamed+deleted; affected=5"
+    },
+    {
+      "testId": "217J",
+      "name": "atomic validation prevents partial mutation",
+      "status": "PASS",
+      "note": "batch of 2 rejected wholesale; 3 files unchanged"
+    },
+    {
+      "testId": "217K",
+      "name": "conflict detection (same path twice)",
+      "status": "PASS",
+      "note": "conflict detected: 2 issue(s)"
+    },
+    {
+      "testId": "217L",
+      "name": "resource limits enforced pre-mutation",
+      "status": "PASS",
+      "note": "size limit enforced (204800 > 65536)"
+    },
+    {
+      "testId": "217M",
+      "name": "forbidden-path policy (git, env, lockfiles)",
+      "status": "PASS",
+      "note": "5 forbidden classes enforced"
+    },
+    {
+      "testId": "217N",
+      "name": "prompt injection defense (repo content is data)",
+      "status": "PASS",
+      "note": "injection content persisted as data (68 bytes), not executed"
+    },
+    {
+      "testId": "217O",
+      "name": "secret redaction (log strings)",
+      "status": "PASS",
+      "note": "log redaction holds"
+    },
+    {
+      "testId": "217P",
+      "name": "deep redaction (artifact payloads)",
+      "status": "PASS",
+      "note": "deep redaction holds across sensitive-key nesting"
+    },
+    {
+      "testId": "217Q",
+      "name": "dependency-change safety (lockfiles explicit, no install)",
+      "status": "PASS",
+      "note": "dependency changes are file ops only; no install path"
+    },
+    {
+      "testId": "217R",
+      "name": "idempotency (repeat call reuses spec)",
+      "status": "PASS",
+      "note": "first=SUCCEEDED second=IDEMPOTENT_REPLAY:APPLIED invocations=1"
+    },
+    {
+      "testId": "217S",
+      "name": "artifact persistence with real SHA-256",
+      "status": "PASS",
+      "note": "artifactId=art-impl-impl-1790606275734-9w07kjx6 checksum=925d6db6b185..."
+    },
+    {
+      "testId": "217T",
+      "name": "lifecycle events persisted",
+      "status": "PASS",
+      "note": "engineering_implementation.* events=5"
+    },
+    {
+      "testId": "217U",
+      "name": "failure propagation (deterministic timeout)",
+      "status": "PASS",
+      "note": "status=FAILED reason=PROVIDER_TIMEOUT"
+    },
+    {
+      "testId": "217V",
+      "name": "retry on transient failure (connection-once)",
+      "status": "PASS",
+      "note": "status=SUCCEEDED invocations=2"
+    },
+    {
+      "testId": "217W",
+      "name": "non-retryable failure (auth) not retried",
+      "status": "PASS",
+      "note": "status=FAILED invocations=1"
+    },
+    {
+      "testId": "217X",
+      "name": "bounded response size",
+      "status": "PASS",
+      "note": "bounded(1_000_000) -> 1024"
+    },
+    {
+      "testId": "217Y",
+      "name": "full deterministic pipeline (plan -> arch -> impl -> artifact -> events)",
+      "status": "PASS",
+      "note": "status=SUCCEEDED events=5 artifactId=art-impl-impl-1790606370984-funp2vmz"
+    },
+    {
+      "testId": "217Z",
+      "name": "real external provider end-to-end",
+      "status": "BLOCKED",
+      "note": "no real provider configured (NEXUS_AI_ENABLED=true + NEXUS_AI_MODEL + NEXUS_AI_ENDPOINT + API key)"
+    }
+  ],
+  "resultDigest": "877f2d447780dd9a0d9b1521c94df4b0351cf20c552319ca27c849da2e05ca62",
+  "evidenceDigest": "8c35ee22c0e3172f4c0564d25f7fa13eac453b43e207829bafbc5c055732fe44"
+}
