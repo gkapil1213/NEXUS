@@ -1,15 +1,15 @@
 /**
- * NEXUS Phase 2 — Pass 3: Workspace & sandbox isolation.
+ * NEXUS Phase 2 â€” Pass 3: Workspace & sandbox isolation.
  *
- *   WorkspaceService  — lifecycle (CREATING→READY→ACTIVE→CLEANING→DESTROYED),
+ *   WorkspaceService  â€” lifecycle (CREATINGâ†’READYâ†’ACTIVEâ†’CLEANINGâ†’DESTROYED),
  *                       TTL, ownership, idempotent cleanup, honest failure.
- *   FileAccessPolicy  — the SINGLE centralized path/containment gate. Every
+ *   FileAccessPolicy  â€” the SINGLE centralized path/containment gate. Every
  *                       file operation routes through it; agents never check
  *                       paths themselves.
- *   ExecutionSandbox  — abstraction + BrowserSandbox. This runtime provides a
+ *   ExecutionSandbox  â€” abstraction + BrowserSandbox. This runtime provides a
  *                       LOGICAL_BOUNDARY (path + store confinement), NOT OS/
  *                       container/VM isolation. isolationReport() says so
- *                       explicitly — see IsolationBoundary.
+ *                       explicitly â€” see IsolationBoundary.
  *
  * Security posture:
  *  - Fail closed: any unresolved path, expired workspace, foreign workspace or
@@ -61,7 +61,7 @@ const WORKSPACE_TRANSITIONS: Record<WorkspaceStatus, WorkspaceStatus[]> = {
   ACTIVE: ["CLEANING", "FAILED"],
   CLEANING: ["DESTROYED", "FAILED"],
   FAILED: ["CLEANING"], // allow reclaiming a failed workspace
-  DESTROYED: [], // terminal — a destroyed workspace is never reused
+  DESTROYED: [], // terminal â€” a destroyed workspace is never reused
 };
 
 function canTransition(from: WorkspaceStatus, to: WorkspaceStatus): boolean {
@@ -79,7 +79,7 @@ export interface PathDecision {
 
 /**
  * Centralized file-access gate. Given a workspace and a requested path, decide
- * whether the path is inside this workspace's boundary. Pure — no side
+ * whether the path is inside this workspace's boundary. Pure â€” no side
  * effects; the caller performs audit/event. Fail closed.
  */
 export class FileAccessPolicy {
@@ -190,7 +190,7 @@ export class WorkspaceService {
     await this.auditWs(actor, "workspace.created", ws, "allow", { project_id: ws.project_id, execution_id: ws.execution_id });
     await this.emitWs("workspace.created", ws, { status: ws.status });
 
-    // Provisioning is synchronous in this runtime; move CREATING → READY.
+    // Provisioning is synchronous in this runtime; move CREATING â†’ READY.
     return this.transition(actor, ws.id, "READY");
   }
 
@@ -201,7 +201,7 @@ export class WorkspaceService {
     return ws;
   }
 
-  /** Activate (READY → ACTIVE). Expired workspaces are BLOCKED, never activated. */
+  /** Activate (READY â†’ ACTIVE). Expired workspaces are BLOCKED, never activated. */
   async activate(actor: WorkspaceActor, id: string): Promise<WorkspaceRecord> {
     const ws = await this.mustGet(id);
     await authorizeProject(this.svc, actor, "workspace:create", ws.project_id);
@@ -215,7 +215,7 @@ export class WorkspaceService {
   }
 
   /**
-   * Cleanup: remove all files and move to DESTROYED. IDEMPOTENT — cleaning an
+   * Cleanup: remove all files and move to DESTROYED. IDEMPOTENT â€” cleaning an
    * already-destroyed workspace is a no-op that returns the existing record.
    * A failed cleanup is recorded honestly as FAILED, never swallowed.
    */
@@ -243,7 +243,7 @@ export class WorkspaceService {
       return cleaned;
     } catch (e) {
       // Record the failure honestly; leave the workspace in FAILED so it is
-      // visible and retryable — never pretend cleanup succeeded.
+      // visible and retryable â€” never pretend cleanup succeeded.
       await this.svc.engine.put("workspaces", id, { ...ws, status: "FAILED", updated_at: Date.now() });
       await this.auditWs(actor, "workspace.cleanup.failed", ws, "error", { reason: (e as Error).message });
       await this.emitWs("workspace.cleanup.failed", ws, { reason: (e as Error).message });
@@ -261,7 +261,7 @@ export class WorkspaceService {
 
   /* ----------------------------- File operations --------------------------- */
 
-  /** Controlled read. Passes identity → authorization → ownership → path policy. */
+  /** Controlled read. Passes identity â†’ authorization â†’ ownership â†’ path policy. */
   async readFile(actor: WorkspaceActor, id: string, path: string): Promise<WorkspaceFileRecord> {
     const ws = await this.requireActive(actor, id, "read");
     await authorizeProject(this.svc, actor, "workspace:read", ws.project_id);
@@ -328,7 +328,7 @@ export class WorkspaceService {
     return file;
   }
 
-  /** Controlled listing — only this workspace's files are ever returned. */
+  /** Controlled listing â€” only this workspace's files are ever returned. */
   async listFiles(actor: WorkspaceActor, id: string): Promise<WorkspaceFileRecord[]> {
     const ws = await this.requireActive(actor, id, "list");
     await authorizeProject(this.svc, actor, "workspace:read", ws.project_id);
@@ -344,6 +344,233 @@ export class WorkspaceService {
     return files.some((f) => f.path === decision.normalized);
   }
 
+  /* ---------------------- Phase 217: atomic file operations ---------------- */
+
+  /**
+   * Delete a file from an ACTIVE workspace. Idempotent-safe: returns
+   * `deleted: false` if the file did not exist. Limits counters are adjusted
+   * downward. Path still goes through FileAccessPolicy.
+   */
+  async deleteFile(
+    actor: WorkspaceActor,
+    id: string,
+    path: string,
+  ): Promise<{ deleted: boolean; path: string }> {
+    const ws = await this.requireActive(actor, id, "delete");
+    await authorizeProject(this.svc, actor, "workspace:create", ws.project_id);
+    const decision = await this.authorizePath(actor, ws, path, "write");
+    const files = await this.svc.engine.byIndex<WorkspaceFileRecord>("workspace_files", "byWorkspace", id);
+    const existing = files.find((f) => f.path === decision.normalized);
+    if (!existing) {
+      await this.auditWs(actor, "workspace.file.delete", ws, "info", { path: decision.normalized, deleted: false });
+      return { deleted: false, path: decision.normalized! };
+    }
+    await this.svc.engine.del("workspace_files", existing.id);
+    ws.file_count = Math.max(0, ws.file_count - 1);
+    ws.total_bytes = Math.max(0, ws.total_bytes - existing.size);
+    ws.updated_at = Date.now();
+    await this.svc.engine.put("workspaces", ws.id, ws);
+    await this.auditWs(actor, "workspace.file.delete", ws, "allow", { path: decision.normalized, size: existing.size });
+    await this.emitWs("workspace.file.write", ws, { path: decision.normalized, deleted: true });
+    return { deleted: true, path: decision.normalized! };
+  }
+
+  /**
+   * Rename a file within the same workspace. Source and destination both pass
+   * FileAccessPolicy. Fails closed if the source is missing or the destination
+   * already exists. Size/count limits are unchanged by a rename.
+   */
+  async renameFile(
+    actor: WorkspaceActor,
+    id: string,
+    from: string,
+    to: string,
+  ): Promise<{ renamed: boolean; from: string; to: string }> {
+    const ws = await this.requireActive(actor, id, "rename");
+    await authorizeProject(this.svc, actor, "workspace:create", ws.project_id);
+    const fromDecision = await this.authorizePath(actor, ws, from, "write");
+    const toDecision = await this.authorizePath(actor, ws, to, "write");
+    const files = await this.svc.engine.byIndex<WorkspaceFileRecord>("workspace_files", "byWorkspace", id);
+    const source = files.find((f) => f.path === fromDecision.normalized);
+    const collision = files.find((f) => f.path === toDecision.normalized);
+    if (!source) throw Err.notFound("FILE_NOT_FOUND", `rename source not found: '${fromDecision.normalized}'`);
+    if (collision) throw Err.validation("FILE_EXISTS", `rename destination already exists: '${toDecision.normalized}'`);
+    const renamed: WorkspaceFileRecord = {
+      ...source,
+      path: toDecision.normalized!,
+      updated_at: Date.now(),
+    };
+    await this.svc.engine.put("workspace_files", renamed.id, renamed);
+    ws.updated_at = Date.now();
+    await this.svc.engine.put("workspaces", ws.id, ws);
+    await this.auditWs(actor, "workspace.file.rename", ws, "allow", { from: fromDecision.normalized, to: toDecision.normalized });
+    await this.emitWs("workspace.file.write", ws, { from: fromDecision.normalized, to: toDecision.normalized, renamed: true });
+    return { renamed: true, from: fromDecision.normalized!, to: toDecision.normalized! };
+  }
+
+  /**
+   * Phase 217: apply a batch of file operations ATOMICALLY at the validation
+   * boundary.
+   *
+   * Guarantee: every operation, every path, every conflict, and every limit
+   * is validated against a projected in-memory state BEFORE any write reaches
+   * the store. If any step fails, NO file is mutated.
+   *
+   * Persistence-after-validation: the underlying engine exposes per-key
+   * put/del with no cross-key transaction primitive. A mid-flush engine
+   * failure is therefore surfaced honestly (thrown) and the caller must treat
+   * the workspace as suspect; this method does not fabricate transactional
+   * rollback it cannot provide.
+   */
+  async applyFileOperations(
+    actor: WorkspaceActor,
+    id: string,
+    ops: ReadonlyArray<
+      | { kind: "CREATE"; path: string; content: string }
+      | { kind: "UPDATE"; path: string; content: string }
+      | { kind: "DELETE"; path: string }
+      | { kind: "RENAME"; from: string; to: string }
+    >,
+  ): Promise<{ applied: number; affected: string[] }> {
+    const ws = await this.requireActive(actor, id, "apply");
+    await authorizeProject(this.svc, actor, "workspace:create", ws.project_id);
+
+    const limits = this.svc.limits;
+    const files = await this.svc.engine.byIndex<WorkspaceFileRecord>("workspace_files", "byWorkspace", id);
+
+    type Projected = { id: string | null; path: string; content: string; size: number; created_at: number };
+    const byPath = new Map<string, Projected>();
+    for (const f of files) {
+      byPath.set(f.path, { id: f.id, path: f.path, content: f.content, size: f.size, created_at: f.created_at });
+    }
+
+    const affected = new Set<string>();
+    const now = Date.now();
+
+    // ---------- Phase 1: validate every operation against the projection ----
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i];
+
+      // 1a. Path policy gate (rejects traversal / absolute / foreign / encoded).
+      if (op.kind === "RENAME") {
+        await this.authorizePath(actor, ws, op.from, "write");
+        await this.authorizePath(actor, ws, op.to, "write");
+      } else {
+        await this.authorizePath(actor, ws, op.path, "write");
+      }
+
+      // 1b. Semantic validation against projected state.
+      switch (op.kind) {
+        case "CREATE": {
+          if (byPath.has(op.path)) {
+            throw Err.validation("IMPL_CREATE_EXISTS", `CREATE of existing path: '${op.path}'`);
+          }
+          if (op.content.length > limits.max_file_bytes) {
+            throw Err.security("WORKSPACE_LIMIT", `file exceeds ${limits.max_file_bytes} byte limit: '${op.path}'`);
+          }
+          byPath.set(op.path, { id: null, path: op.path, content: op.content, size: op.content.length, created_at: now });
+          affected.add(op.path);
+          break;
+        }
+        case "UPDATE": {
+          const cur = byPath.get(op.path);
+          if (!cur) throw Err.notFound("IMPL_UPDATE_MISSING", `UPDATE of missing path: '${op.path}'`);
+          if (op.content.length > limits.max_file_bytes) {
+            throw Err.security("WORKSPACE_LIMIT", `file exceeds ${limits.max_file_bytes} byte limit: '${op.path}'`);
+          }
+          byPath.set(op.path, { ...cur, content: op.content, size: op.content.length });
+          affected.add(op.path);
+          break;
+        }
+        case "DELETE": {
+          const cur = byPath.get(op.path);
+          if (!cur) throw Err.notFound("IMPL_DELETE_MISSING", `DELETE of missing path: '${op.path}'`);
+          byPath.delete(op.path);
+          affected.add(op.path);
+          break;
+        }
+        case "RENAME": {
+          const cur = byPath.get(op.from);
+          if (!cur) throw Err.notFound("IMPL_RENAME_MISSING", `RENAME source missing: '${op.from}'`);
+          if (byPath.has(op.to)) {
+            throw Err.validation("IMPL_RENAME_EXISTS", `RENAME target already exists: '${op.to}'`);
+          }
+          byPath.delete(op.from);
+          byPath.set(op.to, { ...cur, path: op.to });
+          affected.add(op.from);
+          affected.add(op.to);
+          break;
+        }
+      }
+    }
+
+    // ---------- Phase 2: aggregate resource limits --------------------------
+    let totalBytes = 0;
+    for (const p of byPath.values()) totalBytes += p.size;
+    if (byPath.size > limits.max_file_count) {
+      throw Err.security("WORKSPACE_LIMIT", `workspace would exceed ${limits.max_file_count} file limit`);
+    }
+    if (totalBytes > limits.max_total_bytes) {
+      throw Err.security("WORKSPACE_LIMIT", `workspace would exceed ${limits.max_total_bytes} byte limit`);
+    }
+
+    // ---------- Phase 3: apply. Validation has already succeeded. -----------
+    const originalById = new Map(files.map((f) => [f.id, f]));
+    const projectedIds = new Set<string>();
+
+    for (const p of byPath.values()) {
+      if (p.id) {
+        const orig = originalById.get(p.id);
+        if (!orig) {
+          // The projection references a file id that no longer exists.
+          throw new Error(`workspace projection inconsistency: file id ${p.id} not found`);
+        }
+        if (orig.path !== p.path || orig.content !== p.content) {
+          const updated: WorkspaceFileRecord = {
+            ...orig,
+            path: p.path,
+            content: p.content,
+            size: p.size,
+            updated_at: now,
+          };
+          await this.svc.engine.put("workspace_files", updated.id, updated);
+        }
+        projectedIds.add(p.id);
+      } else {
+        const newId = nid("wsf");
+        const record: WorkspaceFileRecord = {
+          id: newId,
+          workspace_id: id,
+          path: p.path,
+          content: p.content,
+          size: p.size,
+          created_at: now,
+          updated_at: now,
+        };
+        await this.svc.engine.put("workspace_files", newId, record);
+        projectedIds.add(newId);
+      }
+    }
+
+    for (const f of files) {
+      if (!projectedIds.has(f.id)) {
+        await this.svc.engine.del("workspace_files", f.id);
+      }
+    }
+
+    ws.file_count = byPath.size;
+    ws.total_bytes = totalBytes;
+    ws.updated_at = now;
+    await this.svc.engine.put("workspaces", ws.id, ws);
+
+    await this.auditWs(actor, "workspace.file.apply", ws, "allow", {
+      ops: ops.length,
+      affected: affected.size,
+    });
+    await this.emitWs("workspace.file.write", ws, { ops: ops.length, affected: affected.size });
+
+    return { applied: ops.length, affected: [...affected].sort() };
+  }
   /* --------------------------------- internals ----------------------------- */
 
   private async mustGet(id: string): Promise<WorkspaceRecord> {
@@ -362,7 +589,7 @@ export class WorkspaceService {
 
     if (ws.status !== "ACTIVE") {
       await this.auditWs(actor, "workspace.access.denied", ws, "deny", { op, reason: `workspace is ${ws.status}, not ACTIVE` });
-      throw Err.security("WORKSPACE_NOT_ACTIVE", `workspace is ${ws.status} — file operations require ACTIVE`);
+      throw Err.security("WORKSPACE_NOT_ACTIVE", `workspace is ${ws.status} â€” file operations require ACTIVE`);
     }
     if (this.isExpired(ws)) {
       await this.auditWs(actor, "workspace.expired", ws, "deny", { op, reason: "ttl elapsed" });
@@ -414,7 +641,7 @@ export class WorkspaceService {
 /**
  * Browser sandbox. Provides a LOGICAL_BOUNDARY: every operation is confined to
  * the workspace store via FileAccessPolicy. This is NOT OS/container/VM
- * isolation — isolationReport() states that plainly so nothing downstream can
+ * isolation â€” isolationReport() states that plainly so nothing downstream can
  * claim stronger guarantees than exist.
  */
 export class BrowserSandbox implements ExecutionSandbox {
@@ -426,7 +653,7 @@ export class BrowserSandbox implements ExecutionSandbox {
       available: true,
       boundary: "LOGICAL_BOUNDARY",
       filesystem: "workspace-scoped object store; no host filesystem access; paths confined by FileAccessPolicy",
-      process: "single browser runtime — no separate process boundary",
+      process: "single browser runtime â€” no separate process boundary",
       network: "no network access granted to sandbox operations",
       reason: "OS/container/VM isolation is UNAVAILABLE in a browser runtime; only logical path/store confinement is provided",
     };
@@ -444,7 +671,7 @@ export class BrowserSandbox implements ExecutionSandbox {
   /**
    * Execute a structured, allow-listed file operation. No arbitrary commands:
    * only read/list/exists/write within the workspace. Output is bounded by
-   * max_output_bytes and is never silently truncated for security purposes —
+   * max_output_bytes and is never silently truncated for security purposes â€”
    * an over-limit read is BLOCKED.
    */
   async execute(

@@ -60,6 +60,8 @@ export interface AIGatewayProbeConfig {
   planningProviderId: string;
   /** Provider id in the gateway used for ARCHITECTURE. */
   architectureProviderId: string;
+  /** Provider id in the gateway used for IMPLEMENTATION (Phase 217, optional). */
+  implementationProviderId?: string;
 }
 
 export class EngineeringCapabilityRegistry {
@@ -131,7 +133,7 @@ export class EngineeringCapabilityRegistry {
    * configured provider. Without a gateway the async result equals the
    * static result (honest NOT_IMPLEMENTED).
    *
-   * Never reports AVAILABLE merely because an API key exists — the probe
+   * Never reports AVAILABLE merely because an API key exists â€” the probe
    * performs a real HTTP request.
    */
   async evaluateAsync(stageType: EngineeringStageType): Promise<CapabilityVerdict> {
@@ -139,10 +141,16 @@ export class EngineeringCapabilityRegistry {
 
     if (!this.aiProbe) return base;
 
-    if (stageType === "PLANNING" || stageType === "ARCHITECTURE") {
-      const targetId = stageType === "PLANNING"
-        ? this.aiProbe.planningProviderId
-        : this.aiProbe.architectureProviderId;
+    if (stageType === "PLANNING" || stageType === "ARCHITECTURE" || stageType === "IMPLEMENTATION") {
+      const targetId =
+        stageType === "PLANNING"        ? this.aiProbe.planningProviderId :
+        stageType === "ARCHITECTURE"    ? this.aiProbe.architectureProviderId :
+        /* IMPLEMENTATION */              this.aiProbe.implementationProviderId;
+      if (!targetId) {
+        // No implementation provider id configured - stay honest with the
+        // static base (NOT_IMPLEMENTED) rather than reporting UNAVAILABLE.
+        return base;
+      }
       // If the gateway has no provider registered, report UNAVAILABLE with
       // a specific reason (integration exists, config does not).
       if (!this.aiProbe.gateway.hasProvider(targetId)) {
