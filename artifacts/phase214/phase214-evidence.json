@@ -1,10 +1,11 @@
 {
-  "runId": "verify-214-1790575028081-it2isf1y",
   "phase": 214,
-  "suite": "engineering-run",
-  "startedAt": "2026-09-28T05:57:08.081Z",
-  "completedAt": "2026-09-28T05:57:50.458Z",
-  "status": "PASS",
+  "generatedAt": "2026-09-28T05:57:53.126Z",
+  "repositoryCommit": "969963b1549c7573c544c5bbe5541a57da8f646f",
+  "repositoryBranch": "master",
+  "verificationRunId": "verify-214-1790575028081-it2isf1y",
+  "verificationRunCommit": "969963b1549c7573c544c5bbe5541a57da8f646f",
+  "testScript": "scripts/test-phase214-engineering-run.ts",
   "requestedTestCount": 26,
   "executedTestCount": 26,
   "passCount": 26,
@@ -13,9 +14,14 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 0,
-  "repositoryCommit": "969963b1549c7573c544c5bbe5541a57da8f646f",
-  "repositoryBranch": "master",
-  "testScript": "scripts/test-phase214-engineering-run.ts",
+  "status": "PASS",
+  "resultDigest": "d415cbc1f62df9154b49130f95c7b0f8ee0c11dbc52bcc4204470c1973f10498",
+  "evidenceDigest": "17df6eaf678b5d0d8a3563455b7824fffa2c161a3b411f7801a1c93ae67a05c4",
+  "integrity": {
+    "verdict": "VERIFIED_PASS",
+    "resultDigestMatches": true,
+    "evidenceDigestMatches": true
+  },
   "results": [
     {
       "testId": "214A",
@@ -173,7 +179,5 @@
       "status": "PASS",
       "note": "run=engrun-1790575069321-n4mbwef8 stages=9 events=20 reconcile=NOOP"
     }
-  ],
-  "resultDigest": "d415cbc1f62df9154b49130f95c7b0f8ee0c11dbc52bcc4204470c1973f10498",
-  "evidenceDigest": "17df6eaf678b5d0d8a3563455b7824fffa2c161a3b411f7801a1c93ae67a05c4"
+  ]
 }
