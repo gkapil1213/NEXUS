@@ -70,6 +70,10 @@ async function pgQuery<T = any>(sql: string, params: unknown[] = []): Promise<T[
   try { const r = await c.query<T>(sql, params); return r.rows; }
   finally { await c.close(); }
 }
+async function pgExec(sql: string, params: unknown[] = []): Promise<{ rows: unknown[] }> {
+  const rows = await pgQuery(sql, params);
+  return { rows };
+}
 async function pgCleanup(prefixes: string[]): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) return;
