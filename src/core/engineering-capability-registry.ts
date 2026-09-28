@@ -1,7 +1,9 @@
-﻿// src/core/engineering-capability-registry.ts
+// src/core/engineering-capability-registry.ts
 // Phase 214: durable answer to "can NEXUS actually execute this engineering
 // stage in the current runtime?" Pure lookup + optional runtime probe. Never
 // returns AVAILABLE for a stage whose real executor is not wired.
+
+import type { AIProviderGateway } from "./ai-provider-gateway";
 
 export type EngineeringStageType =
   | "PLANNING"
@@ -52,8 +54,19 @@ export interface RuntimeProbe {
   hasNode(): boolean;
 }
 
+export interface AIGatewayProbeConfig {
+  gateway: AIProviderGateway;
+  /** Provider id in the gateway used for PLANNING. */
+  planningProviderId: string;
+  /** Provider id in the gateway used for ARCHITECTURE. */
+  architectureProviderId: string;
+}
+
 export class EngineeringCapabilityRegistry {
-  constructor(private readonly probe?: RuntimeProbe) {}
+  constructor(
+    private readonly probe?: RuntimeProbe,
+    private readonly aiProbe?: AIGatewayProbeConfig,
+  ) {}
 
   staticBase(stageType: EngineeringStageType): CapabilityVerdict {
     switch (stageType) {
@@ -110,5 +123,62 @@ export class EngineeringCapabilityRegistry {
 
   evaluateAll(): CapabilityVerdict[] {
     return CANONICAL_ENGINEERING_DAG.map((s) => this.evaluate(s.stageType));
+  }
+
+  /**
+   * Phase 216: async sibling. When a gateway is wired via the constructor,
+   * PLANNING and ARCHITECTURE consult a real runtime probe against the
+   * configured provider. Without a gateway the async result equals the
+   * static result (honest NOT_IMPLEMENTED).
+   *
+   * Never reports AVAILABLE merely because an API key exists — the probe
+   * performs a real HTTP request.
+   */
+  async evaluateAsync(stageType: EngineeringStageType): Promise<CapabilityVerdict> {
+    const base = this.evaluate(stageType);
+
+    if (!this.aiProbe) return base;
+
+    if (stageType === "PLANNING" || stageType === "ARCHITECTURE") {
+      const targetId = stageType === "PLANNING"
+        ? this.aiProbe.planningProviderId
+        : this.aiProbe.architectureProviderId;
+      // If the gateway has no provider registered, report UNAVAILABLE with
+      // a specific reason (integration exists, config does not).
+      if (!this.aiProbe.gateway.hasProvider(targetId)) {
+        return {
+          stageType,
+          status: "UNAVAILABLE",
+          reason: "PROVIDER_NOT_CONFIGURED",
+          dependencies: base.dependencies,
+        };
+      }
+      const probeResult = await this.aiProbe.gateway.probe(targetId);
+      if (probeResult.status === "AVAILABLE") {
+        return {
+          stageType,
+          status: "AVAILABLE",
+          reason: probeResult.reason,
+          dependencies: base.dependencies,
+        };
+      }
+      return {
+        stageType,
+        status: "UNAVAILABLE",
+        reason: probeResult.reason,
+        dependencies: base.dependencies,
+      };
+    }
+
+    // Other stages have no AI gateway wiring in this phase.
+    return base;
+  }
+
+  async evaluateAllAsync(): Promise<CapabilityVerdict[]> {
+    const out: CapabilityVerdict[] = [];
+    for (const s of CANONICAL_ENGINEERING_DAG) {
+      out.push(await this.evaluateAsync(s.stageType));
+    }
+    return out;
   }
 }

@@ -1671,7 +1671,19 @@ export type DriftEventType =
   | "sbom_changed"
   | "policy_changed"
   | "deployment_mismatch"
-  | "evidence_mismatch";
+  | "evidence_mismatch"
+  // Phase 216 — AI provider gateway lifecycle events
+  | "ai.provider.requested"
+  | "ai.provider.completed"
+  | "ai.provider.failed"
+  | "ai.provider.timeout"
+  | "ai.provider.retry"
+  | "engineering_plan.generation_started"
+  | "engineering_plan.generation_succeeded"
+  | "engineering_plan.generation_failed"
+  | "architecture.generation_started"
+  | "architecture.generation_succeeded"
+  | "architecture.generation_failed";
 
 export interface SecurityDriftEvent {
   id: Id;

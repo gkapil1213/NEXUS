@@ -94,6 +94,16 @@ export const PHASE_215: Manifest = {
     "215U","215V","215W","215X","215Y","215Z",
   ],
 };
+export const PHASE_216: Manifest = {
+  phase: 216,
+  suite: "ai-provider",
+  testScript: "scripts/test-phase216-ai-provider.ts",
+  requiredTestIds: [
+    "216A","216B","216C","216D","216E","216F","216G","216H","216I","216J",
+    "216K","216L","216M","216N","216O","216P","216Q","216R","216S","216T",
+    "216U","216V","216W","216X","216Y","216Z",
+  ],
+};
 export const MANIFESTS: Record<number, Manifest> = {
   207: PHASE_207,
   208: PHASE_208,
@@ -104,6 +114,7 @@ export const MANIFESTS: Record<number, Manifest> = {
   213: PHASE_213,
   214: PHASE_214,
   215: PHASE_215,
+  216: PHASE_216,
 };
 
 export function getManifest(phase: number): Manifest {

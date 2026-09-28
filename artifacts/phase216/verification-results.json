@@ -1,0 +1,158 @@
+[
+  {
+    "testId": "216A",
+    "name": "provider interface contract",
+    "status": "PASS",
+    "note": "providerId=openai-compatible"
+  },
+  {
+    "testId": "216B",
+    "name": "provider configuration validation",
+    "status": "PASS",
+    "note": "model=gpt-4o-mini endpoint=https://api.example.com/v1 timeout=45000 retries=3"
+  },
+  {
+    "testId": "216C",
+    "name": "missing provider configuration",
+    "status": "PASS",
+    "note": "default enabled=false; enabled-without-model stays false"
+  },
+  {
+    "testId": "216D",
+    "name": "provider capability honesty",
+    "status": "PASS",
+    "note": "static=NOT_IMPLEMENTED, gateway-without-provider=UNAVAILABLE/PROVIDER_NOT_CONFIGURED"
+  },
+  {
+    "testId": "216E",
+    "name": "provider runtime probe",
+    "status": "PASS",
+    "note": "missing key → PROVIDER_NOT_CONFIGURED; disabled → PROVIDER_DISABLED"
+  },
+  {
+    "testId": "216F",
+    "name": "planning provider wiring",
+    "status": "PASS",
+    "note": "AIPlanningProvider over gateway succeeded (test double)"
+  },
+  {
+    "testId": "216G",
+    "name": "architecture provider wiring",
+    "status": "PASS",
+    "note": "AIArchitectureProvider over gateway succeeded (test double)"
+  },
+  {
+    "testId": "216H",
+    "name": "provider request normalization",
+    "status": "PASS",
+    "note": "request+response shaped correctly through gateway"
+  },
+  {
+    "testId": "216I",
+    "name": "provider response normalization",
+    "status": "PASS",
+    "note": "content + structuredOutput preserved through gateway"
+  },
+  {
+    "testId": "216J",
+    "name": "planning structured-output validation",
+    "status": "PASS",
+    "note": "cycle detected via validateEngineeringPlan"
+  },
+  {
+    "testId": "216K",
+    "name": "architecture structured-output validation",
+    "status": "PASS",
+    "note": "empty components rejected via validateArchitectureSpecification"
+  },
+  {
+    "testId": "216L",
+    "name": "invalid provider response rejection",
+    "status": "PASS",
+    "note": "empty content rejected at planning provider boundary: INVALID_RESPONSE"
+  },
+  {
+    "testId": "216M",
+    "name": "provider timeout handling",
+    "status": "PASS",
+    "note": "timeout classified correctly: TIMEOUT"
+  },
+  {
+    "testId": "216N",
+    "name": "provider transient failure handling",
+    "status": "PASS",
+    "note": "transient CONNECTION failure retried and succeeded; attempts=2"
+  },
+  {
+    "testId": "216O",
+    "name": "bounded retry behavior",
+    "status": "PASS",
+    "note": "attempts capped at 3 (maxRetries=2)"
+  },
+  {
+    "testId": "216P",
+    "name": "non-retryable failure handling",
+    "status": "PASS",
+    "note": "AUTH not retried; invocations=1"
+  },
+  {
+    "testId": "216Q",
+    "name": "planning provider failure -> FAILED",
+    "status": "PASS",
+    "note": "status=FAILED reason=PROVIDER_TIMEOUT"
+  },
+  {
+    "testId": "216R",
+    "name": "architecture provider failure -> FAILED",
+    "status": "PASS",
+    "note": "status=FAILED reason=PROVIDER_TIMEOUT"
+  },
+  {
+    "testId": "216S",
+    "name": "unavailable provider -> BLOCKED",
+    "status": "PASS",
+    "note": "status=BLOCKED reason=PROVIDER_NOT_CONFIGURED"
+  },
+  {
+    "testId": "216T",
+    "name": "real-provider planning path",
+    "status": "BLOCKED",
+    "note": "no real provider configured (NEXUS_AI_ENABLED=true + NEXUS_AI_MODEL + API key env var required)"
+  },
+  {
+    "testId": "216U",
+    "name": "real-provider architecture path",
+    "status": "BLOCKED",
+    "note": "no real provider configured"
+  },
+  {
+    "testId": "216V",
+    "name": "artifact persistence with checksum",
+    "status": "PASS",
+    "note": "artifact.checksum and plan.contentHash are valid 64-hex digests"
+  },
+  {
+    "testId": "216W",
+    "name": "lifecycle event persistence",
+    "status": "PASS",
+    "note": "ai events=2 engineering events=8"
+  },
+  {
+    "testId": "216X",
+    "name": "duplicate execution/idempotency",
+    "status": "PASS",
+    "note": "second runPlanning reused plan without provider call"
+  },
+  {
+    "testId": "216Y",
+    "name": "secret-redaction/security boundary",
+    "status": "PASS",
+    "note": "redaction + deep redaction + bounded truncation all hold"
+  },
+  {
+    "testId": "216Z",
+    "name": "end-to-end real provider planning -> architecture",
+    "status": "BLOCKED",
+    "note": "no real provider configured"
+  }
+]

@@ -209,6 +209,22 @@ export class EngineeringPlanningOrchestrator {
       return { status: "FAILED", plan: null, reason, validationErrors: [] };
     }
     if (!providerResult.ok) {
+      // Phase 216: distinguish "provider not configured" (nothing was
+      // attempted → BLOCKED) from "provider attempted and failed" (FAILED).
+      const blockedReasons = new Set([
+        "PROVIDER_NOT_CONFIGURED",
+        "PROVIDER_NOT_REGISTERED",
+        "PROVIDER_DISABLED",
+      ]);
+      if (blockedReasons.has(providerResult.reason)) {
+        await this.appendEvent(runId, "engineering_planning.blocked", {
+          requestId, reason: providerResult.reason, detail: providerResult.detail ?? null,
+        });
+        return {
+          status: "BLOCKED", plan: null,
+          reason: providerResult.reason, validationErrors: [],
+        };
+      }
       await this.appendEvent(runId, "engineering_planning.failed", {
         requestId, reason: providerResult.reason, detail: providerResult.detail ?? null,
       });
@@ -357,6 +373,21 @@ export class EngineeringPlanningOrchestrator {
       return { status: "FAILED", architecture: null, reason, validationErrors: [] };
     }
     if (!providerResult.ok) {
+      // Phase 216: same BLOCKED/FAILED distinction as runPlanning.
+      const blockedReasons = new Set([
+        "PROVIDER_NOT_CONFIGURED",
+        "PROVIDER_NOT_REGISTERED",
+        "PROVIDER_DISABLED",
+      ]);
+      if (blockedReasons.has(providerResult.reason)) {
+        await this.appendEvent(runId, "engineering_architecture.blocked", {
+          planId, reason: providerResult.reason, detail: providerResult.detail ?? null,
+        });
+        return {
+          status: "BLOCKED", architecture: null,
+          reason: providerResult.reason, validationErrors: [],
+        };
+      }
       await this.appendEvent(runId, "engineering_architecture.failed", {
         planId, reason: providerResult.reason, detail: providerResult.detail ?? null,
       });

@@ -1,0 +1,23 @@
+{
+  "phase": 216,
+  "generatedAt": "2026-09-28T07:57:51.559Z",
+  "repositoryCommit": "3621919e381df0ff9ae2f050a9e23bd3d58d043e",
+  "verificationRunId": "verify-216-1790582246930-hfbkwtyr",
+  "status": "BLOCKED",
+  "PASS": 23,
+  "FAIL": 0,
+  "BLOCKED": 3,
+  "NOT EXECUTED": 0,
+  "UNVERIFIED": 0,
+  "resultDigest": "79149c1057a574a86a930decba84cda4e54d6e72a1f3ef09daaf26b0516ff9e1",
+  "evidenceDigest": "c9aa1a188acf94fadb049913a7e9423a17d49aaa3a007023d1754440058b2eef",
+  "realProviderVerification": {
+    "status": "BLOCKED",
+    "blockedTests": [
+      "216T",
+      "216U",
+      "216Z"
+    ],
+    "reason": "no real AI provider configured in the verification environment"
+  }
+}
