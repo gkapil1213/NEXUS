@@ -4,7 +4,7 @@
 // operation. Reads durable state, fences stale attempts scoped to this
 // execution, advances any dispatchable stage work via the 203a driver,
 // and delegates terminal lifecycle decisions to the Phase 204 finalizer.
-// Reuses — no new persistence, no new state machine, no new event system.
+// Reuses ï¿½ no new persistence, no new state machine, no new event system.
 
 import type { ExecutionStore } from "./execution-store";
 import type { LeaseManager } from "./lease-manager";
@@ -128,7 +128,7 @@ export async function reconcileExecution(input: ReconcileInput): Promise<Reconci
     } catch { /* isolated: one fence failure does not abort reconciliation */ }
   }
 
-  // 2. Record retry-pending stages (informational — finalizer is what
+  // 2. Record retry-pending stages (informational ï¿½ finalizer is what
   //    actually keeps the parent non-terminal for these).
   const retryPendingStages = stages
     .filter((s) => s.derivedJobStatus === "RETRY_SCHEDULED")
@@ -185,6 +185,20 @@ export async function reconcileExecution(input: ReconcileInput): Promise<Reconci
 export function listExecutionsNeedingReconciliation(store: ExecutionStore): string[] {
   const running = store.listJobsByStatus("RUNNING");
   const cancelling = store.listJobsByStatus("CANCELLATION_REQUESTED");
+  const parents = [...running, ...cancelling].filter(
+    (j) => (j as any).jobType === "pipeline" || (j as any).job_type === "pipeline",
+  );
+  return parents.map((j) => j.id);
+}
+
+/**
+ * Phase 213: async sibling for shared (Postgres) mode.
+ */
+export async function listExecutionsNeedingReconciliationAsync(
+  store: ExecutionStore,
+): Promise<string[]> {
+  const running = await store.listJobsByStatusAsync("RUNNING");
+  const cancelling = await store.listJobsByStatusAsync("CANCELLATION_REQUESTED");
   const parents = [...running, ...cancelling].filter(
     (j) => (j as any).jobType === "pipeline" || (j as any).job_type === "pipeline",
   );

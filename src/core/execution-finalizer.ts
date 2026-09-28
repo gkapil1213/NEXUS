@@ -76,9 +76,86 @@ export interface FinalizeResult {
 }
 
 /**
+ * Phase 213: async sibling of computeExecutionOutcome. Same logic; reads via
+ * the async backend so it is correct in shared (Postgres) mode.
+ */
+export async function computeExecutionOutcomeAsync(
+  store: ExecutionStore,
+  executionId: string,
+): Promise<AggregateOutcome> {
+  const execJob = await store.getJobAsync(executionId);
+  if (!execJob) return { outcome: "FAILED", reason: "EXECUTION_NOT_FOUND" };
+  if (execJob.cancellationRequested) return { outcome: "CANCELLED", reason: "CANCELLATION_REQUESTED" };
+
+  const adapter = new StageExecutionStoreAdapter(store);
+  const stages = await adapter.listForExecutionAsync(executionId);
+  if (stages.length === 0) return { outcome: "RUNNING", reason: "NO_STAGES" };
+
+  if (stages.some((s) => s.status === "CANCELLED")) {
+    return { outcome: "CANCELLED", reason: "STAGE_CANCELLED" };
+  }
+  const retrying = stages.filter((s) => s.derivedJobStatus === "RETRY_SCHEDULED");
+  if (retrying.length > 0) {
+    return { outcome: "RUNNING", reason: "STAGES_RETRY_PENDING:" + retrying.length };
+  }
+  if (stages.some((s) => STAGE_TERMINAL_FAILURE.includes(s.status))) {
+    return { outcome: "FAILED", reason: "STAGE_TERMINAL_FAILURE" };
+  }
+  if (stages.every((s) => s.status === "SUCCEEDED")) {
+    return { outcome: "SUCCEEDED", reason: "ALL_STAGES_SUCCEEDED" };
+  }
+  const pending = stages.filter((s) => !STAGE_TERMINAL.includes(s.status));
+  return { outcome: "RUNNING", reason: "STAGES_IN_FLIGHT:" + pending.length };
+}
+
+/**
+ * Phase 213: async sibling of finalizeExecution. Same CAS semantics via
+ * recoverJobAtomicAsync; runs in shared (Postgres) mode.
+ */
+export async function finalizeExecutionAsync(
+  store: ExecutionStore,
+  executionId: string,
+  now: number = Date.now(),
+): Promise<FinalizeResult> {
+  const execJob = await store.getJobAsync(executionId);
+  if (!execJob) return { ok: false, applied: false, reason: "EXECUTION_NOT_FOUND" };
+
+  const terminal: ExecutionJobStatus[] = ["SUCCEEDED", "FAILED", "CANCELLED", "DEAD_LETTER", "BLOCKED"];
+  if (terminal.includes(execJob.status)) {
+    return { ok: true, applied: false, status: execJob.status, reason: "ALREADY_TERMINAL" };
+  }
+
+  const agg = await computeExecutionOutcomeAsync(store, executionId);
+  if (agg.outcome === "RUNNING") {
+    return { ok: true, applied: false, reason: agg.reason };
+  }
+
+  const cas = await store.recoverJobAtomicAsync({
+    jobId: executionId,
+    expectedStatus: execJob.status,
+    newStatus: agg.outcome,
+    expectedLeaseId: null,
+    patch: {} as any,
+    event: {
+      eventType: "execution.lifecycle.finalized",
+      payload: { executionId, from: execJob.status, to: agg.outcome, reason: agg.reason, at: now },
+    },
+  });
+
+  if (!cas.ok) {
+    const fresh = await store.getJobAsync(executionId);
+    if (fresh && terminal.includes(fresh.status)) {
+      return { ok: true, applied: false, status: fresh.status, reason: "CAS_LOST_ALREADY_TERMINAL" };
+    }
+    return { ok: false, applied: false, reason: "CAS_LOST" };
+  }
+  return { ok: true, applied: true, status: agg.outcome, reason: agg.reason };
+}
+
+/**
  * Finalize the parent execution if its stages have converged.
  * Idempotent and concurrency-safe: uses recoverJobAtomic which performs a
- * CAS on (id, expectedStatus, expectedLeaseId) — the same primitive used
+ * CAS on (id, expectedStatus, expectedLeaseId) ï¿½ the same primitive used
  * for recovery transitions.
  */
 export function finalizeExecution(

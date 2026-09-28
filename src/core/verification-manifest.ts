@@ -65,6 +65,15 @@ export const PHASE_212: Manifest = {
     "212AE","212AF",
   ],
 };
+export const PHASE_213: Manifest = {
+  phase: 213,
+  suite: "lifecycle-integrity",
+  testScript: "scripts/test-phase213-lifecycle-integrity.ts",
+  requiredTestIds: [
+    "213A","213B","213C","213D","213E","213F","213G","213H",
+    "213I","213J","213K","213L","213M","213N","213O",
+  ],
+};
 export const MANIFESTS: Record<number, Manifest> = {
   207: PHASE_207,
   208: PHASE_208,
@@ -72,6 +81,7 @@ export const MANIFESTS: Record<number, Manifest> = {
   210: PHASE_210,
   211: PHASE_211,
   212: PHASE_212,
+  213: PHASE_213,
 };
 
 export function getManifest(phase: number): Manifest {

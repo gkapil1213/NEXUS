@@ -1,0 +1,92 @@
+[
+  {
+    "testId": "213A",
+    "name": "normal execution finalization",
+    "status": "PASS",
+    "note": "SUCCEEDED via ALL_STAGES_SUCCEEDED"
+  },
+  {
+    "testId": "213B",
+    "name": "duplicate finalization",
+    "status": "PASS",
+    "note": "second=ALREADY_TERMINAL events=1"
+  },
+  {
+    "testId": "213C",
+    "name": "concurrent finalization race",
+    "status": "PASS",
+    "note": "applied=1 events=1"
+  },
+  {
+    "testId": "213D",
+    "name": "failed execution finalization",
+    "status": "PASS",
+    "note": "FAILED via STAGE_TERMINAL_FAILURE"
+  },
+  {
+    "testId": "213E",
+    "name": "cancellation finalization",
+    "status": "PASS",
+    "note": "CANCELLED via CANCELLATION_REQUESTED"
+  },
+  {
+    "testId": "213F",
+    "name": "retry/finalization interaction",
+    "status": "PASS",
+    "note": "parent stays RUNNING while stage retry-pending"
+  },
+  {
+    "testId": "213G",
+    "name": "stale worker finalization rejection",
+    "status": "PASS",
+    "note": "rejected=WORKER_OWNERSHIP_LOST"
+  },
+  {
+    "testId": "213H",
+    "name": "scheduler restart recovery",
+    "status": "PASS",
+    "note": "finalized via second kernel"
+  },
+  {
+    "testId": "213I",
+    "name": "process/recovery restart durability",
+    "status": "PASS",
+    "note": "SUCCEEDED durable across process"
+  },
+  {
+    "testId": "213J",
+    "name": "terminal-state immutability",
+    "status": "PASS",
+    "note": "SUCCEEDED preserved; escape rejected=TERMINAL_STATE"
+  },
+  {
+    "testId": "213K",
+    "name": "release state consistency",
+    "status": "PASS",
+    "note": "execution=SUCCEEDED, intent row intact status=DEPLOYING"
+  },
+  {
+    "testId": "213L",
+    "name": "deployment state consistency",
+    "status": "PASS",
+    "note": "deployment_id=dep-213L preserved"
+  },
+  {
+    "testId": "213M",
+    "name": "recovery must not resurrect terminal work",
+    "status": "PASS",
+    "note": "SUCCEEDED preserved across recoverStaleJobs"
+  },
+  {
+    "testId": "213N",
+    "name": "event/idempotency consistency",
+    "status": "PASS",
+    "note": "5 finalize calls -> 1 lifecycle.finalized event"
+  },
+  {
+    "testId": "213O",
+    "name": "end-to-end execution lifecycle",
+    "status": "PASS",
+    "note": "RUNNING -> SUCCEEDED, durable across kernels"
+  }
+]
