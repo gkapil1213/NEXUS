@@ -1,0 +1,179 @@
+{
+  "runId": "verify-214-1790574605289-aeq9v4fv",
+  "phase": 214,
+  "suite": "engineering-run",
+  "startedAt": "2026-09-28T05:50:05.289Z",
+  "completedAt": "2026-09-28T05:50:46.937Z",
+  "status": "PASS",
+  "requestedTestCount": 26,
+  "executedTestCount": 26,
+  "passCount": 26,
+  "failCount": 0,
+  "blockedCount": 0,
+  "notExecutedCount": 0,
+  "unverifiedCount": 0,
+  "exitCode": 0,
+  "repositoryCommit": "ca4d7b1fcf5c2740c758e255f9ec862060d2252e",
+  "repositoryBranch": "master",
+  "testScript": "scripts/test-phase214-engineering-run.ts",
+  "results": [
+    {
+      "testId": "214A",
+      "name": "engineering run creation",
+      "status": "PASS",
+      "note": "run=engrun-1790574618905-pma43ol5 stages=9"
+    },
+    {
+      "testId": "214B",
+      "name": "deterministic run identity",
+      "status": "PASS",
+      "note": "key=engineering-run|github.com/example/det|deterministic identit..."
+    },
+    {
+      "testId": "214C",
+      "name": "duplicate idempotent submission",
+      "status": "PASS",
+      "note": "run=engrun-1790574619727-hsfywddc created=[true,false] rows=1"
+    },
+    {
+      "testId": "214D",
+      "name": "concurrent duplicate submission",
+      "status": "PASS",
+      "note": "created=1 of 4 concurrent; run=engrun-1790574620537-7njedat7"
+    },
+    {
+      "testId": "214E",
+      "name": "initial stage creation",
+      "status": "PASS",
+      "note": "9 stages, each with execution_jobs mirror"
+    },
+    {
+      "testId": "214F",
+      "name": "deterministic stage DAG",
+      "status": "PASS",
+      "note": "9 stages with canonical dependency edges"
+    },
+    {
+      "testId": "214G",
+      "name": "valid stage transition",
+      "status": "PASS",
+      "note": "PLANNING NOT_IMPLEMENTED -> AVAILABLE"
+    },
+    {
+      "testId": "214H",
+      "name": "invalid stage transition",
+      "status": "PASS",
+      "note": "idempotent=APPLIED stale-expected=CAS_LOST durable=NOT_IMPLEMENTED"
+    },
+    {
+      "testId": "214I",
+      "name": "capability registry honesty",
+      "status": "PASS",
+      "note": "no AVAILABLE verdicts; PLANNING=NOT_IMPLEMENTED BUILD=UNAVAILABLE"
+    },
+    {
+      "testId": "214J",
+      "name": "capability unavailable -> BLOCKED",
+      "status": "PASS",
+      "note": "9 stages persisted BLOCKED with reasons"
+    },
+    {
+      "testId": "214K",
+      "name": "real execution failure -> FAILED",
+      "status": "PASS",
+      "note": "PLANNING execution_jobs FAILED via recoverJobAtomicAsync"
+    },
+    {
+      "testId": "214L",
+      "name": "authoritative success -> SUCCEEDED",
+      "status": "PASS",
+      "note": "PLANNING execution_jobs SUCCEEDED via recoverJobAtomicAsync"
+    },
+    {
+      "testId": "214M",
+      "name": "restart durability",
+      "status": "PASS",
+      "note": "run=engrun-1790574624923-fm2wobix durable across fresh service"
+    },
+    {
+      "testId": "214N",
+      "name": "scheduler restart durability",
+      "status": "PASS",
+      "note": "run=engrun-1790574625695-hlhydtrg visible from second kernel"
+    },
+    {
+      "testId": "214O",
+      "name": "worker restart durability",
+      "status": "PASS",
+      "note": "reconcile=NOOP"
+    },
+    {
+      "testId": "214P",
+      "name": "reconciliation",
+      "status": "PASS",
+      "note": "action=NOOP"
+    },
+    {
+      "testId": "214Q",
+      "name": "stale stage recovery",
+      "status": "PASS",
+      "note": "action=NOOP"
+    },
+    {
+      "testId": "214R",
+      "name": "terminal run immutability",
+      "status": "PASS",
+      "note": "parent FAILED preserved; reconcile=TERMINAL_SAFE"
+    },
+    {
+      "testId": "214S",
+      "name": "unauthorized transition rejection",
+      "status": "PASS",
+      "note": "rejected=WORKER_OWNERSHIP_LOST"
+    },
+    {
+      "testId": "214T",
+      "name": "stale-worker rejection",
+      "status": "PASS",
+      "note": "first=APPLIED stale=IDEMPOTENT"
+    },
+    {
+      "testId": "214U",
+      "name": "lifecycle event persistence",
+      "status": "PASS",
+      "note": "20 events including created/stage_created/stage_blocked"
+    },
+    {
+      "testId": "214V",
+      "name": "event/idempotency consistency",
+      "status": "PASS",
+      "note": "20 events stable across duplicate create"
+    },
+    {
+      "testId": "214W",
+      "name": "artifact reference persistence",
+      "status": "PASS",
+      "note": "artifactRef=artifact://plan-engrun-1790574643421-etjmx890"
+    },
+    {
+      "testId": "214X",
+      "name": "run cancellation",
+      "status": "PASS",
+      "note": "cancelled with 2 events"
+    },
+    {
+      "testId": "214Y",
+      "name": "cancellation durability",
+      "status": "PASS",
+      "note": "events durable; second cancel=ALREADY_CANCELLED_OR_TERMINAL"
+    },
+    {
+      "testId": "214Z",
+      "name": "end-to-end orchestration",
+      "status": "PASS",
+      "note": "run=engrun-1790574645944-wew6mtl8 stages=9 events=20 reconcile=NOOP"
+    }
+  ],
+  "resultDigest": "d415cbc1f62df9154b49130f95c7b0f8ee0c11dbc52bcc4204470c1973f10498",
+  "evidenceDigest": "506ff01750401715df2f0febc741d5b12ad344e647edc4c1b2a2c602887b3199"
+}

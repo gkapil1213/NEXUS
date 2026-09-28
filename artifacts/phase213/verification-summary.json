@@ -1,7 +1,7 @@
 {
   "phase": 213,
   "suite": "lifecycle-integrity",
-  "runId": "verify-213-1790572515051-poajo76j",
+  "runId": "verify-213-1790574649703-ob1v3tjs",
   "status": "PASS",
   "requestedTestCount": 15,
   "executedTestCount": 15,
@@ -11,10 +11,10 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 0,
-  "repositoryCommit": "ceb1c01dfc9e431db5239a6162dd698e535282cb",
+  "repositoryCommit": "ca4d7b1fcf5c2740c758e255f9ec862060d2252e",
   "repositoryBranch": "master",
   "resultDigest": "5763c73724f0a3ce81064292a749f27a498767f12b9ad322b09f0f75ac768764",
-  "evidenceDigest": "1acd16c78e5fe3ec9beb81441bae1924ef1a554eb5d72e07dff348938720e51e",
+  "evidenceDigest": "90b0a16a1b4de255df8c864593896503caa47fc783e9248d884afab92b6f41ec",
   "reasons": [],
-  "generatedAt": "2026-09-28T05:16:02.569Z"
+  "generatedAt": "2026-09-28T05:51:41.673Z"
 }
