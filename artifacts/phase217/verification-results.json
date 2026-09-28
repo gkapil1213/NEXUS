@@ -111,7 +111,7 @@
     "testId": "217S",
     "name": "artifact persistence with real SHA-256",
     "status": "PASS",
-    "note": "artifactId=art-impl-impl-1790606275734-9w07kjx6 checksum=925d6db6b185..."
+    "note": "artifactId=art-impl-impl-1790610380805-ivuplplo checksum=b12a5c4e2bb7..."
   },
   {
     "testId": "217T",
@@ -147,12 +147,12 @@
     "testId": "217Y",
     "name": "full deterministic pipeline (plan -> arch -> impl -> artifact -> events)",
     "status": "PASS",
-    "note": "status=SUCCEEDED events=5 artifactId=art-impl-impl-1790606370984-funp2vmz"
+    "note": "status=SUCCEEDED events=5 artifactId=art-impl-impl-1790610457976-tx1petnt"
   },
   {
     "testId": "217Z",
     "name": "real external provider end-to-end",
     "status": "BLOCKED",
-    "note": "no real provider configured (NEXUS_AI_ENABLED=true + NEXUS_AI_MODEL + NEXUS_AI_ENDPOINT + API key)"
+    "note": "real provider not enabled: NEXUS_AI_ENABLED=true and NEXUS_AI_MODEL required (openAICompatibleConfigFromEnv reports enabled=false)"
   }
 ]

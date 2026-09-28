@@ -1,9 +1,9 @@
 {
-  "runId": "verify-217-1790606084570-y7bzws86",
+  "runId": "verify-217-1790610232064-324ankty",
   "phase": 217,
   "suite": "implementation-execution",
-  "startedAt": "2026-09-28T14:34:44.570Z",
-  "completedAt": "2026-09-28T14:39:32.375Z",
+  "startedAt": "2026-09-28T15:43:52.064Z",
+  "completedAt": "2026-09-28T15:47:38.913Z",
   "status": "BLOCKED",
   "requestedTestCount": 26,
   "executedTestCount": 26,
@@ -13,7 +13,7 @@
   "notExecutedCount": 0,
   "unverifiedCount": 0,
   "exitCode": 2,
-  "repositoryCommit": "b8fb66a923e72d80be3bf9f876251ae6eb6c48d0",
+  "repositoryCommit": "b6ca21f46d775627840743e7753ffd878bc3cac6",
   "repositoryBranch": "master",
   "testScript": "scripts/test-phase217-implementation.ts",
   "results": [
@@ -129,7 +129,7 @@
       "testId": "217S",
       "name": "artifact persistence with real SHA-256",
       "status": "PASS",
-      "note": "artifactId=art-impl-impl-1790606275734-9w07kjx6 checksum=925d6db6b185..."
+      "note": "artifactId=art-impl-impl-1790610380805-ivuplplo checksum=b12a5c4e2bb7..."
     },
     {
       "testId": "217T",
@@ -165,15 +165,15 @@
       "testId": "217Y",
       "name": "full deterministic pipeline (plan -> arch -> impl -> artifact -> events)",
       "status": "PASS",
-      "note": "status=SUCCEEDED events=5 artifactId=art-impl-impl-1790606370984-funp2vmz"
+      "note": "status=SUCCEEDED events=5 artifactId=art-impl-impl-1790610457976-tx1petnt"
     },
     {
       "testId": "217Z",
       "name": "real external provider end-to-end",
       "status": "BLOCKED",
-      "note": "no real provider configured (NEXUS_AI_ENABLED=true + NEXUS_AI_MODEL + NEXUS_AI_ENDPOINT + API key)"
+      "note": "real provider not enabled: NEXUS_AI_ENABLED=true and NEXUS_AI_MODEL required (openAICompatibleConfigFromEnv reports enabled=false)"
     }
   ],
   "resultDigest": "877f2d447780dd9a0d9b1521c94df4b0351cf20c552319ca27c849da2e05ca62",
-  "evidenceDigest": "8c35ee22c0e3172f4c0564d25f7fa13eac453b43e207829bafbc5c055732fe44"
+  "evidenceDigest": "d5cbd5cf82bba22c34d2fc9f2531df7753602940a3a8168b0d238a74eb4fa31d"
 }
