@@ -1,7 +1,7 @@
 // scripts/test-phase217-implementation.ts
 // Phase 217: production implementation execution verifier (217A-217Z).
 //
-// Exercises the REAL code path required by the master prompt ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§30/ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§49:
+// Exercises the REAL code path required by the master prompt ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§30/ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§49:
 //
 //   deterministic AIProvider  ->  real AIProviderGateway
 //        ->  real AIImplementationProvider
@@ -195,7 +195,7 @@ class DeterministicTestProvider implements AIProvider {
 /*
  * Build a real engine, real WorkspaceService, real ArtifactStore, real
  * gateway + orchestrator. Assumptions about non-subject service constructors
- * live HERE and only here ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â if typecheck complains, patch this function.
+ * live HERE and only here ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â if typecheck complains, patch this function.
  */
 
 interface TestRuntime {
@@ -345,7 +345,7 @@ async function main(): Promise<void> {
 
   if (!process.env.DATABASE_URL) {
     // Every test that touches the DB will BLOCK; contract-only tests still run.
-    console.log("[phase217] no DATABASE_URL ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â DB-backed tests will report BLOCKED");
+    console.log("[phase217] no DATABASE_URL ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â DB-backed tests will report BLOCKED");
   }
 
   // ---------- 217A contract schema ----------
@@ -525,7 +525,7 @@ async function main(): Promise<void> {
     const beforeCount = before.length;
 
     // Direct call to applyFileOperations with a batch that has a valid op
-    // followed by an invalid one ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â must reject the whole batch.
+    // followed by an invalid one ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â must reject the whole batch.
     let threw = false;
     try {
       await (rt.workspaces as any).applyFileOperations(rt.actor, rt.workspaceId, [
@@ -596,7 +596,7 @@ async function main(): Promise<void> {
     });
     ok(outcome.status === "SUCCEEDED", `status=${outcome.status}`);
 
-    // The "malicious" content is now just a file in the workspace ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â it was
+    // The "malicious" content is now just a file in the workspace ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â it was
     // not executed. Assert no shell effects: no out-of-workspace file, no
     // process spawn. The system's contract is that content is data.
     const file = await rt.workspaces.readFile(rt.actor, rt.workspaceId, "injection.txt");
@@ -621,7 +621,7 @@ async function main(): Promise<void> {
     // redactDeep redacts: (a) values whose KEY matches
     //   /token|secret|password|apikey|api_key|authorization|bearer|credential/i
     // (b) recognizable token formats inside string values (Bearer/Basic/...).
-    // This test asserts exactly that policy ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no stronger claim.
+    // This test asserts exactly that policy ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â no stronger claim.
     const payload = {
       headers: { authorization: `Bearer ${secret}` },
       credentials: { apiKey: secret, password: secret, client_secret: secret },
@@ -639,7 +639,7 @@ async function main(): Promise<void> {
     ok(isFileOperation(op), "package.json change is a FileOperation, not a command");
     ok(validateFileOperationPath("package.json") === null, "package.json path is legal");
     ok(validateFileOperationPath("pnpm-lock.yaml") === null, "lockfile path is legal");
-    // No FileOperation kind is "EXEC" or "SHELL" ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the union enforces this.
+    // No FileOperation kind is "EXEC" or "SHELL" ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the union enforces this.
     const illegal = { kind: "EXEC", path: "package.json", content: "npm install" };
     ok(!isFileOperation(illegal), "EXEC kind is not a FileOperation");
     return "dependency changes are file ops only; no install path";
@@ -798,20 +798,116 @@ async function main(): Promise<void> {
 
   // ---------- 217Z real external provider e2e (BLOCKED without provider) ----------
   await test("217Z", "real external provider end-to-end", async () => {
-    const enabled = process.env.NEXUS_AI_ENABLED === "true";
-    const model = process.env.NEXUS_AI_MODEL;
-    const endpoint = process.env.NEXUS_AI_ENDPOINT;
-    const apiKey = process.env.NEXUS_AI_API_KEY ?? process.env.OPENAI_API_KEY ?? process.env.ANTHROPIC_API_KEY;
-    if (!enabled || !model || !endpoint || !apiKey) {
-      throw new Blocked("no real provider configured (NEXUS_AI_ENABLED=true + NEXUS_AI_MODEL + NEXUS_AI_ENDPOINT + API key)");
-    }
-    // Real-provider sub-checks would run here (probe, auth failure, rate-limit,
-    // timeout, real end-to-end). They are intentionally not scripted until a
-    // real provider is available to exercise them against ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â scripting them
-    // blind would risk fabricating evidence.
-    throw new Blocked("real-provider wiring pending verified endpoint");
-  });
+    // Production env contract is authoritative (Phase 216). openAICompatibleConfigFromEnv()
+    // is the single source of truth. We do NOT introduce a second endpoint
+    // variable name (no NEXUS_AI_ENDPOINT).
+    //
+    //   NEXUS_AI_ENABLED=true
+    //   NEXUS_AI_MODEL=<model>
+    //   NEXUS_AI_BASE_URL=<OpenAI-compatible base URL>
+    //   NEXUS_AI_API_KEY_ENV=<env var name that holds the secret>
+    //   NEXUS_AI_PROVIDER_ID=<optional, default "openai-compatible">
+    //   NEXUS_AI_TIMEOUT_MS=<optional>
+    //   NEXUS_AI_MAX_RETRIES=<optional>
+    const { openAICompatibleConfigFromEnv, OpenAICompatibleProvider } =
+      await import("../src/core/ai-provider-openai-compatible");
+    const cfg = openAICompatibleConfigFromEnv();
 
+    // BLOCKED iff configuration is genuinely absent per the production loader.
+    if (!cfg.enabled) {
+      throw new Blocked(
+        "real provider not enabled: NEXUS_AI_ENABLED=true and NEXUS_AI_MODEL required " +
+        "(openAICompatibleConfigFromEnv reports enabled=false)"
+      );
+    }
+    if (!cfg.endpoint) {
+      throw new Blocked("real provider endpoint missing (NEXUS_AI_BASE_URL)");
+    }
+    const apiKeyValue = process.env[cfg.apiKeyEnvVar];
+    if (typeof apiKeyValue !== "string" || apiKeyValue.length === 0) {
+      throw new Blocked(
+        "API key env var '" + cfg.apiKeyEnvVar + "' is not set " +
+        "(configurable via NEXUS_AI_API_KEY_ENV; the value is never logged)"
+      );
+    }
+
+    // --- Configuration is genuinely present. From here any failure is a real
+    //     FAIL, not BLOCKED. The real provider path is exercised end-to-end. ---
+
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) throw new Error("DATABASE_URL required for 217Z");
+
+    const realProvider = new OpenAICompatibleProvider(cfg);
+    const gateway = new AIProviderGateway({ providers: [realProvider] });
+
+    // 1. Probe — real HTTP GET {endpoint}/models. A probe failure with config
+    //    present is a real provider failure, reported with the Phase 216
+    //    reason taxonomy (PROVIDER_AUTH_FAILED, PROVIDER_UNAVAILABLE:HTTP_5xx,
+    //    PROBE_FAILED:DNS, etc.) — never converted to BLOCKED.
+    const cap = await gateway.probe(cfg.providerId);
+    ok(
+      cap.status === "AVAILABLE",
+      "real provider probe did not reach AVAILABLE: " +
+      cap.status + " (" + cap.reason + ")"
+    );
+
+    // 2. Full implementation pipeline through the real gateway.
+    const { NexusKernel } = await import("../src/core/kernel") as any;
+    const kernel: any = new (NexusKernel as any)();
+    const services: any = await kernel.boot();
+
+    const realStore: any = new (ExecutionStore as any)(services.engine);
+    const realArtifacts: any = new (ArtifactStore as any)(realStore, dbUrl);
+    const providerWrapper = new AIImplementationProvider(gateway, cfg.providerId);
+    const orchestrator: any = new (EngineeringImplementationOrchestrator as any)(
+      dbUrl, realArtifacts, services.workspaces, providerWrapper,
+    );
+
+    const actor = {
+      id: "actor-217z-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+      email: "phase217z@test.nexus",
+      name: "Phase 217Z Real Provider Actor",
+      role: "OWNER",
+      status: "active",
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    };
+    const project = await services.projects.create(actor, {
+      name: "phase217z-real-" + Date.now(),
+    });
+    const projectId = project.id;
+    const ws = await services.workspaces.create(actor, {
+      project_id: projectId,
+      execution_id: "exec-217z-" + Date.now(),
+    });
+    await services.workspaces.activate(actor, ws.id);
+
+    const runId = prefix + "real";
+    const planId = "plan-" + runId;
+    const archId = "arch-" + runId;
+    await seedPlanAndArch(runId, planId, archId);
+
+    try {
+      const outcome = await orchestrator.runImplementation({
+        runId, planId, architectureId: archId,
+        workspaceId: ws.id, actor,
+      });
+
+      // BLOCKED here would mean the provider refused at invocation time even
+      // though cfg.enabled=true and a key was set — a real failure of the
+      // config→invoke path, not a config blocker.
+      ok(outcome.status !== "BLOCKED",
+         "expected real execution, got BLOCKED: " + outcome.reason);
+      ok(outcome.status === "SUCCEEDED",
+         "real provider end-to-end did not SUCCEED: status=" + outcome.status +
+         " reason=" + outcome.reason);
+      ok(outcome.spec !== null, "spec present on SUCCEEDED");
+      ok(outcome.artifactId !== null, "artifact present on SUCCEEDED");
+      return "real provider end-to-end SUCCEEDED; artifactId=" + outcome.artifactId;
+    } finally {
+      await cleanupRun(runId);
+    }
+  });
   // ---------- summary ----------
   const pass = rows.filter((r) => r.result === "PASS").length;
   const fail = rows.filter((r) => r.result === "FAIL").length;
