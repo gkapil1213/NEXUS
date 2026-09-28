@@ -1,0 +1,183 @@
+{
+  "phase": 215,
+  "generatedAt": "2026-09-28T07:12:57.741Z",
+  "repositoryCommit": "6b130eed47e5f8b052e69e49cdb77671e24fb529",
+  "repositoryBranch": "master",
+  "verificationRunId": "verify-215-1790579261407-v9q4zfeg",
+  "verificationRunCommit": "6b130eed47e5f8b052e69e49cdb77671e24fb529",
+  "testScript": "scripts/test-phase215-planning-architecture.ts",
+  "requestedTestCount": 26,
+  "executedTestCount": 26,
+  "passCount": 26,
+  "failCount": 0,
+  "blockedCount": 0,
+  "notExecutedCount": 0,
+  "unverifiedCount": 0,
+  "exitCode": 0,
+  "status": "PASS",
+  "resultDigest": "5ae15153712ebab5e52b1929383a517390c88cb13049dcae6ecf3d63140bb572",
+  "evidenceDigest": "72834e2260c9e32c7961a6ed465a7868b419ddfa9f1ff869cec7472b7d5b6abc",
+  "integrity": {
+    "verdict": "VERIFIED_PASS",
+    "resultDigestMatches": true,
+    "evidenceDigestMatches": true
+  },
+  "results": [
+    {
+      "testId": "215A",
+      "name": "engineering request creation",
+      "status": "PASS",
+      "note": "request=ereq-1790579275493-fo3rap3t hash=8c022be0bbe5..."
+    },
+    {
+      "testId": "215B",
+      "name": "deterministic request identity",
+      "status": "PASS",
+      "note": "hash stable across calls"
+    },
+    {
+      "testId": "215C",
+      "name": "duplicate request idempotency",
+      "status": "PASS",
+      "note": "request=ereq-1790579276285-l59jejrs created=[true,false] rows=1"
+    },
+    {
+      "testId": "215D",
+      "name": "concurrent duplicate request protection",
+      "status": "PASS",
+      "note": "created=1 of 4; request=ereq-1790579277045-zaxud732"
+    },
+    {
+      "testId": "215E",
+      "name": "plan schema validation",
+      "status": "PASS",
+      "note": "plan=plan-engrun-1790579277166-vu9rj3vd status=VALID"
+    },
+    {
+      "testId": "215F",
+      "name": "invalid plan rejection",
+      "status": "PASS",
+      "note": "status=INVALID errors=ACCEPTANCE_CRITERIA_EMPTY"
+    },
+    {
+      "testId": "215G",
+      "name": "plan dependency validation",
+      "status": "PASS",
+      "note": "rejected unknown dep"
+    },
+    {
+      "testId": "215H",
+      "name": "plan cycle rejection",
+      "status": "PASS",
+      "note": "cycle detected and rejected"
+    },
+    {
+      "testId": "215I",
+      "name": "plan content-hash validation",
+      "status": "PASS",
+      "note": "tamper detected"
+    },
+    {
+      "testId": "215J",
+      "name": "architecture schema validation",
+      "status": "PASS",
+      "note": "arch=arch-engrun-1790579279268-02bholrd status=VALID"
+    },
+    {
+      "testId": "215K",
+      "name": "invalid architecture rejection",
+      "status": "PASS",
+      "note": "status=INVALID errors=COMPONENTS_EMPTY"
+    },
+    {
+      "testId": "215L",
+      "name": "architecture references valid plan",
+      "status": "PASS",
+      "note": "rejected plan status=INVALID reason=PLAN_NOT_VALID:INVALID"
+    },
+    {
+      "testId": "215M",
+      "name": "architecture dependency validation",
+      "status": "PASS",
+      "note": "rejected unknown interface ref"
+    },
+    {
+      "testId": "215N",
+      "name": "capability registry honesty",
+      "status": "PASS",
+      "note": "no AVAILABLE stages; PLANNING=NOT_IMPLEMENTED ARCHITECTURE=NOT_IMPLEMENTED"
+    },
+    {
+      "testId": "215O",
+      "name": "planning unavailable -> BLOCKED",
+      "status": "PASS",
+      "note": "status=BLOCKED reason=PROVIDER_NOT_CONFIGURED"
+    },
+    {
+      "testId": "215P",
+      "name": "architecture unavailable -> BLOCKED",
+      "status": "PASS",
+      "note": "status=BLOCKED reason=PROVIDER_NOT_CONFIGURED"
+    },
+    {
+      "testId": "215Q",
+      "name": "planning provider failure -> FAILED",
+      "status": "PASS",
+      "note": "status=FAILED reason=PROVIDER_ERROR"
+    },
+    {
+      "testId": "215R",
+      "name": "architecture provider failure -> FAILED",
+      "status": "PASS",
+      "note": "status=FAILED reason=PROVIDER_ERROR"
+    },
+    {
+      "testId": "215S",
+      "name": "authoritative planning success",
+      "status": "PASS",
+      "note": "plan=plan-engrun-1790579287083-sel6gied valid rows=1"
+    },
+    {
+      "testId": "215T",
+      "name": "authoritative architecture success",
+      "status": "PASS",
+      "note": "arch=arch-engrun-1790579288000-2r9egry3 valid rows=1"
+    },
+    {
+      "testId": "215U",
+      "name": "artifact persistence",
+      "status": "PASS",
+      "note": "plan+arch artifacts persisted with checksums"
+    },
+    {
+      "testId": "215V",
+      "name": "lifecycle event persistence",
+      "status": "PASS",
+      "note": "11 distinct event types including full planning+arch lifecycle"
+    },
+    {
+      "testId": "215W",
+      "name": "restart durability",
+      "status": "PASS",
+      "note": "plan=plan-engrun-1790579298441-azsasu2s durable across fresh orchestrator"
+    },
+    {
+      "testId": "215X",
+      "name": "duplicate execution protection",
+      "status": "PASS",
+      "note": "succeeded=3 valid v1 rows=1"
+    },
+    {
+      "testId": "215Y",
+      "name": "unauthorized mutation rejection",
+      "status": "PASS",
+      "note": "tampered content_hash rejected by validator"
+    },
+    {
+      "testId": "215Z",
+      "name": "end-to-end orchestration",
+      "status": "PASS",
+      "note": "plan=plan-engrun-1790579305002-91c6mdsj arch=arch-engrun-1790579305002-91c6mdsj events=11"
+    }
+  ]
+}

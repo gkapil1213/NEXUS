@@ -84,6 +84,16 @@ export const PHASE_214: Manifest = {
     "214U","214V","214W","214X","214Y","214Z",
   ],
 };
+export const PHASE_215: Manifest = {
+  phase: 215,
+  suite: "planning-architecture",
+  testScript: "scripts/test-phase215-planning-architecture.ts",
+  requiredTestIds: [
+    "215A","215B","215C","215D","215E","215F","215G","215H","215I","215J",
+    "215K","215L","215M","215N","215O","215P","215Q","215R","215S","215T",
+    "215U","215V","215W","215X","215Y","215Z",
+  ],
+};
 export const MANIFESTS: Record<number, Manifest> = {
   207: PHASE_207,
   208: PHASE_208,
@@ -93,6 +103,7 @@ export const MANIFESTS: Record<number, Manifest> = {
   212: PHASE_212,
   213: PHASE_213,
   214: PHASE_214,
+  215: PHASE_215,
 };
 
 export function getManifest(phase: number): Manifest {
