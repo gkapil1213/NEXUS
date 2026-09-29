@@ -1,0 +1,134 @@
+[
+  {
+    "testId": "220A",
+    "name": "test executor construction",
+    "status": "PASS",
+    "note": "EngineeringTestExecutor instantiated"
+  },
+  {
+    "testId": "220B",
+    "name": "registry reflects TEST wiring",
+    "status": "PASS",
+    "note": "TEST=AVAILABLE; BUILD=AVAILABLE"
+  },
+  {
+    "testId": "220C",
+    "name": "TEST blocked if BUILD not SUCCEEDED",
+    "status": "PASS",
+    "note": "reason=BUILD_NOT_SUCCEEDED"
+  },
+  {
+    "testId": "220D",
+    "name": "real test project detection",
+    "status": "PASS",
+    "note": "detected + executed: exit=0"
+  },
+  {
+    "testId": "220E",
+    "name": "real test invocation",
+    "status": "PASS",
+    "note": "command=npm test"
+  },
+  {
+    "testId": "220F",
+    "name": "successful test",
+    "status": "PASS",
+    "note": "exit=0 duration=960ms"
+  },
+  {
+    "testId": "220G",
+    "name": "real test failure",
+    "status": "PASS",
+    "note": "exit=7 reason=TEST_NONZERO_EXIT:7"
+  },
+  {
+    "testId": "220H",
+    "name": "unsupported project -> BLOCKED",
+    "status": "PASS",
+    "note": "NO_TEST_COMMAND_DETECTED"
+  },
+  {
+    "testId": "220I",
+    "name": "durable test artifact",
+    "status": "PASS",
+    "note": "artifact path exercised in 220D-220G"
+  },
+  {
+    "testId": "220J",
+    "name": "result stability",
+    "status": "PASS",
+    "note": "same artifactRef returned on repeated runTest"
+  },
+  {
+    "testId": "220K",
+    "name": "retry idempotency",
+    "status": "PASS",
+    "note": "dispatch boundary preserved idempotency"
+  },
+  {
+    "testId": "220L",
+    "name": "DispatchService routes TEST",
+    "status": "PASS",
+    "note": "routing verified via EngineeringStageExecutor.executeTest"
+  },
+  {
+    "testId": "220M",
+    "name": "non-engineering isolation",
+    "status": "PASS",
+    "note": "TEST executor only reached via engineering.stage"
+  },
+  {
+    "testId": "220N",
+    "name": "BLOCKED propagation",
+    "status": "PASS",
+    "note": "220C/220H demonstrated BLOCKED propagation"
+  },
+  {
+    "testId": "220O",
+    "name": "FAILED propagation",
+    "status": "PASS",
+    "note": "220G demonstrated FAILED propagation"
+  },
+  {
+    "testId": "220P",
+    "name": "no secrets",
+    "status": "PASS",
+    "note": "100 events scanned"
+  },
+  {
+    "testId": "220Q",
+    "name": "events persisted",
+    "status": "PASS",
+    "note": "10 engineering_test events"
+  },
+  {
+    "testId": "220R",
+    "name": "artifact integrity",
+    "status": "PASS",
+    "note": "artifactRef produced by ArtifactStore.registerArtifactAsync"
+  },
+  {
+    "testId": "220S",
+    "name": "recovery idempotency",
+    "status": "PASS",
+    "note": "job CAS in forceSucceeded used recoverJobAtomicAsync"
+  },
+  {
+    "testId": "220T",
+    "name": "DAG integrity",
+    "status": "PASS",
+    "note": "9 stages; TEST+BUILD wired"
+  },
+  {
+    "testId": "220U",
+    "name": "Phase 219 regression",
+    "status": "PASS",
+    "note": "BUILD/IMPLEMENTATION/PLANNING/ARCHITECTURE still wired"
+  },
+  {
+    "testId": "220V",
+    "name": "Phase 218 regression",
+    "status": "PASS",
+    "note": "PLANNING/ARCHITECTURE/IMPLEMENTATION still wired"
+  }
+]

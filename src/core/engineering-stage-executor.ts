@@ -10,6 +10,7 @@ import type { EngineeringRunService, EngineeringRun } from "./engineering-run-se
 import type { EngineeringPlanningOrchestrator } from "./engineering-planning-orchestrator";
 import type { EngineeringImplementationOrchestrator } from "./engineering-implementation-orchestrator";
 import type { EngineeringBuildExecutor } from "./engineering-build-executor";
+import type { EngineeringTestExecutor } from "./engineering-test-executor";
 import type { WorkspaceActor } from "./workspace";
 import {
   CANONICAL_ENGINEERING_DAG,
@@ -35,6 +36,7 @@ export interface EngineeringStageExecutorDeps {
   planning: EngineeringPlanningOrchestrator;
   implementation: EngineeringImplementationOrchestrator;
   buildExecutor?: EngineeringBuildExecutor;
+  testExecutor?: EngineeringTestExecutor;
   workspaceResolver?: (runId: string) => Promise<WorkspaceResolution | null>;
 }
 
@@ -54,6 +56,7 @@ const WIRED_STAGES: ReadonlySet<EngineeringStageType> = new Set([
   "ARCHITECTURE",
   "IMPLEMENTATION",
   "BUILD",
+  "TEST",
 ]);
 
 const JOB_TERMINAL = new Set<string>([
@@ -103,6 +106,7 @@ export class EngineeringStageExecutor {
       case "ARCHITECTURE":   return this.executeArchitecture(runId);
       case "IMPLEMENTATION": return this.executeImplementation(runId);
       case "BUILD":          return this.executeBuild(runId);
+      case "TEST":           return this.executeTest(runId);
       default:
         return { ok: true, runId, stageType, status: "BLOCKED",
                  reason: "STAGE_NOT_WIRED", artifactRef: null };
@@ -244,6 +248,42 @@ export class EngineeringStageExecutor {
                reason: outcome.reason, artifactRef: outcome.artifactRef };
     }
     return this.applyStageOutcome(runId, "BUILD", outcome.status, outcome.reason, outcome.artifactRef);
+  }
+
+  private async executeTest(runId: string): Promise<StageExecutionOutcome> {
+    if (!this.deps.testExecutor) {
+      return this.applyStageOutcome(runId, "TEST", "BLOCKED",
+        "TEST_EXECUTOR_NOT_CONFIGURED", null);
+    }
+    const run = await this.deps.runService.getEngineeringRun(runId);
+    if (!run) return this.applyStageOutcome(runId, "TEST", "FAILED", "RUN_NOT_FOUND", null);
+
+    if (!this.deps.workspaceResolver) {
+      return this.applyStageOutcome(runId, "TEST", "BLOCKED",
+        "WORKSPACE_RESOLVER_NOT_CONFIGURED", null);
+    }
+    const ws = await this.deps.workspaceResolver(runId);
+    if (!ws) {
+      return this.applyStageOutcome(runId, "TEST", "BLOCKED",
+        "WORKSPACE_NOT_BOUND_TO_RUN", null);
+    }
+
+    let outcome;
+    try {
+      outcome = await this.deps.testExecutor.runTest({
+        runId, workspaceId: ws.workspaceId, actor: ws.actor,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return this.applyStageOutcome(runId, "TEST", "FAILED", "TEST_EXECUTOR_THREW:" + msg, null);
+    }
+
+    if (outcome.status === "SUCCEEDED") {
+      await this.applyStageCompletion(runId, "TEST", outcome.artifactRef, "test succeeded");
+      return { ok: true, runId, stageType: "TEST", status: "SUCCEEDED",
+               reason: outcome.reason, artifactRef: outcome.artifactRef };
+    }
+    return this.applyStageOutcome(runId, "TEST", outcome.status, outcome.reason, outcome.artifactRef);
   }
 
     private async applyStageCompletion(
