@@ -31,6 +31,14 @@ import {
 } from "./security";
 import { GitHubService } from "./github";
 import { ExecutionStore } from "./execution-store";
+import { ArtifactStore } from "./artifact-store";
+import { EngineeringRunService } from "./engineering-run-service";
+import { EngineeringPlanningOrchestrator } from "./engineering-planning-orchestrator";
+import { EngineeringImplementationOrchestrator } from "./engineering-implementation-orchestrator";
+import { EngineeringBuildExecutor } from "./engineering-build-executor";
+import { EngineeringStageExecutor } from "./engineering-stage-executor";
+import { EngineeringCapabilityRegistry } from "./engineering-capability-registry";
+import { createRuntimeCommandExecutor } from "./runtime-command-adapter";
 import { DispatchService } from "./dispatch-service";
 import { ExecutionEngine, type ExecutionDeps } from "./execution-engine";
 import { WorkerRegistry } from "./worker-registry";
@@ -167,6 +175,7 @@ export class NexusKernel {
   failure: NexusError | null = null;
   executionEngine?: ExecutionEngine;
   jobDispatcher?: JobDispatcher;
+  dispatchService?: DispatchService;
   remoteWorkerRegistry?: RemoteWorkerRegistry;
   remoteExecutionManager?: RemoteExecutionManager;
   executionAdapterRegistry?: ExecutionAdapterRegistry;
@@ -343,6 +352,7 @@ const memberships = new ProjectMembershipStore(rawDb);
           const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore);
           const jobDispatcher = new JobDispatcher(workerRegistry, remoteExecutionManager, executionStore, leaseManager);
           const dispatchService = new DispatchService(jobDispatcher, remoteExecutionManager, executionStore);
+          this.dispatchService = dispatchService;
           // Phase 137: late-wire the honest dispatch cancel into the worker gateway.
           if (workerGateway) { workerGateway.attachDispatchService(dispatchService); }
 
@@ -551,6 +561,47 @@ const memberships = new ProjectMembershipStore(rawDb);
       this.step("runtime", "running");
       const runtime = new RuntimeBridge({ events, audit });
       await runtime.detect().catch(() => undefined);
+
+      // Phase 219: engineering execution stack wired to the production
+      // dispatch boundary. Non-fatal on failure; stages honestly report
+      // BLOCKED at the dispatch boundary if wiring could not be completed.
+      try {
+        const engDbUrl = process.env.DATABASE_URL ?? "";
+        const engStore = this.executionStore;
+        const dispatchSvc = this.dispatchService;
+        if (engDbUrl && engStore && dispatchSvc) {
+          const engArtifacts = new ArtifactStore(engStore, engDbUrl);
+          const engRegistry = new EngineeringCapabilityRegistry(
+            undefined, undefined, EngineeringStageExecutor.wiring());
+          const engRunService = new EngineeringRunService(engDbUrl, engStore, engRegistry);
+          const engPlanning = new EngineeringPlanningOrchestrator(engDbUrl, engStore, engArtifacts);
+          const engImplementation = new EngineeringImplementationOrchestrator(engDbUrl, engArtifacts, workspaces);
+          const engBuild = new EngineeringBuildExecutor({
+            dbUrl: engDbUrl,
+            store: engStore,
+            artifacts: engArtifacts,
+            workspaces,
+            bridge: getHostBridge(),
+            commandExecutor: createRuntimeCommandExecutor(runtime.executor),
+          });
+          const engSystemActor = { id: "kernel-engineering-system", kind: "system" } as any;
+          const engStageExec = new EngineeringStageExecutor({
+            store: engStore,
+            runService: engRunService,
+            planning: engPlanning,
+            implementation: engImplementation,
+            buildExecutor: engBuild,
+            workspaceResolver: async (runId: string) => {
+              const spec = await engImplementation.getLatestImplementationSpec(runId);
+              if (spec && spec.workspaceId) {
+                return { workspaceId: spec.workspaceId, actor: engSystemActor };
+              }
+              return null;
+            },
+          });
+          dispatchSvc.attachEngineeringExecutor(engStageExec);
+        }
+      } catch { /* non-fatal; engineering stages report BLOCKED */ }
       this.step("runtime", "ok", `${runtime.kind()} Ãƒâ€šÃ‚Â· docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
 
       // Canonical deployment orchestration â€” uses the same RuntimeBridge

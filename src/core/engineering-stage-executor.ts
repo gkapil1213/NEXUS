@@ -9,6 +9,7 @@ import type { ExecutionStore } from "./execution-store";
 import type { EngineeringRunService, EngineeringRun } from "./engineering-run-service";
 import type { EngineeringPlanningOrchestrator } from "./engineering-planning-orchestrator";
 import type { EngineeringImplementationOrchestrator } from "./engineering-implementation-orchestrator";
+import type { EngineeringBuildExecutor } from "./engineering-build-executor";
 import type { WorkspaceActor } from "./workspace";
 import {
   CANONICAL_ENGINEERING_DAG,
@@ -33,6 +34,7 @@ export interface EngineeringStageExecutorDeps {
   runService: EngineeringRunService;
   planning: EngineeringPlanningOrchestrator;
   implementation: EngineeringImplementationOrchestrator;
+  buildExecutor?: EngineeringBuildExecutor;
   workspaceResolver?: (runId: string) => Promise<WorkspaceResolution | null>;
 }
 
@@ -51,6 +53,7 @@ const WIRED_STAGES: ReadonlySet<EngineeringStageType> = new Set([
   "PLANNING",
   "ARCHITECTURE",
   "IMPLEMENTATION",
+  "BUILD",
 ]);
 
 const JOB_TERMINAL = new Set<string>([
@@ -99,6 +102,7 @@ export class EngineeringStageExecutor {
       case "PLANNING":       return this.executePlanning(runId, run);
       case "ARCHITECTURE":   return this.executeArchitecture(runId);
       case "IMPLEMENTATION": return this.executeImplementation(runId);
+      case "BUILD":          return this.executeBuild(runId);
       default:
         return { ok: true, runId, stageType, status: "BLOCKED",
                  reason: "STAGE_NOT_WIRED", artifactRef: null };
@@ -206,7 +210,43 @@ export class EngineeringStageExecutor {
     }
     return this.applyStageOutcome(runId, "IMPLEMENTATION", outcome.status, outcome.reason, null);
   }
-  private async applyStageCompletion(
+  private async executeBuild(runId: string): Promise<StageExecutionOutcome> {
+    if (!this.deps.buildExecutor) {
+      return this.applyStageOutcome(runId, "BUILD", "BLOCKED",
+        "BUILD_EXECUTOR_NOT_CONFIGURED", null);
+    }
+    const run = await this.deps.runService.getEngineeringRun(runId);
+    if (!run) return this.applyStageOutcome(runId, "BUILD", "FAILED", "RUN_NOT_FOUND", null);
+
+    if (!this.deps.workspaceResolver) {
+      return this.applyStageOutcome(runId, "BUILD", "BLOCKED",
+        "WORKSPACE_RESOLVER_NOT_CONFIGURED", null);
+    }
+    const ws = await this.deps.workspaceResolver(runId);
+    if (!ws) {
+      return this.applyStageOutcome(runId, "BUILD", "BLOCKED",
+        "WORKSPACE_NOT_BOUND_TO_RUN", null);
+    }
+
+    let outcome;
+    try {
+      outcome = await this.deps.buildExecutor.runBuild({
+        runId, workspaceId: ws.workspaceId, actor: ws.actor,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return this.applyStageOutcome(runId, "BUILD", "FAILED", "BUILD_EXECUTOR_THREW:" + msg, null);
+    }
+
+    if (outcome.status === "SUCCEEDED") {
+      await this.applyStageCompletion(runId, "BUILD", outcome.artifactRef, "build succeeded");
+      return { ok: true, runId, stageType: "BUILD", status: "SUCCEEDED",
+               reason: outcome.reason, artifactRef: outcome.artifactRef };
+    }
+    return this.applyStageOutcome(runId, "BUILD", outcome.status, outcome.reason, outcome.artifactRef);
+  }
+
+    private async applyStageCompletion(
     runId: string,
     stageType: EngineeringStageType,
     artifactRef: string | null,

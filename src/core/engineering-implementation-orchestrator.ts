@@ -268,6 +268,21 @@ export class EngineeringImplementationOrchestrator {
    * produced a VALID plan and a VALID architecture (Phase 215) and for
    * providing an ACTIVE workspace (Phase 2 WorkspaceService).
    */
+  /**
+   * Phase 219: retrieve the latest implementation specification for a run.
+   * Used by the BUILD workspace resolver to locate the workspace that
+   * IMPLEMENTATION provisioned so BUILD executes against the real
+   * engineering workspace rather than a fabricated one.
+   */
+  async getLatestImplementationSpec(runId: string): Promise<ImplementationSpec | null> {
+    return this.withPg(async (pg) => {
+      const r = await pg.query<any>(
+        "SELECT * FROM implementation_specifications WHERE run_id=$1 ORDER BY created_at DESC LIMIT 1",
+        [runId]);
+      return r.rowCount === 0 ? null : this.mapSpec(r.rows[0]);
+    });
+  }
+
   async runImplementation(input: RunImplementationInput): Promise<ImplementationOutcome> {
     const { runId, planId, architectureId, workspaceId, actor } = input;
     const requestHash = this.computeRequestHash(runId, planId, architectureId);

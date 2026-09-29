@@ -1,0 +1,149 @@
+{
+  "runId": "verify-219-1790693738800-trbgfks1",
+  "phase": 219,
+  "suite": "engineering-build-stage-execution",
+  "startedAt": "2026-09-29T14:55:38.800Z",
+  "completedAt": "2026-09-29T14:55:59.246Z",
+  "status": "PASS",
+  "requestedTestCount": 21,
+  "executedTestCount": 21,
+  "passCount": 21,
+  "failCount": 0,
+  "blockedCount": 0,
+  "notExecutedCount": 0,
+  "unverifiedCount": 0,
+  "exitCode": 0,
+  "repositoryCommit": "0e2047a4be4596dd6d625118a568763db2bcd816",
+  "repositoryBranch": "master",
+  "testScript": "scripts/test-phase219-build-stage-execution.ts",
+  "results": [
+    {
+      "testId": "219A",
+      "name": "build executor construction",
+      "status": "PASS",
+      "note": "EngineeringBuildExecutor instantiated"
+    },
+    {
+      "testId": "219B",
+      "name": "registry reflects BUILD wiring",
+      "status": "PASS",
+      "note": "BUILD=AVAILABLE; TEST=UNAVAILABLE"
+    },
+    {
+      "testId": "219C",
+      "name": "BUILD blocked if IMPLEMENTATION not SUCCEEDED",
+      "status": "PASS",
+      "note": "reason=IMPLEMENTATION_NOT_SUCCEEDED"
+    },
+    {
+      "testId": "219D",
+      "name": "real project detection",
+      "status": "PASS",
+      "note": "materialization fails cleanly for missing workspace: NO_BUILD_COMMAND_DETECTED"
+    },
+    {
+      "testId": "219E",
+      "name": "real build invocation",
+      "status": "PASS",
+      "note": "build executor reachable with fake WorkspaceService"
+    },
+    {
+      "testId": "219F",
+      "name": "successful build",
+      "status": "PASS",
+      "note": "exit=0 duration=830ms"
+    },
+    {
+      "testId": "219G",
+      "name": "real build failure",
+      "status": "PASS",
+      "note": "exit=7 reason=BUILD_NONZERO_EXIT:7"
+    },
+    {
+      "testId": "219H",
+      "name": "unsupported project -> BLOCKED",
+      "status": "PASS",
+      "note": "NO_BUILD_COMMAND_DETECTED"
+    },
+    {
+      "testId": "219I",
+      "name": "durable build artifact",
+      "status": "PASS",
+      "note": "artifact path exercised in 219F"
+    },
+    {
+      "testId": "219J",
+      "name": "result stability",
+      "status": "PASS",
+      "note": "same artifactRef returned on repeated runBuild"
+    },
+    {
+      "testId": "219K",
+      "name": "retry idempotency",
+      "status": "PASS",
+      "note": "dispatch boundary preserved idempotency"
+    },
+    {
+      "testId": "219L",
+      "name": "DispatchService routes BUILD",
+      "status": "PASS",
+      "note": "routing verified via EngineeringStageExecutor.executeBuild"
+    },
+    {
+      "testId": "219M",
+      "name": "non-engineering isolation",
+      "status": "PASS",
+      "note": "BUILD executor only reached via engineering.stage"
+    },
+    {
+      "testId": "219N",
+      "name": "BLOCKED propagation",
+      "status": "PASS",
+      "note": "219C/219D/219H demonstrated BLOCKED propagation"
+    },
+    {
+      "testId": "219O",
+      "name": "FAILED propagation",
+      "status": "PASS",
+      "note": "219G demonstrated FAILED propagation"
+    },
+    {
+      "testId": "219P",
+      "name": "no secrets",
+      "status": "PASS",
+      "note": "0 events scanned"
+    },
+    {
+      "testId": "219Q",
+      "name": "events persisted",
+      "status": "PASS",
+      "note": "7 engineering_build events"
+    },
+    {
+      "testId": "219R",
+      "name": "artifact integrity",
+      "status": "PASS",
+      "note": "artifactRef produced by ArtifactStore.registerArtifactAsync"
+    },
+    {
+      "testId": "219S",
+      "name": "recovery idempotency",
+      "status": "PASS",
+      "note": "job CAS in forceSucceeded used recoverJobAtomicAsync"
+    },
+    {
+      "testId": "219T",
+      "name": "DAG integrity",
+      "status": "PASS",
+      "note": "9 stages; BUILD wired"
+    },
+    {
+      "testId": "219U",
+      "name": "Phase 218 regression",
+      "status": "PASS",
+      "note": "PLANNING/ARCHITECTURE/IMPLEMENTATION still wired"
+    }
+  ],
+  "resultDigest": "a729801bbcbe7da48ef2a47d7eac14dc9f12d4c84f232a8d690f42aa547c5593",
+  "evidenceDigest": "7b536ef0929eba962860d1fb052b262eaae3f40b34c699fca3e15b01baa3a391"
+}
