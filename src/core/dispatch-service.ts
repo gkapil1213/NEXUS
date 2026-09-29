@@ -4,6 +4,7 @@ import { RemoteExecutionManager } from "./remote-execution-manager";
 import { ExecutionStore } from "./execution-store";
 import { ExecutionJob, ExecutionAttempt, RemoteDispatchRecord } from "./execution-models";
 import { ExecutionAdapterRequest, ExecutionAdapterResult } from "./execution-adapter";
+import type { EngineeringStageExecutor } from "./engineering-stage-executor";
 
 function generateInternalId(): string {
     if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.randomUUID) {
@@ -13,18 +14,52 @@ function generateInternalId(): string {
 }
 
 export class DispatchService implements ExecutionDispatchPort {
+    /**
+     * Phase 218: in-process engineering-stage executor.
+     * Absent by default so non-engineering runtimes and legacy tests keep
+     * routing every job type through the remote path unchanged.
+     */
+    private engineeringExecutor?: EngineeringStageExecutor;
+
     constructor(
         private jobDispatcher: JobDispatcher,
         private remoteManager: RemoteExecutionManager,
         private store: ExecutionStore
     ) {}
 
-    private createOrGetDispatchRecord(
+    /**
+     * Phase 218: late-wire the engineering-stage executor.
+     * Mirrors workerGateway.attachDispatchService().
+     */
+    /**
+     * Phase 218: prefer the async dispatch store when shared mode is active.
+     * In shared mode engineering-run jobs are persisted to Postgres, so the
+     * SQLite-only sync path would violate the FK on remote_dispatches.job_id.
+     * SQLite-only runtimes keep using the sync methods unchanged.
+     */
+    private async readDispatchRecord(dispatchId: string): Promise<RemoteDispatchRecord | undefined> {
+        if (this.store.hasAsyncBackend()) return await this.store.getRemoteDispatchAsync(dispatchId);
+        return this.store.getRemoteDispatch(dispatchId);
+    }
+
+    private async writeDispatchRecord(record: RemoteDispatchRecord): Promise<void> {
+        if (this.store.hasAsyncBackend()) {
+            await this.store.upsertRemoteDispatchAsync(record);
+        } else {
+            this.store.upsertRemoteDispatch(record);
+        }
+    }
+
+    attachEngineeringExecutor(executor: EngineeringStageExecutor): void {
+        this.engineeringExecutor = executor;
+    }
+
+    private async createOrGetDispatchRecord(
         job: ExecutionJob,
         attempt: ExecutionAttempt,
         leaseId: string,
         request: ExecutionAdapterRequest
-    ): { record: RemoteDispatchRecord; created: boolean } {
+    ): Promise<{ record: RemoteDispatchRecord; created: boolean }> {
         const now = Date.now();
         const internalId = generateInternalId();
 
@@ -41,6 +76,9 @@ export class DispatchService implements ExecutionDispatchPort {
             updatedAt: now,
         };
 
+        if (this.store.hasAsyncBackend()) {
+            return await this.store.createRemoteDispatchIfAbsentAsync(record);
+        }
         return this.store.createRemoteDispatchIfAbsent(record);
     }
     async dispatch(
@@ -49,7 +87,7 @@ export class DispatchService implements ExecutionDispatchPort {
         leaseId: string,
         request: ExecutionAdapterRequest
     ): Promise<{ dispatchId: string }> {
-        const { record, created } = this.createOrGetDispatchRecord(
+        const { record, created } = await this.createOrGetDispatchRecord(
             job,
             attempt,
             leaseId,
@@ -61,6 +99,7 @@ export class DispatchService implements ExecutionDispatchPort {
                 record.status === "DISPATCHED" ||
                 record.status === "COMPLETED" ||
                 record.status === "FAILED" ||
+                record.status === "BLOCKED" ||
                 record.status === "CANCELLED"
             ) {
                 return { dispatchId: record.dispatchId };
@@ -77,6 +116,14 @@ export class DispatchService implements ExecutionDispatchPort {
             throw new Error("Dispatch " + record.dispatchId + " is in unsupported state " + record.status);
         }
 
+        // ── Phase 218: in-process engineering-stage dispatch ──
+        // Route engineering.stage through the wired EngineeringStageExecutor
+        // BEFORE touching JobDispatcher / RemoteExecutionManager. Every
+        // other job type falls through to the existing remote path unchanged.
+        if (job.jobType === "engineering.stage" && this.engineeringExecutor) {
+            return await this.dispatchEngineeringStage(record, job);
+        }
+
         const providerDispatchId = await this.jobDispatcher.dispatchJob(
             job.id,
             attempt.workerId!,
@@ -90,12 +137,12 @@ export class DispatchService implements ExecutionDispatchPort {
             updatedAt: Date.now(),
         };
 
-        this.store.upsertRemoteDispatch(updated);
+        await this.writeDispatchRecord(updated);
 
         return { dispatchId: record.dispatchId };
     }
     async collectResult(dispatchId: string): Promise<ExecutionAdapterResult> {
-        const record = this.store.getRemoteDispatch(dispatchId);
+        const record = await this.readDispatchRecord(dispatchId);
         if (!record) throw new Error(`Dispatch ${dispatchId} not found`);
 
         // If result already persisted (e.g., after restart), return directly
@@ -106,8 +153,66 @@ export class DispatchService implements ExecutionDispatchPort {
         record.result = result;
         record.status = result.success ? "COMPLETED" : "FAILED";
         record.updatedAt = Date.now();
-        this.store.upsertRemoteDispatch(record);
+        await this.writeDispatchRecord(record);
         return result;
+    }
+
+    /**
+     * Phase 218: run the engineering-stage executor in-process, persist
+     * the result onto the same durable RemoteDispatchRecord, and return
+     * without ever calling JobDispatcher, RemoteExecutionManager, or an
+     * external provider.
+     */
+    private async dispatchEngineeringStage(
+        record: RemoteDispatchRecord,
+        job: ExecutionJob
+    ): Promise<{ dispatchId: string }> {
+        let result: ExecutionAdapterResult;
+        try {
+            const outcome = await this.engineeringExecutor!.execute(job.payload);
+            if (outcome.ok === false) {
+                result = {
+                    success: false,
+                    stderr: outcome.reason,
+                    evidence: { status: "REJECTED", reason: outcome.reason },
+                };
+            } else {
+                const status = outcome.status;
+                result = {
+                    success: status === "SUCCEEDED",
+                    evidence: {
+                        status,
+                        reason: outcome.reason,
+                        artifactRef: outcome.artifactRef,
+                        runId: outcome.runId,
+                        stageType: outcome.stageType,
+                    },
+                };
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            result = {
+                success: false,
+                stderr: msg,
+                evidence: { status: "THREW", reason: msg },
+            };
+        }
+
+        const semanticStatus = (result.evidence as { status?: string } | undefined)?.status;
+        const recordStatus: RemoteDispatchRecord["status"] =
+            result.success ? "COMPLETED"
+            : semanticStatus === "BLOCKED" ? "BLOCKED"
+            : "FAILED";
+
+        const updated: RemoteDispatchRecord = {
+            ...record,
+            status: recordStatus,
+            result,
+            updatedAt: Date.now(),
+        };
+        await this.writeDispatchRecord(updated);
+
+        return { dispatchId: record.dispatchId };
     }
 
     async cancel(dispatchId: string): Promise<void> {
@@ -121,10 +226,10 @@ export class DispatchService implements ExecutionDispatchPort {
      * so recovery can retry, and the caller receives a non-fabricated result.
      */
     async cancelDetailed(dispatchId: string): Promise<{ cancelled: boolean; reason?: string }> {
-        const record = this.store.getRemoteDispatch(dispatchId);
+        const record = await this.readDispatchRecord(dispatchId);
         if (!record) return { cancelled: false, reason: "dispatch_not_found" };
         if (record.status === "CANCELLED") return { cancelled: true };
-        if (record.status === "COMPLETED" || record.status === "FAILED") {
+        if (record.status === "COMPLETED" || record.status === "FAILED" || record.status === "BLOCKED") {
             return { cancelled: false, reason: "already_terminal:" + record.status };
         }
 
@@ -148,11 +253,11 @@ export class DispatchService implements ExecutionDispatchPort {
             status: "CANCELLED",
             updatedAt: Date.now(),
         };
-        this.store.upsertRemoteDispatch(updated);
+        await this.writeDispatchRecord(updated);
         return { cancelled: true };
     }
     async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {
-        const record = this.store.getRemoteDispatch(dispatchId);
+        const record = await this.readDispatchRecord(dispatchId);
         if (record?.externalProviderId) {
             return this.remoteManager.getStatus(record.externalProviderId);
         }

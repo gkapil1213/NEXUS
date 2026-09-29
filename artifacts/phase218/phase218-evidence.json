@@ -1,0 +1,123 @@
+{
+  "phase": 218,
+  "generatedAt": "2026-09-29T07:00:12.814Z",
+  "repositoryCommit": "1bba758b0fa5caf91028482beb651826f9988047",
+  "repositoryBranch": "master",
+  "verificationRunId": "verify-218-1790665008760-xcq31v08",
+  "verificationRunCommit": "1bba758b0fa5caf91028482beb651826f9988047",
+  "testScript": "scripts/test-phase218-stage-execution.ts",
+  "requestedTestCount": 16,
+  "executedTestCount": 16,
+  "passCount": 16,
+  "failCount": 0,
+  "blockedCount": 0,
+  "notExecutedCount": 0,
+  "unverifiedCount": 0,
+  "exitCode": 0,
+  "status": "PASS",
+  "resultDigest": "df44d9f74cad9df4479791666f3b99b34ee12bd66ace9a44cce5521735be3934",
+  "evidenceDigest": "390065a9bf059d047cc3a2d58571f5632511932ccd7dcde58b54ea66f3c8469b",
+  "integrity": {
+    "verdict": "VERIFIED_PASS",
+    "resultDigestMatches": true,
+    "evidenceDigestMatches": true
+  },
+  "results": [
+    {
+      "testId": "218A",
+      "name": "executor construction",
+      "status": "PASS",
+      "note": "3 wired stages"
+    },
+    {
+      "testId": "218B",
+      "name": "registry reflects wiring",
+      "status": "PASS",
+      "note": "3 AVAILABLE, BUILD UNAVAILABLE, bare honest"
+    },
+    {
+      "testId": "218C",
+      "name": "PLANNING dispatch",
+      "status": "PASS",
+      "note": "submitRequest+runPlanning reached; BLOCKED"
+    },
+    {
+      "testId": "218D",
+      "name": "ARCHITECTURE dispatch",
+      "status": "PASS",
+      "note": "runArchitecture reached; BLOCKED"
+    },
+    {
+      "testId": "218E",
+      "name": "IMPLEMENTATION dispatch",
+      "status": "PASS",
+      "note": "runImplementation reached; BLOCKED"
+    },
+    {
+      "testId": "218F",
+      "name": "ARCH gated by PLAN",
+      "status": "PASS",
+      "note": "BLOCKED; orchestrator not invoked"
+    },
+    {
+      "testId": "218G",
+      "name": "IMPL gated by ARCH",
+      "status": "PASS",
+      "note": "BLOCKED; orchestrator not invoked"
+    },
+    {
+      "testId": "218H",
+      "name": "unknown stage rejected",
+      "status": "PASS",
+      "note": "4 malformed payloads rejected"
+    },
+    {
+      "testId": "218I",
+      "name": "run ownership",
+      "status": "PASS",
+      "note": "RUN_NOT_FOUND; orchestrator untouched"
+    },
+    {
+      "testId": "218J",
+      "name": "transitions durable",
+      "status": "PASS",
+      "note": "capability=AVAILABLE, artifactRef set, job=SUCCEEDED"
+    },
+    {
+      "testId": "218K",
+      "name": "events persisted",
+      "status": "PASS",
+      "note": "17 events"
+    },
+    {
+      "testId": "218L",
+      "name": "retry idempotency",
+      "status": "PASS",
+      "note": "second dispatch CAS-idempotent; 1 transition->AVAILABLE"
+    },
+    {
+      "testId": "218M",
+      "name": "provider absence",
+      "status": "PASS",
+      "note": "real orchestrator: BLOCKED; job=BLOCKED"
+    },
+    {
+      "testId": "218N",
+      "name": "failure -> FAIL",
+      "status": "PASS",
+      "note": "orchestrator FAILED -> job FAILED"
+    },
+    {
+      "testId": "218O",
+      "name": "no secrets",
+      "status": "PASS",
+      "note": "17 events scanned"
+    },
+    {
+      "testId": "218P",
+      "name": "DAG unchanged",
+      "status": "PASS",
+      "note": "9 stages intact"
+    }
+  ]
+}

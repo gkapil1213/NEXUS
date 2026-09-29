@@ -1,0 +1,274 @@
+// src/core/engineering-stage-executor.ts
+// Phase 218: production engineering-stage executor.
+//
+// Runtime integration layer between the durable engineering-run DAG
+// (Phase 214) and the existing planning/architecture (Phase 215) and
+// implementation (Phase 217) orchestrators.
+
+import type { ExecutionStore } from "./execution-store";
+import type { EngineeringRunService, EngineeringRun } from "./engineering-run-service";
+import type { EngineeringPlanningOrchestrator } from "./engineering-planning-orchestrator";
+import type { EngineeringImplementationOrchestrator } from "./engineering-implementation-orchestrator";
+import type { WorkspaceActor } from "./workspace";
+import {
+  CANONICAL_ENGINEERING_DAG,
+  type EngineeringStageType,
+} from "./engineering-capability-registry";
+
+export type StageExecutionStatus = "SUCCEEDED" | "FAILED" | "BLOCKED" | "INVALID";
+
+export interface EngineeringStageJobPayload {
+  kind: "engineering.stage";
+  runId: string;
+  stageType: EngineeringStageType;
+}
+
+export interface WorkspaceResolution {
+  workspaceId: string;
+  actor: WorkspaceActor;
+}
+
+export interface EngineeringStageExecutorDeps {
+  store: ExecutionStore;
+  runService: EngineeringRunService;
+  planning: EngineeringPlanningOrchestrator;
+  implementation: EngineeringImplementationOrchestrator;
+  workspaceResolver?: (runId: string) => Promise<WorkspaceResolution | null>;
+}
+
+export type StageExecutionOutcome =
+  | {
+      ok: true;
+      runId: string;
+      stageType: EngineeringStageType;
+      status: StageExecutionStatus;
+      reason: string;
+      artifactRef: string | null;
+    }
+  | { ok: false; reason: string };
+
+const WIRED_STAGES: ReadonlySet<EngineeringStageType> = new Set([
+  "PLANNING",
+  "ARCHITECTURE",
+  "IMPLEMENTATION",
+]);
+
+const JOB_TERMINAL = new Set<string>([
+  "SUCCEEDED", "FAILED", "CANCELLED", "DEAD_LETTER", "BLOCKED",
+]);
+
+export class EngineeringStageExecutor {
+  constructor(private readonly deps: EngineeringStageExecutorDeps) {}
+
+  static wiredStages(): ReadonlySet<EngineeringStageType> {
+    return WIRED_STAGES;
+  }
+
+  static wiring(): { wiredStages: ReadonlySet<EngineeringStageType> } {
+    return { wiredStages: WIRED_STAGES };
+  }
+
+  async execute(raw: unknown): Promise<StageExecutionOutcome> {
+    const parsed = this.parsePayload(raw);
+    if (!parsed.ok) return parsed;
+    const { runId, stageType } = parsed;
+
+    const run = await this.deps.runService.getEngineeringRun(runId);
+    if (!run) return { ok: false, reason: "RUN_NOT_FOUND" };
+
+    const stages = await this.deps.runService.getEngineeringRunStages(runId);
+    const stage = stages.find((s) => s.stageType === stageType);
+    if (!stage) return { ok: false, reason: "STAGE_NOT_FOUND_FOR_RUN" };
+
+    if (!WIRED_STAGES.has(stageType)) {
+      await this.markStageJob(runId, stageType, "BLOCKED",
+        "engineering_run.stage_blocked", { reason: "STAGE_NOT_WIRED" });
+      return { ok: true, runId, stageType, status: "BLOCKED",
+               reason: "STAGE_NOT_WIRED", artifactRef: null };
+    }
+
+    const dep = await this.assertUpstreamComplete(runId, stageType);
+    if (!dep.ok) {
+      await this.markStageJob(runId, stageType, "BLOCKED",
+        "engineering_run.stage_blocked", { reason: dep.reason });
+      return { ok: true, runId, stageType, status: "BLOCKED",
+               reason: dep.reason, artifactRef: null };
+    }
+
+    switch (stageType) {
+      case "PLANNING":       return this.executePlanning(runId, run);
+      case "ARCHITECTURE":   return this.executeArchitecture(runId);
+      case "IMPLEMENTATION": return this.executeImplementation(runId);
+      default:
+        return { ok: true, runId, stageType, status: "BLOCKED",
+                 reason: "STAGE_NOT_WIRED", artifactRef: null };
+    }
+  }
+
+  private parsePayload(raw: unknown):
+    | { ok: true; runId: string; stageType: EngineeringStageType }
+    | { ok: false; reason: string } {
+    if (!raw || typeof raw !== "object") return { ok: false, reason: "PAYLOAD_NOT_OBJECT" };
+    const p = raw as Record<string, unknown>;
+    if (p.kind !== "engineering.stage") return { ok: false, reason: "UNSUPPORTED_JOB_KIND" };
+    if (typeof p.runId !== "string" || !p.runId) return { ok: false, reason: "RUN_ID_MISSING" };
+    if (typeof p.stageType !== "string") return { ok: false, reason: "STAGE_TYPE_MISSING" };
+    const known = CANONICAL_ENGINEERING_DAG.some((s) => s.stageType === p.stageType);
+    if (!known) return { ok: false, reason: "UNKNOWN_STAGE_TYPE:" + p.stageType };
+    return { ok: true, runId: p.runId, stageType: p.stageType as EngineeringStageType };
+  }
+
+  private async assertUpstreamComplete(
+    runId: string,
+    stageType: EngineeringStageType,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const spec = CANONICAL_ENGINEERING_DAG.find((s) => s.stageType === stageType);
+    if (!spec) return { ok: false, reason: "UNKNOWN_STAGE" };
+    for (const upstream of spec.dependsOn) {
+      const jobId = runId + "__" + upstream;
+      const j = await this.deps.store.getJobAsync(jobId);
+      if (!j) return { ok: false, reason: "UPSTREAM_JOB_MISSING:" + upstream };
+      if (j.status !== "SUCCEEDED") {
+        return { ok: false, reason: "UPSTREAM_NOT_SUCCEEDED:" + upstream + ":" + j.status };
+      }
+    }
+    return { ok: true };
+  }
+
+  private async executePlanning(runId: string, run: EngineeringRun): Promise<StageExecutionOutcome> {
+    const submit = await this.deps.planning.submitRequest({
+      runId,
+      requestText: run.objective,
+      createdBy: run.requestedBy ?? "engineering-stage-executor",
+      metadata: { phase: 218, stageType: "PLANNING" },
+    });
+    const outcome = await this.deps.planning.runPlanning(runId, submit.request.id);
+    if (outcome.status === "SUCCEEDED" && outcome.plan) {
+      const artifactRef = "artifact://plan-" + outcome.plan.planId;
+      await this.applyStageCompletion(runId, "PLANNING", artifactRef, "plan validated");
+      return { ok: true, runId, stageType: "PLANNING",
+               status: "SUCCEEDED", reason: outcome.reason, artifactRef };
+    }
+    return this.applyStageOutcome(runId, "PLANNING", outcome.status, outcome.reason, null);
+  }
+
+  private async executeArchitecture(runId: string): Promise<StageExecutionOutcome> {
+    const plan = await this.deps.planning.getLatestPlan(runId);
+    if (!plan) {
+      return this.applyStageOutcome(runId, "ARCHITECTURE", "FAILED", "PLAN_NOT_FOUND", null);
+    }
+    if (plan.status !== "VALID") {
+      return this.applyStageOutcome(runId, "ARCHITECTURE", "INVALID",
+        "PLAN_NOT_VALID:" + plan.status, null);
+    }
+    const outcome = await this.deps.planning.runArchitecture(runId, plan.planId);
+    if (outcome.status === "SUCCEEDED" && outcome.architecture) {
+      const artifactRef = "artifact://architecture-" + outcome.architecture.architectureId;
+      await this.applyStageCompletion(runId, "ARCHITECTURE", artifactRef, "architecture validated");
+      return { ok: true, runId, stageType: "ARCHITECTURE",
+               status: "SUCCEEDED", reason: outcome.reason, artifactRef };
+    }
+    return this.applyStageOutcome(runId, "ARCHITECTURE", outcome.status, outcome.reason, null);
+  }
+
+  private async executeImplementation(runId: string): Promise<StageExecutionOutcome> {
+    const plan = await this.deps.planning.getLatestPlan(runId);
+    if (!plan || plan.status !== "VALID") {
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED",
+        "PLAN_NOT_VALID:" + (plan?.status ?? "MISSING"), null);
+    }
+    const arch = await this.deps.planning.getLatestArchitecture(runId);
+    if (!arch || arch.status !== "VALID") {
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED",
+        "ARCHITECTURE_NOT_VALID:" + (arch?.status ?? "MISSING"), null);
+    }
+    if (!this.deps.workspaceResolver) {
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "BLOCKED",
+        "WORKSPACE_RESOLVER_NOT_CONFIGURED", null);
+    }
+    const ws = await this.deps.workspaceResolver(runId);
+    if (!ws) {
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "BLOCKED",
+        "WORKSPACE_NOT_BOUND_TO_RUN", null);
+    }
+    const outcome = await this.deps.implementation.runImplementation({
+      runId,
+      planId: plan.planId,
+      architectureId: arch.architectureId,
+      workspaceId: ws.workspaceId,
+      actor: ws.actor,
+    });
+    if (outcome.status === "SUCCEEDED") {
+      const artifactRef = outcome.artifactId ? "artifact://" + outcome.artifactId : null;
+      await this.applyStageCompletion(runId, "IMPLEMENTATION", artifactRef, "implementation applied");
+      return { ok: true, runId, stageType: "IMPLEMENTATION",
+               status: "SUCCEEDED", reason: outcome.reason, artifactRef };
+    }
+    return this.applyStageOutcome(runId, "IMPLEMENTATION", outcome.status, outcome.reason, null);
+  }
+  private async applyStageCompletion(
+    runId: string,
+    stageType: EngineeringStageType,
+    artifactRef: string | null,
+    reason: string,
+  ): Promise<void> {
+    const stages = await this.deps.runService.getEngineeringRunStages(runId);
+    const stage = stages.find((s) => s.stageType === stageType);
+    if (stage && !(stage.capabilityStatus === "AVAILABLE" && stage.artifactRef === artifactRef)) {
+      await this.deps.runService.transitionStage({
+        runId,
+        stageId: stage.id,
+        expectedCapabilityStatus: stage.capabilityStatus,
+        newCapabilityStatus: "AVAILABLE",
+        artifactRef,
+        reason,
+      });
+    }
+    await this.markStageJob(runId, stageType, "SUCCEEDED",
+      "engineering_run.stage_succeeded", { reason, artifactRef });
+  }
+
+  private async applyStageOutcome(
+    runId: string,
+    stageType: EngineeringStageType,
+    outcomeStatus: string,
+    reason: string,
+    artifactRef: string | null,
+  ): Promise<StageExecutionOutcome> {
+    const jobStatus =
+      outcomeStatus === "SUCCEEDED" ? "SUCCEEDED" :
+      outcomeStatus === "BLOCKED"   ? "BLOCKED"   :
+      "FAILED";
+    await this.markStageJob(runId, stageType, jobStatus,
+      "engineering_run.stage_" + jobStatus.toLowerCase(), { reason });
+    return { ok: true, runId, stageType,
+             status: (outcomeStatus as StageExecutionStatus),
+             reason, artifactRef };
+  }
+
+  private async markStageJob(
+    runId: string,
+    stageType: EngineeringStageType,
+    targetStatus: string,
+    eventType: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const jobId = runId + "__" + stageType;
+    const current = await this.deps.store.getJobAsync(jobId);
+    if (!current) return;
+    if (current.status === targetStatus) return;
+    if (JOB_TERMINAL.has(current.status) && targetStatus !== current.status) return;
+    try {
+      await this.deps.store.recoverJobAtomicAsync({
+        jobId,
+        expectedStatus: current.status,
+        newStatus: targetStatus,
+        expectedLeaseId: current.currentLeaseId ?? null,
+        patch: {},
+        event: { eventType, payload },
+      });
+    } catch {
+      /* durable stage row is authoritative; mirror job drift is observable */
+    }
+  }
+}

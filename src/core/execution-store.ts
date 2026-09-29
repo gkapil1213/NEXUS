@@ -4419,6 +4419,90 @@ export class ExecutionStore {
         );
     }
 
+    // Phase 218: async siblings for remote_dispatch persistence.
+    // In shared mode engineering-run jobs live in Postgres, so the
+    // SQLite-only sync path cannot satisfy the FK on remote_dispatches.job_id.
+    // DispatchService prefers these when hasAsyncBackend() is true.
+    async getRemoteDispatchAsync(dispatchId: string): Promise<RemoteDispatchRecord | undefined> {
+        const engine = this.requireAsyncDb();
+        const row = await engine.prepareAsync("SELECT * FROM remote_dispatches WHERE dispatch_id = ?").get<any>(dispatchId);
+        return row ? this.mapRemoteDispatch(row) : undefined;
+    }
+
+    async getRemoteDispatchByJobIdempotencyKeyAsync(key: string): Promise<RemoteDispatchRecord | undefined> {
+        const engine = this.requireAsyncDb();
+        const row = await engine.prepareAsync("SELECT * FROM remote_dispatches WHERE idempotency_key = ?").get<any>(key);
+        return row ? this.mapRemoteDispatch(row) : undefined;
+    }
+
+    private async addRemoteDispatchAsync(record: RemoteDispatchRecord): Promise<void> {
+        const engine = this.requireAsyncDb();
+        await engine.prepareAsync(
+            "INSERT INTO remote_dispatches (" +
+            "  dispatch_id, job_id, attempt_id, worker_id, lease_id," +
+            "  idempotency_key, status, external_provider_id, request," +
+            "  result, error, created_at, updated_at" +
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+            record.dispatchId,
+            record.jobId,
+            record.attemptId,
+            record.workerId,
+            record.leaseId,
+            record.idempotencyKey,
+            record.status,
+            record.externalProviderId,
+            record.request ? JSON.stringify(record.request) : null,
+            record.result ? JSON.stringify(record.result) : null,
+            record.error,
+            record.createdAt,
+            record.updatedAt
+        );
+    }
+
+    private async updateRemoteDispatchAsync(record: RemoteDispatchRecord): Promise<void> {
+        const engine = this.requireAsyncDb();
+        await engine.prepareAsync(
+            "UPDATE remote_dispatches SET " +
+            "  status = ?, external_provider_id = ?, result = ?, error = ?, updated_at = ? " +
+            "WHERE dispatch_id = ?"
+        ).run(
+            record.status,
+            record.externalProviderId,
+            record.result ? JSON.stringify(record.result) : null,
+            record.error,
+            record.updatedAt,
+            record.dispatchId
+        );
+    }
+
+    async createRemoteDispatchIfAbsentAsync(record: RemoteDispatchRecord): Promise<{ record: RemoteDispatchRecord; created: boolean }> {
+        try {
+            await this.addRemoteDispatchAsync(record);
+            return { record, created: true };
+        } catch (err: any) {
+            const isUnique =
+                err?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+                err?.code === "23505" ||
+                /UNIQUE constraint failed/i.test(err?.message ?? "") ||
+                /duplicate key/i.test(err?.message ?? "");
+            if (isUnique) {
+                const existing = await this.getRemoteDispatchByJobIdempotencyKeyAsync(record.idempotencyKey);
+                if (existing) return { record: existing, created: false };
+            }
+            throw err;
+        }
+    }
+
+    async upsertRemoteDispatchAsync(record: RemoteDispatchRecord): Promise<void> {
+        const existing = await this.getRemoteDispatchAsync(record.dispatchId);
+        if (existing) {
+            await this.updateRemoteDispatchAsync(record);
+        } else {
+            await this.addRemoteDispatchAsync(record);
+        }
+    }
+
     createRemoteDispatchIfAbsent(record: RemoteDispatchRecord): { record: RemoteDispatchRecord; created: boolean } {
         try {
             this.addRemoteDispatch(record);

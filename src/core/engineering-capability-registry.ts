@@ -54,6 +54,16 @@ export interface RuntimeProbe {
   hasNode(): boolean;
 }
 
+export interface StageExecutorWiring {
+  /**
+   * Stages whose real executor is wired in this runtime. Presence here means
+   * a production code path exists that dispatches the stage job to the
+   * corresponding orchestrator. It does NOT mean the external AI provider
+   * is configured; provider absence still yields BLOCKED at execution time.
+   */
+  readonly wiredStages: ReadonlySet<EngineeringStageType>;
+}
+
 export interface AIGatewayProbeConfig {
   gateway: AIProviderGateway;
   /** Provider id in the gateway used for PLANNING. */
@@ -68,6 +78,7 @@ export class EngineeringCapabilityRegistry {
   constructor(
     private readonly probe?: RuntimeProbe,
     private readonly aiProbe?: AIGatewayProbeConfig,
+    private readonly wiring?: StageExecutorWiring,
   ) {}
 
   staticBase(stageType: EngineeringStageType): CapabilityVerdict {
@@ -116,6 +127,14 @@ export class EngineeringCapabilityRegistry {
 
   evaluate(stageType: EngineeringStageType): CapabilityVerdict {
     const base = this.staticBase(stageType);
+    if (this.wiring?.wiredStages.has(stageType)) {
+      return {
+        stageType,
+        status: "AVAILABLE",
+        reason: "real engineering-stage executor wired (Phase 218)",
+        dependencies: base.dependencies,
+      };
+    }
     if (!this.probe) return base;
     // Runtime probes are conservative: they only downgrade, never upgrade
     // NOT_IMPLEMENTED. A build stage stays UNAVAILABLE unless a real executor

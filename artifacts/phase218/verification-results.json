@@ -1,0 +1,158 @@
+[
+  {
+    "testId": "218A",
+    "name": "executor construction",
+    "status": "PASS",
+    "note": "3 wired stages"
+  },
+  {
+    "testId": "218B",
+    "name": "registry reflects wiring",
+    "status": "PASS",
+    "note": "3 AVAILABLE, BUILD UNAVAILABLE, bare honest"
+  },
+  {
+    "testId": "218C",
+    "name": "PLANNING dispatch",
+    "status": "PASS",
+    "note": "submitRequest+runPlanning reached; BLOCKED"
+  },
+  {
+    "testId": "218D",
+    "name": "ARCHITECTURE dispatch",
+    "status": "PASS",
+    "note": "runArchitecture reached; BLOCKED"
+  },
+  {
+    "testId": "218E",
+    "name": "IMPLEMENTATION dispatch",
+    "status": "PASS",
+    "note": "runImplementation reached; BLOCKED"
+  },
+  {
+    "testId": "218F",
+    "name": "ARCH gated by PLAN",
+    "status": "PASS",
+    "note": "BLOCKED; orchestrator not invoked"
+  },
+  {
+    "testId": "218G",
+    "name": "IMPL gated by ARCH",
+    "status": "PASS",
+    "note": "BLOCKED; orchestrator not invoked"
+  },
+  {
+    "testId": "218H",
+    "name": "unknown stage rejected",
+    "status": "PASS",
+    "note": "4 malformed payloads rejected"
+  },
+  {
+    "testId": "218I",
+    "name": "run ownership",
+    "status": "PASS",
+    "note": "RUN_NOT_FOUND; orchestrator untouched"
+  },
+  {
+    "testId": "218J",
+    "name": "transitions durable",
+    "status": "PASS",
+    "note": "capability=AVAILABLE, artifactRef set, job=SUCCEEDED"
+  },
+  {
+    "testId": "218K",
+    "name": "events persisted",
+    "status": "PASS",
+    "note": "17 events"
+  },
+  {
+    "testId": "218L",
+    "name": "retry idempotency",
+    "status": "PASS",
+    "note": "second dispatch CAS-idempotent; 1 transition->AVAILABLE"
+  },
+  {
+    "testId": "218M",
+    "name": "provider absence",
+    "status": "PASS",
+    "note": "real orchestrator: BLOCKED; job=BLOCKED"
+  },
+  {
+    "testId": "218N",
+    "name": "failure -> FAIL",
+    "status": "PASS",
+    "note": "orchestrator FAILED -> job FAILED"
+  },
+  {
+    "testId": "218O",
+    "name": "no secrets",
+    "status": "PASS",
+    "note": "17 events scanned"
+  },
+  {
+    "testId": "218P",
+    "name": "DAG unchanged",
+    "status": "PASS",
+    "note": "9 stages intact"
+  },
+  {
+    "testId": "218Q",
+    "name": "DispatchService routes engineering.stage",
+    "status": "PASS",
+    "note": "executor=1 jd=0 rem=0 record.status=BLOCKED"
+  },
+  {
+    "testId": "218R",
+    "name": "non-engineering job skips executor",
+    "status": "PASS",
+    "note": "pipeline.stage → JobDispatcher=1; executor=0"
+  },
+  {
+    "testId": "218S",
+    "name": "engineering skips JobDispatcher+RemoteManager",
+    "status": "PASS",
+    "note": "executor invoked; both remote layers bypassed"
+  },
+  {
+    "testId": "218T",
+    "name": "collectResult returns persisted result",
+    "status": "PASS",
+    "note": "stable across calls; evidence.status=BLOCKED"
+  },
+  {
+    "testId": "218U",
+    "name": "retry idempotency via dispatch boundary",
+    "status": "PASS",
+    "note": "second dispatch returned same dispatchId; executor calls=1"
+  },
+  {
+    "testId": "218V",
+    "name": "BLOCKED preserved through production path",
+    "status": "PASS",
+    "note": "result.success=false evidence.status=BLOCKED record.status=BLOCKED"
+  },
+  {
+    "testId": "218W",
+    "name": "FAILED propagates through production path",
+    "status": "PASS",
+    "note": "result.success=false evidence.status=FAILED record.status=FAILED"
+  },
+  {
+    "testId": "218X",
+    "name": "run ownership rejected at dispatch boundary",
+    "status": "PASS",
+    "note": "success=false; evidence={\"status\":\"REJECTED\",\"reason\":\"RUN_NOT_FOUND\"}"
+  },
+  {
+    "testId": "218Y",
+    "name": "no secrets in dispatch evidence",
+    "status": "PASS",
+    "note": "record clean; 17 events scanned"
+  },
+  {
+    "testId": "218Z",
+    "name": "DAG unchanged through dispatch boundary",
+    "status": "PASS",
+    "note": "9 stages canonical; wired=3 (PLANNING/ARCHITECTURE/IMPLEMENTATION)"
+  }
+]

@@ -184,7 +184,7 @@ export interface RemoteDispatchRecord {
     workerId: string;
     leaseId: string;
     idempotencyKey: string;
-    status: "DISPATCH_INTENT" | "DISPATCHED" | "DELIVERED" | "COMPLETED" | "FAILED" | "CANCELLED" | "UNKNOWN";
+    status: "DISPATCH_INTENT" | "DISPATCHED" | "DELIVERED" | "COMPLETED" | "FAILED" | "BLOCKED" | "CANCELLED" | "UNKNOWN";
     externalProviderId?: string;
     request?: ExecutionAdapterRequest;
     result?: ExecutionAdapterResult;
