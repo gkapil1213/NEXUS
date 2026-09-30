@@ -1,0 +1,8 @@
+﻿{
+  "phase": 225,
+  "environment": {
+    "NEXUS_PERSISTENCE_MODE": "shared",
+    "DATABASE_URL": "postgres://postgres:postgres@localhost:55432/nexus"
+  },
+  "totals": { "pass": 23, "fail": 0, "blocked": 2, "notExecuted": 0 }
+}

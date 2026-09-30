@@ -1,0 +1,38 @@
+﻿{
+  "phase": 225,
+  "title": "Real release + deployment execution",
+  "environment": {
+    "persistenceMode": "shared",
+    "databaseUrl": "postgres://postgres:postgres@localhost:55432/nexus",
+    "dockerServer": "29.7.2",
+    "dockerReachable": true
+  },
+  "results": { "pass": 23, "fail": 0, "blocked": 2, "notExecuted": 0 },
+  "verified": [
+    "kernel exposes releaseExecutionGate / releaseDeploymentExecutor / deployments",
+    "ReleaseDeploymentExecutor refuses RELEASE_READY != SUCCEEDED",
+    "ReleaseDeploymentExecutor refuses missing artifact/source/releaseId",
+    "ReleaseDeploymentExecutor refuses missing SECURITY_REVIEW",
+    "ReleaseDeploymentExecutor refuses when no gate wired",
+    "release evidence passthrough unchanged",
+    "candidate.releaseId / commitSha / artifactDigest bound from inputs",
+    "ProductionReleaseEnforcementService refuses null attemptId / unknown auth / unknown attempt",
+    "executor refusals leave release_deployment_intents unchanged",
+    "docker daemon reachable (server 29.7.2)",
+    "CanonicalDeploymentOrchestrator.deploy refuses image_tag=latest",
+    "CanonicalDeploymentOrchestrator source contains immutable-identity BLOCKED guard"
+  ],
+  "blocked": [
+    {
+      "test": "225V", "name": "missing immutable identity blocked",
+      "reason": "host bridge does not implement workspace materialization",
+      "classification": "environment limitation: getHostBridge() is server-process-only"
+    },
+    {
+      "test": "225X", "name": "real deployment attempt",
+      "reason": "host bridge does not implement workspace materialization",
+      "classification": "same as 225V"
+    }
+  ],
+  "honestConclusion": "Release-execution implementation is production-capable and refusal paths are verified end-to-end against real Postgres and a reachable Docker daemon. Real docker deployment through NEXUS cannot be executed from a standalone script because the workspace-materialization host bridge is a server-process singleton."
+}

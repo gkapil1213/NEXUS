@@ -88,6 +88,7 @@ import { SecurityReleaseGate } from "./security-release-gate";
 import { ProductionReleaseDecisionService } from "./production-release-decision";
 import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
 import { ReleaseExecutionGate } from "./release-execution-gate";
+import { ReleaseDeploymentExecutor } from "./release-deployment-executor";
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 import type { CicdReconciliationService } from "./cicd-reconciliation.service";
@@ -145,6 +146,12 @@ export interface KernelServices {
   // Consumes ProductionReleaseEnforcementService with a ReleaseDeploymentBridge
   // provider; enforcement BLOCKED/FAIL prevents Docker run.
   releaseEnforcement: ProductionReleaseEnforcementService;
+  // Phase 225: outer release execution gate (Phase 210 safety +
+  // durable intent/lease + Phase 138 enforcement). Undefined when no
+  // durable intent store is available; callers must fail closed.
+  releaseExecutionGate: ReleaseExecutionGate | undefined;
+  // Phase 225: translation layer from RELEASE_READY evidence to the gate.
+  releaseDeploymentExecutor: ReleaseDeploymentExecutor | undefined;
   // Phase 131: durable execution identity + release intents for the
   // engineering execution path. Both are undefined when the sqlite
   // engine is unavailable; callers must handle that honestly.
@@ -773,6 +780,10 @@ const memberships = new ProjectMembershipStore(rawDb);
           })
         : undefined;
 
+      // Phase 225: thin adapter; no logic of its own beyond translating
+      // RELEASE_READY evidence into the gate's ReleaseExecutionInput contract.
+      const releaseDeploymentExecutor = new ReleaseDeploymentExecutor(releaseExecutionGate);
+
       // Phase 104: durable release recovery. Runs once at boot, only when
       // the SQLite ExecutionStore exists. When it does not, recovery state
       // cannot exist either - skip cleanly rather than invent one.
@@ -857,7 +868,9 @@ const memberships = new ProjectMembershipStore(rawDb);
         cicd,
         runtime,
         deployments,
-        releaseEnforcement,
+        releaseEnforcement,
+        releaseExecutionGate,
+        releaseDeploymentExecutor,
         // Phase 131: exposed for the engineering execution path.
         executionStore: this.executionStore,
         releaseIntents,
