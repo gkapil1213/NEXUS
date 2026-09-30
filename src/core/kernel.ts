@@ -868,7 +868,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         cicd,
         runtime,
         deployments,
-        releaseEnforcement,
+        releaseEnforcement,
         releaseExecutionGate,
         releaseDeploymentExecutor,
         // Phase 131: exposed for the engineering execution path.
