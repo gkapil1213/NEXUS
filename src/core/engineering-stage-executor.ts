@@ -13,6 +13,7 @@ import type { EngineeringBuildExecutor } from "./engineering-build-executor";
 import type { EngineeringTestExecutor } from "./engineering-test-executor";
 import type { EngineeringDiagnosisExecutor } from "./engineering-diagnosis-executor";
 import type { EngineeringRepairExecutor } from "./engineering-repair-executor";
+import type { EngineeringSecurityReviewExecutor } from "./engineering-security-review-executor";
 import type { WorkspaceActor } from "./workspace";
 import {
   CANONICAL_ENGINEERING_DAG,
@@ -41,6 +42,7 @@ export interface EngineeringStageExecutorDeps {
   testExecutor?: EngineeringTestExecutor;
   diagnosisExecutor?: EngineeringDiagnosisExecutor;
   repairExecutor?: EngineeringRepairExecutor;
+  securityReviewExecutor?: EngineeringSecurityReviewExecutor;
   workspaceResolver?: (runId: string) => Promise<WorkspaceResolution | null>;
 }
 
@@ -63,6 +65,7 @@ const WIRED_STAGES: ReadonlySet<EngineeringStageType> = new Set([
   "TEST",
   "DIAGNOSIS",
   "REPAIR",
+  "SECURITY_REVIEW",
 ]);
 
 const JOB_TERMINAL = new Set<string>([
@@ -115,6 +118,7 @@ export class EngineeringStageExecutor {
       case "TEST":           return this.executeTest(runId);
       case "DIAGNOSIS":     return this.executeDiagnosis(runId);
       case "REPAIR":        return this.executeRepair(runId);
+      case "SECURITY_REVIEW": return this.executeSecurityReview(runId);
       default:
         return { ok: true, runId, stageType, status: "BLOCKED",
                  reason: "STAGE_NOT_WIRED", artifactRef: null };
@@ -369,6 +373,42 @@ export class EngineeringStageExecutor {
                reason: outcome.reason, artifactRef: outcome.artifactRef };
     }
     return this.applyStageOutcome(runId, "REPAIR", outcome.status, outcome.reason, outcome.artifactRef);
+  }
+
+  private async executeSecurityReview(runId: string): Promise<StageExecutionOutcome> {
+    if (!this.deps.securityReviewExecutor) {
+      return this.applyStageOutcome(runId, "SECURITY_REVIEW", "BLOCKED",
+        "SECURITY_REVIEW_EXECUTOR_NOT_CONFIGURED", null);
+    }
+    const run = await this.deps.runService.getEngineeringRun(runId);
+    if (!run) return this.applyStageOutcome(runId, "SECURITY_REVIEW", "FAILED", "RUN_NOT_FOUND", null);
+
+    if (!this.deps.workspaceResolver) {
+      return this.applyStageOutcome(runId, "SECURITY_REVIEW", "BLOCKED",
+        "WORKSPACE_RESOLVER_NOT_CONFIGURED", null);
+    }
+    const ws = await this.deps.workspaceResolver(runId);
+    if (!ws) {
+      return this.applyStageOutcome(runId, "SECURITY_REVIEW", "BLOCKED",
+        "WORKSPACE_NOT_BOUND_TO_RUN", null);
+    }
+
+    let outcome;
+    try {
+      outcome = await this.deps.securityReviewExecutor.runSecurityReview({
+        runId, workspaceId: ws.workspaceId, actor: ws.actor,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return this.applyStageOutcome(runId, "SECURITY_REVIEW", "FAILED", "SECURITY_REVIEW_EXECUTOR_THREW:" + msg, null);
+    }
+
+    if (outcome.status === "SUCCEEDED") {
+      await this.applyStageCompletion(runId, "SECURITY_REVIEW", outcome.artifactRef, "security review passed");
+      return { ok: true, runId, stageType: "SECURITY_REVIEW", status: "SUCCEEDED",
+               reason: outcome.reason, artifactRef: outcome.artifactRef };
+    }
+    return this.applyStageOutcome(runId, "SECURITY_REVIEW", outcome.status, outcome.reason, outcome.artifactRef);
   }
 
     private async applyStageCompletion(

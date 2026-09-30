@@ -169,6 +169,18 @@ export const PHASE_222: Manifest = {
   ],
 };
 
+export const PHASE_223: Manifest = {
+  phase: 223,
+  suite: "engineering-security-review-stage-execution",
+  testScript: "scripts/test-phase223-security-review-stage-execution.ts",
+  requiredTestIds: [
+    "223A","223B","223C","223D","223E","223F","223G","223H","223I","223J",
+    "223K","223L","223M","223N","223O","223P","223Q","223R","223S","223T",
+    "223U","223V","223W","223X","223Y","223Z","223AA","223AB","223AC","223AD",
+    "223AE",
+  ],
+};
+
 export const MANIFESTS: Record<number, Manifest> = {
   207: PHASE_207,
   208: PHASE_208,
@@ -186,6 +198,7 @@ export const MANIFESTS: Record<number, Manifest> = {
   220: PHASE_220,
   221: PHASE_221,
   222: PHASE_222,
+  223: PHASE_223,
 };
 
 export function getManifest(phase: number): Manifest {
