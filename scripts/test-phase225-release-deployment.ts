@@ -1,10 +1,13 @@
 // scripts/test-phase225-release-deployment.ts
-// Phase 225 — Real release + deployment execution.
+// Phase 225 - Real release + deployment execution.
 // Batch 1: 225A-225F structural refusals.
 // Batch 2: 225G-225J, 225W, 225AB, 225AC gate contract + security bypass.
 
 import { NexusKernel } from "../src/core/kernel";
 import { execSync } from "child_process";
+import os from "node:os";
+import path from "node:path";
+import { createNodeBridge } from "./host-bridge-node";
 import { ReleaseDeploymentExecutor } from "../src/core/release-deployment-executor";
 import type { EngineeringReleaseReadyOutcome, StageCheck } from "../src/core/engineering-release-ready-executor";
 
@@ -81,6 +84,13 @@ function req(overrides: Partial<EngineeringReleaseReadyOutcome> = {}, gate: any 
 }
 
 async function main() {
+
+  // Install a Node-side HostBridge before any kernel boot so the runtime
+  // binder can materialize a workspace during deployment. Same contract
+  // the browser host satisfies via window.__NEXUS_HOST__.
+  const bridgeRoot = path.join(os.tmpdir(), "nexus-phase225-" + Date.now());
+  const nodeBridge = createNodeBridge(bridgeRoot);
+  (globalThis as any).window = { __NEXUS_HOST__: nodeBridge };
   // 225A
   try {
     const ex = new ReleaseDeploymentExecutor(undefined);
@@ -234,7 +244,7 @@ async function main() {
   } catch (e) { rec("225AC", "deployment-to-source binding", "FAIL", String(e)); }
 
 
-  // 225M: provider discovery — confirm the kernel wires a real deployment
+  // 225M: provider discovery - confirm the kernel wires a real deployment
   // path. A real orchestrator is always constructed; whether docker is
   // reachable is environment-specific.
   try {
@@ -289,7 +299,7 @@ async function main() {
         `status=${r.status} gateOutcome=${r.outcome?.status} blockReason=${r.blockReason}`);
   } catch (e) { rec("225O", "gate BLOCKED propagates", "FAIL", String(e)); }
 
-  // 225P: real enforcement service — attemptId=null → BLOCKED (real code path)
+  // 225P: real enforcement service - attemptId=null -> BLOCKED (real code path)
   try {
     const k = new NexusKernel();
     const svc: any = await k.boot();
@@ -303,7 +313,7 @@ async function main() {
         `status=BLOCKED msg="${String(r.message).slice(0, 60)}..."`);
   } catch (e) { rec("225P", "real enforcement attemptId=null", "FAIL", String(e)); }
 
-  // 225Q: real enforcement service — authorizeExecution unknown auth → BLOCKED
+  // 225Q: real enforcement service - authorizeExecution unknown auth -> BLOCKED
   try {
     const k = new NexusKernel();
     const svc: any = await k.boot();
@@ -317,7 +327,7 @@ async function main() {
         `reasons=${r.reasons.join("|")}`);
   } catch (e) { rec("225Q", "real enforcement unknown auth", "FAIL", String(e)); }
 
-  // 225R: real enforcement service — executeRelease unknown attempt → BLOCKED
+  // 225R: real enforcement service Ã¢â‚¬â€ executeRelease unknown attempt Ã¢â€ â€™ BLOCKED
   try {
     const k = new NexusKernel();
     const svc: any = await k.boot();
@@ -381,7 +391,7 @@ async function main() {
         project_id: "phase225-proj", environment: "test", release_id: "rel-225-U",
         image_repository: "postgres", image_tag: "latest",
         image_id: null, image_digest: null,
-        container_name: "nexus-225U-latest", container_port: 5432,
+        container_name: "nexus-225U-latest", container_port: 8080,
         attempt_id: "attempt-225-U",
       });
       rec("225U-tag", ":latest refused by orchestrator", "FAIL", "did not throw");
@@ -399,9 +409,9 @@ async function main() {
     try {
       const out = await svcReal.deployments.deploy({
         project_id: "phase225-proj", environment: "test", release_id: "rel-225-V",
-        image_repository: "postgres", image_tag: "16",
+        image_repository: "nexus-app", image_tag: "version-a",
         image_id: null, image_digest: null,
-        container_name: "nexus-225V-noident", container_port: 5432,
+        container_name: "nexus-225V-noident", container_port: 8080,
         attempt_id: "attempt-225-V",
       });
       const status = out?.deployment?.status;
@@ -430,20 +440,20 @@ async function main() {
   if (svcReal?.deployments) {
     let imageId: string | null = null;
     try {
-      imageId = execSync("docker inspect postgres:16 --format {{.Id}}", {
+      imageId = execSync("docker inspect nexus-app:version-a --format {{.Id}}", {
         encoding: "utf8", timeout: 10_000,
       }).trim();
     } catch { /* image unavailable */ }
 
     if (!imageId) {
-      rec("225X", "real deployment attempt", "BLOCKED", "postgres:16 not present");
+      rec("225X", "real deployment attempt", "BLOCKED", "nexus-app:version-a not present");
     } else {
       try {
         const out = await svcReal.deployments.deploy({
           project_id: "phase225-proj", environment: "test", release_id: "rel-225-X",
-          image_repository: "postgres", image_tag: "16",
+          image_repository: "nexus-app", image_tag: "version-a",
           image_id: imageId, image_digest: null,
-          container_name: "nexus-225X-real", container_port: 5432,
+          container_name: "nexus-225X-real", container_port: 8080,
           attempt_id: "attempt-225-X",
         });
         const status = out?.deployment?.status;
@@ -452,7 +462,7 @@ async function main() {
         // Prove real Docker state independent of the orchestrator's return.
         let dockerSeen = "unknown";
         try {
-          const ps = execSync("docker ps -a --filter name=nexus-225X-real --format {{.ID}} {{.Status}}",
+          const ps = execSync('docker ps -a --filter "name=nexus-225X-real" --format "{{.ID}} {{.Status}}"',
             { encoding: "utf8", timeout: 10_000 }).trim();
           dockerSeen = ps || "no-container";
         } catch { dockerSeen = "ps-failed"; }
