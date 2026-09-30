@@ -1,0 +1,158 @@
+[
+  {
+    "testId": "222A",
+    "name": "repair executor construction",
+    "status": "PASS",
+    "note": "EngineeringRepairExecutor instantiated"
+  },
+  {
+    "testId": "222B",
+    "name": "registry reflects REPAIR wiring",
+    "status": "PASS",
+    "note": "REPAIR=AVAILABLE"
+  },
+  {
+    "testId": "222C",
+    "name": "DAG contains REPAIR",
+    "status": "PASS",
+    "note": "ordinal 6 between DIAGNOSIS and SECURITY_REVIEW"
+  },
+  {
+    "testId": "222D",
+    "name": "REPAIR blocked if DIAGNOSIS missing",
+    "status": "PASS",
+    "note": "reason=DIAGNOSIS_NOT_AVAILABLE:FAILED"
+  },
+  {
+    "testId": "222E",
+    "name": "REPAIR blocked if DIAGNOSIS blocked",
+    "status": "PASS",
+    "note": "reason=DIAGNOSIS_NOT_AVAILABLE:BLOCKED"
+  },
+  {
+    "testId": "222F",
+    "name": "REPAIR blocked if no directive",
+    "status": "PASS",
+    "note": "reason=REPAIR_NOT_IMPLEMENTABLE_FOR_TARGET:UNKNOWN"
+  },
+  {
+    "testId": "222G",
+    "name": "valid diagnosis reaches executor",
+    "status": "PASS",
+    "note": "status=SUCCEEDED"
+  },
+  {
+    "testId": "222H",
+    "name": "repair target detected",
+    "status": "PASS",
+    "note": "SOURCE_FILE / WRITE_FILE"
+  },
+  {
+    "testId": "222I",
+    "name": "workspace mutation occurs",
+    "status": "PASS",
+    "note": "src/x.ts rewritten"
+  },
+  {
+    "testId": "222J",
+    "name": "before/after evidence",
+    "status": "PASS",
+    "note": "before!=after, all hashes 64-hex"
+  },
+  {
+    "testId": "222K",
+    "name": "artifact persisted",
+    "status": "PASS",
+    "note": "artifactRef=artifact://art-repair-rep-1790744189231-meu5iv"
+  },
+  {
+    "testId": "222L",
+    "name": "validation executes",
+    "status": "PASS",
+    "note": "command executed, exit=0"
+  },
+  {
+    "testId": "222M",
+    "name": "successful repair",
+    "status": "PASS",
+    "note": "SUCCEEDED with changed=true"
+  },
+  {
+    "testId": "222N",
+    "name": "validation failure",
+    "status": "PASS",
+    "note": "status=FAILED validation=FAIL"
+  },
+  {
+    "testId": "222O",
+    "name": "no-op repair honest",
+    "status": "PASS",
+    "note": "ALREADY_CORRECT, changed=false"
+  },
+  {
+    "testId": "222P",
+    "name": "idempotent repair",
+    "status": "PASS",
+    "note": "1st changed, 2nd ALREADY_CORRECT"
+  },
+  {
+    "testId": "222Q",
+    "name": "stale CAS cannot overwrite",
+    "status": "PASS",
+    "note": "terminal preserved"
+  },
+  {
+    "testId": "222R",
+    "name": "retry bounded",
+    "status": "PASS",
+    "note": "repeated BLOCKED is stable"
+  },
+  {
+    "testId": "222S",
+    "name": "events persist",
+    "status": "PASS",
+    "note": "31 engineering_repair events"
+  },
+  {
+    "testId": "222T",
+    "name": "no secrets",
+    "status": "PASS",
+    "note": "31 events scanned"
+  },
+  {
+    "testId": "222U",
+    "name": "path traversal rejected",
+    "status": "PASS",
+    "note": "reason=UNSAFE_REPAIR_PATH:path traversal is not permitted"
+  },
+  {
+    "testId": "222V",
+    "name": "unauthorized mutation rejected",
+    "status": "PASS",
+    "note": "BLOCKED without directive"
+  },
+  {
+    "testId": "222W",
+    "name": "stage executor routes REPAIR",
+    "status": "PASS",
+    "note": "routed DIAGNOSIS->REPAIR"
+  },
+  {
+    "testId": "222X",
+    "name": "non-eng isolation",
+    "status": "PASS",
+    "note": "engineering-only wiring"
+  },
+  {
+    "testId": "222Y",
+    "name": "Phase 221 regression",
+    "status": "PASS",
+    "note": "DIAGNOSIS still wired"
+  },
+  {
+    "testId": "222Z",
+    "name": "Phase 220 regression",
+    "status": "PASS",
+    "note": "TEST+BUILD still wired"
+  }
+]

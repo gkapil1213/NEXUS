@@ -12,6 +12,7 @@ import type { EngineeringImplementationOrchestrator } from "./engineering-implem
 import type { EngineeringBuildExecutor } from "./engineering-build-executor";
 import type { EngineeringTestExecutor } from "./engineering-test-executor";
 import type { EngineeringDiagnosisExecutor } from "./engineering-diagnosis-executor";
+import type { EngineeringRepairExecutor } from "./engineering-repair-executor";
 import type { WorkspaceActor } from "./workspace";
 import {
   CANONICAL_ENGINEERING_DAG,
@@ -39,6 +40,7 @@ export interface EngineeringStageExecutorDeps {
   buildExecutor?: EngineeringBuildExecutor;
   testExecutor?: EngineeringTestExecutor;
   diagnosisExecutor?: EngineeringDiagnosisExecutor;
+  repairExecutor?: EngineeringRepairExecutor;
   workspaceResolver?: (runId: string) => Promise<WorkspaceResolution | null>;
 }
 
@@ -60,6 +62,7 @@ const WIRED_STAGES: ReadonlySet<EngineeringStageType> = new Set([
   "BUILD",
   "TEST",
   "DIAGNOSIS",
+  "REPAIR",
 ]);
 
 const JOB_TERMINAL = new Set<string>([
@@ -111,6 +114,7 @@ export class EngineeringStageExecutor {
       case "BUILD":          return this.executeBuild(runId);
       case "TEST":           return this.executeTest(runId);
       case "DIAGNOSIS":     return this.executeDiagnosis(runId);
+      case "REPAIR":        return this.executeRepair(runId);
       default:
         return { ok: true, runId, stageType, status: "BLOCKED",
                  reason: "STAGE_NOT_WIRED", artifactRef: null };
@@ -329,6 +333,42 @@ export class EngineeringStageExecutor {
                reason: outcome.reason, artifactRef: outcome.artifactRef };
     }
     return this.applyStageOutcome(runId, "DIAGNOSIS", outcome.status, outcome.reason, outcome.artifactRef);
+  }
+
+  private async executeRepair(runId: string): Promise<StageExecutionOutcome> {
+    if (!this.deps.repairExecutor) {
+      return this.applyStageOutcome(runId, "REPAIR", "BLOCKED",
+        "REPAIR_EXECUTOR_NOT_CONFIGURED", null);
+    }
+    const run = await this.deps.runService.getEngineeringRun(runId);
+    if (!run) return this.applyStageOutcome(runId, "REPAIR", "FAILED", "RUN_NOT_FOUND", null);
+
+    if (!this.deps.workspaceResolver) {
+      return this.applyStageOutcome(runId, "REPAIR", "BLOCKED",
+        "WORKSPACE_RESOLVER_NOT_CONFIGURED", null);
+    }
+    const ws = await this.deps.workspaceResolver(runId);
+    if (!ws) {
+      return this.applyStageOutcome(runId, "REPAIR", "BLOCKED",
+        "WORKSPACE_NOT_BOUND_TO_RUN", null);
+    }
+
+    let outcome;
+    try {
+      outcome = await this.deps.repairExecutor.runRepair({
+        runId, workspaceId: ws.workspaceId, actor: ws.actor,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return this.applyStageOutcome(runId, "REPAIR", "FAILED", "REPAIR_EXECUTOR_THREW:" + msg, null);
+    }
+
+    if (outcome.status === "SUCCEEDED") {
+      await this.applyStageCompletion(runId, "REPAIR", outcome.artifactRef, "repair succeeded");
+      return { ok: true, runId, stageType: "REPAIR", status: "SUCCEEDED",
+               reason: outcome.reason, artifactRef: outcome.artifactRef };
+    }
+    return this.applyStageOutcome(runId, "REPAIR", outcome.status, outcome.reason, outcome.artifactRef);
   }
 
     private async applyStageCompletion(

@@ -38,6 +38,7 @@ import { EngineeringImplementationOrchestrator } from "./engineering-implementat
 import { EngineeringBuildExecutor } from "./engineering-build-executor";
 import { EngineeringTestExecutor } from "./engineering-test-executor";
 import { EngineeringDiagnosisExecutor } from "./engineering-diagnosis-executor";
+import { EngineeringRepairExecutor } from "./engineering-repair-executor";
 import { EngineeringStageExecutor } from "./engineering-stage-executor";
 import { EngineeringCapabilityRegistry } from "./engineering-capability-registry";
 import { createRuntimeCommandExecutor } from "./runtime-command-adapter";
@@ -599,6 +600,27 @@ const memberships = new ProjectMembershipStore(rawDb);
             store: engStore,
             artifacts: engArtifacts,
           });
+          const engRepair = new EngineeringRepairExecutor({
+            dbUrl: engDbUrl,
+            store: engStore,
+            artifacts: engArtifacts,
+            workspaces,
+            commandExecutor: createRuntimeCommandExecutor(runtime.executor),
+            readArtifact: async (artifactId: string) => {
+              try {
+                const anyArtifacts = engArtifacts as any;
+                if (typeof anyArtifacts.getArtifactAsync === "function") {
+                  const rec = await anyArtifacts.getArtifactAsync(artifactId);
+                  return rec?.content ?? null;
+                }
+                if (typeof anyArtifacts.getArtifact === "function") {
+                  const rec = anyArtifacts.getArtifact(artifactId);
+                  return rec?.content ?? null;
+                }
+                return null;
+              } catch { return null; }
+            },
+          });
           const engSystemActor = { id: "kernel-engineering-system", kind: "system" } as any;
           const engStageExec = new EngineeringStageExecutor({
             store: engStore,
@@ -608,6 +630,7 @@ const memberships = new ProjectMembershipStore(rawDb);
             buildExecutor: engBuild,
             testExecutor: engTest,
             diagnosisExecutor: engDiagnosis,
+            repairExecutor: engRepair,
             workspaceResolver: async (runId: string) => {
               const spec = await engImplementation.getLatestImplementationSpec(runId);
               if (spec && spec.workspaceId) {

@@ -158,6 +158,17 @@ export const PHASE_221: Manifest = {
   ],
 };
 
+export const PHASE_222: Manifest = {
+  phase: 222,
+  suite: "engineering-repair-stage-execution",
+  testScript: "scripts/test-phase222-repair-stage-execution.ts",
+  requiredTestIds: [
+    "222A","222B","222C","222D","222E","222F","222G","222H","222I","222J",
+    "222K","222L","222M","222N","222O","222P","222Q","222R","222S","222T",
+    "222U","222V","222W","222X","222Y","222Z",
+  ],
+};
+
 export const MANIFESTS: Record<number, Manifest> = {
   207: PHASE_207,
   208: PHASE_208,
@@ -174,6 +185,7 @@ export const MANIFESTS: Record<number, Manifest> = {
   219: PHASE_219,
   220: PHASE_220,
   221: PHASE_221,
+  222: PHASE_222,
 };
 
 export function getManifest(phase: number): Manifest {
