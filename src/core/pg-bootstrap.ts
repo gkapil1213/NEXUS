@@ -551,5 +551,35 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_release_attestations_commit
         ON release_attestations(commit_sha)
     `);
+    // Phase 218: dispatch boundary persistence.
+    // Mirrors src/db/migrations/172_phase218_remote_dispatches_shared.sql.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS remote_dispatches (
+        dispatch_id           TEXT PRIMARY KEY,
+        job_id                TEXT NOT NULL,
+        worker_id             TEXT NOT NULL,
+        attempt_id            TEXT,
+        lease_id              TEXT,
+        status                TEXT NOT NULL,
+        created_at            BIGINT NOT NULL,
+        dispatched_at         BIGINT,
+        completed_at          BIGINT,
+        error                 TEXT,
+        idempotency_key       TEXT UNIQUE NOT NULL,
+        external_provider_id  TEXT,
+        request               TEXT,
+        result                TEXT,
+        updated_at            BIGINT,
+        FOREIGN KEY (job_id) REFERENCES execution_jobs(id)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_remote_dispatches_job
+        ON remote_dispatches (job_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_remote_dispatches_status
+        ON remote_dispatches (status)
+    `);
   });
 }

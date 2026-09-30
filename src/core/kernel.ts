@@ -87,6 +87,7 @@ import { ProjectMembershipService } from "./project-membership-service";
 import { SecurityReleaseGate } from "./security-release-gate";
 import { ProductionReleaseDecisionService } from "./production-release-decision";
 import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
+import { ReleaseExecutionGate } from "./release-execution-gate";
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 import type { CicdReconciliationService } from "./cicd-reconciliation.service";
@@ -751,6 +752,26 @@ const memberships = new ProjectMembershipStore(rawDb);
         this.executionStore,
         engine,
       );
+
+      // Phase 211: outer release execution gate.
+      // Wraps the enforcement service and adds: Phase 210 evidence-backed
+      // safety evaluation, durable Phase 103 intent creation, and a
+      // distributed lease + fenced DEPLOYING transition so only one caller
+      // can execute a given release. Fail-closed. When the durable intent
+      // store is unavailable, the gate is undefined and callers that already
+      // hold a direct reference to releaseEnforcement keep working; new
+      // callers should route through releaseExecutionGate.
+      const releaseExecutionGate = releaseIntents
+        ? new ReleaseExecutionGate({
+            intents: releaseIntents,
+            enforcement: releaseEnforcement,
+            workerId:
+              "kernel-" +
+              Date.now().toString(36) +
+              "-" +
+              Math.random().toString(36).slice(2, 8),
+          })
+        : undefined;
 
       // Phase 104: durable release recovery. Runs once at boot, only when
       // the SQLite ExecutionStore exists. When it does not, recovery state
