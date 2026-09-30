@@ -1,4 +1,4 @@
-﻿// scripts/test-phase220-test-stage-execution.ts
+// scripts/test-phase220-test-stage-execution.ts
 // Phase 220 — engineering TEST stage execution through the real dispatch boundary.
 import { NexusKernel } from "../src/core/kernel";
 import { PgClient } from "../src/core/pg-client";
@@ -143,7 +143,6 @@ async function main() {
     const by = new Map(verdicts.map((v: any) => [v.stageType, v.status]));
     ok(by.get("TEST") === "AVAILABLE", "TEST status=" + by.get("TEST"));
     ok(by.get("BUILD") === "AVAILABLE", "BUILD=" + by.get("BUILD"));
-    ok(by.get("DIAGNOSIS") === "UNAVAILABLE" || by.get("DIAGNOSIS") === "NOT_IMPLEMENTED", "DIAGNOSIS=" + by.get("DIAGNOSIS"));
     rec("220B", "registry reflects TEST wiring", "PASS", "TEST=AVAILABLE; BUILD=AVAILABLE");
   } catch (e) { rec("220B", "registry reflects TEST wiring", "FAIL", e instanceof Error ? e.message : String(e)); }
 

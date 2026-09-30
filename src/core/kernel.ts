@@ -37,6 +37,7 @@ import { EngineeringPlanningOrchestrator } from "./engineering-planning-orchestr
 import { EngineeringImplementationOrchestrator } from "./engineering-implementation-orchestrator";
 import { EngineeringBuildExecutor } from "./engineering-build-executor";
 import { EngineeringTestExecutor } from "./engineering-test-executor";
+import { EngineeringDiagnosisExecutor } from "./engineering-diagnosis-executor";
 import { EngineeringStageExecutor } from "./engineering-stage-executor";
 import { EngineeringCapabilityRegistry } from "./engineering-capability-registry";
 import { createRuntimeCommandExecutor } from "./runtime-command-adapter";
@@ -593,6 +594,11 @@ const memberships = new ProjectMembershipStore(rawDb);
             bridge: getHostBridge(),
             commandExecutor: createRuntimeCommandExecutor(runtime.executor),
           });
+          const engDiagnosis = new EngineeringDiagnosisExecutor({
+            dbUrl: engDbUrl,
+            store: engStore,
+            artifacts: engArtifacts,
+          });
           const engSystemActor = { id: "kernel-engineering-system", kind: "system" } as any;
           const engStageExec = new EngineeringStageExecutor({
             store: engStore,
@@ -601,6 +607,7 @@ const memberships = new ProjectMembershipStore(rawDb);
             implementation: engImplementation,
             buildExecutor: engBuild,
             testExecutor: engTest,
+            diagnosisExecutor: engDiagnosis,
             workspaceResolver: async (runId: string) => {
               const spec = await engImplementation.getLatestImplementationSpec(runId);
               if (spec && spec.workspaceId) {

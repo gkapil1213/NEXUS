@@ -11,6 +11,7 @@ import type { EngineeringPlanningOrchestrator } from "./engineering-planning-orc
 import type { EngineeringImplementationOrchestrator } from "./engineering-implementation-orchestrator";
 import type { EngineeringBuildExecutor } from "./engineering-build-executor";
 import type { EngineeringTestExecutor } from "./engineering-test-executor";
+import type { EngineeringDiagnosisExecutor } from "./engineering-diagnosis-executor";
 import type { WorkspaceActor } from "./workspace";
 import {
   CANONICAL_ENGINEERING_DAG,
@@ -37,6 +38,7 @@ export interface EngineeringStageExecutorDeps {
   implementation: EngineeringImplementationOrchestrator;
   buildExecutor?: EngineeringBuildExecutor;
   testExecutor?: EngineeringTestExecutor;
+  diagnosisExecutor?: EngineeringDiagnosisExecutor;
   workspaceResolver?: (runId: string) => Promise<WorkspaceResolution | null>;
 }
 
@@ -57,6 +59,7 @@ const WIRED_STAGES: ReadonlySet<EngineeringStageType> = new Set([
   "IMPLEMENTATION",
   "BUILD",
   "TEST",
+  "DIAGNOSIS",
 ]);
 
 const JOB_TERMINAL = new Set<string>([
@@ -107,6 +110,7 @@ export class EngineeringStageExecutor {
       case "IMPLEMENTATION": return this.executeImplementation(runId);
       case "BUILD":          return this.executeBuild(runId);
       case "TEST":           return this.executeTest(runId);
+      case "DIAGNOSIS":     return this.executeDiagnosis(runId);
       default:
         return { ok: true, runId, stageType, status: "BLOCKED",
                  reason: "STAGE_NOT_WIRED", artifactRef: null };
@@ -130,6 +134,20 @@ export class EngineeringStageExecutor {
     runId: string,
     stageType: EngineeringStageType,
   ): Promise<{ ok: true } | { ok: false; reason: string }> {
+    // Phase 221: DIAGNOSIS analyzes prior-stage terminal outcomes —
+    // including FAILED — so the SUCCEEDED-only gate does not apply.
+    // The diagnosis executor itself enforces evidence sufficiency and
+    // returns BLOCKED when the prior stages are not yet diagnosable.
+    if (stageType === "DIAGNOSIS") {
+      const spec = CANONICAL_ENGINEERING_DAG.find((s) => s.stageType === stageType);
+      if (!spec) return { ok: false, reason: "UNKNOWN_STAGE" };
+      for (const upstream of spec.dependsOn) {
+        const j = await this.deps.store.getJobAsync(runId + "__" + upstream);
+        if (!j) return { ok: false, reason: "UPSTREAM_JOB_MISSING:" + upstream };
+      }
+      return { ok: true };
+    }
+
     const spec = CANONICAL_ENGINEERING_DAG.find((s) => s.stageType === stageType);
     if (!spec) return { ok: false, reason: "UNKNOWN_STAGE" };
     for (const upstream of spec.dependsOn) {
@@ -284,6 +302,33 @@ export class EngineeringStageExecutor {
                reason: outcome.reason, artifactRef: outcome.artifactRef };
     }
     return this.applyStageOutcome(runId, "TEST", outcome.status, outcome.reason, outcome.artifactRef);
+  }
+
+  private async executeDiagnosis(runId: string): Promise<StageExecutionOutcome> {
+    if (!this.deps.diagnosisExecutor) {
+      return this.applyStageOutcome(runId, "DIAGNOSIS", "BLOCKED",
+        "DIAGNOSIS_EXECUTOR_NOT_CONFIGURED", null);
+    }
+    const run = await this.deps.runService.getEngineeringRun(runId);
+    if (!run) return this.applyStageOutcome(runId, "DIAGNOSIS", "FAILED", "RUN_NOT_FOUND", null);
+
+    let outcome;
+    try {
+      outcome = await this.deps.diagnosisExecutor.runDiagnosis({
+        runId,
+        actor: { id: "engineering-diagnosis-system", kind: "system" } as any,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return this.applyStageOutcome(runId, "DIAGNOSIS", "FAILED", "DIAGNOSIS_EXECUTOR_THREW:" + msg, null);
+    }
+
+    if (outcome.status === "SUCCEEDED") {
+      await this.applyStageCompletion(runId, "DIAGNOSIS", outcome.artifactRef, "diagnosis completed");
+      return { ok: true, runId, stageType: "DIAGNOSIS", status: "SUCCEEDED",
+               reason: outcome.reason, artifactRef: outcome.artifactRef };
+    }
+    return this.applyStageOutcome(runId, "DIAGNOSIS", outcome.status, outcome.reason, outcome.artifactRef);
   }
 
     private async applyStageCompletion(

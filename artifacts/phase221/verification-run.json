@@ -1,0 +1,179 @@
+{
+  "runId": "verify-221-1790740002253-kgvuj3qs",
+  "phase": 221,
+  "suite": "engineering-diagnosis-stage-execution",
+  "startedAt": "2026-09-30T03:46:42.253Z",
+  "completedAt": "2026-09-30T03:47:06.998Z",
+  "status": "PASS",
+  "requestedTestCount": 26,
+  "executedTestCount": 26,
+  "passCount": 26,
+  "failCount": 0,
+  "blockedCount": 0,
+  "notExecutedCount": 0,
+  "unverifiedCount": 0,
+  "exitCode": 0,
+  "repositoryCommit": "0217cc9a1d48ef41c7b8b4368a893f07c45f2269",
+  "repositoryBranch": "master",
+  "testScript": "scripts/test-phase221-diagnosis-stage-execution.ts",
+  "results": [
+    {
+      "testId": "221A",
+      "name": "diagnosis executor construction",
+      "status": "PASS",
+      "note": "EngineeringDiagnosisExecutor instantiated"
+    },
+    {
+      "testId": "221B",
+      "name": "registry reflects DIAGNOSIS wiring",
+      "status": "PASS",
+      "note": "DIAGNOSIS=AVAILABLE"
+    },
+    {
+      "testId": "221C",
+      "name": "DAG contains DIAGNOSIS",
+      "status": "PASS",
+      "note": "ordinal 5 between TEST and REPAIR"
+    },
+    {
+      "testId": "221D",
+      "name": "DIAGNOSIS gated on BUILD/TEST",
+      "status": "PASS",
+      "note": "reason=INSUFFICIENT_EVIDENCE"
+    },
+    {
+      "testId": "221E",
+      "name": "BUILD failure detected",
+      "status": "PASS",
+      "note": "sourceStage=BUILD exit=1"
+    },
+    {
+      "testId": "221F",
+      "name": "BUILD failure classified",
+      "status": "PASS",
+      "note": "classification=TYPE_ERROR confidence=HIGH"
+    },
+    {
+      "testId": "221G",
+      "name": "TEST failure detected",
+      "status": "PASS",
+      "note": "sourceStage=TEST exit=7"
+    },
+    {
+      "testId": "221H",
+      "name": "TEST failure classified",
+      "status": "PASS",
+      "note": "classification=TEST_ASSERTION_FAILURE"
+    },
+    {
+      "testId": "221I",
+      "name": "blocked source propagates",
+      "status": "PASS",
+      "note": "reason=SOURCE_STAGE_BLOCKED"
+    },
+    {
+      "testId": "221J",
+      "name": "successful source = no false diagnosis",
+      "status": "PASS",
+      "note": "NO_FAILURE_TO_DIAGNOSE"
+    },
+    {
+      "testId": "221K",
+      "name": "diagnostic artifact created",
+      "status": "PASS",
+      "note": "artifactRef=artifact://art-diagnosis-diag-1790740021708-3f87tc"
+    },
+    {
+      "testId": "221L",
+      "name": "artifact retrievable",
+      "status": "PASS",
+      "note": "content 830 bytes"
+    },
+    {
+      "testId": "221M",
+      "name": "artifact contains source evidence",
+      "status": "PASS",
+      "note": "classification=TYPE_ERROR repairTarget.type=SOURCE_FILE"
+    },
+    {
+      "testId": "221N",
+      "name": "deterministic classification",
+      "status": "PASS",
+      "note": "identical classification+confidence+rootCause"
+    },
+    {
+      "testId": "221O",
+      "name": "idempotent diagnosis",
+      "status": "PASS",
+      "note": "repeat run produces same status+classification"
+    },
+    {
+      "testId": "221P",
+      "name": "stage executor routes DIAGNOSIS",
+      "status": "PASS",
+      "note": "execute() routed DIAGNOSIS successfully"
+    },
+    {
+      "testId": "221Q",
+      "name": "events persisted",
+      "status": "PASS",
+      "note": "38 engineering_diagnosis events"
+    },
+    {
+      "testId": "221R",
+      "name": "no secrets",
+      "status": "PASS",
+      "note": "171 events scanned"
+    },
+    {
+      "testId": "221S",
+      "name": "BLOCKED durable",
+      "status": "PASS",
+      "note": "1 blocked events"
+    },
+    {
+      "testId": "221T",
+      "name": "FAILED durable",
+      "status": "PASS",
+      "note": "status=FAILED reason=ARTIFACT_REGISTRATION_FAILED"
+    },
+    {
+      "testId": "221U",
+      "name": "CAS/recovery exercised",
+      "status": "PASS",
+      "note": "stale CAS did not override terminal status"
+    },
+    {
+      "testId": "221V",
+      "name": "REPAIR handoff structured",
+      "status": "PASS",
+      "note": "repairTarget.type=SOURCE_FILE confidence=HIGH"
+    },
+    {
+      "testId": "221W",
+      "name": "non-engineering isolation",
+      "status": "PASS",
+      "note": "engineering-only stage wiring"
+    },
+    {
+      "testId": "221X",
+      "name": "Phase 220 regression",
+      "status": "PASS",
+      "note": "TEST+BUILD still wired"
+    },
+    {
+      "testId": "221Y",
+      "name": "Phase 219 regression",
+      "status": "PASS",
+      "note": "BUILD+IMPLEMENTATION still wired"
+    },
+    {
+      "testId": "221Z",
+      "name": "Phase 218 regression",
+      "status": "PASS",
+      "note": "PLANNING+ARCHITECTURE still wired"
+    }
+  ],
+  "resultDigest": "fa9df9cbf0d666ab8f150ad2a8b2db90a100e4838d1a86bc2137992e780b4c94",
+  "evidenceDigest": "1f7981c3ebcbfc0798e2052493ee3011a84ac9184e1161e3c6d5dd3f470b6828"
+}
