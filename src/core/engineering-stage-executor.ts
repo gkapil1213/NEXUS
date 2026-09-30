@@ -14,6 +14,7 @@ import type { EngineeringTestExecutor } from "./engineering-test-executor";
 import type { EngineeringDiagnosisExecutor } from "./engineering-diagnosis-executor";
 import type { EngineeringRepairExecutor } from "./engineering-repair-executor";
 import type { EngineeringSecurityReviewExecutor } from "./engineering-security-review-executor";
+import type { EngineeringReleaseReadyExecutor } from "./engineering-release-ready-executor";
 import type { WorkspaceActor } from "./workspace";
 import {
   CANONICAL_ENGINEERING_DAG,
@@ -43,6 +44,7 @@ export interface EngineeringStageExecutorDeps {
   diagnosisExecutor?: EngineeringDiagnosisExecutor;
   repairExecutor?: EngineeringRepairExecutor;
   securityReviewExecutor?: EngineeringSecurityReviewExecutor;
+  releaseReadyExecutor?: EngineeringReleaseReadyExecutor;
   workspaceResolver?: (runId: string) => Promise<WorkspaceResolution | null>;
 }
 
@@ -66,6 +68,7 @@ const WIRED_STAGES: ReadonlySet<EngineeringStageType> = new Set([
   "DIAGNOSIS",
   "REPAIR",
   "SECURITY_REVIEW",
+  "RELEASE_READY",
 ]);
 
 const JOB_TERMINAL = new Set<string>([

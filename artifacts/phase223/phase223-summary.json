@@ -1,0 +1,14 @@
+{
+  "phase": 223,
+  "generatedAt": "2026-09-30T07:11:25.387Z",
+  "repositoryCommit": "10d5510fafe7bb116a49c6443149c3b7c0004038",
+  "verificationRunId": "verify-223-1790752246958-lxzlkqc6",
+  "status": "PASS",
+  "PASS": 31,
+  "FAIL": 0,
+  "BLOCKED": 0,
+  "NOT EXECUTED": 0,
+  "UNVERIFIED": 0,
+  "resultDigest": "87d0c20bae38a985b5fd1fe6cf27e894b483f2567aabd3f9a6de654ef9bf7440",
+  "evidenceDigest": "30ff85a16caee8f7c1d0c273b1eb5688c93323104cf05a81bee42be20962b387"
+}

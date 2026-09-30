@@ -46,7 +46,8 @@
     "test:phase220": "tsx scripts/test-phase220-test-stage-execution.ts",
     "test:phase221": "tsx scripts/test-phase221-diagnosis-stage-execution.ts",
     "test:phase222": "tsx scripts/test-phase222-repair-stage-execution.ts",
-    "test:phase223": "tsx scripts/test-phase223-security-review-stage-execution.ts"
+    "test:phase223": "tsx scripts/test-phase223-security-review-stage-execution.ts",
+    "test:phase224": "tsx scripts/test-phase224-release-ready-stage-execution.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",

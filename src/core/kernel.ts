@@ -40,6 +40,7 @@ import { EngineeringTestExecutor } from "./engineering-test-executor";
 import { EngineeringDiagnosisExecutor } from "./engineering-diagnosis-executor";
 import { EngineeringRepairExecutor } from "./engineering-repair-executor";
 import { EngineeringSecurityReviewExecutor } from "./engineering-security-review-executor";
+import { EngineeringReleaseReadyExecutor } from "./engineering-release-ready-executor";
 import { EngineeringStageExecutor } from "./engineering-stage-executor";
 import { EngineeringCapabilityRegistry } from "./engineering-capability-registry";
 import { createRuntimeCommandExecutor } from "./runtime-command-adapter";
@@ -629,6 +630,11 @@ const memberships = new ProjectMembershipStore(rawDb);
             workspaces,
             processExecutor: runtime.executor,
           });
+          const engReleaseReady = new EngineeringReleaseReadyExecutor({
+            dbUrl: engDbUrl,
+            store: engStore,
+            artifacts: engArtifacts,
+          });
           const engSystemActor = { id: "kernel-engineering-system", kind: "system" } as any;
           const engStageExec = new EngineeringStageExecutor({
             store: engStore,
@@ -640,6 +646,7 @@ const memberships = new ProjectMembershipStore(rawDb);
             diagnosisExecutor: engDiagnosis,
             repairExecutor: engRepair,
             securityReviewExecutor: engSecurityReview,
+            releaseReadyExecutor: engReleaseReady,
             workspaceResolver: async (runId: string) => {
               const spec = await engImplementation.getLatestImplementationSpec(runId);
               if (spec && spec.workspaceId) {

@@ -1,0 +1,188 @@
+[
+  {
+    "testId": "223A",
+    "name": "construction",
+    "status": "PASS",
+    "note": "EngineeringSecurityReviewExecutor instantiated"
+  },
+  {
+    "testId": "223AA",
+    "name": "stale exec",
+    "status": "PASS",
+    "note": "terminal preserved"
+  },
+  {
+    "testId": "223AB",
+    "name": "no secrets",
+    "status": "PASS",
+    "note": "78 events scanned"
+  },
+  {
+    "testId": "223AC",
+    "name": "Phase 222 regression",
+    "status": "PASS",
+    "note": "REPAIR still wired"
+  },
+  {
+    "testId": "223AD",
+    "name": "Phase 221 regression",
+    "status": "PASS",
+    "note": "DIAGNOSIS still wired"
+  },
+  {
+    "testId": "223AE",
+    "name": "Phase 220 regression",
+    "status": "PASS",
+    "note": "TEST+BUILD still wired"
+  },
+  {
+    "testId": "223B",
+    "name": "registry",
+    "status": "PASS",
+    "note": "SECURITY_REVIEW=AVAILABLE"
+  },
+  {
+    "testId": "223C",
+    "name": "DAG order",
+    "status": "PASS",
+    "note": "DIAGNOSIS < REPAIR < SECURITY_REVIEW < RELEASE_READY"
+  },
+  {
+    "testId": "223D",
+    "name": "REPAIR->SEC transition",
+    "status": "PASS",
+    "note": "status=BLOCKED reason=SCANNERS_UNAVAILABLE"
+  },
+  {
+    "testId": "223E",
+    "name": "invalid transition",
+    "status": "PASS",
+    "note": "reason=REPAIR_NOT_SUCCEEDED:QUEUED"
+  },
+  {
+    "testId": "223F",
+    "name": "scanner runner invoked",
+    "status": "PASS",
+    "note": "4 scanners all BLOCKED (honest)"
+  },
+  {
+    "testId": "223G",
+    "name": "evidence persisted",
+    "status": "PASS",
+    "note": "4 scanner results in artifact"
+  },
+  {
+    "testId": "223H",
+    "name": "findings preserved",
+    "status": "PASS",
+    "note": "0 findings (BLOCKED path)"
+  },
+  {
+    "testId": "223I",
+    "name": "all categories handled",
+    "status": "PASS",
+    "note": "IAC,SAST,SCA,SECRET"
+  },
+  {
+    "testId": "223J",
+    "name": "scanner failure propagation",
+    "status": "PASS",
+    "note": "status=BLOCKED reason=SECURITY_POLICY_BLOCKED"
+  },
+  {
+    "testId": "223K",
+    "name": "blocked propagation",
+    "status": "PASS",
+    "note": "status=BLOCKED reason=SECURITY_POLICY_BLOCKED"
+  },
+  {
+    "testId": "223L",
+    "name": "malformed handling",
+    "status": "PASS",
+    "note": "status=BLOCKED (not SUCCEEDED)"
+  },
+  {
+    "testId": "223M",
+    "name": "DAST validation",
+    "status": "PASS",
+    "note": "DAST not part of RealSecurityScanner; separate adapter"
+  },
+  {
+    "testId": "223N",
+    "name": "trivy failure",
+    "status": "PASS",
+    "note": "CONTAINER handled separately by SecurityScannerRunner (documented)"
+  },
+  {
+    "testId": "223O",
+    "name": "sbom failure",
+    "status": "PASS",
+    "note": "SBOM handled separately; not part of RealSecurityScanner"
+  },
+  {
+    "testId": "223P",
+    "name": "policy evaluation",
+    "status": "PASS",
+    "note": "policyVerdict=BLOCKED"
+  },
+  {
+    "testId": "223Q",
+    "name": "missing evidence BLOCKED",
+    "status": "PASS",
+    "note": "policyVerdict=BLOCKED matches status=BLOCKED"
+  },
+  {
+    "testId": "223R",
+    "name": "high/critical handling",
+    "status": "PASS",
+    "note": "status=BLOCKED (no false PASS)"
+  },
+  {
+    "testId": "223S",
+    "name": "evidence integrity",
+    "status": "PASS",
+    "note": "schemaVersion=1, capturedAt present"
+  },
+  {
+    "testId": "223T",
+    "name": "release gate PASS",
+    "status": "PASS",
+    "note": "gate=policyVerdict=BLOCKED"
+  },
+  {
+    "testId": "223U",
+    "name": "release gate FAIL",
+    "status": "PASS",
+    "note": "invariant: SUCCEEDED ⇒ policyVerdict=PASS"
+  },
+  {
+    "testId": "223V",
+    "name": "release gate BLOCKED",
+    "status": "PASS",
+    "note": "scanner unavailable → gate BLOCKED"
+  },
+  {
+    "testId": "223W",
+    "name": "RELEASE_READY protection",
+    "status": "PASS",
+    "note": "BLOCKED SECURITY_REVIEW prevents advancement"
+  },
+  {
+    "testId": "223X",
+    "name": "stage events",
+    "status": "PASS",
+    "note": "66 events"
+  },
+  {
+    "testId": "223Y",
+    "name": "artifact persistence",
+    "status": "PASS",
+    "note": "artifactRef=artifact://art-secreview-secreview-1790752279840-3i26ij"
+  },
+  {
+    "testId": "223Z",
+    "name": "idempotency",
+    "status": "PASS",
+    "note": "two runs same status + policyVerdict"
+  }
+]
