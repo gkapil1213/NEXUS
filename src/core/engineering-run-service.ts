@@ -463,6 +463,15 @@ export class EngineeringRunService {
 
   // ---------------- Internals ----------------
 
+  async recordStageExecutionEvent(
+    runId: string,
+    stageId: string,
+    eventType: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    await this.appendEvent(runId, stageId, eventType, payload);
+  }
+
   private async appendEvent(
     runId: string,
     stageId: string | null,

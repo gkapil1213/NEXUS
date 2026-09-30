@@ -466,8 +466,9 @@ export class EngineeringStageExecutor {
     if (!current) return;
     if (current.status === targetStatus) return;
     if (JOB_TERMINAL.has(current.status) && targetStatus !== current.status) return;
+
     try {
-      await this.deps.store.recoverJobAtomicAsync({
+      const result = await this.deps.store.recoverJobAtomicAsync({
         jobId,
         expectedStatus: current.status,
         newStatus: targetStatus,
@@ -475,8 +476,21 @@ export class EngineeringStageExecutor {
         patch: {},
         event: { eventType, payload },
       });
+
+      if (!result.ok) return;
+
+      const stages = await this.deps.runService.getEngineeringRunStages(runId);
+      const stage = stages.find((s) => s.stageType === stageType);
+      if (!stage) return;
+
+      await this.deps.runService.recordStageExecutionEvent(
+        runId,
+        stage.id,
+        eventType,
+        payload,
+      );
     } catch {
-      /* durable stage row is authoritative; mirror job drift is observable */
+      /* durable job transition/event handling remains idempotent and observable */
     }
   }
 }

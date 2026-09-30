@@ -272,7 +272,7 @@ async function main() {
     const types = new Set(evts.map(x => x.eventType));
     ok(types.has("engineering_run.created"), "no created");
     ok(types.has("engineering_run.stage_created"), "no stage_created");
-    ok(types.has("engineering_run.stage_blocked") || types.has("engineering_run.stage_updated") || types.has("engineering_run.stage_created"), "no stage lifecycle events");
+    ok(types.has("engineering_run.stage_blocked") || types.has("engineering_run.stage_updated"), "no blocked/updated");
     rec("218K", "events persisted", "PASS", evts.length + " events");
   } catch (e) { rec("218K", "events persisted", "FAIL", String(e)); }
 
