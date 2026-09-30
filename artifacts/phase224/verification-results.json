@@ -1,0 +1,206 @@
+[
+  {
+    "testId": "224A",
+    "name": "construction",
+    "status": "PASS",
+    "note": "EngineeringReleaseReadyExecutor instantiated"
+  },
+  {
+    "testId": "224AA",
+    "name": "terminal-state protection",
+    "status": "PASS",
+    "note": "SUCCEEDED stable across re-runs"
+  },
+  {
+    "testId": "224AB",
+    "name": "unauthorized mutation",
+    "status": "PASS",
+    "note": "run row unchanged"
+  },
+  {
+    "testId": "224AC",
+    "name": "malformed input",
+    "status": "PASS",
+    "note": "status=BLOCKED on unknown run"
+  },
+  {
+    "testId": "224AD",
+    "name": "no secrets",
+    "status": "PASS",
+    "note": "50 events scanned"
+  },
+  {
+    "testId": "224AE",
+    "name": "Phase 223 regression",
+    "status": "PASS",
+    "note": "SECURITY_REVIEW wired"
+  },
+  {
+    "testId": "224AF",
+    "name": "Phase 222 regression",
+    "status": "PASS",
+    "note": "REPAIR wired"
+  },
+  {
+    "testId": "224AG",
+    "name": "Phase 221 regression",
+    "status": "PASS",
+    "note": "DIAGNOSIS wired"
+  },
+  {
+    "testId": "224AH",
+    "name": "Phase 220 regression",
+    "status": "PASS",
+    "note": "TEST+BUILD wired"
+  },
+  {
+    "testId": "224B",
+    "name": "registry",
+    "status": "PASS",
+    "note": "RELEASE_READY=AVAILABLE"
+  },
+  {
+    "testId": "224C",
+    "name": "DAG order",
+    "status": "PASS",
+    "note": "SECURITY_REVIEW immediately precedes RELEASE_READY"
+  },
+  {
+    "testId": "224D",
+    "name": "BUILD failed blocks",
+    "status": "PASS",
+    "note": "BLOCKED reason=PREREQUISITE_NOT_SUCCEEDED:BUILD=FAILED"
+  },
+  {
+    "testId": "224E",
+    "name": "TEST failed blocks",
+    "status": "PASS",
+    "note": "BLOCKED"
+  },
+  {
+    "testId": "224F",
+    "name": "REPAIR failed blocks",
+    "status": "PASS",
+    "note": "BLOCKED"
+  },
+  {
+    "testId": "224G",
+    "name": "SEC_REVIEW failed blocks",
+    "status": "PASS",
+    "note": "BLOCKED"
+  },
+  {
+    "testId": "224H",
+    "name": "SEC_REVIEW blocked blocks",
+    "status": "PASS",
+    "note": "BLOCKED"
+  },
+  {
+    "testId": "224I",
+    "name": "SEC_REVIEW running blocks",
+    "status": "PASS",
+    "note": "BLOCKED"
+  },
+  {
+    "testId": "224J",
+    "name": "all prereqs satisfied",
+    "status": "PASS",
+    "note": "all 8 stages SUCCEEDED + artifact present"
+  },
+  {
+    "testId": "224K",
+    "name": "release readiness succeeds",
+    "status": "PASS",
+    "note": "status=SUCCEEDED artifactRef=artifact://art-relready-relready-1790754047532-mdjvgo"
+  },
+  {
+    "testId": "224L",
+    "name": "artifact exists",
+    "status": "PASS",
+    "note": "artifactId=art-224-J"
+  },
+  {
+    "testId": "224M",
+    "name": "artifact ownership",
+    "status": "PASS",
+    "note": "all stage checks ok"
+  },
+  {
+    "testId": "224N",
+    "name": "artifact hash",
+    "status": "PASS",
+    "note": "artifactRef=artifact://art-relready-relready-1790754047752-jt8sf2"
+  },
+  {
+    "testId": "224O",
+    "name": "hash mismatch blocks",
+    "status": "PASS",
+    "note": "reason=ARTIFACT_CHECKSUM_MISSING"
+  },
+  {
+    "testId": "224P",
+    "name": "source revision mismatch",
+    "status": "PASS",
+    "note": "reason=SOURCE_REVISION_MISSING"
+  },
+  {
+    "testId": "224Q",
+    "name": "stale artifact",
+    "status": "PASS",
+    "note": "dangling ref detected"
+  },
+  {
+    "testId": "224R",
+    "name": "security evidence binding",
+    "status": "PASS",
+    "note": "SECURITY_REVIEW in stageChecks"
+  },
+  {
+    "testId": "224S",
+    "name": "security decision binding",
+    "status": "PASS",
+    "note": "SEC_REVIEW failed → BLOCKED"
+  },
+  {
+    "testId": "224T",
+    "name": "security bypass prevention",
+    "status": "PASS",
+    "note": "BLOCKED SEC_REVIEW cannot produce SUCCEEDED"
+  },
+  {
+    "testId": "224U",
+    "name": "manifest creation",
+    "status": "PASS",
+    "note": "artifactId=art-relready-relready-1790754053238-vvbufa"
+  },
+  {
+    "testId": "224V",
+    "name": "manifest persistence",
+    "status": "PASS",
+    "note": "structured JSON with schemaVersion+stageChecks"
+  },
+  {
+    "testId": "224W",
+    "name": "manifest reproducibility",
+    "status": "PASS",
+    "note": "two runs same status"
+  },
+  {
+    "testId": "224X",
+    "name": "idempotency",
+    "status": "PASS",
+    "note": "same status+reason"
+  },
+  {
+    "testId": "224Y",
+    "name": "concurrent execution",
+    "status": "PASS",
+    "note": "3 concurrent runs same status"
+  },
+  {
+    "testId": "224Z",
+    "name": "stale executor protection",
+    "status": "PASS",
+    "note": "terminal preserved"
+  }
+]
