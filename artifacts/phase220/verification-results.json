@@ -33,7 +33,7 @@
     "testId": "220F",
     "name": "successful test",
     "status": "PASS",
-    "note": "exit=0 duration=960ms"
+    "note": "exit=0 duration=992ms"
   },
   {
     "testId": "220G",

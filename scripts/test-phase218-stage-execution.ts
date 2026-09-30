@@ -121,8 +121,7 @@ async function main() {
     ok(typeof exec.execute === "function", "execute missing");
     const w = EngineeringStageExecutor.wiredStages();
     ok(w.has("PLANNING") && w.has("ARCHITECTURE") && w.has("IMPLEMENTATION"), "wired stages incomplete");
-    ok(!w.has("BUILD"), "BUILD should not be wired");
-    rec("218A", "executor construction", "PASS", "3 wired stages");
+    rec("218A", "executor construction", "PASS", "Phase 218 stages remain wired");
   } catch (e) { rec("218A", "executor construction", "FAIL", String(e)); return finish(kernel, prefix); }
 
   try {
@@ -131,10 +130,9 @@ async function main() {
     ok(by.get("PLANNING") === "AVAILABLE", "PLAN=" + by.get("PLANNING"));
     ok(by.get("ARCHITECTURE") === "AVAILABLE", "ARCH=" + by.get("ARCHITECTURE"));
     ok(by.get("IMPLEMENTATION") === "AVAILABLE", "IMPL=" + by.get("IMPLEMENTATION"));
-    ok(by.get("BUILD") === "UNAVAILABLE", "BUILD=" + by.get("BUILD"));
     const bare = new EngineeringCapabilityRegistry().evaluateAll();
     ok(bare.every(x => x.status !== "AVAILABLE"), "unwired leaked AVAILABLE");
-    rec("218B", "registry reflects wiring", "PASS", "3 AVAILABLE, BUILD UNAVAILABLE, bare honest");
+    rec("218B", "registry reflects wiring", "PASS", "Phase 218 stages AVAILABLE; later-stage wiring does not invalidate regression");
   } catch (e) { rec("218B", "registry reflects wiring", "FAIL", String(e)); }
 
   try {
@@ -619,10 +617,10 @@ async function main() {
     const stageTypes = CANONICAL_ENGINEERING_DAG.map(s => s.stageType);
     const expected = ["PLANNING","ARCHITECTURE","IMPLEMENTATION","BUILD","TEST","DIAGNOSIS","REPAIR","SECURITY_REVIEW","RELEASE_READY"];
     ok(JSON.stringify(stageTypes) === JSON.stringify(expected), "DAG order changed: " + stageTypes.join(","));
-    ok(EngineeringStageExecutor.wiredStages().size === 3, "wired stage count changed");
-    ok(!EngineeringStageExecutor.wiredStages().has("BUILD"), "BUILD must not be wired");
+    const wired = EngineeringStageExecutor.wiredStages();
+    ok(wired.has("PLANNING") && wired.has("ARCHITECTURE") && wired.has("IMPLEMENTATION"), "Phase 218 stages are no longer wired");
     rec("218Z", "DAG unchanged through dispatch boundary", "PASS",
-      "9 stages canonical; wired=3 (PLANNING/ARCHITECTURE/IMPLEMENTATION)");
+      "9-stage canonical DAG preserved; Phase 218 stages remain wired");
   } catch (e) { rec("218Z", "DAG unchanged through dispatch boundary", "FAIL", String(e)); }
   return finish(kernel, prefix);
 }
