@@ -52,7 +52,8 @@
                     "test:phase225":  "tsx scripts/test-phase225-release-deployment.ts",
                     "test:phase226":  "tsx scripts/test-phase226-deployment-lifecycle.ts",
                     "test:phase227":  "tsx scripts/test-phase227-production-activation.ts",
-                    "test:phase228":  "tsx scripts/test-phase228-production-activation-reconciliation.ts"
+                    "test:phase228":  "tsx scripts/test-phase228-production-activation-reconciliation.ts",
+                    "test:phase229":  "tsx scripts/test-phase229-aws-production-traffic-integration.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

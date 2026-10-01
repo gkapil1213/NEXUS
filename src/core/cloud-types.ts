@@ -31,3 +31,27 @@ export interface TerraformPlanSummary {
   risk: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   output?: string;
 }
+
+/* Phase 229: provider-neutral capability model. Each provider declares
+ * exactly which production capabilities it supports. Missing capabilities
+ * are returned as BLOCKED with UNSUPPORTED_CAPABILITY reason; they are
+ * never silently faked. */
+export interface ProviderCapabilities {
+  compute: boolean;
+  containerDeployment: boolean;
+  registry: boolean;
+  trafficRouting: boolean;
+  healthChecks: boolean;
+  rollback: boolean;
+  loadBalancer: boolean;
+  serviceDiscovery: boolean;
+  observability: boolean;
+  secrets: boolean;
+}
+
+export interface CapabilityReport {
+  provider: CloudProviderName;
+  capabilities: ProviderCapabilities;
+  reason: string | null;
+  probedAt: number;
+}

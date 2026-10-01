@@ -1,0 +1,1 @@
+{"phase":229,"verificationCommand":"npm run test:phase229","typecheckCommand":"npx tsc --noEmit","typecheckResult":"exit=0","totals":{"pass":29,"fail":0,"blocked":2,"notExecuted":0},"blocked":[{"test":"229E","reason":"AWS_CREDENTIALS_NOT_CONFIGURED"},{"test":"229AE","reason":"AWS_REGION_NOT_CONFIGURED"}],"fabricatedData":false}

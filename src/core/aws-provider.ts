@@ -3,6 +3,7 @@ import { CloudProvider } from "./cloud-provider";
 import type {
   CloudIdentity,
   CloudOperationResult,
+  CapabilityReport,
   CloudProviderName,
 } from "./cloud-types";
 
@@ -190,5 +191,29 @@ export class AWSProvider extends CloudProvider {
       reason: res.exitCode === 0 ? null : res.stderr,
     };
   }
-}
 
+  async capabilities(): Promise<CapabilityReport> {
+    const identity = await this.getIdentity();
+    const region = await this.getRegion();
+    const identityOk = identity.status === "PASS";
+    const regionOk = region.status === "PASS";
+    const trafficCapable = identityOk && regionOk;
+    return {
+      provider: "aws",
+      capabilities: {
+        compute: true,
+        containerDeployment: true,
+        registry: true,
+        trafficRouting: trafficCapable,
+        healthChecks: trafficCapable,
+        rollback: trafficCapable,
+        loadBalancer: true,
+        serviceDiscovery: false,
+        observability: true,
+        secrets: true,
+      },
+      reason: trafficCapable ? null : (identity.reason || region.reason || "AWS identity or region unavailable"),
+      probedAt: Date.now(),
+    };
+  }
+}

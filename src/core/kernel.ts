@@ -91,6 +91,7 @@ import { ReleaseExecutionGate } from "./release-execution-gate";
 import { ReleaseDeploymentExecutor } from "./release-deployment-executor";
 import { DeploymentActivationService } from "./deployment-activation-service";
 import { NoopTrafficRouter } from "./traffic-router";
+import { discoverTrafficRouter } from "./traffic-router-factory";
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 import type { CicdReconciliationService } from "./cicd-reconciliation.service";
@@ -793,7 +794,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       // environment. Real cutover attempts return BLOCKED.
       const deploymentActivationService = new DeploymentActivationService(
         releaseIntents,
-        new NoopTrafficRouter(),
+        (await discoverTrafficRouter()).router,
         deploymentHistory,
       );
 
