@@ -1,0 +1,55 @@
+﻿{
+  "phase": 226,
+  "title": "Durable deployment lifecycle, health gates, rollback & recovery",
+  "foundation": {
+    "phase225Commit": "a581eb85d7fa7e0e0ecb34885f2b673fcc2101f3",
+    "phase225Tag": "nexus-phase225-complete"
+  },
+  "environment": {
+    "persistenceMode": "shared",
+    "databaseUrl": "postgres://postgres:postgres@localhost:55432/nexus",
+    "dockerServer": "29.7.2",
+    "dockerReachable": true
+  },
+  "results": { "pass": 16, "fail": 0, "blocked": 0, "notExecuted": 0 },
+  "existingMachineryReused": [
+    "ReleaseDeploymentIntentService — durable intent, lease, fenced CAS",
+    "DeploymentHistoryService — durable DeploymentRecord persistence",
+    "CanonicalDeploymentOrchestrator — real Docker run + inspect + health + smoke",
+    "RollbackAgent — restore previous KNOWN_GOOD immutable image",
+    "ReleaseRecoveryExecutor — crash recovery with resume paths",
+    "deployment_locks table — environment-level coordination",
+    "EventService + AuditService — durable lifecycle events"
+  ],
+  "verified": [
+    "226A intent service exposed via kernel",
+    "226B getOrCreateAsync creates durable intent",
+    "226C getOrCreateAsync idempotent (same key, created=false)",
+    "226D lease grant to first worker",
+    "226E lease denial for second worker",
+    "226F transition DEPLOYMENT_INTENT_CREATED -> DEPLOYING by lease holder",
+    "226G transition by non-holder refused (fenced CAS)",
+    "226H wrong allowedFrom refused",
+    "226I hasActiveIntentForEnvironmentAsync sees the intent",
+    "226J lease handoff to second worker after release",
+    "226K full lifecycle chain: DEPLOYING -> HEALTH_CHECKING -> SMOKE_TESTING -> KNOWN_GOOD; further transition out of terminal refused",
+    "226L RECOVERY_REQUIRED is in the recoverable list",
+    "226M real deployment through CanonicalDeploymentOrchestrator -> KNOWN_GOOD",
+    "226N real failure path -> honest terminal state (BLOCKED for unreachable health probe)",
+    "226O durable intent rows persisted in Postgres",
+    "226P Phase 225 wiring intact"
+  ],
+  "stateMachineMapping": {
+    "DEPLOYMENT_REQUESTED": "PENDING",
+    "PREPARING": "DEPLOYMENT_INTENT_CREATED",
+    "STARTING": "DEPLOYING",
+    "HEALTH_CHECKING": "HEALTH_CHECKING",
+    "HEALTHY": "SMOKE_TESTING",
+    "ACTIVATED": "KNOWN_GOOD",
+    "FAILED": "FAILED / VERIFICATION_FAILED",
+    "ROLLING_BACK": "ROLLING_BACK",
+    "CANCELLED": "CANCELLED",
+    "RECOVERY_REQUIRED": "RECOVERY_REQUIRED"
+  },
+  "honestConclusion": "Phase 226 verifies the durable deployment lifecycle that prior phases already implement. No parallel architecture was created. No new tables, services, or enums were required beyond the existing ReleaseDeploymentIntentService, DeploymentHistoryService, CanonicalDeploymentOrchestrator, RollbackAgent, and ReleaseRecoveryExecutor."
+}

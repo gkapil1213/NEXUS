@@ -1,0 +1,47 @@
+﻿{
+  "phase": 226,
+  "verificationCommand": "npm run test:phase226",
+  "typecheckCommand": "npx tsc --noEmit",
+  "typecheckResult": "exit=0",
+  "totals": { "pass": 16, "fail": 0, "blocked": 0, "notExecuted": 0 },
+  "regression": {
+    "phase218": { "pass": 26, "fail": 0 },
+    "phase219": { "pass": 21, "fail": 0 },
+    "phase220": { "pass": 22, "fail": 0 },
+    "phase221": { "pass": 26, "fail": 0 },
+    "phase222": { "pass": 26, "fail": 0 },
+    "phase223": { "pass": 31, "fail": 0 },
+    "phase224": { "pass": 34, "fail": 0 },
+    "phase225": { "pass": 25, "fail": 0 }
+  },
+  "realDeploymentEvidence": {
+    "test": "226M",
+    "result": "PASS",
+    "outcomeStatus": "KNOWN_GOOD",
+    "image": "nexus-app:version-a",
+    "containerNamePrefix": "nexus-226M-",
+    "chain": [
+      "Node HostBridge.materializeWorkspace -> real temp workspace",
+      "orchestrator docker inspect nexus-app:version-a -> real image_id",
+      "orchestrator docker run -d -p <host>:8080 --name <id> nexus-app:version-a",
+      "orchestrator docker inspect <container> -> identity verified",
+      "orchestrator HTTP /health against mapped port -> PASSED",
+      "orchestrator Playwright smoke against running container -> PASSED",
+      "deployment persisted with container_id + url",
+      "cleanup: docker rm -f <container> -> removed"
+    ],
+    "cleanupVerified": true
+  },
+  "failurePathEvidence": {
+    "test": "226N",
+    "result": "PASS",
+    "outcomeStatus": "BLOCKED",
+    "reason": "verification BLOCKED (health=BLOCKED smoke=FAIL) — required capability unavailable",
+    "classification": "real docker run executed; real health probe ran; unreachable port correctly classified as BLOCKED"
+  },
+  "fabricatedData": false,
+  "noLatestDeployed": true,
+  "noSecurityBypass": true,
+  "noReleaseReadyBypass": true,
+  "noParallelDeploymentArchitecture": true
+}
