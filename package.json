@@ -50,7 +50,8 @@
                     "test:phase224":  "tsx scripts/test-phase224-release-ready-stage-execution.ts",
                     "test:phase211":  "tsx scripts/test-phase211-release-execution.ts",
                     "test:phase225":  "tsx scripts/test-phase225-release-deployment.ts",
-                    "test:phase226":  "tsx scripts/test-phase226-deployment-lifecycle.ts"
+                    "test:phase226":  "tsx scripts/test-phase226-deployment-lifecycle.ts",
+                    "test:phase227":  "tsx scripts/test-phase227-production-activation.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

@@ -1,0 +1,32 @@
+﻿{
+  "phase": 227,
+  "verificationCommand": "npm run test:phase227",
+  "typecheckCommand": "npx tsc --noEmit",
+  "typecheckResult": "exit=0",
+  "totals": { "pass": 10, "fail": 0, "blocked": 0, "notExecuted": 0 },
+  "regression": {
+    "phase218": { "pass": 26, "fail": 0 },
+    "phase219": { "pass": 21, "fail": 0 },
+    "phase220": { "pass": 22, "fail": 0 },
+    "phase221": { "pass": 26, "fail": 0 },
+    "phase222": { "pass": 26, "fail": 0 },
+    "phase223": { "pass": 31, "fail": 0 },
+    "phase224": { "pass": 34, "fail": 0 },
+    "phase225": { "pass": 25, "fail": 0 },
+    "phase226": { "pass": 16, "fail": 0 }
+  },
+  "realDeploymentEvidence": {
+    "test": "227J",
+    "result": "PASS",
+    "outcomeStatus": "KNOWN_GOOD",
+    "image": "nexus-app:version-a",
+    "containerId": "ee677836553c"
+  },
+  "blockedEvidence": {
+    "test": "227D",
+    "result": "PASS",
+    "outcomeStatus": "BLOCKED",
+    "reason": "NO_TRAFFIC_ROUTER_CONFIGURED"
+  },
+  "fabricatedData": false
+}

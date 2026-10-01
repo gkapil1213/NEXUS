@@ -89,6 +89,8 @@ import { ProductionReleaseDecisionService } from "./production-release-decision"
 import { ProductionReleaseEnforcementService } from "./production-release-enforcement";
 import { ReleaseExecutionGate } from "./release-execution-gate";
 import { ReleaseDeploymentExecutor } from "./release-deployment-executor";
+import { DeploymentActivationService } from "./deployment-activation-service";
+import { NoopTrafficRouter } from "./traffic-router";
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 import type { CicdReconciliationService } from "./cicd-reconciliation.service";
@@ -157,6 +159,8 @@ export interface KernelServices {
   // engine is unavailable; callers must handle that honestly.
   executionStore: ExecutionStore | undefined;
   releaseIntents: ReleaseDeploymentIntentService | undefined;
+  // Phase 227: production activation + traffic cutover lifecycle.
+  deploymentActivationService: DeploymentActivationService | undefined;
   // Phase 178: read-only operational inspection of durable recovery state.
   // Undefined whenever executionStore is.
   recoveryOperations: RecoveryOperationsService | undefined;
@@ -784,6 +788,14 @@ const memberships = new ProjectMembershipStore(rawDb);
       // RELEASE_READY evidence into the gate's ReleaseExecutionInput contract.
       const releaseDeploymentExecutor = new ReleaseDeploymentExecutor(releaseExecutionGate);
 
+      // Phase 227: activation lifecycle. NoopTrafficRouter is the honest default
+      // because no reverse proxy / load balancer / service mesh exists in this
+      // environment. Real cutover attempts return BLOCKED.
+      const deploymentActivationService = new DeploymentActivationService(
+        releaseIntents,
+        new NoopTrafficRouter(),
+      );
+
       // Phase 104: durable release recovery. Runs once at boot, only when
       // the SQLite ExecutionStore exists. When it does not, recovery state
       // cannot exist either - skip cleanly rather than invent one.
@@ -871,6 +883,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         releaseEnforcement,
         releaseExecutionGate,
         releaseDeploymentExecutor,
+        deploymentActivationService,
         // Phase 131: exposed for the engineering execution path.
         executionStore: this.executionStore,
         releaseIntents,

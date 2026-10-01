@@ -66,6 +66,18 @@ export type ReleaseIntentStatus =
   | "BLOCKED"
   | "CANCELLED"
   | "RECOVERY_REQUIRED"
+  
+  // Phase 227: activation + traffic cutover lifecycle (additive)
+  | "ACTIVATION_REQUESTED"
+  | "ACTIVATING"
+  | "TRAFFIC_CUTOVER"
+  | "POST_ACTIVATION_HEALTH_CHECK"
+  | "ACTIVE"
+  | "MONITORING"
+  | "ACTIVATION_FAILED"
+  | "HEALTH_DEGRADED"
+  | "ROLLBACK_REQUESTED"
+  | "TRAFFIC_RESTORED"
   | "UNKNOWN";
 
 export interface ReleaseDeploymentIntent {
@@ -3705,7 +3717,7 @@ export class ExecutionStore {
         AND leased_by = ?
         AND lease_expires_at IS NOT NULL
         AND lease_expires_at > ?
-        AND (status NOT IN ('KNOWN_GOOD','FAILED','BLOCKED','CANCELLED','VERIFICATION_FAILED','UNKNOWN') OR status = ?)
+        AND (status NOT IN ('FAILED','BLOCKED','CANCELLED','VERIFICATION_FAILED','UNKNOWN') OR status = ?)
     `;
     const params: unknown[] = [
       status,

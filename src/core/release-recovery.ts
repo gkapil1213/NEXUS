@@ -190,6 +190,57 @@ export class ReleaseRecoveryService {
           reason: "provider state ambiguous; requires reconciliation",
           requiresDockerInspection: true,
         };
+      // Phase 227: activation + traffic cutover lifecycle.
+      // Classification rules:
+      //   - activation in-flight states must be inspected before any resume
+      //   - ACTIVE / MONITORING are steady-state (equivalent to KNOWN_GOOD)
+      //   - ACTIVATION_FAILED is terminal failure
+      //   - HEALTH_DEGRADED requires operator review (rollback is not automatic)
+      //   - ROLLBACK_REQUESTED / TRAFFIC_RESTORED are rollback in-flight
+      case "ACTIVATION_REQUESTED":
+      case "ACTIVATING":
+      case "TRAFFIC_CUTOVER":
+      case "POST_ACTIVATION_HEALTH_CHECK":
+        return {
+          intentKey: i.intentKey,
+          action: "RECOVERY_REQUIRED",
+          reason: "activation in progress (" + i.status + ") - container state must be inspected before resume",
+          requiresDockerInspection: true,
+        };
+
+      case "ACTIVE":
+      case "MONITORING":
+        return {
+          intentKey: i.intentKey,
+          action: "ALREADY_KNOWN_GOOD",
+          reason: "deployment is active (" + i.status + ") - no recovery needed",
+          requiresDockerInspection: false,
+        };
+
+      case "ACTIVATION_FAILED":
+        return {
+          intentKey: i.intentKey,
+          action: "ALREADY_FAILED",
+          reason: "activation failed - terminal, no recovery needed",
+          requiresDockerInspection: false,
+        };
+
+      case "HEALTH_DEGRADED":
+        return {
+          intentKey: i.intentKey,
+          action: "RECOVERY_REQUIRED",
+          reason: "active deployment degraded - operator review required before rollback",
+          requiresDockerInspection: true,
+        };
+
+      case "ROLLBACK_REQUESTED":
+      case "TRAFFIC_RESTORED":
+        return {
+          intentKey: i.intentKey,
+          action: "RESUME_ROLLBACK",
+          reason: "rollback in progress (" + i.status + ") - resume after inspection",
+          requiresDockerInspection: true,
+        };
       default: {
         const _exhaustive: never = i.status;
         return {
