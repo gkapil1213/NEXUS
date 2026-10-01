@@ -1,0 +1,60 @@
+﻿{
+  "phase": 228,
+  "title": "Production traffic reconciliation and recovery",
+  "foundation": {
+    "phase225Commit": "a581eb85d7fa7e0e0ecb34885f2b673fcc2101f3",
+    "phase226Commit": "5756b71e6749955f3a3993e7737ef932affb51dd",
+    "phase227Commit": "a50c043"
+  },
+  "environment": {
+    "persistenceMode": "shared",
+    "databaseUrl": "postgres://postgres:postgres@localhost:55432/nexus",
+    "dockerServer": "29.7.2",
+    "dockerReachable": true
+  },
+  "results": { "pass": 18, "fail": 0, "blocked": 0, "notExecuted": 0 },
+  "honestConclusion": "Traffic routing infrastructure still does not exist. Per prompt sections 7 and 29, every cutover attempt returns BLOCKED with NO_TRAFFIC_ROUTER_CONFIGURED. Phase 228 corrects the recovery classifier per section 17, adds the POST_ROLLBACK_HEALTH_CHECK state, adds durable previous-target capture before any traffic mutation, and adds a full conformance test suite proving every other guarantee.",
+  "sectionChanges": {
+    "section17ClassifierFixes": [
+      "ACTIVE / MONITORING -> RECOVERY_REQUIRED (was: ALREADY_KNOWN_GOOD)",
+      "TRAFFIC_RESTORED -> RECOVERY_REQUIRED (was: RESUME_ROLLBACK)",
+      "POST_ROLLBACK_HEALTH_CHECK -> RECOVERY_REQUIRED (new state)"
+    ],
+    "section5PreviousTargetCapture": "DeploymentActivationService.capturePreviousTarget() resolves the current active deployment via DeploymentHistoryService.getCurrentDeployment before any TRAFFIC_CUTOVER transition, and threads it through CutoverRequest.previousContainerName and the ActivationResult.previousTarget field.",
+    "section14RollbackSafety": "rollback() still refuses when intent is not ACTIVE/HEALTH_DEGRADED; it does not attempt traffic revert without a valid previous target.",
+    "section18Persistence": "No new tables required. DeploymentHistoryService.previous_deployment_id already carries the binding."
+  },
+  "verified": [
+    "228A kernel wiring intact (activation + intents + deployments + executor)",
+    "228B NoopTrafficRouter returns BLOCKED (NO_TRAFFIC_ROUTER_CONFIGURED)",
+    "228C activate refuses non-KNOWN_GOOD",
+    "228D previous-target resolved BEFORE cutover via real DeploymentHistoryService",
+    "228E previousTarget persisted on result even when cutover returns BLOCKED",
+    "228F CutoverRequest carries releaseId+commitSha+imageRepository+imageTag+imageDigest+environment+containerName",
+    "228G cutover BLOCKED -> intent=ACTIVATION_FAILED with real reason persisted",
+    "228H rollback refuses non-ACTIVE",
+    "228I classifier ACTIVE -> RECOVERY_REQUIRED (section 17 fix)",
+    "228J classifier TRAFFIC_RESTORED -> RECOVERY_REQUIRED (section 17 fix)",
+    "228K classifier POST_ROLLBACK_HEALTH_CHECK -> RECOVERY_REQUIRED (new state)",
+    "228L duplicate activation denied by lease",
+    "228M stale worker fenced",
+    "228N restart recovery: intent in ACTIVATING classified RECOVERY_REQUIRED with requiresDockerInspection=true",
+    "228O Phase 225 wiring intact",
+    "228P Phase 226 wiring intact",
+    "228Q Phase 227 wiring intact",
+    "228R real Docker deployment through NEXUS -> KNOWN_GOOD"
+  ],
+  "blockedCapabilities": [
+    {
+      "capability": "Real traffic cutover / revert / reconcile against a provider",
+      "status": "BLOCKED",
+      "reason": "NO_TRAFFIC_ROUTER_CONFIGURED",
+      "dependency": "reverse proxy / load balancer / service mesh / cloud LB with credentials",
+      "requiredAction": "implement a real TrafficRouter backed by the configured infrastructure and inject it into DeploymentActivationService instead of NoopTrafficRouter"
+    }
+  ],
+  "fabricatedData": false,
+  "noFakeCutover": true,
+  "noFakeActiveState": true,
+  "noParallelDeploymentArchitecture": true
+}

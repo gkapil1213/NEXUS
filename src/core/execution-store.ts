@@ -78,6 +78,7 @@ export type ReleaseIntentStatus =
   | "HEALTH_DEGRADED"
   | "ROLLBACK_REQUESTED"
   | "TRAFFIC_RESTORED"
+  | "POST_ROLLBACK_HEALTH_CHECK"
   | "UNKNOWN";
 
 export interface ReleaseDeploymentIntent {

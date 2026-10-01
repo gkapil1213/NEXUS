@@ -1,0 +1,38 @@
+﻿{
+  "phase": 228,
+  "verificationCommand": "npm run test:phase228",
+  "typecheckCommand": "npx tsc --noEmit",
+  "typecheckResult": "exit=0",
+  "totals": { "pass": 18, "fail": 0, "blocked": 0, "notExecuted": 0 },
+  "regression": {
+    "phase218": { "pass": 26, "fail": 0 },
+    "phase219": { "pass": 21, "fail": 0 },
+    "phase220": { "pass": 22, "fail": 0 },
+    "phase221": { "pass": 26, "fail": 0 },
+    "phase222": { "pass": 26, "fail": 0 },
+    "phase223": { "pass": 31, "fail": 0 },
+    "phase224": { "pass": 34, "fail": 0 },
+    "phase225": { "pass": 25, "fail": 0 },
+    "phase226": { "pass": 16, "fail": 0 },
+    "phase227": { "pass": 10, "fail": 0 }
+  },
+  "realDeploymentEvidence": {
+    "test": "228R",
+    "result": "PASS",
+    "outcomeStatus": "KNOWN_GOOD",
+    "image": "nexus-app:version-a",
+    "containerId": "2c42b8d2b5e9"
+  },
+  "classifierFixes": {
+    "ACTIVE": "RECOVERY_REQUIRED (was ALREADY_KNOWN_GOOD)",
+    "TRAFFIC_RESTORED": "RECOVERY_REQUIRED (was RESUME_ROLLBACK)",
+    "POST_ROLLBACK_HEALTH_CHECK": "RECOVERY_REQUIRED (new)"
+  },
+  "previousTargetCapture": {
+    "beforeCutover": true,
+    "capturedFields": ["deploymentId","releaseId","commitSha","imageRepository","imageTag","imageId","imageDigest","containerName","containerId","url","capturedAt"],
+    "threadedIntoCutoverRequest": "previousContainerName",
+    "threadedIntoActivationResult": "previousTarget"
+  },
+  "fabricatedData": false
+}

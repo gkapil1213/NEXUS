@@ -210,11 +210,15 @@ export class ReleaseRecoveryService {
 
       case "ACTIVE":
       case "MONITORING":
+        // Phase 228 section 17: ACTIVE has stronger meaning than Docker
+        // KNOWN_GOOD. NEXUS DB state alone does not prove the provider
+        // points at the intended target. Recovery must inspect and
+        // reconcile before treating this as terminal.
         return {
           intentKey: i.intentKey,
-          action: "ALREADY_KNOWN_GOOD",
-          reason: "deployment is active (" + i.status + ") - no recovery needed",
-          requiresDockerInspection: false,
+          action: "RECOVERY_REQUIRED",
+          reason: "active state requires traffic reconciliation against the real provider",
+          requiresDockerInspection: true,
         };
 
       case "ACTIVATION_FAILED":
@@ -234,11 +238,28 @@ export class ReleaseRecoveryService {
         };
 
       case "ROLLBACK_REQUESTED":
-      case "TRAFFIC_RESTORED":
         return {
           intentKey: i.intentKey,
           action: "RESUME_ROLLBACK",
-          reason: "rollback in progress (" + i.status + ") - resume after inspection",
+          reason: "rollback was requested - resume after inspection",
+          requiresDockerInspection: true,
+        };
+
+      case "POST_ROLLBACK_HEALTH_CHECK":
+        return {
+          intentKey: i.intentKey,
+          action: "RECOVERY_REQUIRED",
+          reason: "post-rollback health check interrupted - verification required",
+          requiresDockerInspection: true,
+        };
+      case "TRAFFIC_RESTORED":
+        // Phase 228 section 17: TRAFFIC_RESTORED means the revert already
+        // happened. RESUME_ROLLBACK is incorrect because there is nothing
+        // left to resume. Recovery must run post-rollback health verification.
+        return {
+          intentKey: i.intentKey,
+          action: "RECOVERY_REQUIRED",
+          reason: "traffic was restored - post-rollback health verification required",
           requiresDockerInspection: true,
         };
       default: {

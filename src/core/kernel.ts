@@ -794,6 +794,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       const deploymentActivationService = new DeploymentActivationService(
         releaseIntents,
         new NoopTrafficRouter(),
+        deploymentHistory,
       );
 
       // Phase 104: durable release recovery. Runs once at boot, only when

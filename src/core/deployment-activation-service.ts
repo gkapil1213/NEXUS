@@ -13,13 +13,29 @@
 
 import type { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 import type { ReleaseIntentStatus, ReleaseDeploymentIntent } from "./execution-store";
+import type { DeploymentHistoryService } from "./deployment-history";
 import type { TrafficRouter, CutoverRequest } from "./traffic-router";
 import { NO_TRAFFIC_ROUTER_REASON } from "./traffic-router";
+
+export interface PreviousTargetBinding {
+  deploymentId: string;
+  releaseId: string | null;
+  commitSha: string | null;
+  imageRepository: string | null;
+  imageTag: string | null;
+  imageId: string | null;
+  imageDigest: string | null;
+  containerName: string | null;
+  containerId: string | null;
+  url: string | null;
+  capturedAt: number;
+}
 
 export interface ActivationResult {
   status: "ACTIVATED" | "BLOCKED" | "FAILED" | "NOT_EXECUTED";
   reason: string | null;
   intent: ReleaseDeploymentIntent | null;
+  previousTarget?: PreviousTargetBinding | null;
   cutover: {
     attempted: boolean;
     ok: boolean;
@@ -32,7 +48,30 @@ export class DeploymentActivationService {
   constructor(
     private readonly intents: ReleaseDeploymentIntentService | undefined,
     private readonly router: TrafficRouter,
+    private readonly history?: DeploymentHistoryService,
   ) {}
+
+  private async capturePreviousTarget(
+    projectId: string | null,
+    environment: string,
+  ): Promise<PreviousTargetBinding | null> {
+    if (!this.history || !projectId) return null;
+    const current = await this.history.getCurrentDeployment(projectId, environment);
+    if (!current) return null;
+    return {
+      deploymentId: current.id,
+      releaseId: current.release_id ?? null,
+      commitSha: current.commit_sha ?? null,
+      imageRepository: current.image_repository ?? null,
+      imageTag: current.image_tag ?? null,
+      imageId: current.image_id ?? null,
+      imageDigest: current.image_digest ?? null,
+      containerName: current.container_name ?? null,
+      containerId: current.container_id ?? null,
+      url: current.url ?? null,
+      capturedAt: Date.now(),
+    };
+  }
   async activate(intentKey: string, workerId: string): Promise<ActivationResult> {
     if (!this.intents) {
       return { status: "BLOCKED", reason: "NO_INTENT_SERVICE", intent: null,
@@ -72,6 +111,15 @@ export class DeploymentActivationService {
                cutover: { attempted: false, ok: false, reason: null, activeTarget: null } };
     }
 
+    // Phase 228 section 5: capture the current active target for this
+    // environment BEFORE any traffic mutation. Persisted in-memory and
+    // attached to the result; callers can durably persist it via the
+    // DeploymentHistoryService.previous_deployment_id field.
+    const capturedPreviousTarget = await this.capturePreviousTarget(
+      current.projectId ?? null,
+      current.environment,
+    );
+
     const t3 = await this.intents.transitionIfOwnedAsync(
       intentKey, "TRAFFIC_CUTOVER" as ReleaseIntentStatus, workerId, {}, ["ACTIVATING"],
     );
@@ -91,7 +139,7 @@ export class DeploymentActivationService {
       imageDigest: current.imageDigest ?? null,
       containerName: current.containerName,
       containerPort: current.containerPort,
-      previousContainerName: null,
+      previousContainerName: capturedPreviousTarget?.containerName ?? null,
     };
 
     let cutoverOk = false;
@@ -118,6 +166,7 @@ export class DeploymentActivationService {
         status: "BLOCKED",
         reason: cutoverReason ?? NO_TRAFFIC_ROUTER_REASON,
         intent: finalIntent,
+        previousTarget: capturedPreviousTarget,
         cutover: { attempted: true, ok: false, reason: cutoverReason, activeTarget: null },
       };
     }
@@ -129,6 +178,7 @@ export class DeploymentActivationService {
       await this.intents.releaseLeaseAsync(intentKey, workerId).catch(() => undefined);
       const finalIntent = (await this.intents.getAsync(intentKey)) ?? current;
       return { status: "FAILED", reason: "POST_CUTOVER_TRANSITION_REFUSED", intent: finalIntent,
+               previousTarget: capturedPreviousTarget,
                cutover: { attempted: true, ok: true, reason: null, activeTarget: cutoverTarget } };
     }
 
@@ -142,6 +192,7 @@ export class DeploymentActivationService {
       status: "ACTIVATED",
       reason: null,
       intent: finalIntent,
+      previousTarget: capturedPreviousTarget,
       cutover: { attempted: true, ok: true, reason: null, activeTarget: cutoverTarget },
     };
   }
