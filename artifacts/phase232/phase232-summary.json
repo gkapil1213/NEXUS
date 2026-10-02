@@ -1,0 +1,27 @@
+{
+  "phase": 232,
+  "title": "Provider uncertainty reconciliation and lost-response safety",
+  "productionChange": "Added ProductionReleaseEnforcementService.recoverForIntent() which delegates to ReleaseExecutionProvider.reconcile?(). No new orchestrator, interface, or persistence.",
+  "results": { "pass": 16, "fail": 0, "blocked": 0, "notExecuted": 0 },
+  "verified": [
+    "232A provider reconciliation contract",
+    "232B lost response after provider mutation",
+    "232C recovery invokes reconcile",
+    "232D DEPLOYED binds existing identity",
+    "232E DEPLOYED does not re-execute",
+    "232F NOT_DEPLOYED permits guarded retry",
+    "232G UNKNOWN blocks retry",
+    "232H missing reconcile -> UNKNOWN",
+    "232I DEPLOYED without identity surfaces null",
+    "232J reconcile throws -> UNKNOWN",
+    "232K no provider -> UNKNOWN",
+    "232L idempotent reconciliation",
+    "232M cross-release identity preserved",
+    "232N durable identity across restart",
+    "232O no fabricated ACTIVE/KNOWN_GOOD",
+    "232P kernel enforcement has recoverForIntent"
+  ],
+  "invariant": "execute() calls = 1 after recovery when reconcile() returns DEPLOYED",
+  "noNewOrchestrator": true,
+  "noFakeSuccess": true
+}

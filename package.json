@@ -55,7 +55,8 @@
                     "test:phase228":  "tsx scripts/test-phase228-production-activation-reconciliation.ts",
                     "test:phase229":  "tsx scripts/test-phase229-aws-production-traffic-integration.ts",
                     "test:phase230":  "tsx scripts/test-phase230-alb-traffic-cutover.ts",
-                    "test:phase231":  "tsx scripts/test-phase231-production-e2e-lifecycle.ts"
+                    "test:phase231":  "tsx scripts/test-phase231-production-e2e-lifecycle.ts",
+                    "test:phase232":  "tsx scripts/test-phase232-provider-uncertainty-reconciliation.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

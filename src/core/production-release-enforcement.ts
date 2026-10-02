@@ -344,6 +344,40 @@ export class ProductionReleaseEnforcementService {
     return { status: "AUTHORIZED", authorization: auth, blockers: [], reasons: [] };
   }
 
+  /**
+   * Phase 232: reconcile provider state when the outcome of a prior
+   * execute() is unknown (crash, lost response, transport failure).
+   * Returns:
+   *   DEPLOYED      - provider confirms the mutation landed; caller must
+   *                   bind the deploymentId and continue WITHOUT re-executing
+   *   NOT_DEPLOYED  - provider confirms no matching resource; caller may
+   *                   retry subject to all existing gates
+   *   UNKNOWN       - provider unavailable, has no reconcile(), or cannot
+   *                   prove identity; caller must stay RECOVERY_REQUIRED
+   * Never invokes execute(). Never fabricates a deploymentId.
+   */
+  async recoverForIntent(req: ReleaseExecutionRequest): Promise<ProviderReconciliationResult> {
+    if (!this.provider) {
+      return { status: "UNKNOWN", deploymentId: null, message: "no provider wired" };
+    }
+    if (typeof this.provider.reconcile !== "function") {
+      return {
+        status: "UNKNOWN",
+        deploymentId: null,
+        message: "provider has no reconcile(); recovery stays RECOVERY_REQUIRED",
+      };
+    }
+    try {
+      return await this.provider.reconcile(req);
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      return {
+        status: "UNKNOWN",
+        deploymentId: null,
+        message: "reconcile threw: " + reason,
+      };
+    }
+  }
   async executeRelease(
     authorizationId: string,
     releaseId: string,
