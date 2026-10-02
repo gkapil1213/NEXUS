@@ -1,0 +1,44 @@
+﻿{
+  "phase": 234,
+  "generatedAt": "2026-10-02",
+  "implementation": {
+    "file": "src/core/deployment-activation-service.ts",
+    "added": "observeActiveHealth(intentKey, workerId): Promise<ActiveHealthObservationResult>",
+    "reuses": [
+      "TrafficRouter.health()",
+      "RouterHealthResult",
+      "RouterHealthVerdict",
+      "ReleaseDeploymentIntentService.acquireLeaseAsync",
+      "ReleaseDeploymentIntentService.transitionIfOwnedAsync",
+      "ReleaseDeploymentIntentService.releaseLeaseAsync",
+      "ReleaseRecoveryService.classify"
+    ],
+    "doesNotIntroduce": [
+      "second health framework",
+      "second recovery framework",
+      "scheduler or monitoring loop",
+      "automatic rollback",
+      "new database table"
+    ]
+  },
+  "semantics": {
+    "HEALTHY":   { "intentTransition": "ACTIVE -> ACTIVE",           "evidencePersisted": true },
+    "UNHEALTHY": { "intentTransition": "ACTIVE -> HEALTH_DEGRADED", "evidencePersisted": true,
+                   "downstream": "existing ReleaseRecoveryService.classify -> RECOVERY_REQUIRED" },
+    "UNKNOWN":   { "intentTransition": "ACTIVE -> ACTIVE",           "evidencePersisted": true },
+    "BLOCKED":   { "intentTransition": "ACTIVE -> ACTIVE",           "evidencePersisted": true }
+  },
+  "safety": {
+    "manufacturesActive": false,
+    "fencedByLease": true,
+    "staleWorkerProtection": "transitionIfOwnedAsync refuses non-owner",
+    "environmentIsolation": true,
+    "evidencePersistedVia": "release_deployment_intents.reconciliation_evidence",
+    "secretsStored": false
+  },
+  "tests": {
+    "script": "scripts/test-phase234-active-health-monitoring.ts",
+    "npm": "npm run test:phase234",
+    "result": { "PASS": 30, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 }
+  }
+}

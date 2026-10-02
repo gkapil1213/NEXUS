@@ -1,0 +1,25 @@
+﻿===== Phase 231 =====
+
+> test:phase231
+> tsx scripts/test-phase231-production-e2e-lifecycle.ts
+
+(node:5828) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[PASS] 231A kernel wiring -- executor+activation+gate+intents exposed
+[PASS] 231B RELEASE_READY enforced -- blockReason=RELEASE_READY_NOT_SUCCEEDED
+[PASS] 231C missing source revision blocked -- blockReason=MISSING_SOURCE_REVISION
+[PASS] 231D missing artifact blocked -- blockReason=MISSING_ARTIFACT
+[PASS] 231E security readiness enforced -- blockReason=SECURITY_REVIEW_NOT_SUCCEEDED
+[PASS] 231F no gate refused -- blockReason=GATE_NOT_AVAILABLE
+[PASS] 231G activation requires KNOWN_GOOD -- reason=INTENT_NOT_KNOWN_GOOD:DEPLOYMENT_INTENT_CREATED
+[PASS] 231H provider unavailable -> BLOCKED -- reason=NO_TRAFFIC_ROUTER_CONFIGURED
+[PASS] 231I no fake ACTIVE -- intent=ACTIVATION_FAILED
+[PASS] 231J lease fencing -- non-holder refused
+[PASS] 231K rollback refuses non-ACTIVE -- reason=INTENT_NOT_ACTIVE:DEPLOYMENT_INTENT_CREATED
+[PASS] 231L previous target captured before cutover -- prev=prev-231L
+[PASS] 231M reconcile honest without provider -- verdict=PROVIDER_UNAVAILABLE
+[PASS] 231N restart recovery classification -- action=RECOVERY_REQUIRED
+[PASS] 231O cross-environment isolation -- phase231-test-O1 vs phase231-test-O2
+[PASS] 231P secrets absent -- 72 intent rows scanned
+Terminate batch job (Y/N)? 
+^C

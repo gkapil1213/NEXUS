@@ -1,0 +1,21 @@
+﻿{
+  "phase": 234,
+  "title": "ACTIVE Deployment Health Observation & Existing Recovery Integration",
+  "commitCodeComplete": "548e412",
+  "tag": "nexus-phase234-complete",
+  "priorPhase": { "commit": "73ee456", "tag": "nexus-phase233-complete" },
+  "note": "Commit message on 548e412 differs from spec text; not rewritten to avoid force-push (spec 24).",
+  "results": {
+    "phase231": { "PASS": 17, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "phase232": { "PASS": 16, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "phase233": { "PASS": 16, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "phase234": { "PASS": 30, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "typescript": "exit 0",
+    "gitDiffCheck": "clean"
+  },
+  "blocked": [
+    { "test": "234R", "reason": "AWS_REGION_NOT_CONFIGURED", "classification": "BLOCKED" },
+    { "test": "233M", "reason": "AWS_REGION_NOT_CONFIGURED", "classification": "BLOCKED" },
+    { "test": "231H", "reason": "NO_TRAFFIC_ROUTER_CONFIGURED", "classification": "BLOCKED" }
+  ]
+}
