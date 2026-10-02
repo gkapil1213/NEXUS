@@ -1,0 +1,39 @@
+
+> test:phase236
+> tsx scripts/test-phase236-active-health-lifecycle.ts
+
+(node:15048) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS  236A observeActiveHealth callable
+PASS  236B kernel has startRecoverySupervisor
+PASS  236B kernel has getRecoverySupervisorStatus
+PASS  236B kernel has stopRecoverySupervisor
+PASS  236D disabled config creates no supervisor
+PASS  236E start puts supervisor RUNNING
+PASS  236F repeated start is idempotent
+PASS  236C active-health phase ran on tick
+PASS  236C active-health phase scanned >= 1 intent
+PASS  236G stop puts supervisor STOPPED
+PASS  236H HEALTHY preserves ACTIVE
+PASS  236I UNKNOWN preserves ACTIVE
+PASS  236J BLOCKED preserves ACTIVE
+PASS  236K UNHEALTHY -> HEALTH_DEGRADED
+PASS  236L recovery discovers HEALTH_DEGRADED
+PASS  236M classifier yields RECOVERY_REQUIRED
+PASS  236N no direct rollback
+PASS  236O overlapping observations safe
+PASS  236P non-owner observation blocked
+PASS  236Q evidence persisted
+PASS  236R state survives reload
+PASS  236S noop router BLOCKED
+PASS  236S BLOCKED does not degrade ACTIVE
+BLOCKED  236S real AWS without config :: AWS_REGION_NOT_CONFIGURED
+PASS  236T phase235 regression PASS:35
+PASS  236U TypeScript compilation
+
+============================================
+PASS: 25
+FAIL: 0
+BLOCKED: 1
+NOT EXECUTED: 0
+============================================

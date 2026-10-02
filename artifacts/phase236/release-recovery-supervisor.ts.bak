@@ -14,8 +14,6 @@ import type {
   ReleaseRecoveryExecutor,
   RecoveryRunReport,
 } from "./release-recovery-executor";
-import type { DeploymentActivationService } from "./deployment-activation-service";
-import type { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 
 export type RecoverySupervisorState =
   | "STOPPED"
@@ -35,8 +33,6 @@ export interface RecoverySupervisorStatus {
   consecutiveFailures: number;
   skippedTicks: number;
   activeRun: boolean;
-  /** Phase 236: summary of the most recent active-health phase, or null. */
-  activeHealthPhase: ActiveHealthPhaseReport | null;
 }
 
 export interface RecoverySupervisorEventSink {
@@ -59,15 +55,6 @@ export interface RecoverySupervisorAuditSink {
   }): Promise<unknown> | unknown;
 }
 
-export interface ActiveHealthPhaseReport {
-  scanned: number;
-  observed: number;
-  notActive: number;
-  blocked: number;
-  startedAt: number;
-  durationMs: number;
-}
-
 export interface ReleaseRecoverySupervisorDeps {
   executor: ReleaseRecoveryExecutor;
   svc: {
@@ -76,23 +63,6 @@ export interface ReleaseRecoverySupervisorDeps {
   };
   workerId: string;
   intervalMs: number;
-  /**
-   * Phase 236: optional active-health observation phase. When both are
-   * provided, the supervisor runs observeActiveHealth() on each ACTIVE
-   * intent before invoking the recovery executor on the same tick. When
-   * either is absent, the tick is byte-for-byte identical to the pre-236
-   * behavior. No new timer, no new lifecycle component.
-   */
-  activation?: DeploymentActivationService;
-  intents?: ReleaseDeploymentIntentService;
-  /** Upper bound on ACTIVE intents observed per tick. Defaults to 50. */
-  maxActiveObservationsPerTick?: number;
-  /**
-   * When set, only ACTIVE intents whose environment matches are observed.
-   * Production does not set this. Used by scoped tests to avoid scanning
-   * unrelated environments' intents.
-   */
-  activeHealthEnvironmentFilter?: string;
 }
 
 const SOURCE = "ReleaseRecoverySupervisor";
@@ -112,7 +82,6 @@ export class ReleaseRecoverySupervisor {
   private lastError: string | null = null;
   private consecutiveFailures = 0;
   private skippedTicks = 0;
-  private lastActiveHealthPhase: ActiveHealthPhaseReport | null = null;
 
   constructor(deps: ReleaseRecoverySupervisorDeps) {
     if (!deps.workerId) {
@@ -242,57 +211,10 @@ export class ReleaseRecoverySupervisor {
       consecutiveFailures: this.consecutiveFailures,
       skippedTicks: this.skippedTicks,
       activeRun: this.inFlight !== null,
-      activeHealthPhase: this.lastActiveHealthPhase,
     };
   }
 
   // --- internals ---
-
-  /**
-   * Phase 236: enumerate ACTIVE intents and call observeActiveHealth() on each.
-   * Bounded, sequential, per-intent try/catch. Never throws to the caller.
-   * No-op when activation or intents were not injected.
-   */
-  private async runActiveHealthPhase(): Promise<void> {
-    const { activation, intents, workerId } = this.deps;
-    if (!activation || !intents) {
-      this.lastActiveHealthPhase = null;
-      return;
-    }
-    const startedAt = Date.now();
-    const report: ActiveHealthPhaseReport = {
-      scanned: 0,
-      observed: 0,
-      notActive: 0,
-      blocked: 0,
-      startedAt,
-      durationMs: 0,
-    };
-    try {
-      const activeAll = await intents.listByStatusAsync("ACTIVE");
-      const active = this.deps.activeHealthEnvironmentFilter
-        ? activeAll.filter((i) => i.environment === this.deps.activeHealthEnvironmentFilter)
-        : activeAll;
-      const cap = this.deps.maxActiveObservationsPerTick ?? 50;
-      const slice = active.slice(0, cap);
-      report.scanned = slice.length;
-      for (const intent of slice) {
-        try {
-          const r = await activation.observeActiveHealth(intent.intentKey, workerId);
-          if (r.status === "OBSERVED") report.observed++;
-          else if (r.status === "NOT_ACTIVE") report.notActive++;
-          else report.blocked++;
-        } catch {
-          report.blocked++;
-        }
-      }
-    } catch (e) {
-      this.lastError = ReleaseRecoverySupervisor.normalizeError(e);
-    } finally {
-      report.durationMs = Date.now() - startedAt;
-      this.lastActiveHealthPhase = report;
-    }
-  }
 
   private async tick(): Promise<void> {
     if (this.state !== "RUNNING") return;
@@ -341,11 +263,6 @@ export class ReleaseRecoverySupervisor {
       trigger,
       startedAt,
     });
-
-    // Phase 236: optional active-health observation phase. Runs first so any
-    // UNHEALTHY -> HEALTH_DEGRADED transition lands in durable state before
-    // the recovery executor scans on this same tick.
-    await this.runActiveHealthPhase();
 
     let report: RecoveryRunReport;
     try {

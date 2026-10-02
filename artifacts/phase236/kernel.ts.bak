@@ -966,10 +966,6 @@ const memberships = new ProjectMembershipStore(rawDb);
         svc: { events: this.services.events, audit: this.services.audit },
         workerId: this.recoveryWorkerId,
         intervalMs: CONFIG.recovery.intervalMs,
-        // Phase 236: run active-health observation as the first phase of each
-        // recovery tick. Same timer, same lifecycle, same shutdown path.
-        activation: this.services.deploymentActivationService,
-        intents: this.services.releaseIntents,
       });
     }
     await this.recoverySupervisor.start();
