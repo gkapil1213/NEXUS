@@ -258,6 +258,14 @@ export class ReleaseDeploymentIntentService {
   async listByStatusAsync(status: ReleaseIntentStatus): Promise<ReleaseDeploymentIntent[]> {
     return this.store.listReleaseIntentsByStatusAsync(status);
   }
+  /** Phase 237: keyset-paginated ACTIVE listing for fair health observation. */
+  async listActiveIntentsAfterCursorAsync(
+    afterIntentKey: string | null,
+    limit: number,
+    environment?: string,
+  ): Promise<ReleaseDeploymentIntent[]> {
+    return this.store.listActiveIntentsAfterCursorAsync(afterIntentKey, limit, environment);
+  }
 
   async hasActiveIntentForEnvironmentAsync(environment: string, excludeIntentKey: string): Promise<boolean> {
     const nonTerminal: ReleaseIntentStatus[] = [

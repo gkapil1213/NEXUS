@@ -3812,6 +3812,31 @@ export class ExecutionStore {
     ).all<any>(status);
     return rows.map((r) => this.mapReleaseIntent(r));
   }
+  /**
+   * Phase 237: keyset-paginated ACTIVE listing ordered by intent_key.
+   * Cursor = last observed intent_key (or null to start from beginning).
+   * Keyset, not offset, so concurrent inserts/deletes cannot cause skips.
+   */
+  async listActiveIntentsAfterCursorAsync(
+    afterIntentKey: string | null,
+    limit: number,
+    environment?: string,
+  ): Promise<ReleaseDeploymentIntent[]> {
+    const engine = this.requireAsyncDb();
+    const cursor = afterIntentKey ?? "";
+    const rows = environment
+      ? await engine.prepareAsync(
+          "SELECT * FROM release_deployment_intents " +
+          "WHERE status = ? AND environment = ? AND intent_key > ? " +
+          "ORDER BY intent_key ASC LIMIT ?",
+        ).all<any>("ACTIVE", environment, cursor, limit)
+      : await engine.prepareAsync(
+          "SELECT * FROM release_deployment_intents " +
+          "WHERE status = ? AND intent_key > ? " +
+          "ORDER BY intent_key ASC LIMIT ?",
+        ).all<any>("ACTIVE", cursor, limit);
+    return rows.map((r) => this.mapReleaseIntent(r));
+  }
 
   async listRecoverableReleaseIntentsAsync(): Promise<ReleaseDeploymentIntent[]> {
     const engine = this.requireAsyncDb();

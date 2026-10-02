@@ -60,7 +60,8 @@
                     "test:phase233":  "tsx scripts/test-phase233-post-cutover-verification.ts",
     "test:phase234": "tsx scripts/test-phase234-active-health-monitoring.ts",
     "test:phase235": "tsx scripts/test-phase235-active-health-recovery.ts",
-    "test:phase236": "tsx scripts/test-phase236-active-health-lifecycle.ts"
+    "test:phase236": "tsx scripts/test-phase236-active-health-lifecycle.ts",
+    "test:phase237": "tsx scripts/test-phase237-fair-active-health.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

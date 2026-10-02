@@ -1,0 +1,56 @@
+﻿{
+  "phase": 237,
+  "title": "Fair Active-Health Observation Coverage",
+  "verification": {
+    "phase237": {
+      "pass": 23,
+      "fail": 0,
+      "blocked": 0,
+      "notExecuted": 0,
+      "result": "PASS"
+    },
+    "phase235Regression": {
+      "pass": 35,
+      "fail": 0,
+      "blocked": 0,
+      "notExecuted": 0,
+      "result": "PASS"
+    },
+    "phase236Regression": {
+      "pass": 25,
+      "fail": 0,
+      "blocked": 0,
+      "notExecuted": 0,
+      "result": "PASS"
+    }
+  },
+  "implementation": {
+    "pagination": "keyset",
+    "ordering": "intent_key ASC",
+    "boundedObservationsPerTick": true,
+    "cursorState": "in-memory supervisor cursor",
+    "restartBehavior": "fresh cycle after supervisor restart",
+    "concurrencyProtection": true,
+    "environmentFilterAppliedInQuery": true
+  },
+  "verifiedBehaviors": [
+    "bounded active-health observation",
+    "cursor advancement",
+    "cursor wrap",
+    "fewer-than-cap cycle completion",
+    "exact-cap cycle completion",
+    "eventual coverage above 50 ACTIVE intents",
+    "new ACTIVE intent coverage",
+    "ACTIVE removal during cycle",
+    "fresh-cycle restart behavior",
+    "overlapping runNow safety",
+    "UNKNOWN preserves ACTIVE",
+    "BLOCKED preserves ACTIVE",
+    "UNHEALTHY transitions to HEALTH_DEGRADED",
+    "existing recovery classification remains RECOVERY_REQUIRED",
+    "TypeScript compilation"
+  ],
+  "evidenceNote": "The complete Phase 237 PASS result and Phase 235/236 regression results were observed directly in terminal execution. Subsequent redirected evidence-capture attempts were interrupted and were deliberately removed rather than treated as evidence.",
+  "nodeWarning": "DEP0190 was observed during test execution and did not produce a test failure.",
+  "databaseSafety": "No destructive database reset was performed."
+}

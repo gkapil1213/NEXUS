@@ -66,6 +66,9 @@ export interface ActiveHealthPhaseReport {
   blocked: number;
   startedAt: number;
   durationMs: number;
+  cursorAfter: string | null;
+  wrapped: boolean;
+  capReached: boolean;
 }
 
 export interface ReleaseRecoverySupervisorDeps {
@@ -113,6 +116,8 @@ export class ReleaseRecoverySupervisor {
   private consecutiveFailures = 0;
   private skippedTicks = 0;
   private lastActiveHealthPhase: ActiveHealthPhaseReport | null = null;
+  /** Phase 237: keyset cursor over ACTIVE intents. Null = start from beginning. */
+  private activeHealthCursor: string | null = null;
 
   constructor(deps: ReleaseRecoverySupervisorDeps) {
     if (!deps.workerId) {
@@ -260,6 +265,7 @@ export class ReleaseRecoverySupervisor {
       return;
     }
     const startedAt = Date.now();
+    const cap = this.deps.maxActiveObservationsPerTick ?? 50;
     const report: ActiveHealthPhaseReport = {
       scanned: 0,
       observed: 0,
@@ -267,14 +273,26 @@ export class ReleaseRecoverySupervisor {
       blocked: 0,
       startedAt,
       durationMs: 0,
+      cursorAfter: this.activeHealthCursor,
+      wrapped: false,
+      capReached: false,
     };
     try {
-      const activeAll = await intents.listByStatusAsync("ACTIVE");
-      const active = this.deps.activeHealthEnvironmentFilter
-        ? activeAll.filter((i) => i.environment === this.deps.activeHealthEnvironmentFilter)
-        : activeAll;
-      const cap = this.deps.maxActiveObservationsPerTick ?? 50;
-      const slice = active.slice(0, cap);
+      const rows = await intents.listActiveIntentsAfterCursorAsync(
+        this.activeHealthCursor,
+        cap + 1,
+        this.deps.activeHealthEnvironmentFilter,
+      );
+      const exhausted = rows.length <= cap;
+      const slice = exhausted ? rows : rows.slice(0, cap);
+      report.capReached = !exhausted;
+      if (exhausted) {
+        this.activeHealthCursor = null;
+        report.wrapped = true;
+      } else {
+        this.activeHealthCursor = slice[slice.length - 1].intentKey;
+      }
+      report.cursorAfter = this.activeHealthCursor;
       report.scanned = slice.length;
       for (const intent of slice) {
         try {
