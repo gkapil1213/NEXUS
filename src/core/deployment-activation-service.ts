@@ -16,6 +16,7 @@ import type { ReleaseIntentStatus, ReleaseDeploymentIntent } from "./execution-s
 import type { DeploymentHistoryService } from "./deployment-history";
 import type { TrafficRouter, CutoverRequest } from "./traffic-router";
 import { NO_TRAFFIC_ROUTER_REASON } from "./traffic-router";
+import type { RouterHealthVerdict } from "./traffic-router";
 
 export interface PreviousTargetBinding {
   deploymentId: string;
@@ -42,6 +43,16 @@ export interface ActivationResult {
     reason: string | null;
     activeTarget: string | null;
   };
+}
+
+export interface ActiveHealthObservationResult {
+  status: "OBSERVED" | "BLOCKED" | "NOT_ACTIVE";
+  verdict: RouterHealthVerdict | null;
+  reason: string | null;
+  intent: ReleaseDeploymentIntent | null;
+  providerTargetId: string | null;
+  observedAt: number;
+  transitionedTo: ReleaseIntentStatus | null;
 }
 
 export class DeploymentActivationService {
@@ -407,6 +418,110 @@ export class DeploymentActivationService {
       reason: null,
       intent: finalIntent,
       cutover: { attempted: true, ok: true, reason: null, activeTarget: null },
+    };
+  }
+
+  /**
+   * Phase 234: observe the health of an already-ACTIVE deployment using the
+   * existing TrafficRouter.health() capability. Never manufactures ACTIVE.
+   * Preserves UNKNOWN / BLOCKED verdicts without falsifying them.
+   * ACTIVE + UNHEALTHY -> HEALTH_DEGRADED via the existing fenced CAS.
+   */
+  async observeActiveHealth(
+    intentKey: string,
+    workerId: string,
+  ): Promise<ActiveHealthObservationResult> {
+    const observedAt = Date.now();
+    if (!this.intents) {
+      return { status: "BLOCKED", verdict: null, reason: "NO_INTENT_SERVICE",
+               intent: null, providerTargetId: null, observedAt, transitionedTo: null };
+    }
+
+    const current = await this.intents.getAsync(intentKey);
+    if (!current) {
+      return { status: "BLOCKED", verdict: null, reason: "INTENT_NOT_FOUND",
+               intent: null, providerTargetId: null, observedAt, transitionedTo: null };
+    }
+    if (current.status !== "ACTIVE") {
+      return { status: "NOT_ACTIVE", verdict: null,
+               reason: "INTENT_NOT_ACTIVE:" + current.status,
+               intent: current, providerTargetId: null, observedAt, transitionedTo: null };
+    }
+
+    const lease = await this.intents.acquireLeaseAsync(intentKey, workerId);
+    if (!lease.acquired) {
+      return { status: "BLOCKED", verdict: null,
+               reason: "OBSERVATION_LEASE_HELD:" + (lease.holder ?? "unknown"),
+               intent: current, providerTargetId: null, observedAt, transitionedTo: null };
+    }
+
+    const providerTargetId = current.providerDeploymentId ?? null;
+    let verdict: RouterHealthVerdict = "UNKNOWN";
+    let hReason: string | null = null;
+
+    if (providerTargetId) {
+      try {
+        const h = await this.router.health(providerTargetId);
+        verdict = h.verdict;
+        hReason = h.reason;
+      } catch (e) {
+        verdict = "UNKNOWN";
+        hReason = "health_threw:" + (e instanceof Error ? e.message : String(e));
+      }
+    } else {
+      hReason = "NO_PROVIDER_TARGET_BOUND";
+    }
+
+    const evidence = JSON.stringify({
+      source: "DeploymentActivationService.observeActiveHealth",
+      intentKey,
+      releaseId: current.releaseId,
+      deploymentId: current.deploymentId ?? null,
+      environment: current.environment,
+      commitSha: current.commitSha,
+      provider: this.router.kind,
+      providerTargetId,
+      verdict,
+      providerReason: hReason,
+      previousStatus: "ACTIVE",
+      workerId,
+      observedAt,
+    });
+
+    const nextStatus: ReleaseIntentStatus =
+      verdict === "UNHEALTHY" ? "HEALTH_DEGRADED" : "ACTIVE";
+
+    const t = await this.intents.transitionIfOwnedAsync(
+      intentKey,
+      nextStatus,
+      workerId,
+      {
+        provider: this.router.kind,
+        providerStatus: verdict,
+        providerDeploymentId: providerTargetId,
+        reconciledAt: observedAt,
+        reconciliationEvidence: evidence,
+      },
+      ["ACTIVE"],
+    );
+
+    await this.intents.releaseLeaseAsync(intentKey, workerId).catch(() => undefined);
+
+    if (!t.updated) {
+      const reloaded = (await this.intents.getAsync(intentKey)) ?? current;
+      return { status: "BLOCKED", verdict,
+               reason: "OBSERVATION_TRANSITION_REFUSED",
+               intent: reloaded, providerTargetId, observedAt, transitionedTo: null };
+    }
+
+    return {
+      status: "OBSERVED",
+      verdict,
+      reason: hReason,
+      intent: t.intent ?? null,
+      providerTargetId,
+      observedAt,
+      transitionedTo: nextStatus,
     };
   }
 }

@@ -1,0 +1,44 @@
+
+> test:phase234
+> tsx scripts/test-phase234-active-health-monitoring.ts
+
+(node:1820) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS  234A observeActiveHealth is callable
+PASS  234B non-ACTIVE refused
+PASS  234B status unchanged
+PASS  234C observed status
+PASS  234C verdict HEALTHY
+PASS  234C remains ACTIVE
+PASS  234C evidence persisted
+PASS  234D transitionedTo HEALTH_DEGRADED
+PASS  234D persisted HEALTH_DEGRADED
+PASS  234D evidence persisted
+PASS  234E verdict UNKNOWN
+PASS  234E stays ACTIVE
+PASS  234E evidence UNKNOWN
+PASS  234F verdict BLOCKED
+PASS  234F stays ACTIVE
+PASS  234F evidence BLOCKED
+PASS  234G providerTargetId bound
+PASS  234H releaseId in evidence
+PASS  234I environment in evidence
+PASS  234J staging untouched
+PASS  234K non-owner blocked
+PASS  234L second observe NOT_ACTIVE
+PASS  234N classifier yields RECOVERY_REQUIRED
+PASS  234N classifier requires docker inspection
+PASS  234O no rollback invoked
+PASS  234O status HEALTH_DEGRADED not terminal
+PASS  234P noop health BLOCKED
+PASS  234P noop reason NO_TRAFFIC_ROUTER_CONFIGURED
+PASS  234P stays ACTIVE (no false health)
+PASS  234Q exception -> UNKNOWN
+BLOCKED  234R real AWSTrafficRouter with no config :: AWS_REGION_NOT_CONFIGURED
+
+============================================
+PASS: 30
+FAIL: 0
+BLOCKED: 1
+NOT EXECUTED: 0
+============================================
