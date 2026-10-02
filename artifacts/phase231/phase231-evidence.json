@@ -1,0 +1,10 @@
+{
+  "phase": 231,
+  "verificationCommand": "npm run test:phase231",
+  "typecheckCommand": "npx tsc --noEmit",
+  "typecheckResult": "exit=0",
+  "totals": { "pass": 17, "fail": 0, "blocked": 1, "notExecuted": 0 },
+  "blocked": [{ "test": "231R", "reason": "AWS_REGION_NOT_CONFIGURED" }],
+  "realDeploymentEvidence": { "test": "231Q", "status": "KNOWN_GOOD", "containerId": "b176eff9ecb4" },
+  "fabricatedData": false
+}
