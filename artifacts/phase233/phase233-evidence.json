@@ -1,0 +1,9 @@
+{
+  "phase": 233,
+  "verificationCommand": "npm run test:phase233",
+  "typecheckCommand": "npx tsc --noEmit",
+  "typecheckResult": "exit=0",
+  "totals": { "pass": 16, "fail": 0, "blocked": 1, "notExecuted": 0 },
+  "blocked": [{ "test": "233M", "reason": "AWS_REGION_NOT_CONFIGURED" }],
+  "fabricatedData": false
+}

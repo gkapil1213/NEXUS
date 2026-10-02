@@ -1,0 +1,18 @@
+{
+  "phase": 233,
+  "title": "Post-cutover production verification before ACTIVE",
+  "productionChange": "DeploymentActivationService.activate() now calls router.health(cutoverTarget) after cutover and only advances to ACTIVE when the verdict is HEALTHY. Non-HEALTHY verdicts transition to ACTIVATION_FAILED with POST_CUTOVER_HEALTH_<verdict>:<reason>. Evidence is written to reconciliation_evidence on both POST_ACTIVATION_HEALTH_CHECK and ACTIVE transitions.",
+  "results": { "pass": 16, "fail": 0, "blocked": 1, "notExecuted": 0 },
+  "blocked": [{ "test": "233M", "reason": "AWS_REGION_NOT_CONFIGURED" }],
+  "invariants": [
+    "ACTIVE requires provider-verified HEALTHY health on the exact cutover target",
+    "ACTIVE is not written merely because cutover returned ok",
+    "Lease/fenced CAS still gate every transition",
+    "Cutover refusal does not call health",
+    "Evidence persisted on existing intent columns only"
+  ],
+  "noNewOrchestrator": true,
+  "noNewHealthFramework": true,
+  "noSchemaChange": true,
+  "noFakeActive": true
+}

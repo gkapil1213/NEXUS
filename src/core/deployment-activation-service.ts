@@ -192,8 +192,69 @@ export class DeploymentActivationService {
       };
     }
 
+    // Phase 233: run the real provider health check before advancing to ACTIVE.
+    // Never transition to ACTIVE merely because cutover returned ok.
+    let healthVerdict: "HEALTHY" | "UNHEALTHY" | "UNKNOWN" | "BLOCKED" = "UNKNOWN";
+    let healthReason: string | null = null;
+    if (cutoverTarget) {
+      try {
+        const h = await this.router.health(cutoverTarget);
+        healthVerdict = h.verdict;
+        healthReason = h.reason;
+      } catch (e) {
+        healthVerdict = "UNKNOWN";
+        healthReason = "health_threw:" + (e instanceof Error ? e.message : String(e));
+      }
+    } else {
+      healthReason = "no cutover target to verify";
+    }
+
+    if (healthVerdict !== "HEALTHY") {
+      const reasonText = "POST_CUTOVER_HEALTH_" + healthVerdict + (healthReason ? ":" + healthReason : "");
+      await this.intents.transitionIfOwnedAsync(
+        intentKey, "ACTIVATION_FAILED" as ReleaseIntentStatus, workerId,
+        {
+          failureReason: reasonText,
+          provider: this.router.kind,
+          providerStatus: healthVerdict,
+          providerDeploymentId: cutoverTarget,
+          reconciledAt: Date.now(),
+        },
+        ["TRAFFIC_CUTOVER"],
+      );
+      await this.intents.releaseLeaseAsync(intentKey, workerId).catch(() => undefined);
+      const finalIntent = (await this.intents.getAsync(intentKey)) ?? current;
+      return {
+        status: "BLOCKED",
+        reason: reasonText,
+        intent: finalIntent,
+        previousTarget: capturedPreviousTarget,
+        cutover: { attempted: true, ok: true, reason: null, activeTarget: cutoverTarget },
+      };
+    }
+
+    const postHealthEvidence = JSON.stringify({
+      source: "DeploymentActivationService.activate.POST_ACTIVATION_HEALTH_CHECK",
+      intentKey,
+      releaseId: current.releaseId,
+      environment: current.environment,
+      cutoverTarget,
+      previousTarget: capturedPreviousTarget?.deploymentId ?? null,
+      healthVerdict,
+      workerId,
+      timestamp: Date.now(),
+    });
+
     const t4 = await this.intents.transitionIfOwnedAsync(
-      intentKey, "POST_ACTIVATION_HEALTH_CHECK" as ReleaseIntentStatus, workerId, {}, ["TRAFFIC_CUTOVER"],
+      intentKey, "POST_ACTIVATION_HEALTH_CHECK" as ReleaseIntentStatus, workerId,
+      {
+        provider: this.router.kind,
+        providerStatus: healthVerdict,
+        providerDeploymentId: cutoverTarget,
+        reconciledAt: Date.now(),
+        reconciliationEvidence: postHealthEvidence,
+      },
+      ["TRAFFIC_CUTOVER"],
     );
     if (!t4.updated) {
       await this.intents.releaseLeaseAsync(intentKey, workerId).catch(() => undefined);
@@ -203,8 +264,28 @@ export class DeploymentActivationService {
                cutover: { attempted: true, ok: true, reason: null, activeTarget: cutoverTarget } };
     }
 
+    const activeEvidence = JSON.stringify({
+      source: "DeploymentActivationService.activate.ACTIVE",
+      intentKey,
+      releaseId: current.releaseId,
+      environment: current.environment,
+      cutoverTarget,
+      previousTarget: capturedPreviousTarget?.deploymentId ?? null,
+      healthVerdict,
+      workerId,
+      timestamp: Date.now(),
+    });
+
     await this.intents.transitionIfOwnedAsync(
-      intentKey, "ACTIVE" as ReleaseIntentStatus, workerId, {}, ["POST_ACTIVATION_HEALTH_CHECK"],
+      intentKey, "ACTIVE" as ReleaseIntentStatus, workerId,
+      {
+        provider: this.router.kind,
+        providerStatus: "ACTIVE",
+        providerDeploymentId: cutoverTarget,
+        reconciledAt: Date.now(),
+        reconciliationEvidence: activeEvidence,
+      },
+      ["POST_ACTIVATION_HEALTH_CHECK"],
     );
     await this.intents.releaseLeaseAsync(intentKey, workerId).catch(() => undefined);
 
