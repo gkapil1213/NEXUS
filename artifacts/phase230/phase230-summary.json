@@ -1,0 +1,47 @@
+{
+  "phase": 230,
+  "title": "Real AWS ALB traffic cutover, live verification, rollback and reconciliation",
+  "environment": {
+    "awsCliPath": "C:\\Users\\pc\\scoop\\shims\\aws.exe",
+    "awsCredentialsConfigured": false,
+    "awsRegionConfigured": false
+  },
+  "results": { "pass": 20, "fail": 0, "blocked": 3, "notExecuted": 0 },
+  "blockedCapabilities": [
+    { "test": "230N", "reason": "AWS_CREDENTIALS_NOT_CONFIGURED" },
+    { "test": "230O", "reason": "AWS_CREDENTIALS_NOT_CONFIGURED" },
+    { "test": "230V", "reason": "AWS_REGION_NOT_CONFIGURED" }
+  ],
+  "implemented": [
+    "CutoverRequest extended with typed aws routing identity (loadBalancerArn, listenerArn, ruleArn, candidateTargetGroupArn, previousTargetGroupArn, targetId, targetPort)",
+    "AwsCliRunner interface + SpawnAwsCliRunner - enables deterministic command construction verification",
+    "AWSTrafficRouter.discoverRouting() - real ALB/listener/rule/forward-config discovery",
+    "AWSTrafficRouter.cutover() - real modify-listener or modify-rule to change forward action from OLD TG to NEW TG, then re-reads AWS to confirm",
+    "AWSTrafficRouter.revert() - real modify-listener or modify-rule to restore exact previous TG, then re-reads AWS to confirm",
+    "AWSTrafficRouter.resolveTarget() - uses discoverRouting (active forward target), not 'any healthy target'",
+    "AWSTrafficRouter.validateTarget() - real describe-target-groups + describe-target-health",
+    "AWSTrafficRouter.reconcile() - compares forward configuration (not target IDs)",
+    "AWSTrafficRouter.capabilities() - separates adapter support from runtime readiness",
+    "TrafficRouterFactory - preserves AWS-selected-but-BLOCKED with real reason; returns NoopTrafficRouter only when no AWS config exists",
+    "DeploymentActivationService - populates the aws field on CutoverRequest for both activate() and rollback()"
+  ],
+  "removed": [
+    "Unsafe cast (req as unknown as { targetId?: string }).targetId at aws-traffic-router.ts:159",
+    "register-targets as a substitute for ALB routing cutover",
+    "resolveTarget that returned the first healthy target without checking active routing",
+    "reconcile that compared target IDs instead of forward configuration"
+  ],
+  "commandConstructionVerified": [
+    "elbv2 describe-load-balancers --load-balancer-arns <arn>",
+    "elbv2 describe-listeners --load-balancer-arn <arn>",
+    "elbv2 describe-rules --listener-arn <arn>",
+    "elbv2 describe-target-groups",
+    "elbv2 describe-target-health --target-group-arn <arn>",
+    "elbv2 modify-listener --listener-arn <arn> --default-actions Type=forward,ForwardConfig={...}",
+    "elbv2 modify-rule --rule-arn <arn> --actions Type=forward,ForwardConfig={...}"
+  ],
+  "fabricatedData": false,
+  "noFakeCutover": true,
+  "noFakeActiveState": true,
+  "noParallelDeploymentArchitecture": true
+}

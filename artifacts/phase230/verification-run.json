@@ -1,0 +1,16 @@
+{
+  "phase": 230,
+  "suite": "scripts/test-phase230-alb-traffic-cutover.ts",
+  "command": "npm run test:phase230",
+  "environment": {
+    "NEXUS_PERSISTENCE_MODE": "shared",
+    "DATABASE_URL": "postgres://postgres:postgres@localhost:55432/nexus"
+  },
+  "totals": { "pass": 20, "fail": 0, "blocked": 3, "notExecuted": 0 },
+  "blockedTests": [
+    { "id": "230N", "reason": "AWS_CREDENTIALS_NOT_CONFIGURED" },
+    { "id": "230O", "reason": "AWS_CREDENTIALS_NOT_CONFIGURED" },
+    { "id": "230V", "reason": "AWS_REGION_NOT_CONFIGURED" }
+  ],
+  "exit": 0
+}

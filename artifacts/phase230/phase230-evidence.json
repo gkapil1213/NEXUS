@@ -1,0 +1,20 @@
+{
+  "phase": 230,
+  "verificationCommand": "npm run test:phase230",
+  "typecheckCommand": "npx tsc --noEmit",
+  "typecheckResult": "exit=0",
+  "totals": { "pass": 20, "fail": 0, "blocked": 3, "notExecuted": 0 },
+  "blocked": [
+    { "test": "230N", "reason": "AWS_CREDENTIALS_NOT_CONFIGURED" },
+    { "test": "230O", "reason": "AWS_CREDENTIALS_NOT_CONFIGURED" },
+    { "test": "230V", "reason": "AWS_REGION_NOT_CONFIGURED" }
+  ],
+  "awsCli": "C:\\Users\\pc\\scoop\\shims\\aws.exe",
+  "awsCredentials": "NOT_CONFIGURED",
+  "awsRegion": "NOT_CONFIGURED",
+  "realTrafficCutover": "BLOCKED",
+  "realRollback": "BLOCKED",
+  "postCutoverVerification": "BLOCKED",
+  "postRollbackVerification": "BLOCKED",
+  "fabricatedData": false
+}

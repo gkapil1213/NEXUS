@@ -1,4 +1,4 @@
-﻿// scripts/test-phase229-aws-production-traffic-integration.ts
+// scripts/test-phase229-aws-production-traffic-integration.ts
 // Phase 229 - real AWS production traffic integration.
 //
 // Honest verification: this environment has the AWS CLI but no credentials
@@ -83,9 +83,12 @@ async function main() {
   // 229B: provider discovery returns honest kind
   try {
     const d = await discoverTrafficRouter();
-    ok(d.kind === "noop" || d.kind === "load-balancer", `unexpected kind=${d.kind}`);
+    // Phase 230 factory shape: kind is one of aws-selected / aws-selected-blocked / noop-no-config
+    const validKinds = ["aws-selected", "aws-selected-blocked", "noop-no-config"];
+    ok(validKinds.includes(d.kind), `unexpected kind=${d.kind}`);
+    ok(d.routerKind === "noop" || d.routerKind === "load-balancer", `unexpected routerKind=${d.routerKind}`);
     rec("229B", "provider discovery", "PASS",
-        `kind=${d.kind} reason=${(d.reason ?? "").slice(0, 60)}`);
+        `kind=${d.kind} routerKind=${d.routerKind} reason=${(d.reason ?? "").slice(0, 60)}`);
   } catch (e) { rec("229B", "provider discovery", "FAIL", String(e)); }
 
   // 229C: no traffic router -> cutover BLOCKED

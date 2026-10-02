@@ -128,6 +128,26 @@ export class DeploymentActivationService {
       return { status: "BLOCKED", reason: "TRANSITION_TRAFFIC_CUTOVER_REFUSED", intent: current,
                cutover: { attempted: false, ok: false, reason: null, activeTarget: null } };
     }
+    // Phase 230: typed AWS routing identity. The activation lifecycle
+    // reads the same env vars the AWSTrafficRouter uses for candidate
+    // config so the request carries the intended routing target. The
+    // router itself re-resolves the current routing via discoverRouting()
+    // before mutating, so this is an intent, not a trusted value.
+    const candidateTargetGroupArn = process.env.NEXUS_AWS_TARGET_GROUP_ARN || null;
+    const awsRouting = candidateTargetGroupArn
+      ? {
+          loadBalancerArn: process.env.NEXUS_AWS_LOAD_BALANCER_ARN || null,
+          listenerArn: process.env.NEXUS_AWS_LISTENER_ARN || null,
+          ruleArn: process.env.NEXUS_AWS_RULE_ARN || null,
+          candidateTargetGroupArn,
+          previousTargetGroupArn: capturedPreviousTarget?.containerName ?? null,
+          targetId: null,
+          targetPort: process.env.NEXUS_AWS_TARGET_PORT
+            ? Number(process.env.NEXUS_AWS_TARGET_PORT)
+            : null,
+        }
+      : undefined;
+
     const req: CutoverRequest = {
       environment: current.environment,
       intentKey,
@@ -140,6 +160,7 @@ export class DeploymentActivationService {
       containerName: current.containerName,
       containerPort: current.containerPort,
       previousContainerName: capturedPreviousTarget?.containerName ?? null,
+      aws: awsRouting,
     };
 
     let cutoverOk = false;
@@ -234,6 +255,22 @@ export class DeploymentActivationService {
       return { status: "BLOCKED", reason: "TRANSITION_ROLLING_BACK_REFUSED", intent: current,
                cutover: { attempted: false, ok: false, reason: null, activeTarget: null } };
     }
+    // Phase 230: previous target group ARN is required for a real revert.
+    const previousTargetGroupArn = process.env.NEXUS_AWS_PREVIOUS_TARGET_GROUP_ARN || null;
+    const awsRouting = previousTargetGroupArn
+      ? {
+          loadBalancerArn: process.env.NEXUS_AWS_LOAD_BALANCER_ARN || null,
+          listenerArn: process.env.NEXUS_AWS_LISTENER_ARN || null,
+          ruleArn: process.env.NEXUS_AWS_RULE_ARN || null,
+          candidateTargetGroupArn: null,
+          previousTargetGroupArn,
+          targetId: null,
+          targetPort: process.env.NEXUS_AWS_TARGET_PORT
+            ? Number(process.env.NEXUS_AWS_TARGET_PORT)
+            : null,
+        }
+      : undefined;
+
     const req: CutoverRequest = {
       environment: current.environment,
       intentKey,
@@ -246,6 +283,7 @@ export class DeploymentActivationService {
       containerName: current.containerName,
       containerPort: current.containerPort,
       previousContainerName: null,
+      aws: awsRouting,
     };
 
     let revertOk = false;

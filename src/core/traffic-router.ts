@@ -36,6 +36,17 @@ export interface CutoverRequest {
   containerName: string;
   containerPort: number;
   previousContainerName: string | null;
+  /* Phase 230: typed AWS routing identity. Optional so non-AWS providers
+   * (and the Noop router) remain source-compatible. */
+  aws?: {
+    loadBalancerArn: string | null;
+    listenerArn: string | null;
+    ruleArn: string | null;
+    candidateTargetGroupArn: string | null;
+    previousTargetGroupArn: string | null;
+    targetId: string | null;
+    targetPort: number | null;
+  };
 }
 
 export interface CutoverResult {
