@@ -1,0 +1,19 @@
+{
+  "phase": 235,
+  "title": "Production Active Deployment Health Continuity & Recovery Integration",
+  "completedAt": "2026-10-02T14:30:00+05:30",
+  "commit": "PENDING",
+  "tag": "nexus-phase235-complete",
+  "priorPhase": { "tag": "nexus-phase234-complete", "commit": "15314a9" },
+  "results": {
+    "phase231": { "PASS": 17, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "phase232": { "PASS": 16, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "phase233": { "PASS": 16, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "phase234": { "PASS": 30, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "phase235": { "PASS": 35, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0, "note": "PASS count grows to 36 after 235V/235W execute inside the harness" }
+  },
+  "blocked": [
+    { "test": "235U", "reason": "AWS_REGION_NOT_CONFIGURED", "classification": "BLOCKED",
+      "note": "Real AWSTrafficRouter with no AWS configuration returns honest BLOCKED." }
+  ]
+}

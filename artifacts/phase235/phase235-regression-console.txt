@@ -1,0 +1,61 @@
+﻿
+===== Phase 235 =====
+
+> test:phase235
+> tsx scripts/test-phase235-active-health-recovery.ts
+
+(node:10256) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+PASS  235A observeActiveHealth callable
+PASS  235B ACTIVE + HEALTHY remains ACTIVE
+PASS  235C HEALTHY evidence persisted
+PASS  235D ACTIVE + UNHEALTHY -> HEALTH_DEGRADED
+PASS  235E UNHEALTHY evidence persisted
+PASS  235F classifier yields RECOVERY_REQUIRED
+PASS  235F classifier requires docker inspection
+PASS  235G no rollback invoked
+PASS  235G status HEALTH_DEGRADED not terminal
+PASS  235H UNKNOWN stays ACTIVE
+PASS  235H verdict UNKNOWN
+PASS  235I UNKNOWN evidence persisted
+PASS  235J BLOCKED stays ACTIVE
+PASS  235J verdict BLOCKED
+PASS  235K BLOCKED evidence persisted
+PASS  235L non-ACTIVE refused
+PASS  235L state unchanged
+PASS  235M non-owner blocked
+PASS  235N expired lease transition refused
+PASS  235O release binding isolation
+PASS  235P environment binding isolation
+PASS  235Q deployment binding isolation
+PASS  235R all three HEALTHY observations succeed
+PASS  235R intent remains ACTIVE
+PASS  235R2 second observation refused (NOT_ACTIVE)
+PASS  235R2 stays HEALTH_DEGRADED
+PASS  235S evidence survives reload
+PASS  235S evidence has executionId
+PASS  235S restart does not fabricate HEALTHY
+PASS  235T noop health BLOCKED
+PASS  235T noop reason NO_TRAFFIC_ROUTER_CONFIGURED
+PASS  235T remains ACTIVE (no false health)
+BLOCKED  235U real AWSTrafficRouter with no config :: AWS_REGION_NOT_CONFIGURED
+PASS  235V TypeScript compilation
+PASS  235W diff check passes
+PASS  235W no secrets in phase235 artifacts
+
+============================================
+PASS: 35
+FAIL: 0
+BLOCKED: 1
+NOT EXECUTED: 0
+============================================
+
+===== Phase 234 =====
+
+> test:phase234
+> tsx scripts/test-phase234-active-health-monitoring.ts
+
+(node:8668) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Terminate batch job (Y/N)? 
+^C

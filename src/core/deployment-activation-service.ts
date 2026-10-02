@@ -476,6 +476,7 @@ export class DeploymentActivationService {
       source: "DeploymentActivationService.observeActiveHealth",
       intentKey,
       releaseId: current.releaseId,
+      executionId: current.executionId,
       deploymentId: current.deploymentId ?? null,
       environment: current.environment,
       commitSha: current.commitSha,

@@ -1,0 +1,51 @@
+{
+  "phase": 235,
+  "generatedAt": "2026-10-02",
+  "priorPhase": { "tag": "nexus-phase234-complete", "commit": "15314a9" },
+  "gapAnalysis": {
+    "Q1_observation_persistence": "release_deployment_intents.reconciliation_evidence (single JSON TEXT column)",
+    "Q2_durable_across_restart": "yes",
+    "Q3_concurrent_observation": "fenced by acquireLeaseAsync + transitionIfOwnedAsync",
+    "Q4_stale_worker_mutate": "no - refused by transitionIfOwnedAsync",
+    "Q5_release_A_affects_B": "no - intentKey is per-release",
+    "Q6_staging_affects_production": "no - environment part of intentKey",
+    "Q7_deployment_A_affects_B": "no - same reason",
+    "Q8_bound_to_correct_provider_target": "yes - providerDeploymentId written by activate()",
+    "Q9_interrupted_observation_retry_safe": "yes - same-status CAS is idempotent",
+    "Q10_HEALTH_DEGRADED_enters_recovery": "yes - ReleaseRecoveryService.classify",
+    "Q11_UNKNOWN_BLOCKED_preserved": "yes - same-status transition writes evidence without state change",
+    "Q12_uncertainty_to_HEALTHY_path": "none",
+    "Q13_evidence_sufficient_post_restart": "yes after 235 fix - executionId added to evidence payload"
+  },
+  "productionCodeChange": {
+    "file": "src/core/deployment-activation-service.ts",
+    "change": "added executionId to observation evidence JSON",
+    "scope": "one field, no public contract change, no schema change"
+  },
+  "schemaDecision": {
+    "newTableCreated": false,
+    "newMigrationsDirCreated": false,
+    "reason": "existing release_deployment_intents columns fully represent the observation contract"
+  },
+  "safety": {
+    "manufacturesActive": false,
+    "fencedByLease": true,
+    "staleWorkerProtection": "transitionIfOwnedAsync refuses non-owner",
+    "expiredLeaseProtection": "lease_expires_at enforced",
+    "environmentIsolation": true,
+    "releaseIsolation": true,
+    "deploymentIsolation": true,
+    "automaticRollback": false,
+    "secretsStored": false
+  },
+  "tests": {
+    "script": "scripts/test-phase235-active-health-recovery.ts",
+    "npm": "npm run test:phase235",
+    "cases": [
+      "235A","235B","235C","235D","235E","235F","235G","235H","235I","235J",
+      "235K","235L","235M","235N","235O","235P","235Q","235R","235R2","235S",
+      "235T","235U","235V","235W"
+    ],
+    "result": { "PASS": 35, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 }
+  }
+}

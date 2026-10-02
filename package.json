@@ -58,7 +58,8 @@
                     "test:phase231":  "tsx scripts/test-phase231-production-e2e-lifecycle.ts",
                     "test:phase232":  "tsx scripts/test-phase232-provider-uncertainty-reconciliation.ts",
                     "test:phase233":  "tsx scripts/test-phase233-post-cutover-verification.ts",
-    "test:phase234": "tsx scripts/test-phase234-active-health-monitoring.ts"
+    "test:phase234": "tsx scripts/test-phase234-active-health-monitoring.ts",
+    "test:phase235": "tsx scripts/test-phase235-active-health-recovery.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",
