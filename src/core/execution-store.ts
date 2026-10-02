@@ -3838,6 +3838,59 @@ export class ExecutionStore {
     return rows.map((r) => this.mapReleaseIntent(r));
   }
 
+  /**
+   * Phase 238: read the active-health fairness checkpoint for a scope.
+   * Returns null if no row exists (start of cycle). A row with cursor=null
+   * means a wrap occurred on the previous tick; next tick starts from null.
+   */
+  async getActiveHealthCheckpointAsync(
+    scopeKey: string,
+  ): Promise<{ cursor: string | null; generation: number } | null> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT cursor, generation FROM active_health_checkpoints WHERE scope_key = ?",
+    ).get<any>(scopeKey);
+    if (!row) return null;
+    return { cursor: row.cursor ?? null, generation: Number(row.generation ?? 0) };
+  }
+
+  /**
+   * Phase 238: persist the active-health fairness checkpoint for a scope.
+   * Monotonic guard: rejects stale writes that would move the cursor
+   * backwards within a cycle. A null cursor (wrap) always succeeds.
+   * Returns true when the row was written or updated, false when the
+   * monotonic guard rejected a stale write.
+   */
+  /**
+   * Phase 238 fix: true optimistic CAS on generation, not lexical cursor
+   * comparison. expectedGeneration < 0 means "I believe no row exists yet";
+   * attempts INSERT with generation=0. Otherwise UPDATEs only when the stored
+   * generation equals expectedGeneration exactly, bumping to +1. Returns
+   * true only when the write was actually applied.
+   */
+  async setActiveHealthCheckpointAsync(
+    scopeKey: string,
+    expectedGeneration: number,
+    nextCursor: string | null,
+    now: number = Date.now(),
+  ): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    if (expectedGeneration < 0) {
+      const res = await engine.prepareAsync(`
+        INSERT INTO active_health_checkpoints (scope_key, cursor, generation, updated_at)
+        VALUES (?, ?, 0, ?)
+        ON CONFLICT (scope_key) DO NOTHING
+      `).run(scopeKey, nextCursor, now);
+      return (res?.changes ?? 0) > 0;
+    }
+    const res = await engine.prepareAsync(`
+      UPDATE active_health_checkpoints
+      SET cursor = ?, generation = generation + 1, updated_at = ?
+      WHERE scope_key = ? AND generation = ?
+    `).run(nextCursor, now, scopeKey, expectedGeneration);
+    return (res?.changes ?? 0) > 0;
+  }
+
   async listRecoverableReleaseIntentsAsync(): Promise<ReleaseDeploymentIntent[]> {
     const engine = this.requireAsyncDb();
     const rows = await engine.prepareAsync(`

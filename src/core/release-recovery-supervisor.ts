@@ -69,6 +69,13 @@ export interface ActiveHealthPhaseReport {
   cursorAfter: string | null;
   wrapped: boolean;
   capReached: boolean;
+  checkpointLoaded: boolean;
+  checkpointPersisted: boolean;
+  checkpointError: string | null;
+  /** Phase 238 fix: generation in effect when this tick loaded the checkpoint. */
+  checkpointGeneration: number | null;
+  /** Phase 238 fix: true when CAS lost a race with a concurrent writer. */
+  checkpointConflict: boolean;
 }
 
 export interface ReleaseRecoverySupervisorDeps {
@@ -118,6 +125,10 @@ export class ReleaseRecoverySupervisor {
   private lastActiveHealthPhase: ActiveHealthPhaseReport | null = null;
   /** Phase 237: keyset cursor over ACTIVE intents. Null = start from beginning. */
   private activeHealthCursor: string | null = null;
+  /** Phase 238: whether the cursor has been loaded from durable storage. */
+  private activeHealthCheckpointLoaded = false;
+  /** Phase 238 fix: durable generation of the loaded checkpoint, or null before load. */
+  private activeHealthCheckpointGeneration: number | null = null;
 
   constructor(deps: ReleaseRecoverySupervisorDeps) {
     if (!deps.workerId) {
@@ -276,8 +287,36 @@ export class ReleaseRecoverySupervisor {
       cursorAfter: this.activeHealthCursor,
       wrapped: false,
       capReached: false,
+      checkpointLoaded: false,
+      checkpointPersisted: false,
+      checkpointError: null,
+      checkpointGeneration: null,
+      checkpointConflict: false,
     };
     try {
+      const scopeKey =
+        "release-recovery-supervisor/" +
+        (this.deps.activeHealthEnvironmentFilter ?? "__global__");
+
+      // Load durable checkpoint once per supervisor instance.
+      if (!this.activeHealthCheckpointLoaded) {
+        try {
+          const cp = await intents.getActiveHealthCheckpointAsync(scopeKey);
+          if (cp) {
+            this.activeHealthCursor = cp.cursor;
+            this.activeHealthCheckpointGeneration = cp.generation;
+            report.checkpointLoaded = true;
+          } else {
+            this.activeHealthCursor = null;
+            this.activeHealthCheckpointGeneration = -1;
+          }
+        } catch (e) {
+          report.checkpointError = ReleaseRecoverySupervisor.normalizeError(e);
+        }
+        this.activeHealthCheckpointLoaded = true;
+      }
+      report.checkpointGeneration = this.activeHealthCheckpointGeneration;
+
       const rows = await intents.listActiveIntentsAfterCursorAsync(
         this.activeHealthCursor,
         cap + 1,
@@ -286,14 +325,18 @@ export class ReleaseRecoverySupervisor {
       const exhausted = rows.length <= cap;
       const slice = exhausted ? rows : rows.slice(0, cap);
       report.capReached = !exhausted;
-      if (exhausted) {
-        this.activeHealthCursor = null;
-        report.wrapped = true;
-      } else {
-        this.activeHealthCursor = slice[slice.length - 1].intentKey;
-      }
-      report.cursorAfter = this.activeHealthCursor;
+
+      // Compute next cursor locally; do NOT mutate instance state yet.
+      const nextCursor: string | null = exhausted
+        ? null
+        : slice[slice.length - 1].intentKey;
+      const loadedGen = this.activeHealthCheckpointGeneration;
+      const nextGeneration: number = loadedGen === -1 ? 0 : (loadedGen ?? 0) + 1;
+
+      report.cursorAfter = nextCursor;
+      report.wrapped = exhausted;
       report.scanned = slice.length;
+
       for (const intent of slice) {
         try {
           const r = await activation.observeActiveHealth(intent.intentKey, workerId);
@@ -304,6 +347,39 @@ export class ReleaseRecoverySupervisor {
           report.blocked++;
         }
       }
+
+      // CAS persistence: commit local state ONLY on success.
+      const expectedGen = loadedGen ?? -1;
+      try {
+        const okWrite = await intents.setActiveHealthCheckpointAsync(
+          scopeKey,
+          expectedGen,
+          nextCursor,
+        );
+        if (okWrite) {
+          this.activeHealthCursor = nextCursor;
+          this.activeHealthCheckpointGeneration = nextGeneration;
+          report.checkpointPersisted = true;
+        } else {
+          report.checkpointPersisted = false;
+          report.checkpointConflict = true;
+          // Reload durable state so next tick starts from truth.
+          try {
+            const cp = await intents.getActiveHealthCheckpointAsync(scopeKey);
+            if (cp) {
+              this.activeHealthCursor = cp.cursor;
+              this.activeHealthCheckpointGeneration = cp.generation;
+            } else {
+              this.activeHealthCursor = null;
+              this.activeHealthCheckpointGeneration = -1;
+            }
+          } catch (e) {
+            report.checkpointError = ReleaseRecoverySupervisor.normalizeError(e);
+          }
+        }
+      } catch (e) {
+        report.checkpointError = ReleaseRecoverySupervisor.normalizeError(e);
+      }
     } catch (e) {
       this.lastError = ReleaseRecoverySupervisor.normalizeError(e);
     } finally {
@@ -311,7 +387,6 @@ export class ReleaseRecoverySupervisor {
       this.lastActiveHealthPhase = report;
     }
   }
-
   private async tick(): Promise<void> {
     if (this.state !== "RUNNING") return;
     if (this.inFlight) {

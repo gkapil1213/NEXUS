@@ -258,6 +258,22 @@ export class ReleaseDeploymentIntentService {
   async listByStatusAsync(status: ReleaseIntentStatus): Promise<ReleaseDeploymentIntent[]> {
     return this.store.listReleaseIntentsByStatusAsync(status);
   }
+  /** Phase 238: read durable active-health fairness checkpoint for a scope. */
+  async getActiveHealthCheckpointAsync(
+    scopeKey: string,
+  ): Promise<{ cursor: string | null; generation: number } | null> {
+    return this.store.getActiveHealthCheckpointAsync(scopeKey);
+  }
+
+  /** Phase 238 fix: CAS on generation. */
+  async setActiveHealthCheckpointAsync(
+    scopeKey: string,
+    expectedGeneration: number,
+    nextCursor: string | null,
+  ): Promise<boolean> {
+    return this.store.setActiveHealthCheckpointAsync(scopeKey, expectedGeneration, nextCursor);
+  }
+
   /** Phase 237: keyset-paginated ACTIVE listing for fair health observation. */
   async listActiveIntentsAfterCursorAsync(
     afterIntentKey: string | null,

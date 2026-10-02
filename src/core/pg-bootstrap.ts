@@ -292,6 +292,24 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_workers_status ON execution_workers (status)`);
 
+    // Phase 238: durable active-health observation fairness checkpoint.
+    // Scheduling-only state. Never authoritative for deployment, release,
+    // recovery, or provider state. cursor = NULL means "start of cycle".
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS active_health_checkpoints (
+        scope_key  TEXT PRIMARY KEY,
+        cursor     TEXT,
+        generation BIGINT NOT NULL DEFAULT 0,
+        updated_at BIGINT NOT NULL
+      )
+    `);
+    // Phase 238: idempotent migration for tables created before the
+    // generation column existed. ADD COLUMN IF NOT EXISTS is a no-op
+    // when the column is already present.
+    await client.query(
+      `ALTER TABLE active_health_checkpoints ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 0`
+    );
+
     // Phase 188: execution_artifacts is now a first-class PG table so that
     // artifact publication is transactional with attempt completion.
     // Columns mirror the SQLite base (020) plus 025 integrity additions

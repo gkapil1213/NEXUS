@@ -1,0 +1,36 @@
+﻿PHASE 237 REGRESSION EVIDENCE
+============================================
+Source: scripts/test-phase237-fair-active-health.ts
+Run: npm run test:phase237 (shared PostgreSQL)
+Observed (reproduced in two consecutive runs):
+
+PASS  237A supervisor lifecycle methods present
+PASS  237A intent service exposes cursor API
+PASS  237B first tick bounded by cap
+PASS  237E cap reached with more remaining
+PASS  237E cursor advanced
+PASS  237C fewer than cap -> all observed, wrapped
+PASS  237D exactly cap -> all observed, wrapped
+PASS  237F multiple ticks needed (>50 with cap=10)
+PASS  237H second cursor differs from first
+PASS  237G full cycle wrapped
+PASS  237G all 55 intents observed
+PASS  237I new intent observed
+PASS  237K cycle completes despite ACTIVE loss
+PASS  237L restart begins cycle
+PASS  237L restart resumes from durable checkpoint
+PASS  237M overlapping runNow() identical in-flight result
+PASS  237N UNKNOWN preserves ACTIVE
+PASS  237N BLOCKED preserves ACTIVE
+PASS  237O UNHEALTHY -> HEALTH_DEGRADED
+PASS  237O existing classifier -> RECOVERY_REQUIRED
+PASS  237P phase235 PASS:35
+PASS  237P phase236 output shows PASS:25
+PASS  237Q TypeScript compilation
+
+============================================
+PASS: 23
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================

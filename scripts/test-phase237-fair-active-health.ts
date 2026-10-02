@@ -30,6 +30,23 @@ function finish(): number {
   console.log("BLOCKED: " + blocked);
   console.log("NOT EXECUTED: " + notExec);
   console.log("============================================");
+  // Phase 238: write our own summary evidence file so shell redirection
+  // quirks (PowerShell 5.1 dropping native stderr) can't corrupt it.
+  try {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const dir = path.resolve(process.cwd(), "artifacts", "phase237");
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const out =
+      "PHASE 237 EVIDENCE (written by scripts/test-phase237-fair-active-health.ts)\n" +
+      "============================================\n" +
+      "PASS: " + pass + "\n" +
+      "FAIL: " + fail + "\n" +
+      "BLOCKED: " + blocked + "\n" +
+      "NOT EXECUTED: " + notExec + "\n" +
+      "============================================\n";
+    fs.writeFileSync(path.join(dir, "reg237.txt"), out, "utf8");
+  } catch { /* evidence write failure must not change test result */ }
   return fail > 0 ? 1 : 0;
 }
 function uniq(tag: string): string {
@@ -236,11 +253,17 @@ async function main() {
       const r1 = await tick(sup1);
       const sup2 = makeSupervisor(kernel, intents!, new FakeRouter("HEALTHY"), env, 3);
       const r2 = await tick(sup2);
-      ok("237L restart begins fresh cycle",
+      ok("237L restart begins cycle",
          r1?.scanned === 3 && r2?.scanned === 3,
          "r1=" + r1?.scanned + " r2=" + r2?.scanned);
-      ok("237L restart cursor not inherited",
-         r1?.cursorAfter === r2?.cursorAfter,
+      // Phase 238 changed the restart semantics: a fresh supervisor now
+      // loads the durable checkpoint and continues from it. With 6 intents
+      // and cap=3, r1 observes [1..3] (cursor=key3), r2 loads that cursor,
+      // observes [4..6] and wraps (cursor=null). The old in-memory assertion
+      // that "r2 restarts at null" is obsolete — Phase 238 §8 mandates the
+      // new resume-from-checkpoint behavior.
+      ok("237L restart resumes from durable checkpoint",
+         (r1?.cursorAfter !== null) && (r2?.cursorAfter === null || r2?.cursorAfter > r1?.cursorAfter),
          "r1.c=" + r1?.cursorAfter + " r2.c=" + r2?.cursorAfter);
     }
 
