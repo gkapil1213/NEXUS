@@ -1,0 +1,13 @@
+PHASE 241 EVIDENCE
+============================================
+PASS: 44
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+Test: scripts/test-phase241-execution-recovery-claims.ts
+Command: npm run test:phase241
+Environment: shared PostgreSQL + isolated in-memory SQLite (241T)
+Regressions: 235=35/0/1, 236=25/0/1, 237=23/0/0, 238=60/0/0, 239=56/0/0, 240=25/0/0
+TypeScript: exit 0
+git diff --check: clean
