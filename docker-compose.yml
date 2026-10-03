@@ -1,0 +1,37 @@
+# NEXUS — local shared-mode PostgreSQL for tests and dev.
+#
+# Reuses the existing named volume `nexus-pg-data` (marked external so
+# Compose never tries to recreate or delete it).
+# Connection: postgres://postgres:postgres@localhost:55432/nexus
+#
+# Usage:
+#   docker compose up -d      start Postgres (idempotent)
+#   docker compose ps         check status
+#   docker compose logs -f    tail logs
+#   docker compose stop       stop (volume + container preserved)
+#   docker compose down       remove container (volume preserved)
+# Never use: docker compose down -v   (that deletes the volume)
+
+services:
+  nexus-pg:
+    image: postgres:16
+    container_name: nexus-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nexus
+    ports:
+      - "55432:5432"
+    volumes:
+      - nexus-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nexus"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  nexus-pg-data:
+    name: nexus-pg-data
+    external: true
