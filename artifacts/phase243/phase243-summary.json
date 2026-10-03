@@ -1,0 +1,15 @@
+﻿{
+    "phase":  243,
+    "verifier":  "scripts/test-phase243-durable-recovery-orchestration.ts",
+    "persistenceMode":  "shared",
+    "database":  "PostgreSQL",
+    "postgresContainer":  "nexus-pg",
+    "result":  "PASS",
+    "pass":  39,
+    "fail":  0,
+    "blocked":  0,
+    "notExecuted":  0,
+    "phase242Regression":  "PASS:30",
+    "evidenceLog":  "artifacts/phase243/phase243-verification.log",
+    "generatedAtUtc":  "2026-10-03T15:07:49.1351091Z"
+}
