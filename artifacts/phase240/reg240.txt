@@ -1,0 +1,11 @@
+PHASE 240 EVIDENCE
+============================================
+PASS: 25
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+Test: scripts/test-phase240-supervisor-lease-hardening.ts
+Command: npm run test:phase240
+Environment: shared PostgreSQL (NEXUS_PERSISTENCE_MODE=shared)
+Cases: 240A-240T

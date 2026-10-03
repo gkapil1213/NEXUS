@@ -121,6 +121,11 @@ const SOURCE = "ReleaseRecoverySupervisor";
 
 type SupervisorTrigger = "scheduled" | "manual" | "final";
 
+type SupervisorLeaseRenewalResult =
+  | { status: "RENEWED"; generation: number; leaseUntil: number }
+  | { status: "OWNERSHIP_LOST"; generation: number }
+  | { status: "PERSISTENCE_UNAVAILABLE"; generation: number; error: string };
+
 export class ReleaseRecoverySupervisor {
   private readonly deps: ReleaseRecoverySupervisorDeps;
   private state: RecoverySupervisorState = "STOPPED";
@@ -312,20 +317,20 @@ export class ReleaseRecoverySupervisor {
   async runNow(): Promise<RecoveryRunReport> {
     // Phase 239: runNow must not bypass durable supervisor ownership.
     if (this.deps.supervisorLease && this.deps.intents) {
-      const gen = this.supervisorLeaseGeneration;
-      if (gen === null) return this.notOwnerReport("SUPERVISOR_LEASE_NOT_HELD");
-      const ok = await this.deps.intents.renewSupervisorLeaseAsync(
-        this.deps.supervisorLease.scopeKey,
-        this.deps.workerId,
-        gen,
-        this.deps.supervisorLease.ttlMs,
-      );
-      if (!ok) {
-        this.ownedBySelf = false;
-        this.lastError = "SUPERVISOR_LEASE_LOST";
-        return this.notOwnerReport("SUPERVISOR_LEASE_LOST");
+      const r = await this.renewSupervisorLeaseClassified();
+      if (r) {
+        if (r.status === "RENEWED") {
+          this.supervisorLeaseUntil = r.leaseUntil;
+        } else if (r.status === "OWNERSHIP_LOST") {
+          this.ownedBySelf = false;
+          this.lastError = "SUPERVISOR_LEASE_LOST";
+          return this.notOwnerReport("SUPERVISOR_LEASE_LOST");
+        } else {
+          this.ownedBySelf = false;
+          this.lastError = "SUPERVISOR_LEASE_PERSISTENCE_UNAVAILABLE";
+          return this.notOwnerReport("SUPERVISOR_LEASE_PERSISTENCE_UNAVAILABLE");
+        }
       }
-      this.supervisorLeaseUntil = Date.now() + this.deps.supervisorLease.ttlMs;
     }
     if (this.inFlight) {
       return this.inFlight;
@@ -485,28 +490,62 @@ export class ReleaseRecoverySupervisor {
       this.lastActiveHealthPhase = report;
     }
   }
-  private async tick(): Promise<void> {
-    if (this.state !== "RUNNING") return;
-    if (this.deps.supervisorLease && this.deps.intents) {
-      const gen = this.supervisorLeaseGeneration;
-      if (gen === null) { this.ownedBySelf = false; return; }
+  /**
+   * Phase 240: classify lease renewal into three outcomes. PostgreSQL
+   * connectivity errors must never be reported as OWNERSHIP_LOST, and
+   * RENEWED must never be returned without a confirmed fenced UPDATE.
+   */
+  private async renewSupervisorLeaseClassified(): Promise<SupervisorLeaseRenewalResult | null> {
+    if (!this.deps.supervisorLease || !this.deps.intents) return null;
+    const gen = this.supervisorLeaseGeneration;
+    if (gen === null) return { status: "OWNERSHIP_LOST", generation: -1 };
+    const ttl = this.deps.supervisorLease.ttlMs;
+    try {
       const ok = await this.deps.intents.renewSupervisorLeaseAsync(
         this.deps.supervisorLease.scopeKey,
         this.deps.workerId,
         gen,
-        this.deps.supervisorLease.ttlMs,
+        ttl,
       );
-      if (!ok) {
+      if (ok) return { status: "RENEWED", generation: gen, leaseUntil: Date.now() + ttl };
+      return { status: "OWNERSHIP_LOST", generation: gen };
+    } catch (e) {
+      return {
+        status: "PERSISTENCE_UNAVAILABLE",
+        generation: gen,
+        error: ReleaseRecoverySupervisor.normalizeError(e),
+      };
+    }
+  }
+
+  private async tick(): Promise<void> {
+    if (this.state !== "RUNNING") return;
+    if (this.deps.supervisorLease && this.deps.intents) {
+      const r = await this.renewSupervisorLeaseClassified();
+      if (!r) return;
+      if (r.status === "RENEWED") {
+        this.supervisorLeaseUntil = r.leaseUntil;
+      } else if (r.status === "OWNERSHIP_LOST") {
         this.ownedBySelf = false;
         this.lastError = "SUPERVISOR_LEASE_LOST";
         await this.safeEmit("release.recovery.supervisor.lease_lost", {
           workerId: this.deps.workerId,
           scope: this.deps.supervisorLease.scopeKey,
-          generation: gen,
+          generation: r.generation,
+        });
+        return;
+      } else {
+        this.ownedBySelf = false;
+        this.lastError = "SUPERVISOR_LEASE_PERSISTENCE_UNAVAILABLE";
+        await this.safeEmit("release.recovery.supervisor.lease_renewal_failed", {
+          workerId: this.deps.workerId,
+          scope: this.deps.supervisorLease.scopeKey,
+          generation: r.generation,
+          reason: "PERSISTENCE_UNAVAILABLE",
+          error: r.error,
         });
         return;
       }
-      this.supervisorLeaseUntil = Date.now() + this.deps.supervisorLease.ttlMs;
     }
     if (this.inFlight) {
       this.skippedTicks++;
@@ -553,6 +592,31 @@ export class ReleaseRecoverySupervisor {
       trigger,
       startedAt,
     });
+
+    // Phase 240: authoritative ownership fence immediately before admitting
+    // any owned work. No async gap between this check and the first owned
+    // operation. On failure, execution is blocked with a classified reason.
+    {
+      const fence = await this.renewSupervisorLeaseClassified();
+      if (fence) {
+        if (fence.status === "RENEWED") {
+          this.supervisorLeaseUntil = fence.leaseUntil;
+        } else {
+          this.ownedBySelf = false;
+          const reason = fence.status === "OWNERSHIP_LOST"
+            ? "SUPERVISOR_LEASE_LOST"
+            : "SUPERVISOR_LEASE_PERSISTENCE_UNAVAILABLE";
+          this.lastError = reason;
+          await this.safeEmit("release.recovery.supervisor.execution_blocked_by_lease", {
+            workerId: this.deps.workerId,
+            scope: this.deps.supervisorLease?.scopeKey ?? null,
+            generation: fence.generation,
+            reason,
+          });
+          return this.notOwnerReport(reason);
+        }
+      }
+    }
 
     // Phase 236: optional active-health observation phase. Runs first so any
     // UNHEALTHY -> HEALTH_DEGRADED transition lands in durable state before

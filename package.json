@@ -63,7 +63,8 @@
     "test:phase236": "tsx scripts/test-phase236-active-health-lifecycle.ts",
     "test:phase237": "tsx scripts/test-phase237-fair-active-health.ts",
     "test:phase238": "tsx scripts/test-phase238-durable-active-health.ts",
-    "test:phase239": "tsx scripts/test-phase239-supervisor-leases.ts"
+    "test:phase239": "tsx scripts/test-phase239-supervisor-leases.ts",
+    "test:phase240": "tsx scripts/test-phase240-supervisor-lease-hardening.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",
