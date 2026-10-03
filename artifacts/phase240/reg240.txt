@@ -9,3 +9,11 @@ Test: scripts/test-phase240-supervisor-lease-hardening.ts
 Command: npm run test:phase240
 Environment: shared PostgreSQL (NEXUS_PERSISTENCE_MODE=shared)
 Cases: 240A-240T
+
+Build gate (npm run build):
+  STATUS: BLOCKED
+  REASON: pre-existing Vite browser-boundary failure — server-only
+          node:crypto import reached from the browser bundle via
+          src/core/engineering-implementation-orchestrator.ts (and
+          engineering-plan-validator.ts, engineering-security-review-executor.ts).
+          Not caused by Phase 240 and out of Phase 240 scope per §20.
