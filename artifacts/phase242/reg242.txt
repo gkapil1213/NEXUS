@@ -1,0 +1,17 @@
+PHASE 242 EVIDENCE
+============================================
+PASS: 30
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+Test: scripts/test-phase242-durable-retry.ts
+Command: npm run test:phase242
+Environment: shared PostgreSQL
+
+Regressions:
+  Phase 239: PASS 56 / FAIL 0 / BLOCKED 0 / NOT EXECUTED 0
+  Phase 240: PASS 25 / FAIL 0 / BLOCKED 0 / NOT EXECUTED 0
+  Phase 241: PASS 44 / FAIL 0 / BLOCKED 0 / NOT EXECUTED 0
+TypeScript: exit 0
+git diff --check: clean

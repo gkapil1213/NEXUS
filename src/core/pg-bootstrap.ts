@@ -141,6 +141,12 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_ero_job_type
         ON execution_recovery_operations (job_id, operation_type)
     `);
+
+    // Phase 242: durable retry metadata on execution recovery operations.
+    // Additive and idempotent.
+    await client.query(`ALTER TABLE execution_recovery_operations ADD COLUMN IF NOT EXISTS next_attempt_at BIGINT`);
+    await client.query(`ALTER TABLE execution_recovery_operations ADD COLUMN IF NOT EXISTS last_failure_class TEXT`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ero_next_attempt ON execution_recovery_operations (state, next_attempt_at)`)
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_ero_state_updated
         ON execution_recovery_operations (state, updated_at)

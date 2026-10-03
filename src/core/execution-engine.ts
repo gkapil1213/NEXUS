@@ -1,4 +1,5 @@
 import { ExecutionRecoveryOperationType, AsyncExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
+import { classifyOperationFailure } from "./operation-failure-classification";
 import { CONFIG } from "./config";
 import { ExecutionStore } from "./execution-store";
 import { ExecutionStateMachine } from "./execution-state-machine";
@@ -786,13 +787,13 @@ export class ExecutionEngine {
                 await ops.markRecoveryRequired(op.operationId, owner, result.recoveryRequired, input.now);
                 return;
             }
-            await ops.markFailed(op.operationId, owner, result.error ?? "RECOVERY_FAILED", input.now);
+            await ops.markFailed(op.operationId, owner, result.error ?? "RECOVERY_FAILED", input.now, (() => { const c = classifyOperationFailure(result.error ?? "RECOVERY_FAILED"); return { failureClass: c, nextAttemptAt: c === "RETRYABLE" ? input.now + 1000 : null }; })());
         } catch (err: any) {
             if (watchdog.ownershipLost()) {
                 this.__testPhase241Hook?.(op.operationId, "ownership-lost-before-fail");
                 return;
             }
-            await ops.markFailed(op.operationId, owner, String(err?.message ?? err), input.now);
+            await ops.markFailed(op.operationId, owner, String(err?.message ?? err), input.now, (() => { const c = classifyOperationFailure(String(err?.message ?? err)); return { failureClass: c, nextAttemptAt: c === "RETRYABLE" ? input.now + 1000 : null }; })());
         } finally {
             watchdog.stop();
         }

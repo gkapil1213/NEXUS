@@ -45,6 +45,8 @@ export interface ExecutionRecoveryOperation {
   createdAt: number;
   updatedAt: number;
   completedAt: number | null;
+  nextAttemptAt: number | null;
+  lastFailureClass: string | null;
 }
 
 function generateId(): string {
@@ -76,6 +78,8 @@ function mapRow(row: any): ExecutionRecoveryOperation {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at ?? null,
+    nextAttemptAt: row.next_attempt_at == null ? null : Number(row.next_attempt_at),
+    lastFailureClass: row.last_failure_class ?? null,
   };
 }
 
@@ -265,7 +269,13 @@ export class ExecutionRecoveryOperationStore {
     return result.changes === 1;
   }
 
-  markFailed(operationId: string, owner: string, error: string, now: number = Date.now()): boolean {
+  markFailed(
+    operationId: string,
+    owner: string,
+    error: string,
+    now: number = Date.now(),
+    opts?: { failureClass?: string | null; nextAttemptAt?: number | null },
+  ): boolean {
     const result = this.db
       .prepare(
         "UPDATE execution_recovery_operations " +
@@ -273,13 +283,20 @@ export class ExecutionRecoveryOperationStore {
         "       claim_owner = NULL, " +
         "       claim_expires_at = NULL, " +
         "       last_error = ?, " +
+        "       last_failure_class = COALESCE(?, last_failure_class), " +
+        "       next_attempt_at = COALESCE(?, next_attempt_at), " +
         "       updated_at = ? " +
         " WHERE operation_id = ? " +
         "   AND claim_owner = ? " +
         "   AND claim_expires_at IS NOT NULL AND claim_expires_at > ? " +
         "   AND state IN ('CLAIMED','IN_PROGRESS')"
       )
-      .run(String(error).slice(0, 2000), now, operationId, owner, now);
+      .run(
+        String(error).slice(0, 2000),
+        opts?.failureClass ?? null,
+        opts?.nextAttemptAt ?? null,
+        now, operationId, owner, now,
+      );
     return result.changes === 1;
   }
 
@@ -446,15 +463,16 @@ export class ExecutionRecoveryOperationStore {
    * RECOVERY_REQUIRED stays excluded: it is a deliberate operator signal and
    * must not be auto-retried.
    */
-  listResumableOperations(): ExecutionRecoveryOperation[] {
+  listResumableOperations(now: number = Date.now()): ExecutionRecoveryOperation[] {
     const rows = this.db
       .prepare(
         "SELECT * FROM execution_recovery_operations " +
-        " WHERE state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
-        "    OR state = 'FAILED' " +
+        " WHERE (state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
+        "    OR state = 'FAILED') " +
+        "   AND (next_attempt_at IS NULL OR next_attempt_at <= ?) " +
         " ORDER BY created_at ASC"
       )
-      .all() as any[];
+      .all(now) as any[];
     return rows.map(mapRow);
   }
 }
@@ -613,6 +631,7 @@ export class AsyncExecutionRecoveryOperationStore {
     owner: string,
     error: string,
     now: number = Date.now(),
+    opts?: { failureClass?: string | null; nextAttemptAt?: number | null },
   ): Promise<boolean> {
     const r = await this.asyncDb.prepareAsync(
       "UPDATE execution_recovery_operations " +
@@ -620,12 +639,14 @@ export class AsyncExecutionRecoveryOperationStore {
       "       claim_owner = NULL, " +
       "       claim_expires_at = NULL, " +
       "       last_error = ?, " +
+      "       last_failure_class = COALESCE(?, last_failure_class), " +
+      "       next_attempt_at = COALESCE(?, next_attempt_at), " +
       "       updated_at = ? " +
       " WHERE operation_id = ? " +
       "   AND claim_owner = ? " +
       "   AND claim_expires_at IS NOT NULL AND claim_expires_at > ? " +
       "   AND state IN ('CLAIMED','IN_PROGRESS')",
-    ).run(error, now, operationId, owner, now);
+    ).run(String(error).slice(0, 2000), opts?.failureClass ?? null, opts?.nextAttemptAt ?? null, now, operationId, owner, now);
     return r.changes === 1;
   }
 
@@ -661,13 +682,14 @@ export class AsyncExecutionRecoveryOperationStore {
     return rows.map(mapRow);
   }
 
-  async listResumableOperations(): Promise<ExecutionRecoveryOperation[]> {
+  async listResumableOperations(now: number = Date.now()): Promise<ExecutionRecoveryOperation[]> {
     const rows = await this.asyncDb.prepareAsync(
       "SELECT * FROM execution_recovery_operations " +
-      " WHERE state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
-      "    OR state = 'FAILED' " +
+      " WHERE (state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
+      "    OR state = 'FAILED') " +
+      "   AND (next_attempt_at IS NULL OR next_attempt_at <= ?) " +
       " ORDER BY created_at ASC"
-    ).all<any>();
+    ).all<any>(now);
     return rows.map(mapRow);
   }
 
