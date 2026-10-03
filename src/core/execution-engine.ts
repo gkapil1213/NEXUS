@@ -1,4 +1,4 @@
-import { ExecutionRecoveryOperationType } from "./execution-recovery-operation-store";
+import { ExecutionRecoveryOperationType, AsyncExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
 import { CONFIG } from "./config";
 import { ExecutionStore } from "./execution-store";
 import { ExecutionStateMachine } from "./execution-state-machine";
@@ -184,10 +184,78 @@ export class ExecutionEngine {
     private readonly recoveryInstanceId = generateUUID();
     /** @internal Phase 144 - test-only injection hook. No-op in production. */
     public __testPhase144Hook?: (stage: string) => void;
+    /** @internal Phase 241 - test-only injection hook. No-op in production. */
+    public __testPhase241Hook?: (operationId: string, reason: string) => void;
+    /** @internal Phase 241 - test-only override of watchdog interval. */
+    public __testPhase241WatchdogIntervalMs?: number;
 
     private recoveryOwnerId(): string {
         const pid = (typeof process !== "undefined" && process.pid) ? String(process.pid) : "0";
         return "engine-" + pid + "-" + this.recoveryInstanceId;
+    }
+
+    /**
+     * Phase 241: start a claim-renewal watchdog for an active recovery
+     * operation. Returns a handle with stop() and an ownershipLost flag.
+     * Uses the existing renewOperationClaim() CAS on the existing
+     * execution_recovery_operations table. No new scheduler, no new table.
+     *
+     * Interval is 1/3 of the claim duration (20s for the current 60s TTL),
+     * giving ample margin for event-loop delay, GC, and database latency.
+     * The timer is unref()'d so it cannot hold the process alive.
+     */
+    private startRecoveryClaimWatchdog(opts: {
+        ops: AsyncExecutionRecoveryOperationStore;
+        operationId: string;
+        owner: string;
+        claimDurationMs: number;
+        intervalMs?: number;
+        onRenewalFailure?: (reason: string) => void;
+    }): { stop: () => void; ownershipLost: () => boolean } {
+        let ownershipLost = false;
+        let inFlight = false;
+        let stopped = false;
+        const interval = opts.intervalMs ?? this.__testPhase241WatchdogIntervalMs ?? Math.max(5_000, Math.floor(opts.claimDurationMs / 3));
+
+        const timer = setInterval(() => {
+            if (stopped || ownershipLost || inFlight) return;
+            inFlight = true;
+            void (async () => {
+                try {
+                    const r = await opts.ops.renewOperationClaim({
+                        operationId: opts.operationId,
+                        owner: opts.owner,
+                        durationMs: opts.claimDurationMs,
+                    });
+                    if (!r.renewed) {
+                        if (
+                            r.reason === "OWNERSHIP_LOST" ||
+                            r.reason === "EXPIRED" ||
+                            r.reason === "NOT_FOUND" ||
+                            r.reason === "TERMINAL"
+                        ) {
+                            ownershipLost = true;
+                            opts.onRenewalFailure?.(r.reason);
+                        }
+                    }
+                } catch (err) {
+                    // Persistence failure: do not claim success, do not flip
+                    // ownershipLost (the DB may still show us as owner). The
+                    // final fenced markCompleted() will decide.
+                    opts.onRenewalFailure?.("PERSISTENCE_UNAVAILABLE:" + String((err as any)?.message ?? err));
+                } finally {
+                    inFlight = false;
+                }
+            })();
+        }, interval);
+
+        // Never keep the process alive solely for this watchdog.
+        (timer as unknown as { unref?: () => void }).unref?.();
+
+        return {
+            stop: () => { stopped = true; clearInterval(timer); },
+            ownershipLost: () => ownershipLost,
+        };
     }
 
     /**
@@ -693,8 +761,22 @@ export class ExecutionEngine {
         if (!started) return;
         this.__testPhase144Hook?.("afterInProgress");
 
+        // Phase 241: keep the durable claim alive while the body runs.
+        const watchdog = this.startRecoveryClaimWatchdog({
+            ops,
+            operationId: op.operationId,
+            owner,
+            claimDurationMs: 60000,
+        });
         try {
             const result = await input.body();
+            // If ownership was lost mid-body, do NOT report completion.
+            // The fenced markCompleted below would refuse anyway, but we
+            // short-circuit to keep the reason unambiguous.
+            if (watchdog.ownershipLost()) {
+                this.__testPhase241Hook?.(op.operationId, "ownership-lost-before-complete");
+                return;
+            }
             if (result.ok) {
                 this.__testPhase144Hook?.("beforeComplete");
                 await ops.markCompleted(op.operationId, owner, input.now);
@@ -706,7 +788,13 @@ export class ExecutionEngine {
             }
             await ops.markFailed(op.operationId, owner, result.error ?? "RECOVERY_FAILED", input.now);
         } catch (err: any) {
+            if (watchdog.ownershipLost()) {
+                this.__testPhase241Hook?.(op.operationId, "ownership-lost-before-fail");
+                return;
+            }
             await ops.markFailed(op.operationId, owner, String(err?.message ?? err), input.now);
+        } finally {
+            watchdog.stop();
         }
     }
 

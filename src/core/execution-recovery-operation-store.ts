@@ -670,4 +670,50 @@ export class AsyncExecutionRecoveryOperationStore {
     ).all<any>();
     return rows.map(mapRow);
   }
-}
+
+  /**
+   * Phase 241: async sibling of renewOperationClaim. Extends claim_expires_at
+   * only when the caller still owns a live claim. Does NOT increment
+   * attempt_count and does NOT touch any state other than claim_expires_at
+   * and updated_at.
+   */
+  async renewOperationClaim(input: {
+    operationId: string;
+    owner: string;
+    durationMs: number;
+    now?: number;
+  }): Promise<{
+    renewed: boolean;
+    reason?: "NOT_FOUND" | "OWNERSHIP_LOST" | "TERMINAL" | "EXPIRED";
+    operation?: ExecutionRecoveryOperation;
+    expiresAt?: number;
+  }> {
+    const now = input.now ?? Date.now();
+    const expiresAt = now + input.durationMs;
+    const r = await this.asyncDb.prepareAsync(
+      "UPDATE execution_recovery_operations " +
+      "   SET claim_expires_at = ?, updated_at = ? " +
+      " WHERE operation_id = ? " +
+      "   AND claim_owner = ? " +
+      "   AND state IN ('CLAIMED','IN_PROGRESS') " +
+      "   AND claim_expires_at IS NOT NULL AND claim_expires_at > ?",
+    ).run(expiresAt, now, input.operationId, input.owner, now);
+
+    if (r.changes === 1) {
+      return { renewed: true, operation: await this.getOperation(input.operationId), expiresAt };
+    }
+    const current = await this.getOperation(input.operationId);
+    if (!current) return { renewed: false, reason: "NOT_FOUND" };
+    if (
+      current.state === "COMPLETED" ||
+      current.state === "FAILED" ||
+      current.state === "RECOVERY_REQUIRED" ||
+      current.state === "CANCELLED"
+    ) {
+      return { renewed: false, reason: "TERMINAL", operation: current };
+    }
+    if (current.claimOwner !== input.owner) {
+      return { renewed: false, reason: "OWNERSHIP_LOST", operation: current };
+    }
+    return { renewed: false, reason: "EXPIRED", operation: current };
+  }}
