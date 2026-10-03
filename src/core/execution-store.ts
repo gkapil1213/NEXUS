@@ -3891,6 +3891,125 @@ export class ExecutionStore {
     return (res?.changes ?? 0) > 0;
   }
 
+  /**
+   * Phase 239: atomic acquire-or-renew of a durable supervisor lease.
+   * Single UPDATE with conditional WHERE so concurrent callers cannot both win.
+   * Same owner with valid lease -> refresh expiry, generation unchanged.
+   * Different owner with expired lease -> generation+1 takeover.
+   * Different owner with valid lease -> not acquired, returns holder.
+   * Falls back to INSERT ... ON CONFLICT DO NOTHING when no row exists.
+   */
+  async acquireSupervisorLeaseAsync(
+    scopeKey: string,
+    ownerId: string,
+    ttlMs: number,
+    now: number = Date.now(),
+  ): Promise<{
+    acquired: boolean;
+    generation: number | null;
+    leaseUntil: number | null;
+    heldBy: string | null;
+  }> {
+    const engine = this.requireAsyncDb();
+    const until = now + ttlMs;
+
+    const upd = await engine.prepareAsync(`
+      UPDATE supervisor_leases
+      SET lease_until = ?, updated_at = ?,
+          generation = CASE WHEN owner_id = ? THEN generation ELSE generation + 1 END,
+          owner_id = ?
+      WHERE scope_key = ? AND (owner_id = ? OR lease_until < ?)
+    `).run(until, now, ownerId, ownerId, scopeKey, ownerId, now);
+
+    if ((upd?.changes ?? 0) > 0) {
+      const row = await engine.prepareAsync(
+        "SELECT owner_id, generation, lease_until FROM supervisor_leases WHERE scope_key = ?",
+      ).get<any>(scopeKey);
+      return {
+        acquired: true,
+        generation: Number(row?.generation ?? 0),
+        leaseUntil: Number(row?.lease_until ?? until),
+        heldBy: row?.owner_id ?? ownerId,
+      };
+    }
+
+    const ins = await engine.prepareAsync(`
+      INSERT INTO supervisor_leases (scope_key, owner_id, generation, lease_until, updated_at)
+      VALUES (?, ?, 0, ?, ?)
+      ON CONFLICT (scope_key) DO NOTHING
+    `).run(scopeKey, ownerId, until, now);
+
+    if ((ins?.changes ?? 0) > 0) {
+      return { acquired: true, generation: 0, leaseUntil: until, heldBy: ownerId };
+    }
+
+    const row = await engine.prepareAsync(
+      "SELECT owner_id, generation, lease_until FROM supervisor_leases WHERE scope_key = ?",
+    ).get<any>(scopeKey);
+    return {
+      acquired: false,
+      generation: null,
+      leaseUntil: null,
+      heldBy: row?.owner_id ?? null,
+    };
+  }
+
+  /**
+   * Phase 239: fenced renewal. Succeeds only if this exact owner and
+   * generation still holds a non-expired lease.
+   */
+  async renewSupervisorLeaseAsync(
+    scopeKey: string,
+    ownerId: string,
+    generation: number,
+    ttlMs: number,
+    now: number = Date.now(),
+  ): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const until = now + ttlMs;
+    const res = await engine.prepareAsync(`
+      UPDATE supervisor_leases
+      SET lease_until = ?, updated_at = ?
+      WHERE scope_key = ? AND owner_id = ? AND generation = ? AND lease_until > ?
+    `).run(until, now, scopeKey, ownerId, generation, now);
+    return (res?.changes ?? 0) > 0;
+  }
+
+  /**
+   * Phase 239: fenced release. Only the current owner+generation may delete
+   * its own row. A stale owner cannot release a newer owner's lease.
+   */
+  async releaseSupervisorLeaseAsync(
+    scopeKey: string,
+    ownerId: string,
+    generation: number,
+  ): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const res = await engine.prepareAsync(`
+      DELETE FROM supervisor_leases
+      WHERE scope_key = ? AND owner_id = ? AND generation = ?
+    `).run(scopeKey, ownerId, generation);
+    return (res?.changes ?? 0) > 0;
+  }
+
+  /** Phase 239: read current supervisor lease (or null). */
+  async getSupervisorLeaseAsync(scopeKey: string): Promise<{
+    ownerId: string;
+    generation: number;
+    leaseUntil: number;
+  } | null> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT owner_id, generation, lease_until FROM supervisor_leases WHERE scope_key = ?",
+    ).get<any>(scopeKey);
+    if (!row) return null;
+    return {
+      ownerId: row.owner_id,
+      generation: Number(row.generation ?? 0),
+      leaseUntil: Number(row.lease_until ?? 0),
+    };
+  }
+
   async listRecoverableReleaseIntentsAsync(): Promise<ReleaseDeploymentIntent[]> {
     const engine = this.requireAsyncDb();
     const rows = await engine.prepareAsync(`

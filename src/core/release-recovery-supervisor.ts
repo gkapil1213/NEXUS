@@ -37,6 +37,12 @@ export interface RecoverySupervisorStatus {
   activeRun: boolean;
   /** Phase 236: summary of the most recent active-health phase, or null. */
   activeHealthPhase: ActiveHealthPhaseReport | null;
+  /** Phase 239: true when this instance currently holds the supervisor lease. */
+  ownedBySelf: boolean;
+  /** Phase 239: durable supervisor lease generation, or null. */
+  supervisorLeaseGeneration: number | null;
+  /** Phase 239: durable supervisor lease expiry (ms), or null. */
+  supervisorLeaseUntil: number | null;
 }
 
 export interface RecoverySupervisorEventSink {
@@ -103,6 +109,12 @@ export interface ReleaseRecoverySupervisorDeps {
    * unrelated environments' intents.
    */
   activeHealthEnvironmentFilter?: string;
+  /**
+   * Phase 239: optional durable supervisor ownership lease. When provided,
+   * start() acquires it, tick() renews it, runNow() refuses when not owner,
+   * and stop() releases it. Absent -> Phase 238 behavior preserved.
+   */
+  supervisorLease?: { scopeKey: string; ttlMs: number };
 }
 
 const SOURCE = "ReleaseRecoverySupervisor";
@@ -127,6 +139,12 @@ export class ReleaseRecoverySupervisor {
   private activeHealthCursor: string | null = null;
   /** Phase 238: whether the cursor has been loaded from durable storage. */
   private activeHealthCheckpointLoaded = false;
+  /** Phase 239: durable supervisor lease generation held by this instance. */
+  private supervisorLeaseGeneration: number | null = null;
+  /** Phase 239: durable supervisor lease expiry (ms). */
+  private supervisorLeaseUntil: number | null = null;
+  /** Phase 239: true when this instance currently holds the supervisor lease. */
+  private ownedBySelf = false;
   /** Phase 238 fix: durable generation of the loaded checkpoint, or null before load. */
   private activeHealthCheckpointGeneration: number | null = null;
 
@@ -156,6 +174,35 @@ export class ReleaseRecoverySupervisor {
         workerId: this.deps.workerId,
         intervalMs: this.deps.intervalMs,
       });
+
+      if (this.deps.supervisorLease && this.deps.intents) {
+        const acq = await this.deps.intents.acquireSupervisorLeaseAsync(
+          this.deps.supervisorLease.scopeKey,
+          this.deps.workerId,
+          this.deps.supervisorLease.ttlMs,
+        );
+        if (!acq.acquired) {
+          this.ownedBySelf = false;
+          this.state = "STOPPED";
+          this.lastError = "SUPERVISOR_LEASE_HELD_BY:" + (acq.heldBy ?? "unknown");
+          await this.safeEmit("release.recovery.supervisor.lease_blocked", {
+            workerId: this.deps.workerId,
+            scope: this.deps.supervisorLease.scopeKey,
+            heldBy: acq.heldBy,
+          });
+          return;
+        }
+        this.ownedBySelf = true;
+        this.supervisorLeaseGeneration = acq.generation;
+        this.supervisorLeaseUntil = acq.leaseUntil;
+        await this.safeEmit("release.recovery.supervisor.lease_acquired", {
+          workerId: this.deps.workerId,
+          scope: this.deps.supervisorLease.scopeKey,
+          generation: acq.generation,
+        });
+      } else {
+        this.ownedBySelf = true;
+      }
 
       this.timer = setInterval(() => {
         void this.tick();
@@ -216,6 +263,29 @@ export class ReleaseRecoverySupervisor {
       }
     }
 
+    if (this.deps.supervisorLease && this.deps.intents && this.ownedBySelf) {
+      const gen = this.supervisorLeaseGeneration;
+      if (gen !== null) {
+        try {
+          const ok = await this.deps.intents.releaseSupervisorLeaseAsync(
+            this.deps.supervisorLease.scopeKey,
+            this.deps.workerId,
+            gen,
+          );
+          await this.safeEmit("release.recovery.supervisor.lease_released", {
+            workerId: this.deps.workerId,
+            scope: this.deps.supervisorLease.scopeKey,
+            generation: gen,
+            released: ok,
+          });
+        } catch (e) {
+          this.lastError = ReleaseRecoverySupervisor.normalizeError(e);
+        }
+      }
+      this.supervisorLeaseGeneration = null;
+      this.supervisorLeaseUntil = null;
+      this.ownedBySelf = false;
+    }
     this.startedAt = null;
     this.state = finalPassError ? "FAILED" : "STOPPED";
 
@@ -240,16 +310,44 @@ export class ReleaseRecoverySupervisor {
   }
 
   async runNow(): Promise<RecoveryRunReport> {
+    // Phase 239: runNow must not bypass durable supervisor ownership.
+    if (this.deps.supervisorLease && this.deps.intents) {
+      const gen = this.supervisorLeaseGeneration;
+      if (gen === null) return this.notOwnerReport("SUPERVISOR_LEASE_NOT_HELD");
+      const ok = await this.deps.intents.renewSupervisorLeaseAsync(
+        this.deps.supervisorLease.scopeKey,
+        this.deps.workerId,
+        gen,
+        this.deps.supervisorLease.ttlMs,
+      );
+      if (!ok) {
+        this.ownedBySelf = false;
+        this.lastError = "SUPERVISOR_LEASE_LOST";
+        return this.notOwnerReport("SUPERVISOR_LEASE_LOST");
+      }
+      this.supervisorLeaseUntil = Date.now() + this.deps.supervisorLease.ttlMs;
+    }
     if (this.inFlight) {
       return this.inFlight;
     }
     return this.runGuarded("manual");
   }
 
+  private notOwnerReport(reason: string): RecoveryRunReport {
+    return {
+      scanned: 0, acted: 0, skipped: 0, blocked: 1, leaseHeld: 0,
+      actions: [],
+      blockedReasons: [{ intentKey: "__supervisor__", reason }],
+    };
+  }
+
   status(): RecoverySupervisorStatus {
     return {
       state: this.state,
       workerId: this.deps.workerId,
+      ownedBySelf: this.ownedBySelf,
+      supervisorLeaseGeneration: this.supervisorLeaseGeneration,
+      supervisorLeaseUntil: this.supervisorLeaseUntil,
       startedAt: this.startedAt,
       lastRunAt: this.lastRunAt,
       lastRunDurationMs: this.lastRunDurationMs,
@@ -389,6 +487,27 @@ export class ReleaseRecoverySupervisor {
   }
   private async tick(): Promise<void> {
     if (this.state !== "RUNNING") return;
+    if (this.deps.supervisorLease && this.deps.intents) {
+      const gen = this.supervisorLeaseGeneration;
+      if (gen === null) { this.ownedBySelf = false; return; }
+      const ok = await this.deps.intents.renewSupervisorLeaseAsync(
+        this.deps.supervisorLease.scopeKey,
+        this.deps.workerId,
+        gen,
+        this.deps.supervisorLease.ttlMs,
+      );
+      if (!ok) {
+        this.ownedBySelf = false;
+        this.lastError = "SUPERVISOR_LEASE_LOST";
+        await this.safeEmit("release.recovery.supervisor.lease_lost", {
+          workerId: this.deps.workerId,
+          scope: this.deps.supervisorLease.scopeKey,
+          generation: gen,
+        });
+        return;
+      }
+      this.supervisorLeaseUntil = Date.now() + this.deps.supervisorLease.ttlMs;
+    }
     if (this.inFlight) {
       this.skippedTicks++;
       await this.safeEmit("release.recovery.supervisor.tick_skipped", {

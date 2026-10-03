@@ -258,6 +258,47 @@ export class ReleaseDeploymentIntentService {
   async listByStatusAsync(status: ReleaseIntentStatus): Promise<ReleaseDeploymentIntent[]> {
     return this.store.listReleaseIntentsByStatusAsync(status);
   }
+  /** Phase 239: atomic acquire-or-renew supervisor lease. */
+  async acquireSupervisorLeaseAsync(
+    scopeKey: string,
+    ownerId: string,
+    ttlMs: number,
+    now?: number,
+  ): Promise<{
+    acquired: boolean;
+    generation: number | null;
+    leaseUntil: number | null;
+    heldBy: string | null;
+  }> {
+    return this.store.acquireSupervisorLeaseAsync(scopeKey, ownerId, ttlMs, now);
+  }
+
+  /** Phase 239: fenced renewal. */
+  async renewSupervisorLeaseAsync(
+    scopeKey: string,
+    ownerId: string,
+    generation: number,
+    ttlMs: number,
+  ): Promise<boolean> {
+    return this.store.renewSupervisorLeaseAsync(scopeKey, ownerId, generation, ttlMs);
+  }
+
+  /** Phase 239: fenced release. */
+  async releaseSupervisorLeaseAsync(
+    scopeKey: string,
+    ownerId: string,
+    generation: number,
+  ): Promise<boolean> {
+    return this.store.releaseSupervisorLeaseAsync(scopeKey, ownerId, generation);
+  }
+
+  /** Phase 239: read supervisor lease. */
+  async getSupervisorLeaseAsync(
+    scopeKey: string,
+  ): Promise<{ ownerId: string; generation: number; leaseUntil: number } | null> {
+    return this.store.getSupervisorLeaseAsync(scopeKey);
+  }
+
   /** Phase 238: read durable active-health fairness checkpoint for a scope. */
   async getActiveHealthCheckpointAsync(
     scopeKey: string,

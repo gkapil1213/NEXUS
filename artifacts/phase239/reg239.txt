@@ -1,0 +1,7 @@
+PHASE 239 EVIDENCE (written by scripts/test-phase239-supervisor-leases.ts)
+============================================
+PASS: 56
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================

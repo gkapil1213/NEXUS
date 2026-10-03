@@ -310,6 +310,23 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       `ALTER TABLE active_health_checkpoints ADD COLUMN IF NOT EXISTS generation BIGINT NOT NULL DEFAULT 0`
     );
 
+    // Phase 239: durable supervisor ownership lease. Coordination metadata
+    // only. NOT authoritative for deployment, release, recovery, or provider
+    // state. Distinct from per-job execution_leases and from the per-intent
+    // release_deployment_intents lease fields.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS supervisor_leases (
+        scope_key   TEXT PRIMARY KEY,
+        owner_id    TEXT NOT NULL,
+        generation  BIGINT NOT NULL DEFAULT 0,
+        lease_until BIGINT NOT NULL,
+        updated_at  BIGINT NOT NULL
+      )
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_supervisor_leases_until ON supervisor_leases (lease_until)`
+    );
+
     // Phase 188: execution_artifacts is now a first-class PG table so that
     // artifact publication is transactional with attempt completion.
     // Columns mirror the SQLite base (020) plus 025 integrity additions
