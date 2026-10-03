@@ -123,8 +123,9 @@ export class ExecutionRecoveryOperationStore {
           "INSERT INTO execution_recovery_operations " +
           "(operation_id, job_id, lease_id, worker_id, operation_type, state, " +
           " idempotency_key, attempt_count, last_error, claim_owner, " +
-          " claim_expires_at, created_at, updated_at, completed_at) " +
-          "VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 0, NULL, NULL, NULL, ?, ?, NULL)"
+          " claim_expires_at, created_at, updated_at, completed_at, " +
+          " next_attempt_at, last_failure_class) " +
+          "VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 0, NULL, NULL, NULL, ?, ?, NULL, NULL, NULL)"
         )
         .run(
           operationId,
@@ -517,8 +518,9 @@ export class AsyncExecutionRecoveryOperationStore {
         "INSERT INTO execution_recovery_operations " +
         "(operation_id, job_id, lease_id, worker_id, operation_type, state, " +
         " idempotency_key, attempt_count, last_error, claim_owner, " +
-        " claim_expires_at, created_at, updated_at, completed_at) " +
-        "VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 0, NULL, NULL, NULL, ?, ?, NULL)",
+        " claim_expires_at, created_at, updated_at, completed_at, " +
+          " next_attempt_at, last_failure_class) " +
+        "VALUES (?, ?, ?, ?, ?, 'PENDING', ?, 0, NULL, NULL, NULL, ?, ?, NULL, NULL, NULL)",
       ).run(
         operationId,
         input.jobId,
