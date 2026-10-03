@@ -1,0 +1,35 @@
+﻿{
+  "phase": 238,
+  "title": "Durable Fair Active-Health Checkpoint (generation-CAS)",
+  "tag": "nexus-phase238-complete",
+  "priorPhase": { "tag": "nexus-phase237-complete", "commit": "a0ae158" },
+  "verification": {
+    "phase238": { "PASS": 60, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "phase237": { "PASS": 23, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "phase236": { "PASS": 25, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "phase235": { "PASS": 35, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "typescript": "exit 0"
+  },
+  "implementation": {
+    "newTable": "active_health_checkpoints(scope_key TEXT PK, cursor TEXT NULL, generation BIGINT NOT NULL DEFAULT 0, updated_at BIGINT NOT NULL)",
+    "schemaFile": "src/core/pg-bootstrap.ts",
+    "casSemantics": "expectedGeneration < 0 = INSERT ON CONFLICT DO NOTHING; else UPDATE WHERE scope_key=? AND generation=?; generation+1 on success",
+    "scopeKeyRule": "release-recovery-supervisor/<environmentFilter ?? __global__>"
+  },
+  "verifiedBehaviors": [
+    "generation CAS rejects stale writes",
+    "wrap CAS to NULL durable across restart",
+    "stale resurrection after wrap rejected",
+    "stale write after newer cursor rejected",
+    "concurrent same-generation writers: exactly one wins",
+    "supervisor identity isolation via scope key",
+    "environment scope isolation",
+    "absent row distinguished from existing NULL-cursor row",
+    "persistence failure surfaced; checkpointPersisted=false",
+    "in-memory cursor does not advance on CAS failure"
+  ],
+  "limitations": [
+    "Coordination state only; never authoritative deployment/release/recovery state.",
+    "AWS_REGION_NOT_CONFIGURED remains BLOCKED for real-AWS paths."
+  ]
+}

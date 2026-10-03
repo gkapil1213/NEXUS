@@ -1,0 +1,13 @@
+﻿{
+  "phase": 238,
+  "generatedAt": "2026-10-03",
+  "testCommand": "npm run test:phase238",
+  "environment": "shared PostgreSQL",
+  "result": { "PASS": 60, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+  "regressions": {
+    "phase235": { "PASS": 35, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "phase236": { "PASS": 25, "FAIL": 0, "BLOCKED": 1, "NOT_EXECUTED": 0 },
+    "phase237": { "PASS": 23, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 }
+  },
+  "typescript": "exit 0"
+}
