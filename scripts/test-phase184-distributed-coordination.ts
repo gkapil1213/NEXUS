@@ -391,7 +391,8 @@ async function main() {
     ok(typeof leaseId === "string", "D16 lease created before restart");
     try { await pg.close(); } catch {}
     let restartErr: string | null = null;
-    try { execSync("docker restart nexus-phase183-postgres", { stdio: "pipe", timeout: 90_000 }); } catch (e) { restartErr = (e as Error).message; }
+    const postgresContainer = process.env.NEXUS_POSTGRES_CONTAINER ?? "nexus-pg";
+    try { execSync(`docker restart ${postgresContainer}`, { stdio: "pipe", timeout: 90_000 }); } catch (e) { restartErr = (e as Error).message; }
     ok(restartErr === null, "D16 docker restart executed");
     let reconnected = false;
     const deadline = Date.now() + 45_000;
