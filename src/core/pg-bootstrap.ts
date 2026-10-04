@@ -170,6 +170,127 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_ero_claim_expires
         ON execution_recovery_operations (state, claim_expires_at)
     `);
+    // Phase 246: authoritative PostgreSQL persistence for the security control
+    // plane. Mirrors the SQLite nexus_records KV data as typed columns so
+    // shared-mode security decisions, findings, evidence and risk survive
+    // worker/process/PostgreSQL restart. Additive and idempotent.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_executions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
+        commit_sha TEXT,
+        artifact_digest TEXT,
+        release_id TEXT,
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        verdict TEXT
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_executions_execution ON security_executions (execution_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_executions_project ON security_executions (project_id, started_at DESC)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_evidence (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
+        release_id TEXT,
+        commit_sha TEXT,
+        artifact_id TEXT,
+        artifact_digest TEXT,
+        environment TEXT,
+        scanner TEXT NOT NULL,
+        category TEXT NOT NULL,
+        status TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        duration_ms BIGINT,
+        raw_reference TEXT,
+        normalized_reference TEXT,
+        sha256 TEXT,
+        expires_at TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_evidence_execution ON security_evidence (execution_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_evidence_category ON security_evidence (execution_id, category)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_findings (
+        finding_id TEXT PRIMARY KEY,
+        evidence_id TEXT,
+        project_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
+        release_id TEXT,
+        artifact_digest TEXT,
+        scanner TEXT NOT NULL,
+        category TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        fingerprint TEXT NOT NULL,
+        file TEXT,
+        line INTEGER,
+        column_number INTEGER,
+        package TEXT,
+        dependency TEXT,
+        version TEXT,
+        fixed_version TEXT,
+        cve TEXT,
+        cwe TEXT,
+        resource TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_findings_execution ON security_findings (execution_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_findings_fingerprint ON security_findings (fingerprint)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_finding_observations (
+        id TEXT PRIMARY KEY,
+        finding_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        raw_data TEXT
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_finding_obs_finding ON security_finding_observations (finding_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_risk_assessments (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
+        release_id TEXT,
+        artifact_digest TEXT,
+        severity_counts TEXT,
+        correlated_findings BIGINT,
+        risk_score DOUBLE PRECISION,
+        explanation TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_risk_execution ON security_risk_assessments (execution_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_decisions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
+        release_id TEXT,
+        artifact_digest TEXT,
+        policy_id TEXT NOT NULL,
+        policy_version TEXT NOT NULL,
+        verdict TEXT NOT NULL,
+        reasons TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_decisions_execution ON security_decisions (execution_id)`);
 
     // Phase 183b: execution_leases -- required by updateJobAsOwnerAsync /
     // transitionExecutionAsync ownership fences. Schema translated from
