@@ -9,6 +9,8 @@ import {
   ProductionApproval,
 } from "./production-release-decision";
 
+import { evaluateDeploymentSecurityContinuity } from "./deployment-security-continuity";
+
 export interface ProductionExecutionAuthorization {
   authorizationId: string;
   releaseId: string;
@@ -339,6 +341,47 @@ export class ProductionReleaseEnforcementService {
       this.auditDecision({ action: "release.authorization.rejected", result: "deny", resource_type: "production_execution_authorization", resource_id: authorizationId, metadata: { reason: "authorization_binding_mismatch", releaseId, artifactId, commitSha, environment } });
       return { status: "BLOCKED", blockers: ["Authorization binding mismatch"], reasons: ["Authorization binding mismatch"] };
     }
+
+    // Phase 248: revalidate security continuity at the deployment boundary.
+    // The authorization record alone is not sufficient. The immutable deployment
+    // identity (release, artifact, digest, commit) must still match the currently
+    // authoritative security state. An older ALLOW must not authorize a deployment
+    // whose artifact or evidence state has since changed.
+    const evidence = await this.api.getEvidence(auth.executionId ?? auth.releaseId);
+    const continuity = evaluateDeploymentSecurityContinuity({
+      release_id: releaseId,
+      artifact_id: artifactId,
+      artifact_digest: auth.artifactDigest,
+      commit_sha: commitSha,
+      environment,
+      execution_id: auth.executionId,
+      security_decision_id: auth.securityDecisionId,
+      evidence,
+      expected_security_decision_digest: auth.artifactDigest,
+    });
+    if (continuity.decision === "BLOCK") {
+      this.auditDecision({
+        action: "deployment.security.blocked",
+        result: "deny",
+        resource_type: "production_execution_authorization",
+        resource_id: authorizationId,
+        metadata: { reason: "continuity_block", reasons: continuity.reasons, releaseId, artifactId, environment },
+      });
+      return { status: "BLOCKED", blockers: continuity.reasons, reasons: continuity.reasons };
+    }
+    if (continuity.decision === "REQUIRE_REVIEW") {
+      this.auditDecision({
+        action: "deployment.security.review_required",
+        result: "deny",
+        resource_type: "production_execution_authorization",
+        resource_id: authorizationId,
+        metadata: { reason: "continuity_review", reasons: continuity.reasons, releaseId, artifactId, environment },
+      });
+      // AuthorizationResult has no REQUIRE_REVIEW variant; fail-closed to BLOCKED
+      // while preserving the review reason. Callers see the reason string.
+      return { status: "BLOCKED", blockers: continuity.reasons, reasons: continuity.reasons };
+    }
+
 
     // Phase 138: consumption is deferred to executeRelease so a crash between
     // authorization and provider invocation does not burn the authorization
