@@ -72,7 +72,8 @@
                     "test:phase245":  "tsx scripts/test-phase245-production-supervision-boundary.ts",
                     "test:phase246":  "tsx scripts/test-phase246-canonical-security-decision.ts",
                     "test:phase247":  "tsx scripts/test-phase247-security-assurance.ts",
-                    "test:phase248":  "tsx scripts/test-phase248-deployment-security-continuity.ts"
+                    "test:phase248":  "tsx scripts/test-phase248-deployment-security-continuity.ts",
+                    "test:phase249":  "tsx scripts/test-phase249-post-deployment-integrity.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

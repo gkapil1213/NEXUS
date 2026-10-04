@@ -10,6 +10,7 @@ import {
 } from "./production-release-decision";
 
 import { evaluateDeploymentSecurityContinuity } from "./deployment-security-continuity";
+import { DeploymentObserver, DeploymentIntegrityResult, evaluateDeploymentIntegrity } from "./post-deployment-integrity";
 
 export interface ProductionExecutionAuthorization {
   authorizationId: string;
@@ -69,6 +70,7 @@ export interface DeploymentResult {
   providerAvailable: boolean;
   provider?: string;
   deploymentId?: string;
+  postDeploymentIntegrity?: DeploymentIntegrityResult;
 }
 
 /* --- Phase 102: release-execution provider seam --- */
@@ -126,6 +128,9 @@ export class ProductionReleaseEnforcementService {
     private engine?: NexusEngine,
     // Phase 172: optional audit sink. No-op when absent.
     private audit?: AuditService,
+    // Phase 249: optional post-deployment observer. When present, the actual
+    // deployed state is re-observed and compared against the approved identity.
+    private observer?: DeploymentObserver,
   ) {}
 
   /**
@@ -583,12 +588,71 @@ export class ProductionReleaseEnforcementService {
       };
     }
 
+    // Phase 249: post-deployment integrity re-evaluation.
+    // Deployment already occurred; status remains unchanged. When an observer
+    // is wired, compare the observed actual state against the approved
+    // identity and attach the result. DRIFTED / UNKNOWN / BLOCKED /
+    // NOT_EXECUTED are surfaced to the caller and audited.
+    let postDeploymentIntegrity: DeploymentIntegrityResult | undefined;
+    if (
+      this.observer &&
+      outcome.deploymentId
+    ) {
+      try {
+        const observation = await this.observer.observe(outcome.deploymentId);
+        postDeploymentIntegrity = evaluateDeploymentIntegrity(
+          {
+            deployment_id: outcome.deploymentId,
+            release_id: auth.releaseId,
+            artifact_id: auth.artifactId,
+            artifact_digest: auth.artifactDigest,
+            environment: auth.environment,
+          },
+          observation,
+        );
+        const action =
+          postDeploymentIntegrity.state === "VERIFIED"
+            ? "deployment.integrity.verified"
+            : "deployment.integrity." + postDeploymentIntegrity.state.toLowerCase();
+        this.auditDecision({
+          action,
+          result: postDeploymentIntegrity.state === "VERIFIED" ? "allow" : "deny",
+          resource_type: "deployment",
+          resource_id: outcome.deploymentId,
+          metadata: {
+            releaseId: auth.releaseId,
+            artifactId: auth.artifactId,
+            expected_digest: auth.artifactDigest,
+            observed_digest: observation.observed_digest ?? null,
+            state: postDeploymentIntegrity.state,
+          },
+        });
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : String(e);
+        postDeploymentIntegrity = {
+          state: "UNKNOWN",
+          expected_digest: auth.artifactDigest,
+          observed_digest: null,
+          reasons: ["observer threw: " + reason],
+          observed_at: new Date().toISOString(),
+        };
+        this.auditDecision({
+          action: "deployment.integrity.unknown",
+          result: "deny",
+          resource_type: "deployment",
+          resource_id: outcome.deploymentId,
+          metadata: { reason, releaseId: auth.releaseId, artifactId: auth.artifactId },
+        });
+      }
+    }
+
     return {
       status: outcome.status,
       message: outcome.message,
       providerAvailable: true,
       provider: "canonical-deployment-orchestrator",
       deploymentId: outcome.deploymentId ?? undefined,
+      postDeploymentIntegrity,
     };
   }
 
