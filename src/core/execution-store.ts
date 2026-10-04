@@ -5159,6 +5159,21 @@ export class ExecutionStore {
     };
   }
 
+  // Phase 245: async sibling of getAttemptProgress. Same SELECT, same
+  // (heartbeatAt, lastProgressAt) shape. Required so shared-mode supervision
+  // classification never reads attempt progress from SQLite.
+  async getAttemptProgressAsync(attemptId: string): Promise<{ heartbeatAt: number | null; lastProgressAt: number | null }> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT heartbeat_at, last_progress_at FROM execution_attempts WHERE id = ?"
+    ).get<any>(attemptId);
+    if (!row) return { heartbeatAt: null, lastProgressAt: null };
+    return {
+      heartbeatAt: row.heartbeat_at === null ? null : Number(row.heartbeat_at),
+      lastProgressAt: row.last_progress_at === null ? null : Number(row.last_progress_at),
+    };
+  }
+
   /**
    * Phase 196: durable supervision signal on the job. Pure UPDATE of the
    * columns added by migration 166. Never touches ExecutionJobStatus.
@@ -5177,6 +5192,19 @@ export class ExecutionStore {
   }
 
 
+  async setJobSupervisionAsync(
+    jobId: string,
+    supervisionState: string,
+    failureClass: string | null,
+    now: number = Date.now(),
+  ): Promise<{ updated: boolean }> {
+    const engine = this.requireAsyncDb();
+    const r = await engine.prepareAsync(
+      "UPDATE execution_jobs SET supervision_state = ?, failure_class = ?, " +
+      "supervision_updated_at = ? WHERE id = ?"
+    ).run(supervisionState, failureClass, now, jobId);
+    return { updated: (r.changes ?? 0) === 1 };
+  }
   // ---------- Phase 197: sync stale-attempt fence ----------
   // Phase 187 built fenceStaleAttemptAsync for shared (Postgres) mode.
   // SQLite mode had no equivalent, so a stalled attempt with a still-
@@ -5285,6 +5313,41 @@ export class ExecutionStore {
     }));
   }
 
+  async listProgressStaleAttemptsAsync(
+    now: number,
+    maxAgeMs: number,
+    heartbeatFreshMs: number,
+  ): Promise<Array<{
+    attemptId: string;
+    jobId: string;
+    workerId: string;
+    leaseId: string;
+    heartbeatAt: number;
+    lastProgressAt: number;
+  }>> {
+    const engine = this.requireAsyncDb();
+    const progressCutoff = now - maxAgeMs;
+    const heartbeatFloor = now - heartbeatFreshMs;
+    const rows = await engine.prepareAsync(
+      "SELECT id, job_id, worker_id, lease_id, heartbeat_at, last_progress_at " +
+      "FROM execution_attempts " +
+      "WHERE status = 'RUNNING' " +
+      "  AND last_progress_at IS NOT NULL " +
+      "  AND last_progress_at < ? " +
+      "  AND heartbeat_at IS NOT NULL " +
+      "  AND heartbeat_at > ? " +
+      "ORDER BY last_progress_at ASC",
+    ).all<any>(progressCutoff, heartbeatFloor);
+    return rows.map((r) => ({
+      attemptId: r.id,
+      jobId: r.job_id,
+      workerId: r.worker_id,
+      leaseId: r.lease_id,
+      heartbeatAt: Number(r.heartbeat_at),
+      lastProgressAt: Number(r.last_progress_at),
+    }));
+  }
+
   // ---------- Phase 187: fence a stale attempt ----------
   // Atomically transitions a stale RUNNING attempt to FAILED and expires its
   // lease. Only acts when the attempt is still RUNNING AND its heartbeat is
@@ -5297,7 +5360,9 @@ export class ExecutionStore {
     leaseId: string;
     reason: string;
     now?: number;
+    mode?: "heartbeat" | "progress";
     staleCutoffMs: number;
+    heartbeatFreshMs?: number;
   }): Promise<{
     fenced: boolean;
     alreadyFenced?: boolean;
@@ -5306,6 +5371,8 @@ export class ExecutionStore {
     const engine = this.requireAsyncDb();
     const now = input.now ?? Date.now();
     const cutoff = now - input.staleCutoffMs;
+    const mode = input.mode ?? "heartbeat";
+    const heartbeatFloor = now - (input.heartbeatFreshMs ?? 0);
 
     let result: {
       fenced: boolean;
@@ -5318,25 +5385,68 @@ export class ExecutionStore {
     try {
       await engine.transactionAsync(async (tx) => {
         const attempt = await tx.prepareAsync(
-          "SELECT status, heartbeat_at, lease_id FROM execution_attempts " +
+          "SELECT status, heartbeat_at, last_progress_at, lease_id FROM execution_attempts " +
           "WHERE id = ? AND job_id = ? FOR UPDATE",
-        ).get<{ status: string; heartbeat_at: string | number | null; lease_id: string | null }>(
+        ).get<{
+          status: string;
+          heartbeat_at: string | number | null;
+          last_progress_at: string | number | null;
+          lease_id: string | null;
+        }>(
           input.attemptId, input.jobId,
         );
-        if (!attempt) { result = { fenced: false, reason: "ATTEMPT_NOT_RUNNING" }; throw new AbortTx(); }
-        if (attempt.status !== "RUNNING") { result = { fenced: false, alreadyFenced: true, reason: "ATTEMPT_NOT_RUNNING" }; throw new AbortTx(); }
-        if (attempt.lease_id !== input.leaseId) { result = { fenced: false, reason: "LEASE_MISMATCH" }; throw new AbortTx(); }
-        // Only fence if still stale -- protects against the heartbeat that
-        // raced in between the caller's read and this transaction.
+
+        if (!attempt) {
+          result = { fenced: false, reason: "ATTEMPT_NOT_RUNNING" };
+          throw new AbortTx();
+        }
+
+        if (attempt.status !== "RUNNING") {
+          result = {
+            fenced: false,
+            alreadyFenced: true,
+            reason: "ATTEMPT_NOT_RUNNING",
+          };
+          throw new AbortTx();
+        }
+
+        if (attempt.lease_id !== input.leaseId) {
+          result = { fenced: false, reason: "LEASE_MISMATCH" };
+          throw new AbortTx();
+        }
+
+        // Re-check staleness while holding the row lock. This protects
+        // against a worker heartbeat/progress update racing the supervisor.
         const hb = attempt.heartbeat_at === null ? 0 : Number(attempt.heartbeat_at);
-        if (hb >= cutoff) { result = { fenced: false, reason: "NOT_STALE" }; throw new AbortTx(); }
+
+        if (mode === "heartbeat") {
+          if (hb >= cutoff) {
+            result = { fenced: false, reason: "NOT_STALE" };
+            throw new AbortTx();
+          }
+        } else {
+          const progress = attempt.last_progress_at === null
+            ? 0
+            : Number(attempt.last_progress_at);
+
+          // Progress timeout is only actionable when the heartbeat is still
+          // fresh. This mirrors the SQLite supervision semantics.
+          if (progress >= cutoff || hb <= heartbeatFloor) {
+            result = { fenced: false, reason: "NOT_STALE" };
+            throw new AbortTx();
+          }
+        }
 
         // 1. Fail the attempt (durable history preserved).
         const a = await tx.prepareAsync(
           "UPDATE execution_attempts SET status = 'FAILED', completed_at = ?, error = ? " +
           "WHERE id = ? AND status = 'RUNNING'",
         ).run(now, input.reason, input.attemptId);
-        if ((a.changes ?? 0) !== 1) { result = { fenced: false, alreadyFenced: true }; throw new AbortTx(); }
+
+        if ((a.changes ?? 0) !== 1) {
+          result = { fenced: false, alreadyFenced: true };
+          throw new AbortTx();
+        }
 
         // 2. Expire the lease so it is no longer ACTIVE.
         await tx.prepareAsync(
@@ -5344,27 +5454,34 @@ export class ExecutionStore {
           "WHERE lease_id = ? AND status = 'ACTIVE'",
         ).run(now, input.leaseId);
 
-        // 3. Transition job RUNNING/CLAIMED/VERIFYING -> ORPHANED and clear
-        //    current_lease_id. -- Phase 187 B3: transition job to ORPHANED
-        //    so the existing Phase 184 recovery flow (recoverStaleJobs) can
-        //    apply retry policy and move it to QUEUED / RETRY_SCHEDULED.
+        // 3. Transition the job to ORPHANED and clear the lease.
         await tx.prepareAsync(
           "UPDATE execution_jobs SET status = 'ORPHANED', current_lease_id = NULL, updated_at = ? " +
           "WHERE id = ? " +
           "  AND status IN ('RUNNING','CLAIMED','VERIFYING','CANCELLATION_REQUESTED')",
         ).run(now, input.jobId);
 
-        // 4. Event.
-        const eventId = "evt_fence_" + input.attemptId + "_" + now + "_" + Math.random().toString(36).slice(2, 8);
+        // 4. Preserve the durable fencing event.
+        const eventId =
+          "evt_fence_" +
+          input.attemptId +
+          "_" +
+          now +
+          "_" +
+          Math.random().toString(36).slice(2, 8);
+
         await tx.prepareAsync(
           "INSERT INTO execution_events (event_id, job_id, event_type, payload, created_at) " +
           "VALUES (?, ?, ?, ?, ?)",
         ).run(
-          eventId, input.jobId, "scheduler.attempt.fenced",
+          eventId,
+          input.jobId,
+          "scheduler.attempt.fenced",
           JSON.stringify({
             attemptId: input.attemptId,
             leaseId: input.leaseId,
             reason: input.reason,
+            mode,
             fencedAt: now,
             previousHeartbeatAt: hb,
           }),

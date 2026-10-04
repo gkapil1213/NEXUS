@@ -68,7 +68,8 @@
     "test:phase241": "tsx scripts/test-phase241-execution-recovery-claims.ts",
     "test:phase242": "tsx scripts/test-phase242-durable-retry.ts",
     "test:phase243": "tsx scripts/test-phase243-durable-recovery-orchestration.ts",
-    "test:phase244": "tsx scripts/test-phase244-crash-safe-execution-lifecycle.ts"
+    "test:phase244": "tsx scripts/test-phase244-crash-safe-execution-lifecycle.ts",
+                    "test:phase245":  "tsx scripts/test-phase245-production-supervision-boundary.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

@@ -69,6 +69,21 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
     await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS admitted_at BIGINT`);
     await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS admission_owner TEXT`);
     await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS admission_epoch BIGINT DEFAULT 0`);
+
+    // Phase 245: PostgreSQL parity for Phase 196 supervision state.
+    // Migration 166 added these columns for SQLite. PostgreSQL never received
+    // them because the shared backend did not need supervision persistence
+    // until Phase 245. setJobSupervisionAsync / classifySupervisionAsync
+    // rely on them; without these columns shared-mode supervision fails with
+    // "column supervision_state does not exist". Additive and idempotent.
+    await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS supervision_state TEXT`);
+    await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS failure_class TEXT`);
+    await client.query(`ALTER TABLE execution_jobs ADD COLUMN IF NOT EXISTS supervision_updated_at BIGINT`);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_exec_jobs_supervision
+        ON execution_jobs (supervision_state, supervision_updated_at)
+        WHERE supervision_state IS NOT NULL
+    `);
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_exec_jobs_admissible
         ON execution_jobs (priority, created_at) WHERE status = 'QUEUED'

@@ -895,6 +895,45 @@ export class ExecutionEngine {
     return { ok: false, reason: res.reason ?? "PROGRESS_REJECTED" };
   }
 
+  /**
+   * Phase 245: pure verdict classifier shared by the sync and async
+   * supervision paths. Given the running attempt's heartbeat/progress
+   * timestamps, apply the existing classification ordering -- heartbeat-first,
+   * then progress. The shared helper guarantees the two paths cannot drift.
+   */
+  private classifyVerdict(input: {
+    jobStatus: string;
+    attemptId: string;
+    lastHeartbeatAt: number | null;
+    lastProgressAt: number | null;
+    now: number;
+    heartbeatTimeoutMs: number;
+    progressTimeoutMs: number;
+  }): {
+    verdict: "HEALTHY" | "HEARTBEAT_TIMEOUT" | "PROGRESS_TIMEOUT" | "NOT_RUNNING" | "NO_ATTEMPT";
+    jobStatus: string | null; attemptId: string | null;
+    lastHeartbeatAt: number | null; lastProgressAt: number | null;
+    heartbeatDeadline: number | null; progressDeadline: number | null;
+    reason: string;
+  } {
+    const hb = input.lastHeartbeatAt;
+    const pr = input.lastProgressAt;
+    const hbDeadline = hb === null ? null : hb + input.heartbeatTimeoutMs;
+    const prDeadline = pr === null ? null : pr + input.progressTimeoutMs;
+    const base = {
+      jobStatus: input.jobStatus,
+      attemptId: input.attemptId,
+      lastHeartbeatAt: hb,
+      lastProgressAt: pr,
+      heartbeatDeadline: hbDeadline,
+      progressDeadline: prDeadline,
+    };
+    if (hb === null) return { ...base, verdict: "HEARTBEAT_TIMEOUT", reason: "NO_HEARTBEAT_RECORDED" };
+    if (hbDeadline !== null && hbDeadline < input.now) return { ...base, verdict: "HEARTBEAT_TIMEOUT", reason: "HEARTBEAT_DEADLINE_EXCEEDED" };
+    if (prDeadline !== null && prDeadline < input.now) return { ...base, verdict: "PROGRESS_TIMEOUT", reason: "PROGRESS_DEADLINE_EXCEEDED" };
+    return { ...base, verdict: "HEALTHY", reason: "OK" };
+  }
+
   classifySupervision(
     jobId: string,
     now: number = Date.now(),
@@ -918,15 +957,51 @@ export class ExecutionEngine {
     if (running.length === 0) return { ...empty, verdict: "NO_ATTEMPT", jobStatus: job.status, reason: "NO_RUNNING_ATTEMPT" };
     const attempt = running[running.length - 1];
     const prog = this.store.getAttemptProgress(attempt.id);
-    const hb = prog.heartbeatAt;
-    const pr = prog.lastProgressAt;
-    const hbDeadline = hb === null ? null : hb + heartbeatTimeoutMs;
-    const prDeadline = pr === null ? null : pr + progressTimeoutMs;
-    const base = { jobStatus: job.status, attemptId: attempt.id, lastHeartbeatAt: hb, lastProgressAt: pr, heartbeatDeadline: hbDeadline, progressDeadline: prDeadline };
-    if (hb === null) return { ...base, verdict: "HEARTBEAT_TIMEOUT", reason: "NO_HEARTBEAT_RECORDED" };
-    if (hbDeadline !== null && hbDeadline < now) return { ...base, verdict: "HEARTBEAT_TIMEOUT", reason: "HEARTBEAT_DEADLINE_EXCEEDED" };
-    if (prDeadline !== null && prDeadline < now) return { ...base, verdict: "PROGRESS_TIMEOUT", reason: "PROGRESS_DEADLINE_EXCEEDED" };
-    return { ...base, verdict: "HEALTHY", reason: "OK" };
+    return this.classifyVerdict({
+      jobStatus: job.status,
+      attemptId: attempt.id,
+      lastHeartbeatAt: prog.heartbeatAt,
+      lastProgressAt: prog.lastProgressAt,
+      now, heartbeatTimeoutMs, progressTimeoutMs,
+    });
+  }
+
+  /**
+   * Phase 245: async sibling of classifySupervision. Same classification
+   * ordering, same return shape, same reason strings. Reads job, attempts,
+   * and heartbeat/progress from the shared backend via the async store
+   * methods / IO adapters so shared-mode supervision never touches SQLite.
+   */
+  async classifySupervisionAsync(
+    jobId: string,
+    now: number = Date.now(),
+    heartbeatTimeoutMs: number = 30_000,
+    progressTimeoutMs: number = 300_000,
+  ): Promise<{
+    verdict: "HEALTHY" | "HEARTBEAT_TIMEOUT" | "PROGRESS_TIMEOUT" | "NOT_RUNNING" | "NO_ATTEMPT";
+    jobStatus: string | null; attemptId: string | null;
+    lastHeartbeatAt: number | null; lastProgressAt: number | null;
+    heartbeatDeadline: number | null; progressDeadline: number | null;
+    reason: string;
+  }> {
+    const empty = { jobStatus: null, attemptId: null, lastHeartbeatAt: null, lastProgressAt: null, heartbeatDeadline: null, progressDeadline: null };
+    const job = await this.getJobIO(jobId);
+    if (!job) return { ...empty, verdict: "NOT_RUNNING", reason: "JOB_NOT_FOUND" };
+    if (job.status !== "RUNNING" && job.status !== "VERIFYING" && job.status !== "CLAIMED") {
+      return { ...empty, verdict: "NOT_RUNNING", jobStatus: job.status, reason: "STATUS_" + job.status };
+    }
+    const attempts = await this.listAttemptsForJobIO(jobId);
+    const running = attempts.filter((a) => a.status === "RUNNING");
+    if (running.length === 0) return { ...empty, verdict: "NO_ATTEMPT", jobStatus: job.status, reason: "NO_RUNNING_ATTEMPT" };
+    const attempt = running[running.length - 1];
+    const prog = await this.store.getAttemptProgressAsync(attempt.id);
+    return this.classifyVerdict({
+      jobStatus: job.status,
+      attemptId: attempt.id,
+      lastHeartbeatAt: prog.heartbeatAt,
+      lastProgressAt: prog.lastProgressAt,
+      now, heartbeatTimeoutMs, progressTimeoutMs,
+    });
   }
 
   // ============================================================
@@ -972,6 +1047,54 @@ export class ExecutionEngine {
       } catch { /* isolated */ }
     }
     return { scanned: stale.length, flagged };
+  }
+
+  /**
+   * Phase 245: async sibling of runSupervisionPass. Same scan-then-classify
+   * contract, same stall_detected event, same SUSPECTED_STALL supervision write.
+   * Reads stale attempts from the shared backend and classifies via
+   * classifySupervisionAsync so shared-mode supervision never reads SQLite.
+   */
+  async runSupervisionPassAsync(
+    now: number = Date.now(),
+    staleAttemptMs: number = CONFIG.recovery.staleAttemptMs,
+    heartbeatTimeoutMs: number = CONFIG.recovery.heartbeatTimeoutMs,
+    progressTimeoutMs: number = CONFIG.recovery.progressTimeoutMs,
+  ): Promise<{ scanned: number; flagged: number }> {
+    const stale = await this.store.listStaleAttemptsAsync(now, staleAttemptMs);
+    let flagged = 0;
+    for (const att of stale) {
+      const verdict = await this.classifySupervisionAsync(att.jobId, now, heartbeatTimeoutMs, progressTimeoutMs);
+      if (verdict.verdict !== "HEARTBEAT_TIMEOUT" && verdict.verdict !== "PROGRESS_TIMEOUT") continue;
+      try { await this.store.setJobSupervisionAsync(att.jobId, "SUSPECTED_STALL", verdict.verdict, now); }
+      catch { /* store failures must not break the tick */ }
+      flagged++;
+      try {
+        this.fireAndForget(this.deps.events?.emit({
+          type: "execution.supervision.stall_detected",
+          source: "ExecutionEngine",
+          execution_id: att.jobId,
+          payload: {
+            jobId: att.jobId, attemptId: att.attemptId,
+            leaseId: att.leaseId, workerId: att.workerId,
+            verdict: verdict.verdict, reason: verdict.reason,
+            lastHeartbeatAt: verdict.lastHeartbeatAt,
+            lastProgressAt: verdict.lastProgressAt,
+          },
+        }));
+      } catch { /* isolated */ }
+    }
+    return { scanned: stale.length, flagged };
+  }
+
+  /**
+   * Phase 245: persistence-aware dispatcher. Shared mode uses the async
+   * supervision pass, which reads/writes PostgreSQL; local mode keeps the
+   * existing synchronous SQLite pass.
+   */
+  private async runSupervisionPassIO(now: number) {
+    if (this.store.hasAsyncBackend()) return this.runSupervisionPassAsync(now);
+    return this.runSupervisionPass(now);
   }
 
   // ============================================================
@@ -1088,6 +1211,134 @@ export class ExecutionEngine {
 
     return { scanned: queue.length, fenced, requeued, blocked };
   }
+  /**
+   * Phase 245: async sibling of recoverStalledAttemptsTick. Fences stale
+   * attempts on the shared backend and routes the ORPHANED -> QUEUED
+   * transition through the durable recovery-operation contract
+   * (runRecoveryOperationAsync / ORPHAN_RECOVERY), reusing the same
+   * idempotency key as the expired-lease path in recoverStaleJobs.
+   */
+  async recoverStalledAttemptsTickAsync(
+    now: number = Date.now(),
+    staleAttemptMs: number = CONFIG.recovery.staleAttemptMs,
+    heartbeatTimeoutMs: number = CONFIG.recovery.heartbeatTimeoutMs,
+    progressTimeoutMs: number = CONFIG.recovery.progressTimeoutMs,
+  ): Promise<{ scanned: number; fenced: number; requeued: number; blocked: number }> {
+    if (this.shuttingDown) return { scanned: 0, fenced: 0, requeued: 0, blocked: 0 };
+    const hbStale = await this.store.listStaleAttemptsAsync(now, staleAttemptMs);
+    const prStale = await this.store.listProgressStaleAttemptsAsync(now, progressTimeoutMs, heartbeatTimeoutMs);
+
+    const seen = new Set<string>();
+    const queue: Array<{ attemptId: string; jobId: string; leaseId: string; kind: string }> = [];
+    for (const a of hbStale) {
+      if (seen.has(a.attemptId)) continue;
+      seen.add(a.attemptId);
+      queue.push({ attemptId: a.attemptId, jobId: a.jobId, leaseId: a.leaseId, kind: 'HEARTBEAT_TIMEOUT' });
+    }
+    for (const a of prStale) {
+      if (seen.has(a.attemptId)) continue;
+      seen.add(a.attemptId);
+      queue.push({ attemptId: a.attemptId, jobId: a.jobId, leaseId: a.leaseId, kind: 'PROGRESS_TIMEOUT' });
+    }
+
+    let fenced = 0, requeued = 0, blocked = 0;
+    for (const q of queue) {
+      const fr = await this.store.fenceStaleAttemptAsync({
+        attemptId: q.attemptId,
+        jobId: q.jobId,
+        leaseId: q.leaseId,
+        reason: q.kind,
+        now,
+        mode: q.kind === 'PROGRESS_TIMEOUT' ? 'progress' : 'heartbeat',
+        staleCutoffMs: q.kind === 'PROGRESS_TIMEOUT' ? progressTimeoutMs : staleAttemptMs,
+        heartbeatFreshMs: heartbeatTimeoutMs,
+      });
+      if (!fr.fenced) continue;
+      fenced++;
+
+      try { await this.store.setJobSupervisionAsync(q.jobId, 'RECOVERY_PENDING', q.kind, now); } catch { /* isolated */ }
+
+      const job = await this.getJobIO(q.jobId);
+      if (!job || job.status !== 'ORPHANED') continue;
+
+      let canRetry = false;
+      if (job.retryPolicy) {
+        const attempts = await this.listAttemptsForJobIO(job.id);
+        canRetry = attempts.length < job.retryPolicy.maxAttempts;
+      }
+
+      if (!canRetry) {
+        blocked++;
+        try { await this.store.setJobSupervisionAsync(q.jobId, 'RECOVERY_BLOCKED', 'RETRY_EXHAUSTED', now); } catch { /* isolated */ }
+        try {
+          this.fireAndForget(this.deps.events?.emit({
+            type: 'execution.recovery.blocked',
+            source: 'ExecutionEngine',
+            execution_id: q.jobId,
+            payload: { jobId: q.jobId, attemptId: q.attemptId, leaseId: q.leaseId, reason: 'RETRY_EXHAUSTED', stall: q.kind },
+          }));
+        } catch { /* isolated */ }
+        continue;
+      }
+
+      await this.runRecoveryOperationAsync({
+        jobId: job.id,
+        leaseId: q.leaseId,
+        workerId: null,
+        operationType: 'ORPHAN_RECOVERY',
+        now,
+        body: async () => {
+          const live = await this.getJobIO(job.id);
+          if (!live) return { ok: false, error: 'JOB_NOT_FOUND' };
+          if (live.status === 'QUEUED' || live.status === 'RETRY_SCHEDULED') return { ok: true };
+          if (live.status !== 'ORPHANED') return { ok: false, error: 'STATE_DRIFT_' + live.status };
+          const rr = await this.recoverJobAtomicIO({
+            jobId: job.id,
+            expectedStatus: 'ORPHANED',
+            newStatus: 'QUEUED',
+            expectedLeaseId: null,
+            patch: { nextAttemptAt: now } as any,
+            event: {
+              eventType: 'execution.recovery.stale_attempt_requeued',
+              payload: { jobId: job.id, attemptId: q.attemptId, leaseId: q.leaseId, reason: q.kind },
+            },
+          });
+          if (rr.ok) return { ok: true };
+          const after = await this.getJobIO(job.id);
+          if (after?.status === 'QUEUED' || after?.status === 'RETRY_SCHEDULED') return { ok: true };
+          return { ok: false, error: 'RECOVER_JOB_ATOMIC_FAILED' };
+        },
+      });
+
+      const finalJob = await this.getJobIO(job.id);
+      if (finalJob?.status === 'QUEUED' || finalJob?.status === 'RETRY_SCHEDULED') {
+        requeued++;
+        try { await this.store.setJobSupervisionAsync(q.jobId, 'RECOVERED', q.kind, now); } catch { /* isolated */ }
+      } else {
+        blocked++;
+        try { await this.store.setJobSupervisionAsync(q.jobId, 'RECOVERY_BLOCKED', 'RECOVER_JOB_ATOMIC_FAILED', now); } catch { /* isolated */ }
+        try {
+          this.fireAndForget(this.deps.events?.emit({
+            type: 'execution.recovery.blocked',
+            source: 'ExecutionEngine',
+            execution_id: q.jobId,
+            payload: { jobId: q.jobId, attemptId: q.attemptId, leaseId: q.leaseId, reason: 'RECOVER_JOB_ATOMIC_FAILED', stall: q.kind },
+          }));
+        } catch { /* isolated */ }
+      }
+    }
+
+    return { scanned: queue.length, fenced, requeued, blocked };
+  }
+
+  /**
+   * Phase 245: persistence-aware dispatcher for stale-attempt recovery.
+   */
+  private async recoverStalledAttemptsTickIO(now: number) {
+    if (this.store.hasAsyncBackend()) return this.recoverStalledAttemptsTickAsync(now);
+    return this.recoverStalledAttemptsTick(now);
+  }
+
 
 
   async executeJob(workerId: string, jobId: string, leaseId: string): Promise<ExecutionJob> {
@@ -1713,11 +1964,22 @@ export class ExecutionEngine {
         await this.reconcileExecutionRecoveryOperations(now);
         // Phase 196: supervision pass first. Does not touch ExecutionJobStatus;
         // writes only supervision_state / failure_class and emits stall_detected.
-        try { this.runSupervisionPass(now); } catch { /* isolated */ }
+        // Phase 245: explicit persistence boundary. Shared PostgreSQL uses
+        // async supervision/recovery only; local SQLite retains the existing
+        // synchronous path.
+        if (this.store.hasAsyncBackend()) {
+            try { await this.runSupervisionPassAsync(now); } catch { /* isolated */ }
 
-        // Phase 197: fence and recover heartbeat/progress-stalled attempts.
-        // Uses CONFIG.recovery.* defaults; idempotent CAS prevents duplicate recovery.
-        try { this.recoverStalledAttemptsTick(now); } catch { /* isolated */ }
+            // Phase 197: fence and recover heartbeat/progress-stalled attempts.
+            // Uses CONFIG.recovery.* defaults; idempotent CAS prevents duplicate recovery.
+            try { await this.recoverStalledAttemptsTickAsync(now); } catch { /* isolated */ }
+        } else {
+            try { this.runSupervisionPass(now); } catch { /* isolated */ }
+
+            // Phase 197: fence and recover heartbeat/progress-stalled attempts.
+            // Uses CONFIG.recovery.* defaults; idempotent CAS prevents duplicate recovery.
+            try { this.recoverStalledAttemptsTick(now); } catch { /* isolated */ }
+        }
 
 
         const expiredLeases = await this.recoverExpiredLeasesIO(now);
