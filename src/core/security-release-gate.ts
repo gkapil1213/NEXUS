@@ -1,14 +1,17 @@
 import { SecurityApi } from "./security-api";
 import { SecurityEvidence, RiskAssessment, SecurityDecision } from "./types";
+import type { CanonicalSecurityDecision } from "./types";
 
 export interface ReleaseGateCheckResult {
   status: "PASS" | "FAIL" | "BLOCKED";
+  canonical_status?: CanonicalSecurityDecision;
   evidence_id?: string;
   reason?: string;
 }
 
 export interface ReleaseGateDecision {
   status: "PASS" | "FAIL" | "BLOCKED";
+  canonical_status: CanonicalSecurityDecision;
   release_id: string;
   execution_id: string;
   artifact_id: string;
@@ -30,7 +33,7 @@ export class SecurityReleaseGate {
     artifact_digest: string;
     environment?: string;
     policy_version?: string;
-    execution?: any; // avoids importing SecurityExecution type if not exported
+    execution?: any;
   }): Promise<ReleaseGateDecision> {
     const {
       release_id,
@@ -60,18 +63,21 @@ export class SecurityReleaseGate {
     for (const cat of requiredCategories) {
       const ev = findEvidence(cat);
       if (!ev) {
-        checks[cat] = { status: "BLOCKED", reason: `Missing ${cat} evidence` };
+        checks[cat] = { status: "BLOCKED", canonical_status: "BLOCK", reason: `Missing ${cat} evidence` };
         reasons.push(`Missing ${cat} evidence`);
       } else {
         evidence_ids.push(ev.id);
         if (ev.status === "FAIL") {
-          checks[cat] = { status: "FAIL", evidence_id: ev.id, reason: `${cat} failed` };
+          checks[cat] = { status: "FAIL", canonical_status: "BLOCK", evidence_id: ev.id, reason: `${cat} failed` };
           reasons.push(`${cat} failed`);
         } else if (ev.status === "BLOCKED") {
-          checks[cat] = { status: "BLOCKED", evidence_id: ev.id, reason: `${cat} blocked` };
+          checks[cat] = { status: "BLOCKED", canonical_status: "BLOCK", evidence_id: ev.id, reason: `${cat} blocked` };
           reasons.push(`${cat} blocked`);
+        } else if (ev.status === "PASS") {
+          checks[cat] = { status: "PASS", canonical_status: "ALLOW", evidence_id: ev.id };
         } else {
-          checks[cat] = { status: "PASS", evidence_id: ev.id };
+          checks[cat] = { status: "BLOCKED", canonical_status: "BLOCK", evidence_id: ev.id, reason: `${cat} not run` };
+          reasons.push(`${cat} not run`);
         }
       }
     }
@@ -80,46 +86,45 @@ export class SecurityReleaseGate {
     const artifactEvidence = evidenceList.find((e) => e.artifact_digest !== undefined);
     const persistedDigest = artifactEvidence?.artifact_digest;
     if (!persistedDigest) {
-      checks.ARTIFACT = { status: "BLOCKED", reason: "Artifact digest missing" };
+      checks.ARTIFACT = { status: "BLOCKED", canonical_status: "BLOCK", reason: "Artifact digest missing" };
       reasons.push("Artifact digest missing");
     } else if (persistedDigest !== artifact_digest) {
-      checks.ARTIFACT = { status: "FAIL", reason: "Artifact integrity failure: digest mismatch" };
+      checks.ARTIFACT = { status: "FAIL", canonical_status: "BLOCK", reason: "Artifact integrity failure: digest mismatch" };
       reasons.push("Artifact integrity failure: digest mismatch");
     } else {
-      checks.ARTIFACT = { status: "PASS" };
+      checks.ARTIFACT = { status: "PASS", canonical_status: "ALLOW" };
     }
 
     // Signature
     const sigEvidence = findEvidence("SIGNATURE");
     if (sigEvidence && sigEvidence.status === "PASS") {
-      checks.SIGNATURE = { status: "PASS", evidence_id: sigEvidence.id };
+      checks.SIGNATURE = { status: "PASS", canonical_status: "ALLOW", evidence_id: sigEvidence.id };
     } else {
-      checks.SIGNATURE = { status: "BLOCKED", reason: "Valid signature not found" };
+      checks.SIGNATURE = { status: "BLOCKED", canonical_status: "BLOCK", reason: "Valid signature not found" };
       reasons.push("Valid signature not found");
     }
 
-    // Risk
-        // Risk — only high/critical findings block. Lower severities are warnings.
+    // Risk: only high/critical findings block. Lower severities are warnings.
     const riskScore = risk?.risk_score ?? Number.MAX_SAFE_INTEGER;
     if (
       risk &&
       risk.severity_counts &&
       (risk.severity_counts.CRITICAL > 0 || risk.severity_counts.HIGH > 0)
     ) {
-      checks.RISK = { status: "FAIL", reason: "High/Critical findings present" };
+      checks.RISK = { status: "FAIL", canonical_status: "BLOCK", reason: "High/Critical findings present" };
       reasons.push("High/Critical findings present");
     } else {
-      checks.RISK = { status: "PASS" };
+      checks.RISK = { status: "PASS", canonical_status: "ALLOW" };
     }
+
     // Policy
-    let policyStatus: "PASS" | "FAIL" | "BLOCKED" = "PASS";
     let executionObj = execution;
     if (!executionObj && typeof (this.api as any).getExecution === "function") {
       executionObj = await (this.api as any).getExecution(execution_id);
     }
 
     if (!executionObj) {
-      checks.POLICY = { status: "BLOCKED", reason: "Execution object missing" };
+      checks.POLICY = { status: "BLOCKED", canonical_status: "BLOCK", reason: "Execution object missing" };
       reasons.push("Execution object missing");
     } else {
       try {
@@ -129,31 +134,48 @@ export class SecurityReleaseGate {
           findings,
           risk,
         );
-        if (decision.verdict === "BLOCKED") policyStatus = "BLOCKED";
-        else if (decision.verdict === "FAIL") policyStatus = "FAIL";
-        else policyStatus = "PASS";
+        // Phase 246: use canonical_decision when present; fall back to legacy
+        // verdict mapping for compatibility. BLOCKED/REVIEW never become PASS/ALLOW.
+        let canonical: CanonicalSecurityDecision;
+        if (decision.canonical_decision) {
+          canonical = decision.canonical_decision;
+        } else if (decision.verdict === "FAIL" || decision.verdict === "BLOCKED") {
+          canonical = "BLOCK";
+        } else {
+          canonical = "ALLOW";
+        }
 
-        if (policyStatus !== "PASS") {
-          checks.POLICY = { status: policyStatus, reason: decision.reasons.join(", ") };
+        if (canonical === "BLOCK") {
+          checks.POLICY = { status: "FAIL", canonical_status: "BLOCK", reason: decision.reasons.join(", ") };
+          reasons.push(...decision.reasons);
+        } else if (canonical === "REQUIRE_REVIEW") {
+          checks.POLICY = { status: "BLOCKED", canonical_status: "REQUIRE_REVIEW", reason: decision.reasons.join(", ") };
           reasons.push(...decision.reasons);
         } else {
-          checks.POLICY = { status: "PASS" };
+          checks.POLICY = { status: "PASS", canonical_status: "ALLOW" };
         }
       } catch {
-        checks.POLICY = { status: "BLOCKED", reason: "Policy evaluation failed" };
+        checks.POLICY = { status: "BLOCKED", canonical_status: "BLOCK", reason: "Policy evaluation failed" };
         reasons.push("Policy evaluation failed");
       }
     }
 
+    // Overall canonical precedence: BLOCK > REQUIRE_REVIEW > ALLOW
+    let canonicalOverall: CanonicalSecurityDecision = "ALLOW";
+    const canonicalValues = Object.values(checks)
+      .map((c) => c.canonical_status)
+      .filter((c): c is CanonicalSecurityDecision => c !== undefined);
+    if (canonicalValues.some((c) => c === "BLOCK")) canonicalOverall = "BLOCK";
+    else if (canonicalValues.some((c) => c === "REQUIRE_REVIEW")) canonicalOverall = "REQUIRE_REVIEW";
+
+    // Legacy status for existing callers: FAIL > BLOCKED > PASS
     let overall: "PASS" | "FAIL" | "BLOCKED" = "PASS";
-    if (Object.values(checks).some((c) => c.status === "FAIL")) {
-      overall = "FAIL";
-    } else if (Object.values(checks).some((c) => c.status === "BLOCKED")) {
-      overall = "BLOCKED";
-    }
+    if (Object.values(checks).some((c) => c.status === "FAIL")) overall = "FAIL";
+    else if (Object.values(checks).some((c) => c.status === "BLOCKED")) overall = "BLOCKED";
 
     const decision: ReleaseGateDecision = {
       status: overall,
+      canonical_status: canonicalOverall,
       release_id,
       execution_id,
       artifact_id,

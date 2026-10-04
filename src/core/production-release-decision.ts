@@ -21,11 +21,12 @@ export interface RiskAcceptance {
 }
 
 export interface ProductionDecisionResult {
-  status: "ALLOW" | "BLOCKED" | "FAIL";
+  status: "ALLOW" | "BLOCKED" | "FAIL" | "REQUIRE_REVIEW";
   releaseId: string;
   artifactId: string;
   artifactDigest: string;
   securityStatus: string;
+  canonicalSecurityStatus: string;
   riskScore: number;
   policyStatus: string;
   approvalStatus: string;
@@ -80,6 +81,13 @@ export class ProductionReleaseDecisionService {
     if (gateDecision.checks.ARTIFACT?.evidence_id) evidence.push(gateDecision.checks.ARTIFACT.evidence_id);
     if (gateDecision.checks.SIGNATURE?.evidence_id) evidence.push(gateDecision.checks.SIGNATURE.evidence_id);
 
+    // Phase 246: REQUIRE_REVIEW is checked before FAIL/BLOCKED because the
+    // gate maps canonical REQUIRE_REVIEW to legacy status BLOCKED.
+    if (gateDecision.canonical_status === "REQUIRE_REVIEW") {
+      blockers.push(...gateDecision.reasons);
+      return this.buildResult("REQUIRE_REVIEW", releaseId, artifactId, artifactDigest, gateDecision, approval, blockers, warnings, evidence);
+    }
+
     if (gateDecision.status === "FAIL") {
       blockers.push(...gateDecision.reasons);
       return this.buildResult("FAIL", releaseId, artifactId, artifactDigest, gateDecision, approval, blockers, warnings, evidence);
@@ -117,7 +125,7 @@ export class ProductionReleaseDecisionService {
   }
 
   private buildResult(
-    status: "ALLOW" | "BLOCKED" | "FAIL",
+    status: "ALLOW" | "BLOCKED" | "FAIL" | "REQUIRE_REVIEW",
     releaseId: string,
     artifactId: string,
     artifactDigest: string,
@@ -137,6 +145,7 @@ export class ProductionReleaseDecisionService {
       artifactId,
       artifactDigest,
       securityStatus: gateDecision.status,
+      canonicalSecurityStatus: gateDecision.canonical_status,
       riskScore: gateDecision.risk_score,
       policyStatus: gateDecision.checks.POLICY?.status || "UNKNOWN",
       approvalStatus: approval ? approval.status : "MISSING",

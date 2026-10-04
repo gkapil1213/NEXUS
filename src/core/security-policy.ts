@@ -6,6 +6,7 @@ import {
   RiskAssessment,
   SecurityDecision,
 } from "./types";
+import type { CanonicalSecurityDecision } from "./types";
 
 // --- Existing policy types (kept for compatibility) ---
 export type PolicyDecision = "ALLOW" | "BLOCK" | "REVIEW";
@@ -134,9 +135,15 @@ export class SecurityPolicyEngine {
     risk?: RiskAssessment
   ): SecurityDecision {
     const reasons: string[] = [];
-    let verdict: "PASS" | "FAIL" | "BLOCKED" = "PASS";
 
-    // Build policy context from real evidence/findings
+    // Phase 246: track signal categories separately, then resolve with
+    // precedence BLOCK > REQUIRE_REVIEW > ALLOW. Legacy `verdict` is
+    // mapped from the canonical decision for backward compatibility;
+    // canonical_decision is authoritative for release gating.
+    let hasBlock = false;
+    let hasReview = false;
+    let blockIsEvidenceFailure = false;
+
     const ctx = this.buildContext(evidenceList, findings);
 
     // Run existing rule engine
@@ -144,7 +151,9 @@ export class SecurityPolicyEngine {
     for (const ev of evaluations) {
       reasons.push(`${ev.rule_name}: ${ev.reason}`);
       if (ev.decision === "BLOCK") {
-        verdict = "FAIL";
+        hasBlock = true;
+      } else if (ev.decision === "REVIEW") {
+        hasReview = true;
       }
     }
 
@@ -163,16 +172,19 @@ export class SecurityPolicyEngine {
     for (const category of requiredCategories) {
       const evidence = evidenceList.find((e) => e.category === category);
       if (!evidence) {
-        verdict = "BLOCKED";
+        hasBlock = true;
+        blockIsEvidenceFailure = true;
         reasons.push(`Missing evidence for required category: ${category}`);
       } else if (evidence.status === "NOT_RUN" || evidence.status === "UNKNOWN") {
-        verdict = "BLOCKED";
+        hasBlock = true;
+        blockIsEvidenceFailure = true;
         reasons.push(`Evidence not run or unknown for ${category}`);
       } else if (evidence.status === "BLOCKED") {
-        verdict = "BLOCKED";
+        hasBlock = true;
+        blockIsEvidenceFailure = true;
         reasons.push(`Evidence blocked for ${category}`);
       } else if (evidence.status === "FAIL") {
-        verdict = "FAIL";
+        hasBlock = true;
         reasons.push(`Evidence failed for ${category}`);
       }
     }
@@ -182,7 +194,7 @@ export class SecurityPolicyEngine {
       (f) => f.status === "NEW" || f.status === "CONFIRMED" || f.status === "REOPENED"
     );
     if (activeFindings.some((f) => f.severity === "CRITICAL" || f.severity === "HIGH")) {
-      verdict = "FAIL";
+      hasBlock = true;
       reasons.push("Active critical or high severity finding exists");
     }
 
@@ -192,10 +204,27 @@ export class SecurityPolicyEngine {
       const mismatchedEvidence = evidenceList.filter(e => e.artifact_digest && e.artifact_digest !== expectedDigest);
       const mismatchedFindings = findings.filter(f => f.artifact_digest && f.artifact_digest !== expectedDigest);
       if (mismatchedEvidence.length > 0 || mismatchedFindings.length > 0) {
-        verdict = "BLOCKED";
+        hasBlock = true;
+        blockIsEvidenceFailure = true;
         reasons.push("Artifact digest mismatch: evidence/findings belong to a different artifact");
       }
     }
+
+    // Phase 246 canonical decision: BLOCK > REQUIRE_REVIEW > ALLOW.
+    const canonical_decision: CanonicalSecurityDecision =
+      hasBlock ? "BLOCK" :
+      hasReview ? "REQUIRE_REVIEW" :
+      "ALLOW";
+
+    // Legacy verdict mapping for existing callers:
+    //   ALLOW                     -> "PASS"
+    //   REQUIRE_REVIEW            -> "BLOCKED" (fail-closed for legacy callers)
+    //   BLOCK (evidence failure)  -> "BLOCKED"
+    //   BLOCK (policy/finding)    -> "FAIL"
+    let verdict: "PASS" | "FAIL" | "BLOCKED";
+    if (canonical_decision === "ALLOW") verdict = "PASS";
+    else if (canonical_decision === "REQUIRE_REVIEW") verdict = "BLOCKED";
+    else verdict = blockIsEvidenceFailure ? "BLOCKED" : "FAIL";
 
     return {
       id: nid("secdec"),
@@ -206,6 +235,7 @@ export class SecurityPolicyEngine {
       policy_id: this.policyId,
       policy_version: this.policyVersion,
       verdict,
+      canonical_decision,
       reasons,
       created_at: new Date().toISOString(),
     };

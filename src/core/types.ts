@@ -1554,6 +1554,8 @@ export interface SecurityFinding {
   updated_at: string;
 }
 
+export type CanonicalSecurityDecision = "ALLOW" | "BLOCK" | "REQUIRE_REVIEW";
+
 export interface SecurityDecision {
   id: Id;
   project_id: Id;
@@ -1565,6 +1567,10 @@ export interface SecurityDecision {
   verdict: "PASS" | "FAIL" | "BLOCKED";
   reasons: string[];
   created_at: string;
+  canonical_decision?: CanonicalSecurityDecision;
+// Phase 246: canonical decision boundary. Preserves legacy PASS/FAIL/BLOCKED
+// on `verdict` for backward compatibility; `canonical_decision` is authoritative
+// for release gating when present.
 }
 
 export interface RiskAssessment {

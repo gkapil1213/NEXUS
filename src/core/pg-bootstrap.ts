@@ -291,6 +291,16 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_security_decisions_execution ON security_decisions (execution_id)`);
+    // Phase 246: canonical ALLOW/BLOCK/REQUIRE_REVIEW persisted alongside
+    // the legacy verdict for backward compatibility. Additive, idempotent.
+    await client.query(`ALTER TABLE security_decisions ADD COLUMN IF NOT EXISTS canonical_decision TEXT`);
+    // Phase 246: finding-lifecycle columns referenced by security-services.ts
+    // transition(). Additive and idempotent.
+    await client.query(`ALTER TABLE security_findings ADD COLUMN IF NOT EXISTS expires_at TEXT`);
+    await client.query(`ALTER TABLE security_findings ADD COLUMN IF NOT EXISTS approved_by TEXT`);
+    await client.query(`ALTER TABLE security_findings ADD COLUMN IF NOT EXISTS approved_at TEXT`);
+    await client.query(`ALTER TABLE security_findings ADD COLUMN IF NOT EXISTS scope TEXT`);
+    await client.query(`ALTER TABLE security_findings ADD COLUMN IF NOT EXISTS false_positive_evidence TEXT`);
 
     // Phase 183b: execution_leases -- required by updateJobAsOwnerAsync /
     // transitionExecutionAsync ownership fences. Schema translated from

@@ -55,7 +55,7 @@ export interface ReleaseRequestParams {
 }
 
 export interface AuthorizationResult {
-  status: "AUTHORIZED" | "BLOCKED" | "FAIL";
+  status: "AUTHORIZED" | "BLOCKED" | "FAIL" | "REQUIRE_REVIEW";
   authorization?: ProductionExecutionAuthorization;
   blockers: string[];
   reasons: string[];
@@ -166,6 +166,14 @@ export class ProductionReleaseEnforcementService {
       approval: params.approval,
       execution: params.execution,
     });
+
+    // Phase 246: REQUIRE_REVIEW must not silently become a release BLOCK.
+    // It is returned as its own state so the caller can enter the review flow.
+    if (decision.status === "REQUIRE_REVIEW") {
+      blockers.push(...decision.blockers);
+      reasons.push(...decision.blockers);
+      return { status: "REQUIRE_REVIEW", blockers, reasons };
+    }
 
     if (decision.status !== "ALLOW") {
       blockers.push(...decision.blockers);
