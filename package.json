@@ -70,7 +70,8 @@
     "test:phase243": "tsx scripts/test-phase243-durable-recovery-orchestration.ts",
     "test:phase244": "tsx scripts/test-phase244-crash-safe-execution-lifecycle.ts",
                     "test:phase245":  "tsx scripts/test-phase245-production-supervision-boundary.ts",
-                    "test:phase246":  "tsx scripts/test-phase246-canonical-security-decision.ts"
+                    "test:phase246":  "tsx scripts/test-phase246-canonical-security-decision.ts",
+                    "test:phase247":  "tsx scripts/test-phase247-security-assurance.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

@@ -1,5 +1,6 @@
 import { SecurityApi } from "./security-api";
 import { SecurityEvidence, RiskAssessment, SecurityDecision } from "./types";
+import { assessEvidenceSet } from "./security-assurance";
 import type { CanonicalSecurityDecision } from "./types";
 
 export interface ReleaseGateCheckResult {
@@ -80,6 +81,36 @@ export class SecurityReleaseGate {
           reasons.push(`${cat} not run`);
         }
       }
+    }
+
+    // Phase 247: continuous assurance - freshness + artifact binding.
+    // Reuses the existing SecurityEvidence fields; no new persistence.
+    const assurance = assessEvidenceSet(evidenceList, {
+      artifact_digest,
+      release_id,
+      execution_id,
+    });
+    if (
+      assurance.overall === "BLOCKED" ||
+      assurance.overall === "INVALID" ||
+      assurance.overall === "STALE" ||
+      assurance.overall === "NOT_EXECUTED"
+    ) {
+      checks.ASSURANCE = {
+        status: "BLOCKED",
+        canonical_status: "BLOCK",
+        reason: assurance.reasons.join("; "),
+      };
+      reasons.push(...assurance.reasons);
+    } else if (assurance.overall === "REQUIRES_REVIEW") {
+      checks.ASSURANCE = {
+        status: "BLOCKED",
+        canonical_status: "REQUIRE_REVIEW",
+        reason: assurance.reasons.join("; "),
+      };
+      reasons.push(...assurance.reasons);
+    } else {
+      checks.ASSURANCE = { status: "PASS", canonical_status: "ALLOW" };
     }
 
     // Artifact integrity
