@@ -1,0 +1,34 @@
+﻿{
+  "phase": 244,
+  "title": "Crash-Safe End-to-End Execution Lifecycle Orchestration",
+  "completedAt": "2026-10-04",
+  "implementationCommit": "f7a3157",
+  "tag": "nexus-phase244-complete",
+  "priorPhase": { "tag": "nexus-phase243-complete", "commit": "0ae3581" },
+  "verification": {
+    "phase244": { "PASS": 41, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "phase243": { "PASS": 39, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "phase242": { "PASS": 30, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "phase241": { "PASS": 44, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "phase240": { "PASS": 25, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "phase239": { "PASS": 56, "FAIL": 0, "BLOCKED": 0, "NOT_EXECUTED": 0 },
+    "typescript": "exit 0"
+  },
+  "scope": {
+    "productionCodeChanged": false,
+    "migrationsAdded": "173_phase242_recovery_retry_metadata.sql (SQLite parity for Phase 242 retry columns; unblocked Phase 241 241T)",
+    "notes": "Phase 244 verifier required two harness fixes: (1) force-expire-lease now only bumps expires_at, not status, so recoverExpiredLeasesAsync can see the row; (2) verifier switched to finalizeExecutionAsync for shared-mode finalization. The repository's production shared-mode dispatch (execution-engine.ts:2005/2013) already routed to the correct finalizer."
+  },
+  "verifier": "scripts/test-phase244-crash-safe-execution-lifecycle.ts",
+  "childDriver": "scripts/_phase244_lifecycle_child.ts",
+  "checks": [
+    "A01 probe", "A02 valid transition", "A03 invalid transition", "A04 duplicate transition",
+    "A05 concurrent ownership", "A06 stale-owner fencing", "A07 live worker vs recovery",
+    "A08 expired-owner recovery", "A09 worker crash", "A10 scheduler crash",
+    "A11 duplicate finalization", "A12 stale finalization", "A13 recovery + finalization",
+    "A14 terminal resurrection", "A15 retryable classification", "A16 non-retryable classification",
+    "A17 max retry", "A18 pg restart", "A19 concurrent scheduler/recovery",
+    "A20 duplicate recovery protection", "A21 no SQLite fallback",
+    "A22 phase243 regression", "A23 phase242 regression", "A24 tsc", "A25 clean shutdown"
+  ]
+}
