@@ -84,10 +84,63 @@ export interface RecoveryRunReport {
 export class ReleaseRecoveryExecutor {
   constructor(private readonly deps: ReleaseRecoveryExecutorDeps) {}
 
+  // --------------------------------------------------------------------
+  // Phase 250: async-aware intent operations. Shared PostgreSQL mode uses
+  // the async APIs; local/SQLite mode keeps the existing synchronous path.
+  // --------------------------------------------------------------------
+
+  private async listRecoverableIntents(): Promise<ReleaseDeploymentIntent[]> {
+    if (this.deps.intents.hasAsyncBackend()) {
+      return this.deps.intents.listRecoverableAsync();
+    }
+    return this.deps.intents.listRecoverable();
+  }
+
+  private async listIntentsByStatus(status: any): Promise<ReleaseDeploymentIntent[]> {
+    if (this.deps.intents.hasAsyncBackend()) {
+      return this.deps.intents.listByStatusAsync(status);
+    }
+    return this.deps.intents.listByStatus(status);
+  }
+
+  private async acquireIntentLease(intentKey: string): Promise<{ acquired: boolean; holder: string | null; expiresAt: number | null }> {
+    if (this.deps.intents.hasAsyncBackend()) {
+      return this.deps.intents.acquireLeaseAsync(intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+    }
+    return this.deps.intents.acquireLease(intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+  }
+
+  private async releaseIntentLease(intentKey: string): Promise<boolean> {
+    if (this.deps.intents.hasAsyncBackend()) {
+      return this.deps.intents.releaseLeaseAsync(intentKey, this.deps.workerId);
+    }
+    return this.deps.intents.releaseLease(intentKey, this.deps.workerId);
+  }
+
+  private async getIntent(intentKey: string): Promise<ReleaseDeploymentIntent | undefined> {
+    if (this.deps.intents.hasAsyncBackend()) {
+      return this.deps.intents.getAsync(intentKey);
+    }
+    return this.deps.intents.get(intentKey);
+  }
+
+  private async transitionIntentIfOwned(
+    intentKey: string,
+    status: any,
+    patch: any = {},
+    expectedStatuses?: any[],
+  ): Promise<{ updated: boolean; intent: ReleaseDeploymentIntent | undefined }> {
+    if (this.deps.intents.hasAsyncBackend()) {
+      return this.deps.intents.transitionIfOwnedAsync(intentKey, status, this.deps.workerId, patch, expectedStatuses);
+    }
+    return this.deps.intents.transitionIfOwned(intentKey, status, this.deps.workerId, patch, expectedStatuses);
+  }
+
+
   async runOnce(now = Date.now()): Promise<RecoveryRunReport> {
     const { intents, recovery, svc } = this.deps;
     const report: RecoveryRunReport = { scanned: 0, acted: 0, skipped: 0, blocked: 0, leaseHeld: 0, actions: [], blockedReasons: [] };
-    const allRecoverable = intents.listRecoverable();
+    const allRecoverable = await this.listRecoverableIntents();
     report.scanned = allRecoverable.length;
     // Phase 175: durable retry backoff — skip intents whose nextRetryAt is in
     // the future. NULL/undefined nextRetryAt means immediately eligible.
@@ -118,7 +171,7 @@ export class ReleaseRecoveryExecutor {
       const seen = new Set<string>();
       const terminalStatuses = ["FAILED", "VERIFICATION_FAILED", "RECOVERY_REQUIRED", "BLOCKED"] as const;
       for (const status of terminalStatuses) {
-        for (const intent of intents.listByStatus(status)) {
+        for (const intent of await this.listIntentsByStatus(status)) {
           const kind = ((intent as unknown as { intentKind?: string }).intentKind ?? "DEPLOY");
           if (kind !== "ROLLBACK") continue;
           if (seen.has(intent.intentKey)) continue;
@@ -128,7 +181,7 @@ export class ReleaseRecoveryExecutor {
           // path in this executor so two workers cannot both reconcile the
           // same intent. If the lease is held, skip; the obligation stays
           // durable and is rediscovered on the next runOnce().
-          const reconcileLease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+          const reconcileLease = await this.acquireIntentLease(intent.intentKey);
           if (!reconcileLease.acquired) {
             report.leaseHeld++;
             await svc.events.emit({ type: "release.recovery.lease.held", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, holder: reconcileLease.holder, expiresAt: reconcileLease.expiresAt, phase: "reconcile" } });
@@ -141,7 +194,7 @@ export class ReleaseRecoveryExecutor {
             report.blockedReasons.push({ intentKey: intent.intentKey, reason: "reconciliation failed: " + reason });
             await svc.events.emit({ type: "release.recovery.error", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, error: "reconciliation failed: " + reason } });
           } finally {
-            intents.releaseLease(intent.intentKey, this.deps.workerId);
+            await this.releaseIntentLease(intent.intentKey);
           }
         }
       }
@@ -179,11 +232,11 @@ export class ReleaseRecoveryExecutor {
     if (intent.status === "AUTHORIZED") {
       if (!this.isImmutableComplete(intent)) { await this.blockIntent(intent, "authorized intent missing immutable fields", report); return; }
       // Phase 174: first mutation on a recovery pass must be lease-fenced.
-      const authLease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+      const authLease = await this.acquireIntentLease(intent.intentKey);
       if (!authLease.acquired) { report.leaseHeld++; return; }
       try {
         const authDp = this.decisionPatch(intent.intentKey, "SAFE_TO_RESUME", "RESUME_FROM_INTENT", "authorized intent ready to deploy");
-        const adv = intents.transitionIfOwned(intent.intentKey, "DEPLOYMENT_INTENT_CREATED", this.deps.workerId, { recoveryReason: "recovery: AUTHORIZED -> DEPLOYMENT_INTENT_CREATED", ...authDp });
+        const adv = await this.transitionIntentIfOwned(intent.intentKey, "DEPLOYMENT_INTENT_CREATED", { recoveryReason: "recovery: AUTHORIZED -> DEPLOYMENT_INTENT_CREATED", ...authDp });
         if (adv.updated) {
           report.acted++;
           await svc.events.emit({ type: "release.recovery.advanced", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, from: "AUTHORIZED", to: "DEPLOYMENT_INTENT_CREATED" } });
@@ -191,17 +244,17 @@ export class ReleaseRecoveryExecutor {
           report.blocked++;
         }
       } finally {
-        intents.releaseLease(intent.intentKey, this.deps.workerId);
+        await this.releaseIntentLease(intent.intentKey);
       }
       return;
     }
     if (intent.status === "DEPLOYMENT_INTENT_CREATED") {
       if (!intent.projectId) { await this.blockIntent(intent, "projectId required to deploy", report); return; }
       if (!this.isImmutableComplete(intent)) { await this.blockIntent(intent, "intent missing immutable fields", report); return; }
-      const lease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+      const lease = await this.acquireIntentLease(intent.intentKey);
       if (!lease.acquired) { report.leaseHeld++; await svc.events.emit({ type: "release.recovery.lease.held", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, holder: lease.holder, expiresAt: lease.expiresAt } }); return; }
       try {
-        const fresh = intents.get(intent.intentKey);
+        const fresh = await this.getIntent(intent.intentKey);
         if (!fresh || fresh.status !== "DEPLOYMENT_INTENT_CREATED") { report.skipped++; return; }
         if (!fresh.attemptId) {
           await this.markRecoveryRequired(fresh, "recovery: intent has no durable attemptId; cannot resume deployment");
@@ -209,7 +262,7 @@ export class ReleaseRecoveryExecutor {
           return;
         }
         const safeDp = this.decisionPatch(fresh.intentKey, "SAFE_TO_RESUME", "RESUME_FROM_INTENT", "authorized resume under lease " + this.deps.workerId);
-        intents.transitionIfOwned(fresh.intentKey, "DEPLOYING", this.deps.workerId, { recoveryReason: "recovery: deploying under lease " + this.deps.workerId, ...safeDp });
+        await this.transitionIntentIfOwned(fresh.intentKey, "DEPLOYING", { recoveryReason: "recovery: deploying under lease " + this.deps.workerId, ...safeDp });
         // Phase 171: authoritative project resolution before provider invocation.
         // When the engine is wired, verify the recovered intent's project matches
         // the execution.project_id resolved from durable state. Mismatch or
@@ -232,7 +285,7 @@ export class ReleaseRecoveryExecutor {
         }
         const outcome = await this.deps.orchestrator.deploy(this.toDeploymentRequest(fresh, fresh.attemptId));
         await this.recordDeploymentOutcome(fresh, outcome, report, "RESUME_FROM_INTENT");
-      } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
+      } finally { await this.releaseIntentLease(intent.intentKey); }
       return;
     }
     await this.blockIntent(intent, "resume_from_intent but status " + intent.status, report);
@@ -242,15 +295,15 @@ export class ReleaseRecoveryExecutor {
     const { intents } = this.deps;
     if (!intent.projectId) { await this.blockIntent(intent, "projectId required to resume verification", report); return; }
     if (!intent.deploymentId) { await this.blockIntent(intent, "no deploymentId to resume verification", report); return; }
-    const lease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+    const lease = await this.acquireIntentLease(intent.intentKey);
     if (!lease.acquired) { report.leaseHeld++; return; }
     try {
-      const fresh = intents.get(intent.intentKey);
+      const fresh = await this.getIntent(intent.intentKey);
       if (!fresh || (fresh.status !== "HEALTH_CHECKING" && fresh.status !== "SMOKE_TESTING")) { report.skipped++; return; }
       const inspection = await inspectIntentContainer(fresh, this.deps.docker);
       if (inspection.verdict === "BLOCKED") { await this.markRecoveryRequired(fresh, "inspection blocked: " + inspection.reason); report.blocked++; return; }
       if (inspection.verdict === "MISSING") { await this.markRecoveryRequired(fresh, "container missing on resume verification"); report.blocked++; return; }
-      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "identity mismatch on resume: expected " + inspection.expectedImageId + " got " + inspection.runningImageId, reconciledAt: Date.now() }); report.acted++; await this.deps.svc.events.emit({ type: "reconciliation.identity_mismatch", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, expected: inspection.expectedImageId, observed: inspection.runningImageId } }); return; }
+      if (inspection.verdict === "IDENTITY_MISMATCH") { await this.transitionIntentIfOwned(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "identity mismatch on resume: expected " + inspection.expectedImageId + " got " + inspection.runningImageId, reconciledAt: Date.now() }); report.acted++; await this.deps.svc.events.emit({ type: "reconciliation.identity_mismatch", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, expected: inspection.expectedImageId, observed: inspection.runningImageId } }); return; }
       if (!inspection.hostPort) { await this.markRecoveryRequired(fresh, "no host port on inspect"); report.blocked++; return; }
       const stagingUrl = "http://127.0.0.1:" + inspection.hostPort;
       const smokeResult = await this.deps.smoke.run({ staging_url: stagingUrl, execution_id: fresh.executionId });
@@ -266,7 +319,7 @@ export class ReleaseRecoveryExecutor {
           smokeVerdict: smokeResult.verdict,
         });
         const kgDp = this.decisionPatch(fresh.intentKey, "KNOWN_GOOD", "RESUME_VERIFICATION", "resumed verification passed");
-        intents.transitionIfOwned(fresh.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId: fresh.deploymentId, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...kgDp });
+        await this.transitionIntentIfOwned(fresh.intentKey, "KNOWN_GOOD", { deploymentId: fresh.deploymentId, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...kgDp });
         report.acted++;
         await this.deps.svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, deploymentId: fresh.deploymentId } });
         await this.deps.svc.events.emit({ type: "reconciliation.authoritative_success", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, deploymentId: fresh.deploymentId, containerId: inspection.containerId, runningImageId: inspection.runningImageId, expectedImageId: inspection.expectedImageId, smokeVerdict: smokeResult.verdict } });
@@ -276,43 +329,43 @@ export class ReleaseRecoveryExecutor {
         report.blocked++;
       }
       else {
-        intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "smoke failed on resume", reconciledAt: Date.now() });
+        await this.transitionIntentIfOwned(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "smoke failed on resume", reconciledAt: Date.now() });
         report.acted++;
         await this.deps.svc.events.emit({ type: "reconciliation.authoritative_failure", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey, terminal: "VERIFICATION_FAILED", smokeVerdict: smokeResult.verdict } });
       }
-    } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
+    } finally { await this.releaseIntentLease(intent.intentKey); }
   }
 
   private async markFailedAndRollback(intent: ReleaseDeploymentIntent, report: RecoveryRunReport): Promise<void> {
     const { intents, svc } = this.deps;
     if (!intent.projectId) { await this.blockIntent(intent, "projectId required for rollback", report); return; }
-    const lease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+    const lease = await this.acquireIntentLease(intent.intentKey);
     if (!lease.acquired) { report.leaseHeld++; return; }
     try {
-      const fresh = intents.get(intent.intentKey);
+      const fresh = await this.getIntent(intent.intentKey);
       if (!fresh || fresh.status !== "VERIFICATION_FAILED") { report.skipped++; return; }
-      intents.transitionIfOwned(fresh.intentKey, "ROLLING_BACK", this.deps.workerId, { recoveryReason: "recovery: verification failed -> rollback" });
+      await this.transitionIntentIfOwned(fresh.intentKey, "ROLLING_BACK", { recoveryReason: "recovery: verification failed -> rollback" });
       if (!this.deps.rollback) {
-        intents.transitionIfOwned(fresh.intentKey, "FAILED", this.deps.workerId, { failureReason: "verification failed; rollback delegate unavailable" });
+        await this.transitionIntentIfOwned(fresh.intentKey, "FAILED", { failureReason: "verification failed; rollback delegate unavailable" });
         report.blocked++;
         report.blockedReasons.push({ intentKey: fresh.intentKey, reason: "rollback delegate unavailable" });
         await svc.events.emit({ type: "release.recovery.rollback.unavailable", source: "ReleaseRecoveryExecutor", execution_id: fresh.executionId, payload: { intentKey: fresh.intentKey } });
         return;
       }
       const result = await this.deps.rollback.rollback(fresh);
-      intents.transitionIfOwned(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", this.deps.workerId, { deploymentId: result.deploymentId, failureReason: result.message });
+      await this.transitionIntentIfOwned(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", { deploymentId: result.deploymentId, failureReason: result.message });
       if (result.status === "COMPLETED") report.acted++; else report.blocked++;
       await svc.audit.record({ actor: this.deps.workerId, action: "release.recovery.rollback", resource_type: "release_deployment_intent", resource_id: fresh.intentKey, result: result.status === "COMPLETED" ? "ok" : "blocked", metadata: { message: result.message } });
-    } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
+    } finally { await this.releaseIntentLease(intent.intentKey); }
   }
 
   private async resumeRollback(intent: ReleaseDeploymentIntent, report: RecoveryRunReport): Promise<void> {
     const { intents } = this.deps;
     if (!intent.projectId) { await this.blockIntent(intent, "projectId required to resume rollback", report); return; }
-    const lease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+    const lease = await this.acquireIntentLease(intent.intentKey);
     if (!lease.acquired) { report.leaseHeld++; return; }
     try {
-      const fresh = intents.get(intent.intentKey);
+      const fresh = await this.getIntent(intent.intentKey);
       if (!fresh || fresh.status !== "ROLLING_BACK") { report.skipped++; return; }
       const inspection = await inspectIntentContainer(fresh, this.deps.docker);
       if (inspection.verdict === "BLOCKED") { report.blocked++; report.blockedReasons.push({ intentKey: fresh.intentKey, reason: "rollback resume: inspection blocked" }); return; }
@@ -385,7 +438,7 @@ export class ReleaseRecoveryExecutor {
               execution_id: fresh.executionId,
               payload: { ...evidenceBase, verificationStatus: "VERIFIED", reason: ver.message },
             });
-            intents.transitionIfOwned(fresh.intentKey, "FAILED", this.deps.workerId, { recoveryReason: "rollback verified after crash recovery" });
+            await this.transitionIntentIfOwned(fresh.intentKey, "FAILED", { recoveryReason: "rollback verified after crash recovery" });
             report.acted++;
             await this.deps.svc.events.emit({
               type: "release.recovery.rollback.verified",
@@ -414,20 +467,20 @@ export class ReleaseRecoveryExecutor {
             execution_id: fresh.executionId,
             payload: { ...evidenceBase, verificationStatus: "VERIFICATION_FAILED", reason: ver.message },
           });
-          intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: ver.message });
+          await this.transitionIntentIfOwned(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: ver.message });
           report.acted++;
           return;
         }
         // Legacy DEPLOY-intent path — preserved for canonical suite T78.
-        if (!this.deps.rollback) { intents.transitionIfOwned(fresh.intentKey, "BLOCKED", this.deps.workerId, { failureReason: "rollback in flight; delegate unavailable" }); report.blocked++; return; }
+        if (!this.deps.rollback) { await this.transitionIntentIfOwned(fresh.intentKey, "BLOCKED", { failureReason: "rollback in flight; delegate unavailable" }); report.blocked++; return; }
         const result = await this.deps.rollback.rollback(fresh);
-        intents.transitionIfOwned(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", this.deps.workerId, { failureReason: result.message });
+        await this.transitionIntentIfOwned(fresh.intentKey, result.status === "COMPLETED" ? "FAILED" : "BLOCKED", { failureReason: result.message });
         if (result.status === "COMPLETED") report.acted++; else report.blocked++;
         return;
       }
-      intents.transitionIfOwned(fresh.intentKey, "FAILED", this.deps.workerId, { failureReason: "rollback already completed; terminal" });
+      await this.transitionIntentIfOwned(fresh.intentKey, "FAILED", { failureReason: "rollback already completed; terminal" });
       report.skipped++;
-    } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
+    } finally { await this.releaseIntentLease(intent.intentKey); }
   }
 
   private async handleRecoveryRequired(intent: ReleaseDeploymentIntent, plan: RecoveryPlan, report: RecoveryRunReport): Promise<void> {
@@ -435,10 +488,10 @@ export class ReleaseRecoveryExecutor {
     // Phase 175: acquire the lease first so retry bookkeeping (which is a
     // fenced transition) can advance on every due pass, not just on passes
     // that require Docker inspection.
-    const lease = intents.acquireLease(intent.intentKey, this.deps.workerId, this.deps.leaseTtlMs);
+    const lease = await this.acquireIntentLease(intent.intentKey);
     if (!lease.acquired) { report.leaseHeld++; return; }
     try {
-      const fresh = intents.get(intent.intentKey);
+      const fresh = await this.getIntent(intent.intentKey);
       if (!fresh) { report.skipped++; return; }
       if (!plan.requiresDockerInspection) {
         // Phase 175: increment the retry counter and schedule the next
@@ -451,13 +504,13 @@ export class ReleaseRecoveryExecutor {
         return;
       }
       const inspection = await inspectIntentContainer(fresh, this.deps.docker);
-      if (inspection.verdict === "MATCHES_INTENT") { intents.transitionIfOwned(fresh.intentKey, "HEALTH_CHECKING", this.deps.workerId, { recoveryReason: "recovery: container matches intent -> HEALTH_CHECKING" }); report.acted++; return; }
-      if (inspection.verdict === "IDENTITY_MISMATCH") { intents.transitionIfOwned(fresh.intentKey, "VERIFICATION_FAILED", this.deps.workerId, { failureReason: "recovery: container identity mismatch on resume" }); report.acted++; return; }
+      if (inspection.verdict === "MATCHES_INTENT") { await this.transitionIntentIfOwned(fresh.intentKey, "HEALTH_CHECKING", { recoveryReason: "recovery: container matches intent -> HEALTH_CHECKING" }); report.acted++; return; }
+      if (inspection.verdict === "IDENTITY_MISMATCH") { await this.transitionIntentIfOwned(fresh.intentKey, "VERIFICATION_FAILED", { failureReason: "recovery: container identity mismatch on resume" }); report.acted++; return; }
       if (inspection.verdict === "MISSING") { await this.markRecoveryRequired(fresh, "container missing on recovery; manual review required"); report.blocked++; return; }
       report.blocked++;
       await this.markRecoveryRequired(fresh, "inspection blocked: " + inspection.reason);
       report.blockedReasons.push({ intentKey: fresh.intentKey, reason: "inspection blocked: " + inspection.reason });
-    } finally { intents.releaseLease(intent.intentKey, this.deps.workerId); }
+    } finally { await this.releaseIntentLease(intent.intentKey); }
   }
 
   /**
@@ -540,7 +593,7 @@ export class ReleaseRecoveryExecutor {
     if (status === "KNOWN_GOOD") {
       const evidence = this.buildReconciliationEvidence({ source: "executor.recordDeploymentOutcome", intent, deploymentId, providerStatus: status });
       const rdoKgDp = this.decisionPatch(intent.intentKey, "KNOWN_GOOD", action, "provider returned KNOWN_GOOD");
-      intents.transitionIfOwned(intent.intentKey, "KNOWN_GOOD", this.deps.workerId, { deploymentId, providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...rdoKgDp });
+      await this.transitionIntentIfOwned(intent.intentKey, "KNOWN_GOOD", { deploymentId, providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...rdoKgDp });
       report.acted++;
       await svc.events.emit({ type: "release.recovery.known_good", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId } });
       await svc.events.emit({ type: "reconciliation.authoritative_success", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId, providerStatus: status } });
@@ -549,14 +602,14 @@ export class ReleaseRecoveryExecutor {
     if (status === "BLOCKED") {
       const evidence = this.buildReconciliationEvidence({ source: "executor.recordDeploymentOutcome", intent, deploymentId, providerStatus: status, reason: "provider returned BLOCKED" });
       const rdoBDp = this.decisionPatch(intent.intentKey, "BLOCKED", action, "provider returned BLOCKED");
-      intents.transitionIfOwned(intent.intentKey, "BLOCKED", this.deps.workerId, { deploymentId, failureReason: "deployment blocked", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...rdoBDp });
+      await this.transitionIntentIfOwned(intent.intentKey, "BLOCKED", { deploymentId, failureReason: "deployment blocked", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...rdoBDp });
       report.blocked++;
       await svc.events.emit({ type: "reconciliation.authoritative_failure", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId, providerStatus: status, terminal: "BLOCKED" } });
       return;
     }
     const evidence = this.buildReconciliationEvidence({ source: "executor.recordDeploymentOutcome", intent, deploymentId, providerStatus: status, reason: "provider returned non-success status" });
     const rdoFDp = this.decisionPatch(intent.intentKey, "FAILED", action, "provider returned non-success status");
-    intents.transitionIfOwned(intent.intentKey, "FAILED", this.deps.workerId, { deploymentId, failureReason: "deployment failed", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...rdoFDp });
+    await this.transitionIntentIfOwned(intent.intentKey, "FAILED", { deploymentId, failureReason: "deployment failed", providerStatus: status, reconciledAt: Date.now(), reconciliationEvidence: evidence, ...rdoFDp });
     report.acted++;
     await svc.events.emit({ type: "reconciliation.authoritative_failure", source: "ReleaseRecoveryExecutor", execution_id: intent.executionId, payload: { intentKey: intent.intentKey, deploymentId, providerStatus: status, terminal: "FAILED" } });
   }
@@ -620,7 +673,7 @@ export class ReleaseRecoveryExecutor {
       maxAttempts: policy?.maxAttempts,
       nextRetryAt,
     });
-    this.deps.intents.transitionIfOwned(intent.intentKey, "RECOVERY_REQUIRED", this.deps.workerId, {
+    await this.transitionIntentIfOwned(intent.intentKey, "RECOVERY_REQUIRED", {
       recoveryReason: reason,
       providerStatus: "UNKNOWN",
       reconciledAt: Date.now(),

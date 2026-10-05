@@ -94,6 +94,7 @@ import { NoopTrafficRouter } from "./traffic-router";
 import { discoverTrafficRouter } from "./traffic-router-factory";
 import { ReleaseDeploymentBridge } from "./deployment-release-bridge";
 import { ReleaseDeploymentIntentService } from "./release-deployment-intent";
+import { DockerDeploymentObserver } from "./docker-deployment-observer";
 import type { CicdReconciliationService } from "./cicd-reconciliation.service";
 import type { CicdReconciliationScheduler } from "./cicd-reconciliation-scheduler";
 import type { CiReconciliationOwnershipService } from "./ci-reconciliation-ownership.service";
@@ -756,6 +757,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         // caller-supplied imageDigest. Optional dep â€” falls through when absent.
         engine,
       });
+      const deploymentObserver = new DockerDeploymentObserver({ history: deploymentHistory, docker: runtime.docker });
       const releaseEnforcement = new ProductionReleaseEnforcementService(
         securityApi,
         securityGate,
@@ -763,6 +765,8 @@ const memberships = new ProjectMembershipStore(rawDb);
         releaseBridge,
         this.executionStore,
         engine,
+        audit,
+        deploymentObserver,
       );
 
       // Phase 211: outer release execution gate.
