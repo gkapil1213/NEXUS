@@ -15,6 +15,7 @@ import {
 } from "./release-deployment-intent";
 import type { ReleaseDeploymentIntent } from "./execution-store";
 import { sha256Hex } from "./integrity";
+import type { AsyncIncidentStore, SecurityIncident } from "./async-incident-store";
 
 export type DriftClassification =
   | "DIGEST_MISMATCH"
@@ -407,4 +408,87 @@ export function evaluateIncidentResolution(input: {
         observation_timestamp: input.freshObservation.observed_at,
       };
   }
+}
+
+// -----------------------------------------------------------------------------
+// Phase 251: canonical production integration entry point.
+// -----------------------------------------------------------------------------
+//
+// Additive: the pure/deterministic Phase 250 functions above remain unchanged
+// and continue to serve existing callers (processDeploymentDrift, etc.).
+// This entry point composes them with the Phase 251 PostgreSQL-backed
+// AsyncIncidentStore so the durable incident lifecycle is reachable from the
+// production incident-response module rather than living in an isolated
+// adapter.
+//
+// It does NOT execute rollback/deployment, acquire or renew recovery leases,
+// increment recovery_attempt, or mutate any recovery-owned state. Those
+// remain owned by ReleaseRecoveryExecutor and the recovery supervisor. It
+// only persists the durable incident row and its timeline, then returns the
+// deterministic Phase 250 decision alongside the durable row.
+
+export interface DurableDeploymentDriftResponse extends DeploymentDriftResponse {
+  durable: SecurityIncident;
+  fingerprint: string;
+  durableCreated: boolean;
+  timelineInserted: boolean;
+}
+
+export async function processDeploymentDriftDurable(input: {
+  incidentStore: AsyncIncidentStore;
+  integrity: DeploymentIntegrityResult;
+  expected: ExpectedDeploymentIdentity;
+  observation: DeploymentObservation;
+  policyEngine?: RecoveryPolicyEngine;
+  authorization?: RecoveryAuthorization;
+  tenantId?: string;
+  service?: string;
+}): Promise<DurableDeploymentDriftResponse | null> {
+  const sync = processDeploymentDrift(
+    input.integrity,
+    input.expected,
+    input.observation,
+    input.policyEngine ?? new RecoveryPolicyEngine(),
+    input.authorization,
+  );
+  if (!sync) return null;
+
+  const identity = {
+    deployment_id: input.expected.deployment_id,
+    release_id: input.expected.release_id,
+    artifact_id: input.expected.artifact_id,
+    artifact_digest: input.expected.artifact_digest,
+    environment: input.expected.environment ?? "unknown",
+  };
+  const observedAt = input.observation.observed_at;
+
+  // Dynamic import: avoids a static circular dependency with
+  // incident-lifecycle.ts, which imports computeIncidentFingerprint and
+  // evaluateRemediationAuthorization from this module at runtime.
+  const lifecycle = await import("./incident-lifecycle");
+  const reconcileDurable = lifecycle.openOrReconcileDriftIncident;
+
+  const reconciled = await reconcileDurable({
+    store: input.incidentStore,
+    identity,
+    classifications: sync.classifications,
+    severity: sync.incident.severity,
+    observedAt,
+    title: "Deployment drift: " + sync.classifications.join(", "),
+    description:
+      "Deployment " + input.expected.deployment_id +
+      " drift vs approved release " + input.expected.release_id +
+      " artifact " + input.expected.artifact_id +
+      " digest " + input.expected.artifact_digest,
+    tenantId: input.tenantId,
+    service: input.service,
+  });
+
+  return {
+    ...sync,
+    durable: reconciled.incident,
+    fingerprint: reconciled.fingerprint,
+    durableCreated: reconciled.created,
+    timelineInserted: reconciled.timelineInserted,
+  };
 }

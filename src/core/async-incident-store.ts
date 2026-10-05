@@ -208,11 +208,28 @@ export class AsyncIncidentStore {
       .run(...values);
     return (r.changes ?? 0) === 1;
   }
+  /**
+   * Phase 251 section 2: stale observation fence.
+   * Advances last_observation_at ONLY when incoming is strictly newer.
+   * Comparison is lexicographic on TEXT; callers must supply ISO 8601 UTC
+   * timestamps (matching new Date(...).toISOString()). Returns true when
+   * accepted, false when fenced as stale.
+   */
+  async recordObservationAsync(id: string, observedAt: string): Promise<boolean> {
+    const now = new Date().toISOString();
+    const r = await this.db
+      .prepareAsync(
+        "UPDATE security_incidents SET last_observation_at = ?, updated_at = ? " +
+          "WHERE id = ? AND (last_observation_at IS NULL OR last_observation_at < ?)",
+      )
+      .run(observedAt, now, id, observedAt);
+    return (r.changes ?? 0) === 1;
+  }
 
   /**
    * Append a timeline entry. Idempotent: derived event_hash is UNIQUE per
    * incident; the ON CONFLICT DO NOTHING makes repeated identical transitions
-   * a no-op (Phase 251 §9 "no duplicate timeline entries").
+   * a no-op (Phase 251 Â§9 "no duplicate timeline entries").
    */
   async appendIncidentTimelineAsync(
     incidentId: string,
@@ -222,26 +239,49 @@ export class AsyncIncidentStore {
     const payloadJson = event.payload ? JSON.stringify(event.payload) : null;
     const eventHash = sha256Hex(event.type + "|" + at + "|" + (payloadJson ?? ""));
 
-    // Compute next seq deterministically inside a single statement using
-    // COALESCE(MAX(seq), 0) + 1; the (incident_id, seq) primary key protects
-    // against races.
-    const seqRow = await this.db
-      .prepareAsync("SELECT COALESCE(MAX(seq), 0) + 1 AS nxt FROM security_incident_timeline WHERE incident_id = ?")
-      .get<{ nxt: number }>(incidentId);
-    const seq = Number(seqRow?.nxt ?? 1);
-
-    const res = await this.db
+    // Fast path: identical event hash already exists => idempotent no-op.
+    const existing = await this.db
       .prepareAsync(
-        "INSERT INTO security_incident_timeline " +
-          "(incident_id, seq, event_type, event_hash, payload, created_at) " +
-          "VALUES (?, ?, ?, ?, ?, ?) " +
-          "ON CONFLICT (incident_id, event_hash) DO NOTHING",
+        "SELECT seq FROM security_incident_timeline WHERE incident_id = ? AND event_hash = ?",
       )
-      .run(incidentId, seq, event.type, eventHash, payloadJson, at);
-    const inserted = (res.changes ?? 0) === 1;
-    return { inserted, seq: inserted ? seq : null };
-  }
+      .get<{ seq: number }>(incidentId, eventHash);
+    if (existing) return { inserted: false, seq: null };
 
+    // Phase 251 section 1: concurrent writers with different hashes can
+    // compute the same MAX(seq)+1. On a (incident_id, seq) PK conflict,
+    // retry with a fresh seq. (incident_id, event_hash) idempotency is
+    // preserved by ON CONFLICT; no silent loss, no schema change.
+    const MAX_RETRIES = 5;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const seqRow = await this.db
+        .prepareAsync(
+          "SELECT COALESCE(MAX(seq), 0) + 1 AS nxt FROM security_incident_timeline WHERE incident_id = ?",
+        )
+        .get<{ nxt: number }>(incidentId);
+      const seq = Number(seqRow?.nxt ?? 1);
+      try {
+        const res = await this.db
+          .prepareAsync(
+            "INSERT INTO security_incident_timeline " +
+              "(incident_id, seq, event_type, event_hash, payload, created_at) " +
+              "VALUES (?, ?, ?, ?, ?, ?) " +
+              "ON CONFLICT (incident_id, event_hash) DO NOTHING",
+          )
+          .run(incidentId, seq, event.type, eventHash, payloadJson, at);
+        if ((res.changes ?? 0) === 1) return { inserted: true, seq };
+        return { inserted: false, seq: null };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/duplicate key|unique constraint|security_incident_timeline_pkey/i.test(msg)) {
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw new Error(
+      "appendIncidentTimelineAsync: seq allocation failed after " + MAX_RETRIES + " retries",
+    );
+  }
   async getIncidentTimelineAsync(incidentId: string): Promise<IncidentTimelineEvent[]> {
     const rows = await this.db
       .prepareAsync(
