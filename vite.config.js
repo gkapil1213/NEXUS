@@ -7,7 +7,13 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
     rollupOptions: {
-      external: ["better-sqlite3", "fs", "path", "crypto", "util", "os", "stream"],
+      external: [
+        "better-sqlite3",
+        /^node:/,
+        "fs", "path", "crypto", "util", "os", "stream",
+        "pg", "pg-pool", "pg-native",
+        "events", "net", "tls", "dns", "string_decoder", "util/types",
+      ],
     },
   },
   optimizeDeps: {
