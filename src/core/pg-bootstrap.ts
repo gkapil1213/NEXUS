@@ -302,6 +302,78 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
     await client.query(`ALTER TABLE security_findings ADD COLUMN IF NOT EXISTS scope TEXT`);
     await client.query(`ALTER TABLE security_findings ADD COLUMN IF NOT EXISTS false_positive_evidence TEXT`);
 
+    // Phase 251: durable incident lifecycle. Authoritative PostgreSQL
+    // persistence for production incidents and their lifecycle timeline.
+    // Idempotent CREATE TABLE IF NOT EXISTS; additive against existing PG.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_incidents (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        environment TEXT NOT NULL,
+        service TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        trigger_alert_id TEXT,
+        status TEXT NOT NULL,
+        deployment_id TEXT,
+        release_id TEXT,
+        artifact_id TEXT,
+        artifact_digest TEXT,
+        drift_classification TEXT,
+        incident_fingerprint TEXT NOT NULL,
+        recovery_intent_key TEXT,
+        recovery_attempt INTEGER DEFAULT 0,
+        lease_owner TEXT,
+        lease_expires_at BIGINT,
+        last_observation_at TEXT,
+        verification_state TEXT,
+        resolution_evidence TEXT,
+        resolved_at TEXT,
+        closed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_security_incidents_fingerprint ON security_incidents (incident_fingerprint)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_incidents_status ON security_incidents (status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_incidents_deployment ON security_incidents (deployment_id)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_incident_timeline (
+        incident_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        event_hash TEXT NOT NULL,
+        payload TEXT,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (incident_id, seq)
+      )
+    `);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_security_incident_timeline_hash ON security_incident_timeline (incident_id, event_hash)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_security_incident_timeline_incident ON security_incident_timeline (incident_id, seq)`);
+
+    // Phase 251: idempotent column additions for security_incidents so a
+    // re-bootstrap against an older table shape converges to the current
+    // schema without failing or dropping data.
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS trigger_alert_id TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS deployment_id TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS release_id TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS artifact_id TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS artifact_digest TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS drift_classification TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS recovery_intent_key TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS recovery_attempt INTEGER DEFAULT 0`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS lease_owner TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS lease_expires_at BIGINT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS last_observation_at TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS verification_state TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS resolution_evidence TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS resolved_at TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS closed_at TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS incident_fingerprint TEXT`);
+    await client.query(`ALTER TABLE security_incidents ADD COLUMN IF NOT EXISTS updated_at TEXT`);
+
     // Phase 183b: execution_leases -- required by updateJobAsOwnerAsync /
     // transitionExecutionAsync ownership fences. Schema translated from
     // src/db/migrations/020_phase13_execution.sql.
