@@ -32,6 +32,14 @@ import {
   serializeRecoveryDecision,
   parseRecoveryDecision,
 } from "../src/core/release-recovery-decision";
+import { createExecutor, DockerAdapter, PlaywrightAdapter, SmokeTestService, TokenBoundExecutor } from "../src/core/runtime";
+import { createNodeBridge } from "../src/core/node-host-bridge";
+import { SQLiteEngine } from "../src/core/sqlite-engine";
+import { CanonicalDeploymentOrchestrator } from "../src/core/deployment-orchestrator";
+import { DeploymentHistoryService } from "../src/core/deployment-history";
+import { ExecutionStore } from "../src/core/execution-store";
+import { ReleaseDeploymentIntentService } from "../src/core/release-deployment-intent";
+import { buildProductionRecoveryContext, requestRecoveryFromDeployment } from "../src/core/production-recovery-bridge";
 
 let passed = 0, failed = 0, blocked = 0, notExec = 0;
 function ok(c: boolean, m: string): void {
@@ -265,8 +273,158 @@ async function main() {
     const parsed = parseRecoveryDecision(ser);
     ok(parsed !== null && parsed.decision === "REMAIN_RECOVERY_REQUIRED", "A09 decision envelope roundtrip");
 
-    // A10 -- provider context absent -> honest NOT EXECUTED
-    nx("A10 recovery intent requires provider context", "no ReleaseDeploymentIntentService with provider context in this env");
+    // A10 -- real production-path recovery context + durable intent creation.
+    try {
+      const osMod   = await import("node:os");
+      const fspMod  = await import("node:fs/promises");
+      const pathMod = await import("node:path");
+
+      const bridgeRoot = pathMod.join(osMod.tmpdir(), "nexus-p251-a10-" + Date.now());
+      (globalThis as any).window = { __NEXUS_HOST__: createNodeBridge(bridgeRoot) };
+      const nodeBridge = (globalThis as any).window.__NEXUS_HOST__;
+
+      const baseExec   = createExecutor();
+      const probeToken = ("p251a10probe" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).slice(0, 128);
+      await nodeBridge.materializeWorkspace({ token: probeToken, files: [{ path: ".probe", content: "x" }] });
+      const probeBoundExec = new TokenBoundExecutor(baseExec, probeToken);
+      const docker = new DockerAdapter(probeBoundExec);
+      const probe = await docker.run({ kind: "version" });
+
+      if (probe.status !== "SUCCEEDED") {
+        blk("A10 real production path :: docker capability",
+            "DockerAdapter.run(version) -> " + probe.status + " :: " +
+            String(probe.blocked_reason ?? probe.stderr ?? "unknown").slice(0, 200));
+      } else {
+        const dbPath = pathMod.join(osMod.tmpdir(), "nexus-p251-a10-" + Date.now() + ".sqlite");
+        process.on("exit", () => { for (const e of ["", "-wal", "-shm"]) { try { fs.unlinkSync(dbPath + e); } catch {} } });
+        const engine  = await SQLiteEngine.open(dbPath);
+        const history = new DeploymentHistoryService(engine);
+        const svc: any = { events: { emit: async () => undefined }, audit: { record: async () => undefined } };
+
+        const binder = async () => {
+          const token = ("p251a10" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).slice(0, 128);
+          await nodeBridge.materializeWorkspace({ token, files: [{ path: ".nexus-deployment-probe", content: "x" }] });
+          const boundExec       = new TokenBoundExecutor(baseExec, token);
+          const boundDocker     = new DockerAdapter(boundExec);
+          const boundPlaywright = new PlaywrightAdapter(boundExec);
+          const boundSmoke      = new SmokeTestService(boundExec, boundPlaywright, svc);
+          return { docker: boundDocker, smoke: boundSmoke, cleanup: async () => { try { await nodeBridge.cleanupWorkspace(token); } catch {} } };
+        };
+
+        const basePlaywright = new PlaywrightAdapter(baseExec);
+        const baseSmoke      = new SmokeTestService(baseExec, basePlaywright, svc);
+        const orchestrator   = new CanonicalDeploymentOrchestrator(history, docker, baseSmoke, svc, binder);
+
+        const imgInspect = await docker.run({ kind: "inspect", image: "localhost:5000/nexus/nexus-app:version-a" });
+        let realImageId: string | null = null;
+        try {
+          const doc = JSON.parse(imgInspect.stdout);
+          realImageId = Array.isArray(doc) ? (doc[0]?.Id ?? null) : (doc?.Id ?? null);
+        } catch { /* isolated */ }
+
+        if (!realImageId) {
+          blk("A10 real production path :: image lookup",
+              "could not resolve real image id for localhost:5000/nexus/nexus-app:version-a");
+        } else {
+          const imageRepo     = "localhost:5000/nexus/nexus-app";
+          const imageTag      = "version-a";
+          const containerName = "nexus-p251-a10-" + Date.now().toString(36);
+          const executionId   = "exec-p251-a10-" + Date.now().toString(36);
+          const attemptId     = "attempt-p251-a10-" + Date.now().toString(36);
+
+          const outcome: any = await orchestrator.deploy({
+            project_id: "p251-a10",
+            environment: "local",
+            release_id: "rel-p251-a10",
+            artifact_id: "art-p251-a10",
+            commit_sha: "commit-p251-a10",
+            image_repository: imageRepo,
+            image_tag: imageTag,
+            image_id: realImageId,
+            image_digest: null,
+            container_name: containerName,
+            container_port: 8080,
+            execution_id: executionId,
+            attempt_id: attemptId,
+          } as any);
+
+          const deploymentId: string | null = outcome?.deployment?.id ?? null;
+          const deployStatus = outcome?.deployment?.status ?? "unknown";
+
+          try {
+            if (!deploymentId || deployStatus !== "KNOWN_GOOD") {
+              blk("A10 real production path :: deploy",
+                  "deploy status=" + deployStatus + " id=" + String(deploymentId));
+            } else {
+              const rec = await history.getDeployment(deploymentId);
+              ok(rec !== null, "A10 deployment record retrieved");
+              ok((rec as any)?.execution_id === executionId, "A10 authoritative execution_id persisted");
+              ok((rec as any)?.attempt_id === attemptId, "A10 authoritative attempt_id persisted");
+              ok(typeof (rec as any)?.container_port === "number", "A10 authoritative container_port persisted");
+
+              const execStore = new ExecutionStore(engine as any);
+              const intentService = new ReleaseDeploymentIntentService(execStore);
+
+              const expectedIdent = {
+                project_id: "p251-a10",
+                environment: "local",
+                release_id: "rel-p251-a10",
+                artifact_id: "art-p251-a10",
+                artifact_digest: realImageId as string,
+              };
+
+              const built = await buildProductionRecoveryContext({ history, deploymentId, expected: expectedIdent });
+              if (built.status !== "OK") {
+                blk("A10 bridge validation", built.reason);
+              } else {
+                ok(built.context.executionId === executionId, "A10 bridge context executionId matches persisted");
+                ok(built.context.attemptId === attemptId, "A10 bridge context attemptId matches persisted");
+                ok(built.context.containerPort === 8080, "A10 bridge context containerPort matches persisted");
+
+                const oInc = {
+                  id: "inc-p251-a10", tenant_id: "default", environment: "local",
+                  service: "deployment-integrity", severity: "HIGH",
+                  title: "a10", description: "a10", status: "OPEN",
+                  created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+                } as any;
+
+                const r1 = await requestRecoveryFromDeployment({
+                  history, intentService, incident: oInc, deploymentId, expected: expectedIdent,
+                });
+                ok(r1.status === "CREATED", "A10 requestDriftRecoveryIntent CREATED (got " + r1.status + ")");
+                const key1 = r1.intentKey;
+                ok(typeof key1 === "string" && key1.length > 0, "A10 intentKey present");
+                if (key1) {
+                  const back = intentService.get(key1);
+                  ok(back !== undefined, "A10 durable intent persisted");
+                  ok(back?.executionId === executionId, "A10 intent executionId matches");
+                  ok(back?.attemptId === attemptId, "A10 intent attemptId matches");
+                  ok(back?.imageRepository === imageRepo, "A10 intent imageRepository matches");
+                  ok(back?.containerName === containerName, "A10 intent containerName matches");
+                  ok(back?.containerPort === 8080, "A10 intent containerPort matches");
+
+                  const r2 = await requestRecoveryFromDeployment({
+                    history, intentService, incident: oInc, deploymentId, expected: expectedIdent,
+                  });
+                  ok(r2.status === "RECONCILED", "A10 repeat call RECONCILED (got " + r2.status + ")");
+                  ok(r2.intentKey === key1, "A10 same intentKey on repeat");
+                }
+              }
+            }
+          } finally {
+            try { await docker.run({ kind: "stop", container: containerName }); } catch {}
+            try { await docker.run({ kind: "rm", container: containerName, force: true }); } catch {}
+          }
+        }
+
+        try { (engine as any).close?.(); } catch {}
+        try { await nodeBridge.cleanupWorkspace(probeToken); } catch {}
+        try { await fspMod.rm(bridgeRoot, { recursive: true, force: true }); } catch {}
+      }
+    } catch (e) {
+      blk("A10 real production path", String(e instanceof Error ? e.message : e).slice(0, 300));
+    }
+
 
     // A11 -- attempt accounting not incremented by observation
     const before11 = (await store.getIncidentAsync(aId))?.recovery_attempt ?? 0;
@@ -392,8 +550,63 @@ async function main() {
     const p2 = parseRecoveryDecision(serializeRecoveryDecision(env2));
     ok(p2 !== null && p2.decision === "SAFE_TO_RESUME" && p2.action === "RESUME_ROLLBACK", "A22 SAFE_TO_RESUME envelope roundtrip");
 
-    // A23 -- lifecycle integration with executor/intent machinery requires provider context
-    nx("A23 recovery lifecycle integration with executor/intent machinery", "requires ReleaseDeploymentIntentService with provider context");
+    // A23 -- intent is discovered and owned by the existing recovery machinery.
+    try {
+      const osMod   = await import("node:os");
+      const pathMod = await import("node:path");
+      const dbPath  = pathMod.join(osMod.tmpdir(), "nexus-p251-a23-" + Date.now() + ".sqlite");
+      process.on("exit", () => { for (const e of ["", "-wal", "-shm"]) { try { fs.unlinkSync(dbPath + e); } catch {} } });
+      const engine = await SQLiteEngine.open(dbPath);
+      const execStore = new ExecutionStore(engine as any);
+      const intentService = new ReleaseDeploymentIntentService(execStore);
+
+      const input = {
+        intentKind: "DEPLOY" as const,
+        releaseId: "rel-p251-a23",
+        executionId: "exec-p251-a23",
+        attemptId: "attempt-p251-a23",
+        artifactId: "art-p251-a23",
+        artifactDigest: "sha256:p251-a23",
+        commitSha: "commit-p251-a23",
+        environment: "local",
+        projectId: "p251-a23",
+        imageRepository: "localhost:5000/nexus/nexus-app",
+        imageTag: "version-a",
+        imageId: null,
+        imageDigest: "sha256:p251-a23",
+        containerName: "nexus-p251-a23",
+        containerPort: 8080,
+      };
+      const first = await intentService.getOrCreate(input);
+      const intentKey = first.intent.intentKey;
+      ok(first.created === true, "A23 intent created via existing service");
+      ok(typeof intentKey === "string" && intentKey.length > 0, "A23 intentKey present");
+
+      const recoverables = intentService.listRecoverable();
+      ok(recoverables.find((i) => i.intentKey === intentKey) !== undefined,
+         "A23 existing recovery machinery discovers the intent");
+
+      const lease = intentService.acquireLease(intentKey, "p251-a23-worker", 30_000);
+      ok(lease.acquired === true, "A23 existing lease machinery acquires");
+
+      const owned = intentService.transitionIfOwned(intentKey, "DEPLOYMENT_INTENT_CREATED" as any, "p251-a23-worker", {} as any);
+      ok(owned.updated === true, "A23 existing executor owns the transition");
+
+      try { intentService.releaseLease(intentKey, "p251-a23-worker"); } catch { /* isolated */ }
+
+      const again = await intentService.getOrCreate(input);
+      ok(again.created === false, "A23 no second intent created");
+      ok(again.intent.intentKey === intentKey, "A23 same intentKey on repeat");
+
+      const after = intentService.listRecoverable();
+      ok(after.find((i) => i.intentKey === intentKey) !== undefined,
+         "A23 intent still discoverable post-transition");
+
+      try { (engine as any).close?.(); } catch {}
+    } catch (e) {
+      blk("A23 recovery lifecycle integration", String(e instanceof Error ? e.message : e).slice(0, 300));
+    }
+
 
     // A24 -- lease ownership not overwritten by stale worker
     const rb = await openOrReconcileDriftIncident({

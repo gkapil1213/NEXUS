@@ -1368,6 +1368,9 @@ export interface DeploymentRecord {
   container_name?: string | null;
 
   container_id?: string | null;
+  execution_id?: string | null;
+  attempt_id?: string | null;
+  container_port?: number | null;
 
   url?: string | null;
   failure_reason?: string | null;

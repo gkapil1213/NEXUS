@@ -137,7 +137,21 @@ export class CanonicalDeploymentOrchestrator {
       commit_sha: req.commit_sha ?? null, container_name: req.container_name,
       previous_deployment_id: null, is_rollback: false,
     });
-    if (req.artifact_id) await this.history.updateDeployment(rec.id, { artifact_id: req.artifact_id });
+    // Phase 251: persist authoritative execution/attempt/port into the record so
+    // the production recovery-context bridge can build DriftRecoveryProviderContext
+    // without fabricating values. When req omits any of these, the field is left
+    // null and the bridge will return BLOCKED (fail-closed).
+    {
+      const patch: Record<string, unknown> = {};
+      if (req.artifact_id) patch.artifact_id = req.artifact_id;
+      const reqAny = req as any;
+      if (reqAny.execution_id) patch.execution_id = reqAny.execution_id;
+      if (reqAny.attempt_id) patch.attempt_id = reqAny.attempt_id;
+      if (typeof reqAny.container_port === "number") patch.container_port = reqAny.container_port;
+      if (Object.keys(patch).length > 0) {
+        await this.history.updateDeployment(rec.id, patch as any);
+      }
+    }
     await this.history.setStatus(rec.id, "DEPLOYING");
     await this.svc.events.emit({
       type: "deployment.started" as never, source: "CanonicalDeploymentOrchestrator",
