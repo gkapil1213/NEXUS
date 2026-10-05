@@ -1,6 +1,6 @@
 // scripts/test-phase251-incident-lifecycle-durability.ts
 //
-// Phase 251 verifier â€” durable incident lifecycle.
+// Phase 251 verifier — durable incident lifecycle.
 //
 // This session: A20 (PG authoritative), A21 (no SQLite imports),
 // A29 (TypeScript), A30 (diff integrity) + a schema/bootstrap probe.
@@ -26,6 +26,7 @@ import {
   evaluateIncidentResolution,
 } from "../src/core/production-incident-response";
 import { RecoveryPolicyEngine } from "../src/core/recovery-policy-engine";
+import { processDeploymentDriftDurable } from "../src/core/production-incident-response";
 import {
   buildRecoveryDecisionEnvelope,
   serializeRecoveryDecision,
@@ -469,6 +470,81 @@ async function main() {
       await pg.query("DELETE FROM security_incidents WHERE id LIKE $1", ["incident-drift-%"]);
     } catch { /* isolated */ }
   }
+  // ---------- A31 - production path reaches AsyncIncidentStore ----------
+  section("A31 - production path integration (processDeploymentDriftDurable)");
+  {
+    const cIdent = {
+      deployment_id: "dep-p251-prod",
+      release_id: "rel-p251-prod",
+      artifact_id: "art-p251-prod",
+      artifact_digest: "sha256:p251-prod",
+      environment: "local",
+    };
+    const cAt = "2026-06-03T00:00:00.000Z";
+    const cClasses = ["DIGEST_MISMATCH"] as any;
+    const cFp = computeIncidentFingerprint({ ...cIdent, classifications: cClasses });
+    const cId = deterministicDriftIncidentId(cFp);
+
+    try {
+      try { await pg.query("DELETE FROM security_incident_timeline WHERE incident_id = $1", [cId]); } catch {}
+      try { await pg.query("DELETE FROM security_incidents WHERE id = $1", [cId]); } catch {}
+
+      const integrity = {
+        state: "DRIFTED",
+        expected_digest: cIdent.artifact_digest,
+        observed_digest: "sha256:actual-drifted",
+        reasons: ["digest mismatch"],
+      } as any;
+      const expected = { ...cIdent } as any;
+      const observation = {
+        available: true,
+        status: "OK",
+        observed_digest: "sha256:actual-drifted",
+        observed_release_id: cIdent.release_id,
+        observed_artifact_id: cIdent.artifact_id,
+        observed_at: cAt,
+      } as any;
+
+      const out = await processDeploymentDriftDurable({
+        incidentStore: store,
+        integrity: integrity,
+        expected: expected,
+        observation: observation,
+      });
+      ok(out !== null, "A31 processDeploymentDriftDurable non-null for DRIFTED");
+      ok(out?.durableCreated === true, "A31 first call created durable row");
+      ok(out?.durable.id === cId, "A31 durable id deterministic from fingerprint");
+      ok(out?.durable.incident_fingerprint === cFp, "A31 fingerprint persisted matches");
+
+      const back = await store.getIncidentByFingerprintAsync(cFp);
+      ok(back !== undefined, "A31 row present in PostgreSQL by fingerprint");
+      ok(back?.status === "OPEN", "A31 initial durable status OPEN");
+
+      const tl = await store.getIncidentTimelineAsync(cId);
+      ok(tl.length >= 1, "A31 timeline durable from production path (" + tl.length + ")");
+
+      const out2 = await processDeploymentDriftDurable({
+        incidentStore: store,
+        integrity: integrity,
+        expected: expected,
+        observation: observation,
+      });
+      ok(out2?.durableCreated === false, "A31 repeat reconciled, not created");
+      ok(out2?.durable.id === cId, "A31 repeat durable id stable");
+
+      const rows = await pg.query<{ n: string }>(
+        "SELECT COUNT(*)::text AS n FROM security_incidents WHERE incident_fingerprint = $1",
+        [cFp],
+      );
+      ok(rows.rows[0]?.n === "1", "A31 exactly one durable row for fingerprint");
+    } catch (e) {
+      blk("A31 production path", String(e instanceof Error ? e.message : e).slice(0, 300));
+    } finally {
+      try { await pg.query("DELETE FROM security_incident_timeline WHERE incident_id = $1", [cId]); } catch {}
+      try { await pg.query("DELETE FROM security_incidents WHERE id = $1", [cId]); } catch {}
+    }
+  }
+
   try { await pg.close(); } catch { /* isolated */ }
 
   console.log("\n============================================");
