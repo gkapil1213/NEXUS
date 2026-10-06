@@ -106,6 +106,7 @@ import { ReleaseRecoverySupervisor, type RecoverySupervisorStatus } from "./rele
 import { DistributedScheduler, type SchedulerTickReport } from "./distributed-scheduler";
 import { RecoveryOperationsService } from "./recovery-operations";
 import { RecoveryControlService } from "./recovery-control-service";
+import { DriftObservationSupervisor, type DriftObservationSupervisorStatus, type DriftObservationScope } from "./drift-observation-supervisor";
 import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
@@ -185,6 +186,7 @@ const BOOT_ORDER = [
   ["orchestration", "assemble orchestration"],
   ["runtime", "detect execution runtime"],
   ["recovery", "recover in-flight releases"],
+  ["drift-observer", "wire durable drift observation"],
 ] as const;
 
 export class NexusKernel {
@@ -218,6 +220,12 @@ export class NexusKernel {
   // undefined unless durable recovery infrastructure was constructed.
   recoveryOperations?: RecoveryOperationsService;
   recoveryControl?: RecoveryControlService;
+  // Phase 252: durable drift observation supervisor. Populated in boot() only
+  // when shared (PostgreSQL) persistence is active. Opt-in via
+  // CONFIG.driftObserver.enabled at explicit startDriftObserver() time.
+  driftObserver?: DriftObservationSupervisor;
+  driftObserverWorkerId?: string;
+  driftObserverScopes?: DriftObservationScope[];
 
   private step(id: string, status: BootStep["status"], detail: string | null = null): void {
     const s = this.steps.find((x) => x.id === id);
@@ -860,6 +868,43 @@ const memberships = new ProjectMembershipStore(rawDb);
         this.step("recovery", "ok", "skipped: durable intent store unavailable");
       }
 
+      // Phase 252: durable drift observation supervisor. Only wired when
+      // shared (PostgreSQL) persistence is active, because AsyncIncidentStore
+      // requires an AsyncNexusEngine. Scopes default to empty; callers set
+      // them via setDriftObservationScopes(). Constructing this supervisor
+      // does NOT start any timer - startDriftObserver() is the opt-in start.
+      if (this.pgClient) {
+        try {
+          const { PgAsyncEngine } = await import("./pg-async-engine");
+          const { AsyncIncidentStore } = await import("./async-incident-store");
+
+          const driftWorkerId = "nexus-drift-" + crypto.randomUUID();
+          this.driftObserverWorkerId = driftWorkerId;
+          const incidentStore = new AsyncIncidentStore(new PgAsyncEngine(this.pgClient));
+          const observer = new DockerDeploymentObserver({ history: deploymentHistory, docker: runtime.docker });
+          this.driftObserver = new DriftObservationSupervisor({
+            incidentStore,
+            history: deploymentHistory,
+            observer,
+            workerId: driftWorkerId,
+            intervalMs: CONFIG.driftObserver.intervalMs,
+            maxScopesPerTick: CONFIG.driftObserver.maxScopesPerTick,
+            enumerateScopes: async () => this.driftObserverScopes ?? [],
+            svc: {
+              events: {
+                emit: async (event) => {
+                  await events.emit(event as Parameters<typeof events.emit>[0]);
+                },
+              },
+            },
+          });
+          this.step("drift-observer", "ok", "constructed (opt-in via CONFIG.driftObserver.enabled)");
+        } catch (e) {
+          this.step("drift-observer", "fail", e instanceof Error ? e.message : String(e));
+        }
+      } else {
+        this.step("drift-observer", "ok", "skipped: shared persistence unavailable");
+      }
       this.services = {
         engine,
         events,
@@ -1085,6 +1130,32 @@ const memberships = new ProjectMembershipStore(rawDb);
     return this.recoverySupervisor?.status() ?? null;
   }
 
+  // Phase 252: drift observation supervisor lifecycle.
+  setDriftObservationScopes(scopes: DriftObservationScope[]): void {
+    this.driftObserverScopes = scopes.slice();
+  }
+  async startDriftObserver(): Promise<void> {
+    if (!CONFIG.driftObserver.enabled) return;
+    if (!this.driftObserver) {
+      throw Err.startup(
+        "DRIFT_OBSERVER_NOT_WIRED",
+        "kernel did not construct a DriftObservationSupervisor (requires shared persistence)",
+      );
+    }
+    await this.driftObserver.start();
+  }
+  async stopDriftObserver(): Promise<void> {
+    if (!this.driftObserver) return;
+    await this.driftObserver.stop();
+  }
+  async runDriftObservationNow(): Promise<unknown | null> {
+    if (!this.driftObserver) return null;
+    return this.driftObserver.runNow();
+  }
+  getDriftObserverStatus(): DriftObservationSupervisorStatus | null {
+    return this.driftObserver?.status() ?? null;
+  }
+
   /**
    * Orderly kernel shutdown. Stops background lifecycle services in reverse
    * order of their start. Idempotent. The final recovery pass is opt-in.
@@ -1135,6 +1206,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       this.executionReconcileTimer = undefined;
     }
     await this.stopCicdReconciliationScheduler();
+    await this.stopDriftObserver();
     await this.stopRecoverySupervisor({ finalPass: options?.finalRecoveryPass ?? false });
 
     // Phase 183: close the shared-backend pool if we opened one.

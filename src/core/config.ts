@@ -32,6 +32,14 @@ export const CONFIG: {
     progressTimeoutMs: number;
     staleAttemptMs: number;
   };
+
+  // Phase 252: durable drift observation loop. Opt-in, same shape as recovery.
+  // kernel.boot() never starts the drift observer automatically.
+  driftObserver: {
+    enabled: boolean;
+    intervalMs: number;
+    maxScopesPerTick: number;
+  };
 } = {
   env: "DEVELOPMENT",
   version: "0.1.0",
@@ -54,6 +62,12 @@ export const CONFIG: {
     heartbeatTimeoutMs: 30_000,
     progressTimeoutMs: 300_000,
     staleAttemptMs: 30_000,
+  },
+
+  driftObserver: {
+    enabled: false,
+    intervalMs: 60_000,
+    maxScopesPerTick: 100,
   },
 };
 
@@ -80,6 +94,11 @@ export function safeConfigView(): Record<string, unknown> {
     recovery: {
       enabled: CONFIG.recovery.enabled,
       intervalMs: CONFIG.recovery.intervalMs,
+    },
+
+    driftObserver: {
+      enabled: CONFIG.driftObserver.enabled,
+      intervalMs: CONFIG.driftObserver.intervalMs,
     },
     issues: [...CONFIG.issues],
   };

@@ -1,0 +1,91 @@
+﻿
+> test:phase252
+> tsx scripts/test-phase252-drift-observation-loop.ts
+
+
+--- A00 - environment / prerequisite discovery ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - core operation (runNow produces a drift incident) ---
+PASS  A01 one scope scanned
+PASS  A01 one deployment scanned
+PASS  A01 classification drifted
+PASS  A01 one durable incident created
+PASS  A01 no errors
+PASS  A01 tick event emitted once
+PASS  A01 tick event type
+
+--- A02 - persistence ---
+PASS  A02 exactly one durable incident row
+PASS  A02 timeline row persisted
+
+--- A03 - idempotency (second tick reconciles) ---
+PASS  A03 first tick creates one incident
+PASS  A03 second tick creates zero
+PASS  A03 second tick reconciles
+
+--- A04 - concurrent supervisors, same scope ---
+PASS  A04 exactly one incident created across concurrent ticks (got 1)
+PASS  A04 exactly one durable row
+
+--- A05 - non-KNOWN_GOOD deployments are skipped ---
+PASS  A05 non-KNOWN_GOOD deployment not scanned
+PASS  A05 no incident created
+
+--- A06 - authorization boundary preserved (source assertion) ---
+PASS  A06 no RecoveryPolicyEngine import
+PASS  A06 no ReleaseRecoveryExecutor import
+PASS  A06 no deployment-orchestrator import
+PASS  A06 no direct docker.run call
+
+--- A07 - provider-unavailable path ---
+PASS  A07 deployment scanned
+PASS  A07 classified as BLOCKED or UNKNOWN (blocked=1 unknown=0)
+PASS  A07 not classified VERIFIED
+PASS  A07 durable incident created
+
+--- A08 - observer failure captured, not fatal ---
+PASS  A08 error recorded
+PASS  A08 error message preserved
+PASS  A08 no incident from failed observation
+
+--- A09 - empty tick does not corrupt durable state ---
+PASS  A09 empty scopes -> empty tick
+PASS  A09 no errors
+
+--- A10 - recovery-owned fields untouched ---
+PASS  A10 every incident has recovery_attempt=0
+PASS  A10 supervisor never sets recovery_attempt
+PASS  A10 supervisor never touches leases
+PASS  A10 supervisor never writes lease columns
+
+--- A11 - new supervisor reconciles against persisted state ---
+PASS  A11 first supervisor creates
+PASS  A11 second supervisor creates 0
+PASS  A11 second supervisor reconciles
+
+--- A12 - VERIFIED observation produces no incident ---
+PASS  A12 deployment scanned
+PASS  A12 classification VERIFIED
+PASS  A12 no incident created
+PASS  A12 no durable row
+
+--- A13 - regression: phase 250 + phase 251 ---
+PASS  A13 phase250 pass
+PASS  A13 phase251 pass
+
+--- A14 - TypeScript ---
+PASS  A14 tsc clean
+
+--- A15 - build ---
+PASS  A15 build pass
+
+--- A16 - git diff --check ---
+PASS  A16 diff check clean
+
+============================================
+PASS: 46
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================

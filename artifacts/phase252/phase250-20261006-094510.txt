@@ -1,0 +1,128 @@
+﻿
+> test:phase250
+> tsx scripts/test-phase250-production-incident-recovery.ts
+
+
+--- A01 - drift produces incident + classification ---
+PASS  A01 response non-null
+PASS  A01 DIGEST_MISMATCH classification
+PASS  A01 severity CRITICAL
+PASS  A01 incident bound to release
+
+--- A02 - release + artifact drift classifications ---
+PASS  A02 RELEASE_IDENTITY_MISMATCH
+PASS  A02 ARTIFACT_IDENTITY_MISMATCH
+PASS  A02 severity HIGH
+
+--- A03 - UNKNOWN deployed state stays unresolved ---
+PASS  A03 UNKNOWN_DEPLOYED_STATE
+PASS  A03 incident not RESOLVED
+
+--- A04 - provider unavailable => not recovery ---
+PASS  A04 PROVIDER_UNAVAILABLE
+PASS  A04 authorization not automatic
+
+--- A05 - unauthorized production recovery cannot execute ---
+PASS  A05 no auth => HUMAN_APPROVAL_REQUIRED (got HUMAN_APPROVAL_REQUIRED)
+
+--- A06 - authorization boundary for production restart vs rollback ---
+PASS  A06 authorized production restart is AUTOMATIC (got AUTOMATIC)
+PASS  A06 authorized production rollback still requires human (got HUMAN_APPROVAL_REQUIRED)
+PASS  A06 unauthorized production restart requires approval (got HUMAN_APPROVAL_REQUIRED)
+
+--- A07 - non-production restart unchanged ---
+PASS  A07 staging restart AUTOMATIC (got AUTOMATIC)
+
+--- A08 - attempt budget in production ---
+PASS  A08 attempt > budget => HUMAN_APPROVAL_REQUIRED
+
+--- A09 - no authorized provider configured ---
+PASS  A09 remediationAvailable=false without a wired provider
+
+--- A10 - VERIFIED integrity produces no incident ---
+PASS  A10 null response for VERIFIED
+
+--- A11 - deterministic idempotency key for identical drift ---
+PASS  A11 idempotencyKey stable (production:deployment-integrity:drift:dep-p250:rel-p250:art-p250:sha256-expected)
+PASS  A11 correlationId stable
+
+--- A12 - distinct drift => distinct incident identity ---
+PASS  A12 same expected identity => same correlation (by design)
+PASS  A12 evidence differs by classification
+
+--- A13 - NOT_EXECUTED observation ---
+PASS  A13 NOT_EXECUTED classification
+
+--- A14 - observation ERROR => OBSERVATION_ERROR ---
+PASS  A14 OBSERVATION_ERROR classification
+
+--- A15 - policy not weakened by missing provider ---
+PASS  A15 authorization still routes to AUTOMATIC (not BLOCKED)
+
+--- A16 - regression phases ---
+PASS  A16 phase246 script present
+PASS  A16 phase247 script present
+PASS  A16 phase248 script present
+PASS  A16 phase249 script present
+
+--- A17 - boundary: no src/security imports ---
+PASS  A17 no src/security imports (hits=0)
+
+--- A18 - no SQLite fallback in Phase 250 modules ---
+PASS  A18 no better-sqlite3
+PASS  A18 no openEngine
+PASS  A18 no SQLiteEngine
+
+--- A20 - canonical incident persistence via ObservabilityService ---
+PASS  A20 first call created=true
+PASS  A20 incident status OPEN
+PASS  A20 deterministic id prefix
+PASS  A20 second call reconciled (created=false)
+PASS  A20 same incident id (idempotent)
+PASS  A20 readback present
+PASS  A20 persisted status OPEN
+PASS  A20 exactly 1 timeline entry (no duplicate on reconcile)
+PASS  A20 distinct classification => distinct fingerprint
+PASS  A20 fingerprint deterministic
+PASS  A20 honest record: underlying engine = sqlite (no PG available in this env)
+
+--- A19 - drift recovery intent via existing ReleaseDeploymentIntentService ---
+PASS  A19 no provider context => BLOCKED (got BLOCKED)
+PASS  A19 BLOCKED yields no intentKey
+PASS  A19 first create => CREATED (got CREATED)
+PASS  A19 intentKey present
+PASS  A19 intentKind is ROLLBACK
+PASS  A19 second call => RECONCILED (got RECONCILED)
+PASS  A19 same intentKey (idempotent)
+PASS  A19 intent persisted and retrievable
+PASS  A19 persisted releaseId matches
+PASS  A19 persisted artifactDigest matches
+PASS  A19 persisted intentKind ROLLBACK
+
+--- A21 - only a fresh VERIFIED observation can resolve an incident ---
+PASS  A21 same timestamp => STALE_OBSERVATION (got STALE_OBSERVATION)
+PASS  A21 older timestamp => STALE_OBSERVATION (got STALE_OBSERVATION)
+PASS  A21 fresh DRIFTED => STILL_DRIFTED (got STILL_DRIFTED)
+PASS  A21 fresh UNKNOWN => STILL_UNKNOWN (got STILL_UNKNOWN)
+PASS  A21 provider unavailable => BLOCKED (got BLOCKED)
+PASS  A21 fresh VERIFIED => RESOLVED_ALLOWED (got RESOLVED_ALLOWED)
+PASS  A21 fresh_integrity_state = VERIFIED
+PASS  A21 malformed timestamp => STALE_OBSERVATION (got STALE_OBSERVATION)
+
+--- A19-A21 - deferred capabilities (honest) ---
+
+--- A21 - live provider + observer re-verification (real chain) ---
+PASS  A21 docker capability available via EXTERNAL_HOST_RUNTIME ({"Client":{"Version":"29.7.2","ApiVersion":"1.55","DefaultAP)
+PASS  A21 real deployment executed deploymentId=dep_e7399d09-c512-4a65-a531-289453afaa64
+PASS  A21 deployment record retrieved
+PASS  A21 observer status OBSERVED (got OBSERVED) reason=container running expected image sha256:f2f27991427b5e44d5176e67cc56480955566406f7005db0cc42d4fb99ae111d
+PASS  A21 Phase 249 integrity = VERIFIED (got VERIFIED) reasons=identity matches expected
+PASS  A21 fresh observation newer than original incident observation
+PASS  A21 Phase 250 resolution = RESOLVED_ALLOWED (got RESOLVED_ALLOWED)
+
+============================================
+PASS: 71
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
