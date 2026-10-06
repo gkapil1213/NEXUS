@@ -890,6 +890,7 @@ const memberships = new ProjectMembershipStore(rawDb);
             intervalMs: CONFIG.driftObserver.intervalMs,
             maxScopesPerTick: CONFIG.driftObserver.maxScopesPerTick,
             enumerateScopes: async () => this.driftObserverScopes ?? [],
+            intentService: releaseIntents,
             svc: {
               events: {
                 emit: async (event) => {

@@ -26,6 +26,8 @@ import type {
 } from "./post-deployment-integrity";
 import { evaluateDeploymentIntegrity } from "./post-deployment-integrity";
 import { processDeploymentDriftDurable } from "./production-incident-response";
+import { handoffDriftIncidentToRecovery } from "./drift-recovery-handoff";
+import type { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 
 export interface DriftObservationEventSink {
   emit(event: { type: string; source: string; payload?: unknown }): Promise<unknown>;
@@ -55,6 +57,14 @@ export interface DriftObservationSupervisorDeps {
   svc: { events: DriftObservationEventSink };
   /** Safety valve: cap scopes scanned per tick. Defaults to 100. */
   maxScopesPerTick?: number;
+  /**
+   * Phase 253: durable intent service for recovery handoff.
+   * When provided, a DRIFTED classification is handed to the existing
+   * ReleaseDeploymentIntentService via requestDriftRecoveryIntent.
+   * When absent, ticks count recoveryHandoffsNotExecuted and no intent
+   * is fabricated.
+   */
+  intentService?: ReleaseDeploymentIntentService;
 }
 
 export interface DriftObservationTickReport {
@@ -68,6 +78,9 @@ export interface DriftObservationTickReport {
   notExecuted: number;
   incidentsCreated: number;
   incidentsReconciled: number;
+  recoveryHandoffsAccepted: number;
+  recoveryHandoffsRejected: number;
+  recoveryHandoffsNotExecuted: number;
   errors: string[];
 }
 
@@ -169,6 +182,9 @@ export class DriftObservationSupervisor {
       notExecuted: 0,
       incidentsCreated: 0,
       incidentsReconciled: 0,
+      recoveryHandoffsAccepted: 0,
+      recoveryHandoffsRejected: 0,
+      recoveryHandoffsNotExecuted: 0,
       errors: [],
     };
   }
@@ -246,6 +262,35 @@ export class DriftObservationSupervisor {
           if (out.durableCreated) report.incidentsCreated++;
           else report.incidentsReconciled++;
         }
+
+        // Phase 253: hand off DRIFTED incidents to the existing recovery owner.
+        // UNKNOWN / BLOCKED / NOT_EXECUTED do not hand off.
+        if (out && integrity.state === "DRIFTED") {
+          const recoveryExpected = {
+            project_id: scope.projectId,
+            environment: scope.environment,
+            release_id: expected.release_id,
+            artifact_id: expected.artifact_id,
+            artifact_digest: expected.artifact_digest,
+          };
+          try {
+            const handoff = await handoffDriftIncidentToRecovery({
+              incidentStore: this.deps.incidentStore,
+              history: this.deps.history,
+              intentService: this.deps.intentService,
+              incident: out.durable,
+              deploymentId: current.id,
+              expected: recoveryExpected,
+              workerId: this.deps.workerId,
+            });
+            if (handoff.status === "ACCEPTED") report.recoveryHandoffsAccepted++;
+            else if (handoff.status === "REJECTED") report.recoveryHandoffsRejected++;
+            else report.recoveryHandoffsNotExecuted++;
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            report.errors.push("handoff(" + current.id + "): " + msg.slice(0, 200));
+          }
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         report.errors.push("persist(" + current.id + "): " + msg.slice(0, 200));
@@ -267,6 +312,9 @@ export class DriftObservationSupervisor {
           not_executed: report.notExecuted,
           incidents_created: report.incidentsCreated,
           incidents_reconciled: report.incidentsReconciled,
+          recovery_handoffs_accepted: report.recoveryHandoffsAccepted,
+          recovery_handoffs_rejected: report.recoveryHandoffsRejected,
+          recovery_handoffs_not_executed: report.recoveryHandoffsNotExecuted,
           errors: report.errors.slice(0, 5),
         },
       })
