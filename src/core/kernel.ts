@@ -818,6 +818,26 @@ const memberships = new ProjectMembershipStore(rawDb);
         try {
           const recoveryWorkerId = "nexus-" + crypto.randomUUID();
           this.recoveryWorkerId = recoveryWorkerId;
+          // Phase 254: post-KNOWN_GOOD completion reconciler. Only constructible
+          // when a shared PostgreSQL AsyncIncidentStore is available; the
+          // durable incident lives there, not in SQLite. Absent -> executor
+          // behavior identical to Phase 253.
+          let completionReconciler: { reconcileCompleted(now?: number): Promise<unknown> } | undefined;
+          if (this.pgClient) {
+            const { PgAsyncEngine } = await import("./pg-async-engine");
+            const { AsyncIncidentStore } = await import("./async-incident-store");
+            const { RecoveryCompletionReconciler } = await import("./recovery-completion-reconciler");
+            const incidentStore = new AsyncIncidentStore(new PgAsyncEngine(this.pgClient));
+            const observer = new DockerDeploymentObserver({ history: deploymentHistory, docker: runtime.docker });
+            completionReconciler = new RecoveryCompletionReconciler({
+              incidentStore,
+              history: deploymentHistory,
+              observer,
+              intents: releaseIntents,
+              svc: { events },
+              workerId: recoveryWorkerId,
+            });
+          }
           const executor = new ReleaseRecoveryExecutor({
             intents: releaseIntents,
             recovery: new ReleaseRecoveryService(),
@@ -834,6 +854,7 @@ const memberships = new ProjectMembershipStore(rawDb);
               audit,
               workerId: recoveryWorkerId,
             }),
+            completionReconciler,
             verifyRecoveredRollback: {
               async verify(intent: any, context?: { stagingUrl?: string; hostPort?: number }) {
                 if (!context?.stagingUrl) {

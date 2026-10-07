@@ -1,0 +1,114 @@
+﻿
+> test:phase253
+> tsx scripts/test-phase253-recovery-handoff-integrity.ts
+
+
+--- A00 - environment ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - production wiring ---
+PASS  A01 supervisor imports handoff
+PASS  A01 supervisor calls handoff
+PASS  A01 deps.intentService declared
+PASS  A01 kernel wires intentService
+PASS  A01 handoff uses P251 bridge
+PASS  A01 handoff uses P250 intent request
+
+--- A02 - DRIFTED produces durable incident AND recovery intent ---
+PASS  A02 deployment scanned
+PASS  A02 classified DRIFTED
+PASS  A02 incident created
+PASS  A02 handoff accepted
+PASS  A02 no rejection
+PASS  A02 not NOT_EXECUTED
+PASS  A02 no errors ()
+
+--- A03 - incident carries recovery_intent_key ---
+PASS  A03 incident row present
+PASS  A03 recovery_intent_key populated (value=rollback||a02|exec-rel-p253-a02)
+PASS  A03 incident status = RECOVERY_REQUESTED (got RECOVERY_REQUESTED)
+PASS  A03 RECOVERY_HANDOFF_ACCEPTED in timeline
+
+--- A04 - durable intent retrieved via ReleaseDeploymentIntentService ---
+PASS  A04 intent exists
+PASS  A04 intent.environment = a02
+PASS  A04 intent.releaseId matches
+PASS  A04 intent.artifactId matches
+PASS  A04 intent.kind = ROLLBACK (recovery)
+
+--- A05 - second tick reconciles, no duplicate intent ---
+PASS  A05 no new incident
+PASS  A05 incident reconciled
+PASS  A05 handoff accepted again (idempotent)
+PASS  A05 no rejection
+PASS  A05 intentKey unchanged
+PASS  A05 exactly one RECOVERY_HANDOFF_ACCEPTED (got 1)
+
+--- A06 - concurrent identical handoffs -> one intent ---
+PASS  A06 both accepted (idempotent under concurrency)
+PASS  A06 no errors ()
+PASS  A06 incident carries intent key
+PASS  A06 exactly one incident row
+PASS  A06 intent retrievable
+
+--- A07 - UNKNOWN does not hand off ---
+PASS  A07 classified UNKNOWN
+PASS  A07 no handoff
+PASS  A07 no rejection
+
+--- A08 - BLOCKED does not hand off ---
+PASS  A08 classified BLOCKED
+PASS  A08 no handoff
+
+--- A09 - NOT_EXECUTED does not hand off ---
+PASS  A09 classified NOT_EXECUTED
+PASS  A09 no handoff
+
+--- A10 - VERIFIED does not create incident or intent ---
+PASS  A10 VERIFIED
+PASS  A10 no incident
+PASS  A10 no handoff
+PASS  A10 no rows in security_incidents
+
+--- A11 - absent intentService -> NOT_EXECUTED, no fabricated intent ---
+PASS  A11 classified DRIFTED
+PASS  A11 incident still created
+PASS  A11 no acceptance
+PASS  A11 counted as NOT_EXECUTED
+PASS  A11 incident has no intent key
+
+--- A12 - REJECTED when authoritative deployment record is absent ---
+PASS  A12 rejected (got REJECTED)
+PASS  A12 no intent key
+PASS  A12 reason mentions deployment not found
+
+--- A13 - source audit: handoff never touches recovery authority ---
+PASS  A13 no lease acquisition
+PASS  A13 no recovery_attempt increment
+PASS  A13 no direct docker.run
+PASS  A13 no ReleaseRecoveryExecutor import
+PASS  A13 no orchestrator import
+PASS  A13 no recovery_attempt update
+
+--- A14 - restart/durable-state: intent + correlation survive reopen ---
+PASS  A14 first-run handoff accepted
+PASS  A14 intent key captured from first run
+PASS  A14 incident survives reopen
+PASS  A14 intent key persists
+PASS  A14 intent survives
+PASS  A14 intent.environment correct
+
+--- A15 - live recovery execution + post-recovery verification ---
+NOT EXECUTED  A15 executor-driven recovery completion with real provider :: requires a ReleaseRecoveryExecutor harness with real provider context (Docker+rollback+smoke) ΓÇö covered by phases 174-177, not in scope here
+
+--- A16 - regression: phase 250 / 251 / 252 ---
+PASS  A16 phase250 regression pass
+PASS  A16 phase251 regression pass
+PASS  A16 phase252 regression pass
+
+============================================
+PASS: 68
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 1
+============================================

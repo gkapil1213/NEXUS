@@ -77,6 +77,7 @@
                     "test:phase250":  "tsx scripts/test-phase250-production-incident-recovery.ts",
                     "test:phase251":  "tsx scripts/test-phase251-incident-lifecycle-durability.ts",
                     "test:phase252":  "tsx scripts/test-phase252-drift-observation-loop.ts",
+                    "test:phase254":  "tsx scripts/test-phase254-recovery-completion-integrity.ts",
                     "test:phase253":  "tsx scripts/test-phase253-recovery-handoff-integrity.ts"
                 },
     "dependencies":  {

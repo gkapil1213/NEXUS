@@ -168,6 +168,19 @@ export class AsyncIncidentStore {
     return r ? mapIncident(r) : undefined;
   }
 
+  /**
+   * Phase 254: lookup by the durable recovery intent key. Used by the
+   * recovery-completion reconciler to find the incident correlated with a
+   * KNOWN_GOOD recovery intent. Same table, different WHERE clause, no
+   * schema change.
+   */
+  async getIncidentByRecoveryIntentKeyAsync(intentKey: string): Promise<SecurityIncident | undefined> {
+    const r = await this.db
+      .prepareAsync("SELECT * FROM security_incidents WHERE recovery_intent_key = ?")
+      .get<any>(intentKey);
+    return r ? mapIncident(r) : undefined;
+  }
+
   async listIncidentsAsync(limit = 50): Promise<SecurityIncident[]> {
     const rows = await this.db
       .prepareAsync("SELECT * FROM security_incidents ORDER BY created_at DESC LIMIT ?")

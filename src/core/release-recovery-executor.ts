@@ -59,6 +59,17 @@ export interface ReleaseRecoveryExecutorDeps {
   reconciler?: {
     reconcile(intentKey: string): Promise<unknown>;
   };
+  /**
+   * Phase 254: post-KNOWN_GOOD completion reconciler. When provided, runOnce()
+   * invokes reconcileCompleted() after the Phase 123 evidence reconciler. It
+   * looks up the durable incident correlated with each KNOWN_GOOD ROLLBACK
+   * intent, obtains a fresh observation, evaluates integrity, and applies
+   * resolution only if evaluateIncidentResolution() returns RESOLVED_ALLOWED.
+   * Absent -> byte-for-byte identical behavior to Phase 253.
+   */
+  completionReconciler?: {
+    reconcileCompleted(now?: number): Promise<unknown>;
+  };
   /** Phase 175: bound on recovery work per supervisor cycle. Defaults to 50. */
   maxIntentsPerRun?: number;
   /** Phase 175: deterministic bounded backoff for RECOVERY_REQUIRED retries.
@@ -198,7 +209,11 @@ export class ReleaseRecoveryExecutor {
           }
         }
       }
-    }    await svc.events.emit({ type: "release.recovery.completed", source: "ReleaseRecoveryExecutor", payload: { scanned: report.scanned, acted: report.acted, skipped: report.skipped, blocked: report.blocked, leaseHeld: report.leaseHeld } });
+    }    if (this.deps.completionReconciler) {
+      try { await this.deps.completionReconciler.reconcileCompleted(now); }
+      catch (e) { const _m = e instanceof Error ? e.message : String(e); report.blockedReasons.push({ intentKey: "__completion__", reason: "completionReconciler threw: " + _m.slice(0, 200) }); }
+    }
+    await svc.events.emit({ type: "release.recovery.completed", source: "ReleaseRecoveryExecutor", payload: { scanned: report.scanned, acted: report.acted, skipped: report.skipped, blocked: report.blocked, leaseHeld: report.leaseHeld } });
     return report;
   }
 

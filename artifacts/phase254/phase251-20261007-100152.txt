@@ -1,0 +1,122 @@
+﻿
+> test:phase251
+> tsx scripts/test-phase251-incident-lifecycle-durability.ts
+
+
+--- A00 - PostgreSQL probe + bootstrap ---
+PASS  A00 pg bootstrap ok
+PASS  A00 security_incidents exists
+PASS  A00 security_incident_timeline exists
+
+--- A20 - PG authoritative incident roundtrip ---
+PASS  A20 create roundtrip id
+PASS  A20 initial status OPEN
+PASS  A20 fingerprint persisted
+PASS  A20 readback present
+PASS  A20 correlation field persisted
+PASS  A20 lookup by fingerprint returns same row
+PASS  A20 first timeline insert
+PASS  A20 identical-event first insert ok
+PASS  A20 identical-event second insert deduped (idempotent)
+PASS  A20 timeline persisted (3 entries)
+PASS  A20 status update ok
+PASS  A20 status persisted
+
+--- A21 - no SQLite fallback in Phase 251 modules ---
+PASS  A21 no better-sqlite3 import in store
+PASS  A21 no openEngine call
+PASS  A21 no SQLiteEngine reference
+
+--- A29 - TypeScript compilation ---
+PASS  A29 tsc --noEmit clean
+
+--- A30 - git diff --check ---
+PASS  A30 git diff --check clean
+
+--- A01-A19 - durable incident lifecycle + reconciliation ---
+PASS  A01 first observation creates one durable incident
+PASS  A01 deterministic id from fingerprint
+PASS  A02 repeated identical drift did not create new incident
+PASS  A02 same durable incident returned
+PASS  A03 fingerprint is deterministic
+PASS  A03 id derived from fingerprint
+PASS  A04 timeline persisted (2 entries)
+PASS  A05 first timeline insert ok
+PASS  A05 duplicate timeline deduped
+PASS  A06 status transition persisted
+PASS  A07 authorization decision persisted (HUMAN_APPROVAL_REQUIRED -> REQUIRE_REVIEW)
+PASS  A07 status matches persisted decision
+PASS  A08 HUMAN_APPROVAL_REQUIRED maps to REQUIRE_REVIEW
+PASS  A09 decision envelope roundtrip
+PASS  A10 deployment record retrieved
+PASS  A10 authoritative execution_id persisted
+PASS  A10 authoritative attempt_id persisted
+PASS  A10 authoritative container_port persisted
+PASS  A10 bridge context executionId matches persisted
+PASS  A10 bridge context attemptId matches persisted
+PASS  A10 bridge context containerPort matches persisted
+PASS  A10 requestDriftRecoveryIntent CREATED (got CREATED)
+PASS  A10 intentKey present
+PASS  A10 durable intent persisted
+PASS  A10 intent executionId matches
+PASS  A10 intent attemptId matches
+PASS  A10 intent imageRepository matches
+PASS  A10 intent containerName matches
+PASS  A10 intent containerPort matches
+PASS  A10 repeat call RECONCILED (got RECONCILED)
+PASS  A10 same intentKey on repeat
+PASS  A11 recovery_attempt unchanged by observation
+PASS  A12 lease_owner preserved across observation
+PASS  A13 fresh VERIFIED observation allows resolution (state=RESOLVED_ALLOWED)
+PASS  A13 resolution persisted
+PASS  A13 status RESOLVED
+PASS  A13 verification_state VERIFIED
+PASS  A13 resolution_evidence persisted
+PASS  A14 stale observation rejected (state=STALE_OBSERVATION)
+PASS  A15 drifted fresh observation cannot resolve
+PASS  A16 resolved status preserved after stale observation
+PASS  A16 stale observation detected
+PASS  A17 concurrent create -> exactly one durable row (got 1)
+PASS  A17 both concurrent calls returned same id
+PASS  A18 concurrent identical timeline events insert exactly once (got 1)
+NOT EXECUTED  A19 provider-unavailable path :: requires live provider to observe unavailability through production path
+
+--- A22-A28 - additional durable checks ---
+PASS  A22 SAFE_TO_RESUME envelope roundtrip
+PASS  A23 intent created via existing service
+PASS  A23 intentKey present
+PASS  A23 existing recovery machinery discovers the intent
+PASS  A23 existing lease machinery acquires
+PASS  A23 existing executor owns the transition
+PASS  A23 no second intent created
+PASS  A23 same intentKey on repeat
+PASS  A23 intent still discoverable post-transition
+PASS  A24 lease_owner preserved against stale worker
+PASS  A25 recovery_attempt owned by recovery machinery, not observation
+PASS  A26 fresh post-recovery verification permits resolution
+PASS  A27 resolution persisted
+PASS  A27 resolution_evidence persisted
+PASS  A27 resolved_at persisted
+PASS  A28 closed after verified resolution
+PASS  A28 status CLOSED
+PASS  A28 closed_at persisted
+PASS  A28 unresolved incident refuses closure
+
+--- A31 - production path integration (processDeploymentDriftDurable) ---
+PASS  A31 processDeploymentDriftDurable non-null for DRIFTED
+PASS  A31 first call created durable row
+PASS  A31 durable id deterministic from fingerprint
+PASS  A31 fingerprint persisted matches
+PASS  A31 row present in PostgreSQL by fingerprint
+PASS  A31 initial durable status OPEN
+PASS  A31 timeline durable from production path (1)
+PASS  A31 repeat reconciled, not created
+PASS  A31 repeat durable id stable
+PASS  A31 exactly one durable row for fingerprint
+
+============================================
+PASS: 94
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 1
+============================================
