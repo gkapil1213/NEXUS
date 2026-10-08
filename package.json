@@ -80,6 +80,7 @@
                     "test:phase254":  "tsx scripts/test-phase254-recovery-completion-integrity.ts",
                     "test:phase255":  "tsx scripts/test-phase255-resolved-deployment-lifecycle.ts",
                     "test:phase256":  "tsx scripts/test-phase256-deployment-convergence.ts",
+                    "test:phase257":  "tsx scripts/test-phase257-recovery-handoff-convergence.ts",
                     "test:phase253":  "tsx scripts/test-phase253-recovery-handoff-integrity.ts"
                 },
     "dependencies":  {

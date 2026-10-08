@@ -1,0 +1,129 @@
+﻿
+> test:phase257
+> tsx scripts/test-phase257-recovery-handoff-convergence.ts
+
+
+--- A00 - environment ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - architecture audit ---
+PASS  A01 delegates to existing Phase 250
+PASS  A01 reuses Phase 256 binding
+PASS  A01 uses intent service's own key computation
+PASS  A01 no direct docker.run
+PASS  A01 does not invoke executor
+PASS  A01 does not invoke rollback delegate
+PASS  A01 does not mutate recovery_attempt
+PASS  A01 no lease operations
+
+--- A02 - valid authoritative handoff ---
+PASS  A02 outcome ACCEPTED (got ACCEPTED)
+PASS  A02 intentKey present
+PASS  A02 lifecycle = RECOVERY_REQUESTED (got RECOVERY_REQUESTED)
+
+--- A03 - durable intent correlation ---
+PASS  A03 incident carries recovery_intent_key
+PASS  A03 ACCEPTED timeline event present
+
+--- A04 - duplicate handoff idempotency ---
+PASS  A04 outcome RECONCILED (got RECONCILED)
+PASS  A04 exactly one ACCEPTED event (got 1)
+
+--- A05 - deployment identity mismatch rejected ---
+PASS  A05 REJECTED (got REJECTED)
+PASS  A05 lifecycle unchanged
+
+--- A06 - release identity mismatch rejected ---
+PASS  A06 REJECTED (got REJECTED)
+
+--- A07 - artifact identity mismatch rejected ---
+PASS  A07 REJECTED (got REJECTED)
+
+--- A08 - missing authoritative binding rejected ---
+PASS  A08 REJECTED (got REJECTED)
+
+--- A09 - CLOSED incident rejected ---
+PASS  A09 REJECTED (got REJECTED)
+PASS  A09 status remains CLOSED
+
+--- A10 - RESOLVED lifecycle compatibility ---
+PASS  A10 truthful outcome (got ACCEPTED)
+
+--- A11 - existing RECOVERY_REQUESTED reconciliation ---
+PASS  A11 first call ACCEPTED (got ACCEPTED)
+PASS  A11 repeat RECONCILED (got RECONCILED)
+
+--- A12 - superseded intent rejection ---
+PASS  A12 REJECTED (got REJECTED)
+
+--- A13 - replacement deployment protection ---
+PASS  A13 REJECTED (got REJECTED)
+
+--- A14 - concurrent duplicate handoff ---
+PASS  A14 all three converged (got accepted=1 reconciled=2)
+PASS  A14 at least one ACCEPTED
+PASS  A14 incident correlated once
+
+--- A15 - missing authorization blocks ---
+PASS  A15 BLOCKED (got BLOCKED)
+
+--- A16 - missing provider context blocks ---
+PASS  A16 BLOCKED (got BLOCKED)
+
+--- A17 - missing intent service NOT_EXECUTED ---
+PASS  A17 NOT_EXECUTED (got NOT_EXECUTED)
+
+--- A18 - durable reopen retains intent key ---
+PASS  A18 initial accepted
+PASS  A18 intent key survives reopen
+
+--- A19 - no duplicate timeline events on repeat ---
+PASS  A19 first ACCEPTED (got ACCEPTED)
+PASS  A19 second RECONCILED (got RECONCILED)
+PASS  A19 exactly one ACCEPTED event (got 1)
+
+--- A20 - executor not invoked from handoff ---
+PASS  A20 no executor import
+PASS  A20 no rollback delegate
+PASS  A20 does not call runOnce
+
+--- A21 - policy engine not bypassed ---
+PASS  A21 does not instantiate policy engine
+PASS  A21 requires explicit authorization
+
+--- A22 - no infrastructure mutation ---
+PASS  A22 no docker.run
+PASS  A22 no container access
+PASS  A22 does not mutate image identity
+
+--- A23 - existing intent service compatibility ---
+PASS  A23 uses existing intent request
+PASS  A23 uses existing key computation
+
+--- A24-A26 - previous-phase source presence ---
+PASS  A24-A26 phase252 test file present
+PASS  A24-A26 phase253 test file present
+PASS  A24-A26 phase254 test file present
+PASS  A24-A26 phase255 test file present
+PASS  A24-A26 phase256 test file present
+PASS  A24-A26 test:phase252 registered
+PASS  A24-A26 test:phase253 registered
+PASS  A24-A26 test:phase254 registered
+PASS  A24-A26 test:phase255 registered
+PASS  A24-A26 test:phase256 registered
+
+--- A27 - TypeScript ---
+PASS  A27 tsc clean
+
+--- A28 - production build ---
+PASS  A28 build pass
+
+--- A29 - git diff --check ---
+PASS  A29 diff check clean
+
+============================================
+PASS: 62
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
