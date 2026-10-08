@@ -1,0 +1,117 @@
+﻿
+> test:phase254
+> tsx scripts/test-phase254-recovery-completion-integrity.ts
+
+
+--- A00 - environment ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - source wiring audit ---
+PASS  A01 reconciler calls evaluateIncidentResolution
+PASS  A01 reconciler calls applyResolutionIfVerified
+PASS  A01 reconciler uses correlation lookup
+PASS  A01 executor deps has completionReconciler
+PASS  A01 executor calls reconciler
+PASS  A01 kernel constructs reconciler
+PASS  A01 kernel passes reconciler to executor
+
+--- A02 - fresh VERIFIED resolves incident ---
+PASS  A02 scanned
+PASS  A02 resolved (got 1)
+PASS  A02 no errors ()
+PASS  A02 resolved event emitted
+
+--- A03 - durable RESOLVED state ---
+PASS  A03 incident present
+PASS  A03 status = RESOLVED (got RESOLVED)
+PASS  A03 verification_state VERIFIED
+PASS  A03 resolution_evidence persisted
+PASS  A03 resolved_at persisted
+PASS  A03 INCIDENT_RESOLVED in timeline
+
+--- A04 - closeIncidentIfResolved -> CLOSED ---
+PASS  A04 closed = true (reason=closed after verified resolution)
+PASS  A04 status CLOSED
+PASS  A04 closed_at persisted
+
+--- A05 - stale observation does not resolve ---
+PASS  A05 staleObservation counted
+PASS  A05 not resolved
+PASS  A05 status not resolved/closed
+
+--- A06 - fresh DRIFTED does not resolve ---
+PASS  A06 nonVerified counted
+PASS  A06 not resolved
+PASS  A06 status not RESOLVED (got RECOVERY_REQUESTED)
+
+--- A07 - fresh UNKNOWN does not resolve ---
+PASS  A07 not resolved
+PASS  A07 status not RESOLVED
+
+--- A08 - fresh BLOCKED does not resolve ---
+PASS  A08 not resolved
+
+--- A09 - fresh NOT_EXECUTED does not resolve ---
+PASS  A09 not resolved
+
+--- A10 - repeat reconciliation is idempotent ---
+PASS  A10 first pass resolves
+PASS  A10 second pass does not re-resolve
+PASS  A10 exactly one INCIDENT_RESOLVED (got 1)
+
+--- A11 - concurrent reconcilers, one resolution ---
+PASS  A11 exactly one resolution across two reconcilers (got 1)
+PASS  A11 final status RESOLVED
+
+--- A12 - RESOLVED not regressed by stale observation ---
+PASS  A12 first pass resolves
+PASS  A12 closed before stale test
+PASS  A12 status remains CLOSED (got CLOSED)
+
+--- A13 - unresolved incident refuses closure ---
+PASS  A13 refused (reason=closure prerequisites not satisfied)
+PASS  A13 status not CLOSED
+
+--- A14 - durable state survives reopen ---
+PASS  A14 incident survives reopen
+PASS  A14 RESOLVED survives
+PASS  A14 VERIFIED survives
+PASS  A14 resolution_evidence survives
+
+--- A15 - intent without correlated incident is skipped ---
+PASS  A15 skippedNoIncident counted
+PASS  A15 nothing resolved
+PASS  A15 no errors
+
+--- A16 - observer/executor boundary audit ---
+PASS  A16 reconciler has no lease operations
+PASS  A16 reconciler does not write recovery_attempt
+PASS  A16 reconciler does not call docker.run
+PASS  A16 reconciler does not transition intents
+PASS  A16 supervisor has no lease operations
+PASS  A16 handoff has no docker.run
+
+--- A17 - live production chain ---
+NOT EXECUTED  A17 live Docker deployment + real observer end-to-end :: the Phase 254 reconciler test suite exercises the full closure logic with a scripted observer (its injected integration point); a live Docker chain would duplicate the phase 250 A21 chain and require deploying/fixing a real container mid-test. Real Docker is verified available by phase 250's live A21 test in the same run.
+
+--- A18 - regression 250/251/252/253 ---
+PASS  A18 phase250 pass
+PASS  A18 phase251 pass
+PASS  A18 phase252 pass
+PASS  A18 phase253 pass
+
+--- A19 - TypeScript ---
+PASS  A19 tsc clean
+
+--- A20 - build ---
+PASS  A20 build pass
+
+--- A21 - git diff --check ---
+PASS  A21 diff check clean
+
+============================================
+PASS: 61
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 1
+============================================
