@@ -1,0 +1,328 @@
+--- 250 ---
+
+> test:phase250
+> tsx scripts/test-phase250-production-incident-recovery.ts
+
+
+--- A01 - drift produces incident + classification ---
+PASS  A01 response non-null
+PASS  A01 DIGEST_MISMATCH classification
+PASS  A01 severity CRITICAL
+PASS  A01 incident bound to release
+
+--- A02 - release + artifact drift classifications ---
+PASS  A02 RELEASE_IDENTITY_MISMATCH
+PASS  A02 ARTIFACT_IDENTITY_MISMATCH
+PASS  A02 severity HIGH
+
+--- A03 - UNKNOWN deployed state stays unresolved ---
+PASS  A03 UNKNOWN_DEPLOYED_STATE
+PASS  A03 incident not RESOLVED
+
+--- A04 - provider unavailable => not recovery ---
+PASS  A04 PROVIDER_UNAVAILABLE
+PASS  A04 authorization not automatic
+
+--- A05 - unauthorized production recovery cannot execute ---
+PASS  A05 no auth => HUMAN_APPROVAL_REQUIRED (got HUMAN_APPROVAL_REQUIRED)
+
+--- A06 - authorization boundary for production restart vs rollback ---
+PASS  A06 authorized production restart is AUTOMATIC (got AUTOMATIC)
+PASS  A06 authorized production rollback still requires human (got HUMAN_APPROVAL_REQUIRED)
+PASS  A06 unauthorized production restart requires approval (got HUMAN_APPROVAL_REQUIRED)
+
+--- A07 - non-production restart unchanged ---
+PASS  A07 staging restart AUTOMATIC (got AUTOMATIC)
+
+--- A08 - attempt budget in production ---
+PASS  A08 attempt > budget => HUMAN_APPROVAL_REQUIRED
+
+--- A09 - no authorized provider configured ---
+PASS  A09 remediationAvailable=false without a wired provider
+
+--- A10 - VERIFIED integrity produces no incident ---
+PASS  A10 null response for VERIFIED
+
+--- A11 - deterministic idempotency key for identical drift ---
+PASS  A11 idempotencyKey stable (production:deployment-integrity:drift:dep-p250:rel-p250:art-p250:sha256-expected)
+PASS  A11 correlationId stable
+
+--- A12 - distinct drift => distinct incident identity ---
+PASS  A12 same expected identity => same correlation (by design)
+PASS  A12 evidence differs by classification
+
+--- A13 - NOT_EXECUTED observation ---
+PASS  A13 NOT_EXECUTED classification
+
+--- A14 - observation ERROR => OBSERVATION_ERROR ---
+PASS  A14 OBSERVATION_ERROR classification
+
+--- A15 - policy not weakened by missing provider ---
+PASS  A15 authorization still routes to AUTOMATIC (not BLOCKED)
+
+--- A16 - regression phases ---
+PASS  A16 phase246 script present
+PASS  A16 phase247 script present
+PASS  A16 phase248 script present
+PASS  A16 phase249 script present
+
+--- A17 - boundary: no src/security imports ---
+PASS  A17 no src/security imports (hits=0)
+
+--- A18 - no SQLite fallback in Phase 250 modules ---
+PASS  A18 no better-sqlite3
+PASS  A18 no openEngine
+PASS  A18 no SQLiteEngine
+
+--- A20 - canonical incident persistence via ObservabilityService ---
+PASS  A20 first call created=true
+PASS  A20 incident status OPEN
+PASS  A20 deterministic id prefix
+PASS  A20 second call reconciled (created=false)
+PASS  A20 same incident id (idempotent)
+PASS  A20 readback present
+PASS  A20 persisted status OPEN
+PASS  A20 exactly 1 timeline entry (no duplicate on reconcile)
+PASS  A20 distinct classification => distinct fingerprint
+PASS  A20 fingerprint deterministic
+PASS  A20 honest record: underlying engine = sqlite (no PG available in this env)
+
+--- A19 - drift recovery intent via existing ReleaseDeploymentIntentService ---
+PASS  A19 no provider context => BLOCKED (got BLOCKED)
+PASS  A19 BLOCKED yields no intentKey
+PASS  A19 first create => CREATED (got CREATED)
+PASS  A19 intentKey present
+PASS  A19 intentKind is ROLLBACK
+PASS  A19 second call => RECONCILED (got RECONCILED)
+PASS  A19 same intentKey (idempotent)
+PASS  A19 intent persisted and retrievable
+PASS  A19 persisted releaseId matches
+PASS  A19 persisted artifactDigest matches
+PASS  A19 persisted intentKind ROLLBACK
+
+--- A21 - only a fresh VERIFIED observation can resolve an incident ---
+PASS  A21 same timestamp => STALE_OBSERVATION (got STALE_OBSERVATION)
+PASS  A21 older timestamp => STALE_OBSERVATION (got STALE_OBSERVATION)
+PASS  A21 fresh DRIFTED => STILL_DRIFTED (got STILL_DRIFTED)
+PASS  A21 fresh UNKNOWN => STILL_UNKNOWN (got STILL_UNKNOWN)
+PASS  A21 provider unavailable => BLOCKED (got BLOCKED)
+PASS  A21 fresh VERIFIED => RESOLVED_ALLOWED (got RESOLVED_ALLOWED)
+PASS  A21 fresh_integrity_state = VERIFIED
+PASS  A21 malformed timestamp => STALE_OBSERVATION (got STALE_OBSERVATION)
+
+--- A19-A21 - deferred capabilities (honest) ---
+
+--- A21 - live provider + observer re-verification (real chain) ---
+PASS  A21 docker capability available via EXTERNAL_HOST_RUNTIME ({"Client":{"Version":"29.7.2","ApiVersion":"1.55","DefaultAP)
+PASS  A21 real deployment executed deploymentId=dep_2dce10ae-c323-413f-a8d9-5168ba4ead47
+PASS  A21 deployment record retrieved
+PASS  A21 observer status OBSERVED (got OBSERVED) reason=container running expected image sha256:f2f27991427b5e44d5176e67cc56480955566406f7005db0cc42d4fb99ae111d
+PASS  A21 Phase 249 integrity = VERIFIED (got VERIFIED) reasons=identity matches expected
+PASS  A21 fresh observation newer than original incident observation
+PASS  A21 Phase 250 resolution = RESOLVED_ALLOWED (got RESOLVED_ALLOWED)
+
+============================================
+PASS: 71
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+exit=0
+--- 251 ---
+
+> test:phase251
+> tsx scripts/test-phase251-incident-lifecycle-durability.ts
+
+
+--- A00 - PostgreSQL probe + bootstrap ---
+PASS  A00 pg bootstrap ok
+PASS  A00 security_incidents exists
+PASS  A00 security_incident_timeline exists
+
+--- A20 - PG authoritative incident roundtrip ---
+PASS  A20 create roundtrip id
+PASS  A20 initial status OPEN
+PASS  A20 fingerprint persisted
+PASS  A20 readback present
+PASS  A20 correlation field persisted
+PASS  A20 lookup by fingerprint returns same row
+PASS  A20 first timeline insert
+PASS  A20 identical-event first insert ok
+PASS  A20 identical-event second insert deduped (idempotent)
+PASS  A20 timeline persisted (3 entries)
+PASS  A20 status update ok
+PASS  A20 status persisted
+
+--- A21 - no SQLite fallback in Phase 251 modules ---
+PASS  A21 no better-sqlite3 import in store
+PASS  A21 no openEngine call
+PASS  A21 no SQLiteEngine reference
+
+--- A29 - TypeScript compilation ---
+PASS  A29 tsc --noEmit clean
+
+--- A30 - git diff --check ---
+PASS  A30 git diff --check clean
+
+--- A01-A19 - durable incident lifecycle + reconciliation ---
+PASS  A01 first observation creates one durable incident
+PASS  A01 deterministic id from fingerprint
+PASS  A02 repeated identical drift did not create new incident
+PASS  A02 same durable incident returned
+PASS  A03 fingerprint is deterministic
+PASS  A03 id derived from fingerprint
+PASS  A04 timeline persisted (2 entries)
+PASS  A05 first timeline insert ok
+PASS  A05 duplicate timeline deduped
+PASS  A06 status transition persisted
+PASS  A07 authorization decision persisted (HUMAN_APPROVAL_REQUIRED -> REQUIRE_REVIEW)
+PASS  A07 status matches persisted decision
+PASS  A08 HUMAN_APPROVAL_REQUIRED maps to REQUIRE_REVIEW
+PASS  A09 decision envelope roundtrip
+PASS  A10 deployment record retrieved
+PASS  A10 authoritative execution_id persisted
+PASS  A10 authoritative attempt_id persisted
+PASS  A10 authoritative container_port persisted
+PASS  A10 bridge context executionId matches persisted
+PASS  A10 bridge context attemptId matches persisted
+PASS  A10 bridge context containerPort matches persisted
+PASS  A10 requestDriftRecoveryIntent CREATED (got CREATED)
+PASS  A10 intentKey present
+PASS  A10 durable intent persisted
+PASS  A10 intent executionId matches
+PASS  A10 intent attemptId matches
+PASS  A10 intent imageRepository matches
+PASS  A10 intent containerName matches
+PASS  A10 intent containerPort matches
+PASS  A10 repeat call RECONCILED (got RECONCILED)
+PASS  A10 same intentKey on repeat
+PASS  A11 recovery_attempt unchanged by observation
+PASS  A12 lease_owner preserved across observation
+PASS  A13 fresh VERIFIED observation allows resolution (state=RESOLVED_ALLOWED)
+PASS  A13 resolution persisted
+PASS  A13 status RESOLVED
+PASS  A13 verification_state VERIFIED
+PASS  A13 resolution_evidence persisted
+PASS  A14 stale observation rejected (state=STALE_OBSERVATION)
+PASS  A15 drifted fresh observation cannot resolve
+PASS  A16 resolved status preserved after stale observation
+PASS  A16 stale observation detected
+PASS  A17 concurrent create -> exactly one durable row (got 1)
+PASS  A17 both concurrent calls returned same id
+PASS  A18 concurrent identical timeline events insert exactly once (got 1)
+NOT EXECUTED  A19 provider-unavailable path :: requires live provider to observe unavailability through production path
+
+--- A22-A28 - additional durable checks ---
+PASS  A22 SAFE_TO_RESUME envelope roundtrip
+PASS  A23 intent created via existing service
+PASS  A23 intentKey present
+PASS  A23 existing recovery machinery discovers the intent
+PASS  A23 existing lease machinery acquires
+PASS  A23 existing executor owns the transition
+PASS  A23 no second intent created
+PASS  A23 same intentKey on repeat
+PASS  A23 intent still discoverable post-transition
+PASS  A24 lease_owner preserved against stale worker
+PASS  A25 recovery_attempt owned by recovery machinery, not observation
+PASS  A26 fresh post-recovery verification permits resolution
+PASS  A27 resolution persisted
+PASS  A27 resolution_evidence persisted
+PASS  A27 resolved_at persisted
+PASS  A28 closed after verified resolution
+PASS  A28 status CLOSED
+PASS  A28 closed_at persisted
+PASS  A28 unresolved incident refuses closure
+
+--- A31 - production path integration (processDeploymentDriftDurable) ---
+PASS  A31 processDeploymentDriftDurable non-null for DRIFTED
+PASS  A31 first call created durable row
+PASS  A31 durable id deterministic from fingerprint
+PASS  A31 fingerprint persisted matches
+PASS  A31 row present in PostgreSQL by fingerprint
+PASS  A31 initial durable status OPEN
+PASS  A31 timeline durable from production path (1)
+PASS  A31 repeat reconciled, not created
+PASS  A31 repeat durable id stable
+PASS  A31 exactly one durable row for fingerprint
+
+============================================
+PASS: 94
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 1
+============================================
+exit=0
+--- 252 ---
+
+> test:phase252
+> tsx scripts/test-phase252-drift-observation-loop.ts
+
+
+--- A00 - environment / prerequisite discovery ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - core operation (runNow produces a drift incident) ---
+PASS  A01 one scope scanned
+PASS  A01 one deployment scanned
+PASS  A01 classification drifted
+PASS  A01 one durable incident created
+PASS  A01 no errors
+PASS  A01 tick event emitted once
+PASS  A01 tick event type
+
+--- A02 - persistence ---
+PASS  A02 exactly one durable incident row
+PASS  A02 timeline row persisted
+
+--- A03 - idempotency (second tick reconciles) ---
+PASS  A03 first tick creates one incident
+PASS  A03 second tick creates zero
+PASS  A03 second tick reconciles
+
+--- A04 - concurrent supervisors, same scope ---
+PASS  A04 exactly one incident created across concurrent ticks (got 1)
+PASS  A04 exactly one durable row
+
+--- A05 - non-KNOWN_GOOD deployments are skipped ---
+PASS  A05 non-KNOWN_GOOD deployment not scanned
+PASS  A05 no incident created
+
+--- A06 - authorization boundary preserved (source assertion) ---
+PASS  A06 no RecoveryPolicyEngine import
+PASS  A06 no ReleaseRecoveryExecutor import
+PASS  A06 no deployment-orchestrator import
+PASS  A06 no direct docker.run call
+
+--- A07 - provider-unavailable path ---
+PASS  A07 deployment scanned
+PASS  A07 classified as BLOCKED or UNKNOWN (blocked=1 unknown=0)
+PASS  A07 not classified VERIFIED
+PASS  A07 durable incident created
+
+--- A08 - observer failure captured, not fatal ---
+PASS  A08 error recorded
+PASS  A08 error message preserved
+PASS  A08 no incident from failed observation
+
+--- A09 - empty tick does not corrupt durable state ---
+PASS  A09 empty scopes -> empty tick
+PASS  A09 no errors
+
+--- A10 - recovery-owned fields untouched ---
+PASS  A10 every incident has recovery_attempt=0
+PASS  A10 supervisor never sets recovery_attempt
+PASS  A10 supervisor never touches leases
+PASS  A10 supervisor never writes lease columns
+
+--- A11 - new supervisor reconciles against persisted state ---
+PASS  A11 first supervisor creates
+PASS  A11 second supervisor creates 0
+PASS  A11 second supervisor reconciles
+
+--- A12 - VERIFIED observation produces no incident ---
+PASS  A12 deployment scanned
+PASS  A12 classification VERIFIED
+PASS  A12 no incident created
+PASS  A12 no durable row
+
+--- A13 - regression: phase 250 + phase 251 ---
