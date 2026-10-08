@@ -19,6 +19,10 @@ import type {
   IncidentLifecycleStatus,
 } from "./async-incident-store";
 import type { DriftClassification } from "./production-incident-response";
+import type {
+  DeploymentIntegrityResult,
+  DeploymentObservation,
+} from "./post-deployment-integrity";
 import {
   computeIncidentFingerprint,
   evaluateRemediationAuthorization,
@@ -345,4 +349,99 @@ export async function closeIncidentIfResolved(
   });
   const refreshed = (await store.getIncidentAsync(incident.id)) ?? incident;
   return { incident: refreshed, closed: true, reason: "closed after verified resolution" };
+}
+
+// -----------------------------------------------------------------------------
+// Phase 255: post-resolution drift requires review via the existing lifecycle.
+// -----------------------------------------------------------------------------
+//
+// A previously RESOLVED incident whose deployment is now authoritatively
+// DRIFTED must not remain silently RESOLVED. This is the smallest authoritative
+// lifecycle transition for that case: RESOLVED -> REQUIRE_REVIEW, guarded by
+// the current status (concurrency-safe via the store's conditional UPDATE) and
+// requiring DRIFTED evidence from the existing Phase 249 evaluator.
+//
+// It does NOT:
+//   - create a recovery intent (that is the existing handoff's job)
+//   - acquire leases, execute recovery, or mutate recovery_attempt
+//   - fabricate an observation, identity, or VERIFIED state
+//
+// On success it appends a deterministic timeline event. Repeating the call on
+// an already-transitioned incident is a no-op (guard fails).
+
+export interface RequestReviewAfterResolvedDriftInput {
+  store: AsyncIncidentStore;
+  incident: SecurityIncident;
+  integrity: DeploymentIntegrityResult;
+  observation: DeploymentObservation;
+  workerId: string;
+  now?: number;
+}
+
+export interface RequestReviewAfterResolvedDriftResult {
+  transitioned: boolean;
+  reason: string;
+  lifecycleAfter: IncidentLifecycleStatus;
+}
+
+export async function requestReviewAfterResolvedDrift(
+  input: RequestReviewAfterResolvedDriftInput,
+): Promise<RequestReviewAfterResolvedDriftResult> {
+  const { store, incident, integrity, observation } = input;
+  const nowIso = new Date(input.now ?? Date.now()).toISOString();
+
+  if (incident.status !== "RESOLVED") {
+    return {
+      transitioned: false,
+      reason: "incident is not RESOLVED (current=" + incident.status + ")",
+      lifecycleAfter: incident.status,
+    };
+  }
+
+  if (integrity.state !== "DRIFTED") {
+    return {
+      transitioned: false,
+      reason: "integrity.state is not DRIFTED (got " + integrity.state + ")",
+      lifecycleAfter: incident.status,
+    };
+  }
+
+  const transitioned = await store.transitionIncidentStatusIfCurrentAsync(
+    incident.id,
+    "RESOLVED",
+    "REQUIRE_REVIEW",
+    { last_observation_at: observation.observed_at },
+  );
+
+  if (!transitioned) {
+    // Another worker won the race, or the incident is no longer RESOLVED.
+    const after = (await store.getIncidentAsync(incident.id)) ?? incident;
+    return {
+      transitioned: false,
+      reason: "guarded transition refused (concurrent or already-transitioned)",
+      lifecycleAfter: after.status,
+    };
+  }
+
+  await store.appendIncidentTimelineAsync(incident.id, {
+    type: "POST_RESOLUTION_DRIFT_REVIEW_REQUIRED",
+    at: observation.observed_at,
+    payload: {
+      deployment_id: incident.deployment_id ?? null,
+      release_id: incident.release_id ?? null,
+      artifact_id: incident.artifact_id ?? null,
+      artifact_digest: incident.artifact_digest ?? null,
+      observation_timestamp: observation.observed_at,
+      integrity_reasons: integrity.reasons.slice(0, 5),
+      from: "RESOLVED",
+      to: "REQUIRE_REVIEW",
+      worker_id: input.workerId,
+    },
+  });
+
+  return {
+    transitioned: true,
+    reason: "RESOLVED -> REQUIRE_REVIEW because authoritative drift was observed",
+    lifecycleAfter: "REQUIRE_REVIEW",
+  };
 }

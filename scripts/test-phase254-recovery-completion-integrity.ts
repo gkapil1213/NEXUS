@@ -116,10 +116,14 @@ async function main() {
   const intentService = new ReleaseDeploymentIntentService(execStore);
 
   async function wipe() {
-    try {
-      await pg.query("DELETE FROM security_incident_timeline WHERE incident_id LIKE $1", [PREFIX + "%"]);
-      await pg.query("DELETE FROM security_incidents WHERE id LIKE $1", [PREFIX + "%"]);
-    } catch {}
+    // Clear the phase-254 prefix AND the shared drift prefix used by phases
+    // 253/255 so a subprocess invocation cannot collide with our seeded rows.
+    for (const p of [PREFIX + "%", "incident-drift-%"]) {
+      try {
+        await pg.query("DELETE FROM security_incident_timeline WHERE incident_id LIKE $1", [p]);
+        await pg.query("DELETE FROM security_incidents WHERE id LIKE $1", [p]);
+      } catch {}
+    }
   }
   await wipe();
 

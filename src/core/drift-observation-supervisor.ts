@@ -27,6 +27,7 @@ import type {
 import { evaluateDeploymentIntegrity } from "./post-deployment-integrity";
 import { processDeploymentDriftDurable } from "./production-incident-response";
 import { handoffDriftIncidentToRecovery } from "./drift-recovery-handoff";
+import { requestReviewAfterResolvedDrift } from "./incident-lifecycle";
 import type { ReleaseDeploymentIntentService } from "./release-deployment-intent";
 
 export interface DriftObservationEventSink {
@@ -81,6 +82,10 @@ export interface DriftObservationTickReport {
   recoveryHandoffsAccepted: number;
   recoveryHandoffsRejected: number;
   recoveryHandoffsNotExecuted: number;
+  /** Phase 255: RESOLVED incident -> REQUIRE_REVIEW on authoritative drift. */
+  resolvedIncidentsReviewRequired: number;
+  /** Phase 255: CLOSED incident observed drifted; handoff skipped. */
+  closedIncidentsSkipped: number;
   errors: string[];
 }
 
@@ -185,6 +190,8 @@ export class DriftObservationSupervisor {
       recoveryHandoffsAccepted: 0,
       recoveryHandoffsRejected: 0,
       recoveryHandoffsNotExecuted: 0,
+      resolvedIncidentsReviewRequired: 0,
+      closedIncidentsSkipped: 0,
       errors: [],
     };
   }
@@ -266,6 +273,74 @@ export class DriftObservationSupervisor {
         // Phase 253: hand off DRIFTED incidents to the existing recovery owner.
         // UNKNOWN / BLOCKED / NOT_EXECUTED do not hand off.
         if (out && integrity.state === "DRIFTED") {
+          // Phase 255: a previously RESOLVED incident whose deployment is now
+          // authoritatively DRIFTED must first route through REQUIRE_REVIEW
+          // using the existing lifecycle. The subsequent handoff moves
+          // REQUIRE_REVIEW -> RECOVERY_REQUESTED via the existing path.
+          const phase255PreStatus = out.durable.status;
+          if (phase255PreStatus === "RESOLVED") {
+            try {
+              const rr = await requestReviewAfterResolvedDrift({
+                store: this.deps.incidentStore,
+                incident: out.durable,
+                integrity,
+                observation,
+                workerId: this.deps.workerId,
+              });
+              if (rr.transitioned) report.resolvedIncidentsReviewRequired++;
+              await this.deps.svc.events.emit({
+                type: rr.transitioned
+                  ? "drift.resolved-deployment.review-required"
+                  : "drift.resolved-deployment.unresolved",
+                source: "DriftObservationSupervisor",
+                payload: {
+                  incident_id: out.durable.id,
+                  deployment_id: current.id,
+                  release_id: expected.release_id,
+                  artifact_id: expected.artifact_id,
+                  artifact_digest: expected.artifact_digest,
+                  environment: expected.environment ?? null,
+                  integrity_state: integrity.state,
+                  lifecycle_before: "RESOLVED",
+                  lifecycle_after: rr.lifecycleAfter,
+                  reason: rr.reason,
+                  observation_timestamp: observation.observed_at,
+                  worker_id: this.deps.workerId,
+                },
+              }).catch(() => undefined);
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e);
+              report.errors.push("phase255-review(" + current.id + "): " + msg.slice(0, 200));
+            }
+          }
+
+          // Phase 255: CLOSED incidents must not be silently reopened. Emit a
+          // durable audit event and skip the handoff entirely. The next tick
+          // will either reconcile a new incident through Phase 250/252 or
+          // continue to observe; the CLOSED historical record is preserved.
+          if (phase255PreStatus === "CLOSED") {
+            report.closedIncidentsSkipped++;
+            await this.deps.svc.events.emit({
+              type: "drift.resolved-deployment.unresolved",
+              source: "DriftObservationSupervisor",
+              payload: {
+                incident_id: out.durable.id,
+                deployment_id: current.id,
+                release_id: expected.release_id,
+                artifact_id: expected.artifact_id,
+                artifact_digest: expected.artifact_digest,
+                environment: expected.environment ?? null,
+                integrity_state: integrity.state,
+                lifecycle_before: "CLOSED",
+                lifecycle_after: "CLOSED",
+                reason: "authoritative drift observed on a CLOSED incident; handoff skipped",
+                observation_timestamp: observation.observed_at,
+                worker_id: this.deps.workerId,
+              },
+            }).catch(() => undefined);
+            continue;
+          }
+
           const recoveryExpected = {
             project_id: scope.projectId,
             environment: scope.environment,

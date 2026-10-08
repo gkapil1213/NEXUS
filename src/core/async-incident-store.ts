@@ -195,6 +195,50 @@ export class AsyncIncidentStore {
     return rows.map(mapIncident);
   }
 
+  /**
+   * Phase 255: guard-conditional status transition. Performs the update only
+   * when the current status matches `from`, and returns false otherwise (no
+   * write). This is the concurrency primitive for post-resolution lifecycle
+   * transitions: two workers racing the same RESOLVED -> REQUIRE_REVIEW
+   * transition, only one performs the UPDATE. Same table, no new column, no
+   * schema change.
+   */
+  async transitionIncidentStatusIfCurrentAsync(
+    id: string,
+    from: IncidentLifecycleStatus,
+    to: IncidentLifecycleStatus,
+    patch: Partial<SecurityIncident> = {},
+  ): Promise<boolean> {
+    // Allowed columns for the accompanying patch (same whitelist as update).
+    const allowed = [
+      "severity", "title", "description",
+      "deployment_id", "release_id", "artifact_id", "artifact_digest",
+      "drift_classification", "recovery_intent_key", "recovery_attempt",
+      "lease_owner", "lease_expires_at", "last_observation_at",
+      "verification_state", "resolution_evidence", "resolved_at", "closed_at",
+    ] as const;
+
+    const fields: string[] = ["status = ?"];
+    const values: any[] = [to];
+    for (const k of allowed) {
+      if (k in patch) {
+        fields.push(k + " = ?");
+        values.push((patch as any)[k] ?? null);
+      }
+    }
+    fields.push("updated_at = ?");
+    values.push(new Date().toISOString());
+    values.push(id);
+    values.push(from);
+
+    const r = await this.db
+      .prepareAsync(
+        "UPDATE security_incidents SET " + fields.join(", ") +
+        " WHERE id = ? AND status = ?",
+      )
+      .run(...values);
+    return (r.changes ?? 0) === 1;
+  }
   async updateIncidentAsync(id: string, patch: Partial<SecurityIncident>): Promise<boolean> {
     const fields: string[] = [];
     const values: any[] = [];
