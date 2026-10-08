@@ -504,6 +504,8 @@ async function main() {
   // Cleanup before regression
   await wipe();
   try { (sqlite as any).close?.(); } catch {}
+  await wipe();
+
   try { await pg.close(); } catch {}
 
   // ---- A16: regression ------------------------------------------------
