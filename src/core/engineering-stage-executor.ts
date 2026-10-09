@@ -195,67 +195,97 @@ export class EngineeringStageExecutor {
     return this.applyStageOutcome(runId, "PLANNING", outcome.status, outcome.reason, null);
   }
   private async executeArchitecture(runId: string): Promise<StageExecutionOutcome> {
-    let plan, outcome;
+    let plan;
     try {
       plan = await this.deps.planning.getLatestPlan(runId);
-      if (!plan) {
-        return this.applyStageOutcome(runId, "ARCHITECTURE", "FAILED", "PLAN_NOT_FOUND", null);
-      }
-      if (plan.status !== "VALID") {
-        return this.applyStageOutcome(runId, "ARCHITECTURE", "INVALID",
-          "PLAN_NOT_VALID:" + plan.status, null);
-      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return this.applyStageOutcome(runId, "ARCHITECTURE", "FAILED",
+        "ARCHITECTURE_EXECUTOR_THREW:" + msg, null);
+    }
+
+    if (!plan) {
+      return this.applyStageOutcome(runId, "ARCHITECTURE", "FAILED", "PLAN_NOT_FOUND", null);
+    }
+    if (plan.status !== "VALID") {
+      return this.applyStageOutcome(runId, "ARCHITECTURE", "INVALID",
+        "PLAN_NOT_VALID:" + plan.status, null);
+    }
+
+    let outcome;
+    try {
       outcome = await this.deps.planning.runArchitecture(runId, plan.planId);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      return this.applyStageOutcome(runId, "ARCHITECTURE", "FAILED", "ARCHITECTURE_EXECUTOR_THREW:" + msg, null);
+      return this.applyStageOutcome(runId, "ARCHITECTURE", "FAILED",
+        "ARCHITECTURE_EXECUTOR_THREW:" + msg, null);
     }
+
     if (outcome.status === "SUCCEEDED" && outcome.architecture) {
       const artifactRef = "artifact://architecture-" + outcome.architecture.architectureId;
       await this.applyStageCompletion(runId, "ARCHITECTURE", artifactRef, "architecture validated");
       return { ok: true, runId, stageType: "ARCHITECTURE",
-               status: "SUCCEEDED", reason: outcome.reason, artifactRef };
+        status: "SUCCEEDED", reason: outcome.reason, artifactRef };
     }
     return this.applyStageOutcome(runId, "ARCHITECTURE", outcome.status, outcome.reason, null);
   }
+
   private async executeImplementation(runId: string): Promise<StageExecutionOutcome> {
-    let plan, arch, ws, outcome;
+    let plan;
     try {
       plan = await this.deps.planning.getLatestPlan(runId);
-      if (!plan || plan.status !== "VALID") {
-        return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED",
-          "PLAN_NOT_VALID:" + (plan && plan.status ? plan.status : "MISSING"), null);
-      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED",
+        "IMPLEMENTATION_EXECUTOR_THREW:" + msg, null);
+    }
+
+    if (!plan || plan.status !== "VALID") {
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED",
+        "PLAN_NOT_VALID:" + (plan?.status ?? "MISSING"), null);
+    }
+
+    let arch;
+    try {
       arch = await this.deps.planning.getLatestArchitecture(runId);
-      if (!arch || arch.status !== "VALID") {
-        return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED",
-          "ARCHITECTURE_NOT_VALID:" + (arch && arch.status ? arch.status : "MISSING"), null);
-      }
-      if (!this.deps.workspaceResolver) {
-        return this.applyStageOutcome(runId, "IMPLEMENTATION", "BLOCKED",
-          "WORKSPACE_RESOLVER_NOT_CONFIGURED", null);
-      }
-      ws = await this.deps.workspaceResolver(runId);
-      if (!ws) {
-        return this.applyStageOutcome(runId, "IMPLEMENTATION", "BLOCKED",
-          "WORKSPACE_NOT_BOUND_TO_RUN", null);
-      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED",
+        "IMPLEMENTATION_EXECUTOR_THREW:" + msg, null);
+    }
+
+    if (!arch || arch.status !== "VALID") {
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED",
+        "ARCHITECTURE_NOT_VALID:" + (arch?.status ?? "MISSING"), null);
+    }
+    if (!this.deps.workspaceResolver) {
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "BLOCKED",
+        "WORKSPACE_RESOLVER_NOT_CONFIGURED", null);
+    }
+
+    const ws = await this.deps.workspaceResolver(runId);
+    if (!ws) {
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "BLOCKED",
+        "WORKSPACE_NOT_BOUND_TO_RUN", null);
+    }
+
+    let outcome;
+    try {
       outcome = await this.deps.implementation.runImplementation({
-        runId,
-        planId: plan.planId,
-        architectureId: arch.architectureId,
-        workspaceId: ws.workspaceId,
-        actor: ws.actor,
+        runId, planId: plan.planId, architectureId: arch.architectureId,
+        workspaceId: ws.workspaceId, actor: ws.actor,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED", "IMPLEMENTATION_EXECUTOR_THREW:" + msg, null);
+      return this.applyStageOutcome(runId, "IMPLEMENTATION", "FAILED",
+        "IMPLEMENTATION_EXECUTOR_THREW:" + msg, null);
     }
+
     if (outcome.status === "SUCCEEDED") {
       const artifactRef = outcome.artifactId ? "artifact://" + outcome.artifactId : null;
       await this.applyStageCompletion(runId, "IMPLEMENTATION", artifactRef, "implementation applied");
       return { ok: true, runId, stageType: "IMPLEMENTATION",
-               status: "SUCCEEDED", reason: outcome.reason, artifactRef };
+        status: "SUCCEEDED", reason: outcome.reason, artifactRef };
     }
     return this.applyStageOutcome(runId, "IMPLEMENTATION", outcome.status, outcome.reason, null);
   }
