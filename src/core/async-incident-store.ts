@@ -266,6 +266,27 @@ export class AsyncIncidentStore {
     return (r.changes ?? 0) === 1;
   }
   /**
+   * Phase 257 §1: atomic recovery-intent claim.
+   * Performs a single conditional UPDATE that assigns recovery_intent_key
+   * and status only when recovery_intent_key is currently NULL. Returns true
+   * for exactly the caller that won the race. This is the sole fence that
+   * guarantees exactly one ACCEPTED recovery handoff under concurrency.
+   */
+  async claimRecoveryIntentIfUnassignedAsync(
+    id: string,
+    intentKey: string,
+    status: IncidentLifecycleStatus,
+  ): Promise<boolean> {
+    const now = new Date().toISOString();
+    const r = await this.db
+      .prepareAsync(
+        "UPDATE security_incidents SET recovery_intent_key = ?, status = ?, updated_at = ? " +
+          "WHERE id = ? AND recovery_intent_key IS NULL",
+      )
+      .run(intentKey, status, now, id);
+    return (r.changes ?? 0) === 1;
+  }
+  /**
    * Phase 251 section 2: stale observation fence.
    * Advances last_observation_at ONLY when incoming is strictly newer.
    * Comparison is lexicographic on TEXT; callers must supply ISO 8601 UTC

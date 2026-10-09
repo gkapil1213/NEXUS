@@ -1,0 +1,617 @@
+﻿Phase 257 corrective regression - 20261009-075419
+--- 252 ---
+
+> test:phase252
+> tsx scripts/test-phase252-drift-observation-loop.ts
+
+
+--- A00 - environment / prerequisite discovery ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - core operation (runNow produces a drift incident) ---
+PASS  A01 one scope scanned
+PASS  A01 one deployment scanned
+PASS  A01 classification drifted
+PASS  A01 one durable incident created
+PASS  A01 no errors
+PASS  A01 tick event emitted once
+PASS  A01 tick event type
+
+--- A02 - persistence ---
+PASS  A02 exactly one durable incident row
+PASS  A02 timeline row persisted
+
+--- A03 - idempotency (second tick reconciles) ---
+PASS  A03 first tick creates one incident
+PASS  A03 second tick creates zero
+PASS  A03 second tick reconciles
+
+--- A04 - concurrent supervisors, same scope ---
+PASS  A04 exactly one incident created across concurrent ticks (got 1)
+PASS  A04 exactly one durable row
+
+--- A05 - non-KNOWN_GOOD deployments are skipped ---
+PASS  A05 non-KNOWN_GOOD deployment not scanned
+PASS  A05 no incident created
+
+--- A06 - authorization boundary preserved (source assertion) ---
+PASS  A06 no RecoveryPolicyEngine import
+PASS  A06 no ReleaseRecoveryExecutor import
+PASS  A06 no deployment-orchestrator import
+PASS  A06 no direct docker.run call
+
+--- A07 - provider-unavailable path ---
+PASS  A07 deployment scanned
+PASS  A07 classified as BLOCKED or UNKNOWN (blocked=1 unknown=0)
+PASS  A07 not classified VERIFIED
+PASS  A07 durable incident created
+
+--- A08 - observer failure captured, not fatal ---
+PASS  A08 error recorded
+PASS  A08 error message preserved
+PASS  A08 no incident from failed observation
+
+--- A09 - empty tick does not corrupt durable state ---
+PASS  A09 empty scopes -> empty tick
+PASS  A09 no errors
+
+--- A10 - recovery-owned fields untouched ---
+PASS  A10 every incident has recovery_attempt=0
+PASS  A10 supervisor never sets recovery_attempt
+PASS  A10 supervisor never touches leases
+PASS  A10 supervisor never writes lease columns
+
+--- A11 - new supervisor reconciles against persisted state ---
+PASS  A11 first supervisor creates
+PASS  A11 second supervisor creates 0
+PASS  A11 second supervisor reconciles
+
+--- A12 - VERIFIED observation produces no incident ---
+PASS  A12 deployment scanned
+PASS  A12 classification VERIFIED
+PASS  A12 no incident created
+PASS  A12 no durable row
+
+--- A13 - regression: phase 250 + phase 251 ---
+PASS  A13 phase250 pass
+PASS  A13 phase251 pass
+
+--- A14 - TypeScript ---
+PASS  A14 tsc clean
+
+--- A15 - build ---
+PASS  A15 build pass
+
+--- A16 - git diff --check ---
+PASS  A16 diff check clean
+
+============================================
+PASS: 46
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+exit=0
+--- 253 ---
+
+> test:phase253
+> tsx scripts/test-phase253-recovery-handoff-integrity.ts
+
+
+--- A00 - environment ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - production wiring ---
+PASS  A01 supervisor imports handoff
+PASS  A01 supervisor calls handoff
+PASS  A01 deps.intentService declared
+PASS  A01 kernel wires intentService
+PASS  A01 handoff uses P251 bridge
+PASS  A01 handoff uses P250 intent request
+
+--- A02 - DRIFTED produces durable incident AND recovery intent ---
+PASS  A02 deployment scanned
+PASS  A02 classified DRIFTED
+PASS  A02 incident created
+PASS  A02 handoff accepted
+PASS  A02 no rejection
+PASS  A02 not NOT_EXECUTED
+PASS  A02 no errors ()
+
+--- A03 - incident carries recovery_intent_key ---
+PASS  A03 incident row present
+PASS  A03 recovery_intent_key populated (value=rollback||a02|exec-rel-p253-a02)
+PASS  A03 incident status = RECOVERY_REQUESTED (got RECOVERY_REQUESTED)
+PASS  A03 RECOVERY_HANDOFF_ACCEPTED in timeline
+
+--- A04 - durable intent retrieved via ReleaseDeploymentIntentService ---
+PASS  A04 intent exists
+PASS  A04 intent.environment = a02
+PASS  A04 intent.releaseId matches
+PASS  A04 intent.artifactId matches
+PASS  A04 intent.kind = ROLLBACK (recovery)
+
+--- A05 - second tick reconciles, no duplicate intent ---
+PASS  A05 no new incident
+PASS  A05 incident reconciled
+PASS  A05 handoff accepted again (idempotent)
+PASS  A05 no rejection
+PASS  A05 intentKey unchanged
+PASS  A05 exactly one RECOVERY_HANDOFF_ACCEPTED (got 1)
+
+--- A06 - concurrent identical handoffs -> one intent ---
+PASS  A06 both accepted (idempotent under concurrency)
+PASS  A06 no errors ()
+PASS  A06 incident carries intent key
+PASS  A06 exactly one incident row
+PASS  A06 intent retrievable
+
+--- A07 - UNKNOWN does not hand off ---
+PASS  A07 classified UNKNOWN
+PASS  A07 no handoff
+PASS  A07 no rejection
+
+--- A08 - BLOCKED does not hand off ---
+PASS  A08 classified BLOCKED
+PASS  A08 no handoff
+
+--- A09 - NOT_EXECUTED does not hand off ---
+PASS  A09 classified NOT_EXECUTED
+PASS  A09 no handoff
+
+--- A10 - VERIFIED does not create incident or intent ---
+PASS  A10 VERIFIED
+PASS  A10 no incident
+PASS  A10 no handoff
+PASS  A10 no rows in security_incidents
+
+--- A11 - absent intentService -> NOT_EXECUTED, no fabricated intent ---
+PASS  A11 classified DRIFTED
+PASS  A11 incident still created
+PASS  A11 no acceptance
+PASS  A11 counted as NOT_EXECUTED
+PASS  A11 incident has no intent key
+
+--- A12 - REJECTED when authoritative deployment record is absent ---
+PASS  A12 rejected (got REJECTED)
+PASS  A12 no intent key
+PASS  A12 reason mentions deployment not found
+
+--- A13 - source audit: handoff never touches recovery authority ---
+PASS  A13 no lease acquisition
+PASS  A13 no recovery_attempt increment
+PASS  A13 no direct docker.run
+PASS  A13 no ReleaseRecoveryExecutor import
+PASS  A13 no orchestrator import
+PASS  A13 no recovery_attempt update
+
+--- A14 - restart/durable-state: intent + correlation survive reopen ---
+PASS  A14 first-run handoff accepted
+PASS  A14 intent key captured from first run
+PASS  A14 incident survives reopen
+PASS  A14 intent key persists
+PASS  A14 intent survives
+PASS  A14 intent.environment correct
+
+--- A15 - live recovery execution + post-recovery verification ---
+NOT EXECUTED  A15 executor-driven recovery completion with real provider :: requires a ReleaseRecoveryExecutor harness with real provider context (Docker+rollback+smoke) ΓÇö covered by phases 174-177, not in scope here
+
+--- A16 - regression: phase 250 / 251 / 252 ---
+PASS  A16 phase250 regression pass
+PASS  A16 phase251 regression pass
+PASS  A16 phase252 regression pass
+
+============================================
+PASS: 68
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 1
+============================================
+exit=0
+--- 254 ---
+
+> test:phase254
+> tsx scripts/test-phase254-recovery-completion-integrity.ts
+
+
+--- A00 - environment ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - source wiring audit ---
+PASS  A01 reconciler calls evaluateIncidentResolution
+PASS  A01 reconciler calls applyResolutionIfVerified
+PASS  A01 reconciler uses correlation lookup
+PASS  A01 executor deps has completionReconciler
+PASS  A01 executor calls reconciler
+PASS  A01 kernel constructs reconciler
+PASS  A01 kernel passes reconciler to executor
+
+--- A02 - fresh VERIFIED resolves incident ---
+PASS  A02 scanned
+PASS  A02 resolved (got 1)
+PASS  A02 no errors ()
+PASS  A02 resolved event emitted
+
+--- A03 - durable RESOLVED state ---
+PASS  A03 incident present
+PASS  A03 status = RESOLVED (got RESOLVED)
+PASS  A03 verification_state VERIFIED
+PASS  A03 resolution_evidence persisted
+PASS  A03 resolved_at persisted
+PASS  A03 INCIDENT_RESOLVED in timeline
+
+--- A04 - closeIncidentIfResolved -> CLOSED ---
+PASS  A04 closed = true (reason=closed after verified resolution)
+PASS  A04 status CLOSED
+PASS  A04 closed_at persisted
+
+--- A05 - stale observation does not resolve ---
+PASS  A05 staleObservation counted
+PASS  A05 not resolved
+PASS  A05 status not resolved/closed
+
+--- A06 - fresh DRIFTED does not resolve ---
+PASS  A06 nonVerified counted
+PASS  A06 not resolved
+PASS  A06 status not RESOLVED (got RECOVERY_REQUESTED)
+
+--- A07 - fresh UNKNOWN does not resolve ---
+PASS  A07 not resolved
+PASS  A07 status not RESOLVED
+
+--- A08 - fresh BLOCKED does not resolve ---
+PASS  A08 not resolved
+
+--- A09 - fresh NOT_EXECUTED does not resolve ---
+PASS  A09 not resolved
+
+--- A10 - repeat reconciliation is idempotent ---
+PASS  A10 first pass resolves
+PASS  A10 second pass does not re-resolve
+PASS  A10 exactly one INCIDENT_RESOLVED (got 1)
+
+--- A11 - concurrent reconcilers, one resolution ---
+PASS  A11 exactly one resolution across two reconcilers (got 1)
+PASS  A11 final status RESOLVED
+
+--- A12 - RESOLVED not regressed by stale observation ---
+PASS  A12 first pass resolves
+PASS  A12 closed before stale test
+PASS  A12 status remains CLOSED (got CLOSED)
+
+--- A13 - unresolved incident refuses closure ---
+PASS  A13 refused (reason=closure prerequisites not satisfied)
+PASS  A13 status not CLOSED
+
+--- A14 - durable state survives reopen ---
+PASS  A14 incident survives reopen
+PASS  A14 RESOLVED survives
+PASS  A14 VERIFIED survives
+PASS  A14 resolution_evidence survives
+
+--- A15 - intent without correlated incident is skipped ---
+PASS  A15 skippedNoIncident counted
+PASS  A15 nothing resolved
+PASS  A15 no errors
+
+--- A16 - observer/executor boundary audit ---
+PASS  A16 reconciler has no lease operations
+PASS  A16 reconciler does not write recovery_attempt
+PASS  A16 reconciler does not call docker.run
+PASS  A16 reconciler does not transition intents
+PASS  A16 supervisor has no lease operations
+PASS  A16 handoff has no docker.run
+
+--- A17 - live production chain ---
+NOT EXECUTED  A17 live Docker deployment + real observer end-to-end :: the Phase 254 reconciler test suite exercises the full closure logic with a scripted observer (its injected integration point); a live Docker chain would duplicate the phase 250 A21 chain and require deploying/fixing a real container mid-test. Real Docker is verified available by phase 250's live A21 test in the same run.
+
+--- A18 - regression 250/251/252/253 ---
+PASS  A18 phase250 pass
+PASS  A18 phase251 pass
+PASS  A18 phase252 pass
+PASS  A18 phase253 pass
+
+--- A19 - TypeScript ---
+PASS  A19 tsc clean
+
+--- A20 - build ---
+PASS  A20 build pass
+
+--- A21 - git diff --check ---
+PASS  A21 diff check clean
+
+============================================
+PASS: 61
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 1
+============================================
+exit=0
+--- 255 ---
+
+> test:phase255
+> tsx scripts/test-phase255-resolved-deployment-lifecycle.ts
+
+
+--- A00 - environment ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - source wiring audit ---
+PASS  A01 supervisor imports the Phase 255 method
+PASS  A01 supervisor calls the Phase 255 method
+PASS  A01 supervisor reads prior status
+PASS  A01 tick counter present
+PASS  A01 CLOSED skip counter present
+PASS  A01 incident-lifecycle exports the method
+PASS  A01 store has guarded transition method
+
+--- A02 - RESOLVED + fresh VERIFIED remains RESOLVED ---
+PASS  A02 classified VERIFIED
+PASS  A02 no review transition
+PASS  A02 incident remains RESOLVED (got RESOLVED)
+
+--- A03 - RESOLVED + fresh DRIFTED -> REQUIRE_REVIEW ---
+PASS  A03 classified DRIFTED
+PASS  A03 review-required counted
+PASS  A03 review lifecycle preserved (got RECOVERY_REQUESTED)
+
+--- A04 - durable evidence present ---
+PASS  A04 review-required timeline event present
+
+--- A05 - CLOSED incident not silently reopened ---
+PASS  A05 CLOSED skip counted
+PASS  A05 status still CLOSED (got CLOSED)
+
+--- A06 - UNKNOWN preserves state ---
+PASS  A06 classified UNKNOWN
+PASS  A06 status unchanged
+
+--- A07 - BLOCKED preserves state ---
+PASS  A07 classified BLOCKED
+PASS  A07 status unchanged
+
+--- A08 - NOT_EXECUTED preserves state ---
+PASS  A08 classified NOT_EXECUTED
+PASS  A08 status unchanged
+
+--- A09 - stale observation does not resolve ---
+PASS  A09 classified VERIFIED
+PASS  A09 no review transition
+PASS  A09 status unchanged
+
+--- A10 - missing identity fails closed ---
+PASS  A10 did not throw
+PASS  A10 status unchanged (no fabricated resolution)
+
+--- A11 - missing deployment record fails closed ---
+PASS  A11 no deployment scanned (record missing)
+PASS  A11 status unchanged
+
+--- A12 - repeated reconciliation is idempotent ---
+PASS  A12 first tick: review-required
+PASS  A12 second tick: no re-transition
+PASS  A12 final lifecycle state valid (got RECOVERY_REQUESTED)
+PASS  A12 exactly one review timeline event (got 1)
+
+--- A13 - concurrent reconcilers, one transition ---
+PASS  A13 exactly one review transition across two supervisors (got 1)
+PASS  A13 final lifecycle state valid (got RECOVERY_REQUESTED)
+PASS  A13 exactly one review timeline event (got 1)
+
+--- A14 - already REVIEW_REQUIRED not re-transitioned ---
+PASS  A14 no re-transition
+PASS  A14 lifecycle state preserved (got RECOVERY_REQUESTED)
+
+--- A15 - recovery intent produced after review ---
+PASS  A15 handoff accepted
+PASS  A15 recovery_intent_key present
+
+--- A16 - repeated ticks do not create duplicate intents ---
+PASS  A16 intent key present after first tick
+PASS  A16 exactly one durable intent for the incident
+
+--- A17 - illegal lifecycle transition rejected ---
+PASS  A17 rejected non-RESOLVED transition
+PASS  A17 status unchanged (OPEN)
+
+--- A18 - Phase 254 completion reconciler preserved ---
+PASS  A18 Phase 254 reconciler still calls applyResolutionIfVerified
+PASS  A18 Phase 254 correlation lookup intact
+
+--- A19-A22 - regression source check (phase250/251/252/253/254) ---
+PASS  A19-A22 phase250 test file present
+PASS  A19-A22 phase250 npm script registered
+PASS  A19-A22 phase251 test file present
+PASS  A19-A22 phase251 npm script registered
+PASS  A19-A22 phase252 test file present
+PASS  A19-A22 phase252 npm script registered
+PASS  A19-A22 phase253 test file present
+PASS  A19-A22 phase253 npm script registered
+PASS  A19-A22 phase254 test file present
+PASS  A19-A22 phase254 npm script registered
+
+--- A23 - TypeScript ---
+PASS  A23 tsc clean
+
+--- A24 - build ---
+PASS  A24 build pass
+
+--- A25 - git diff --check ---
+PASS  A25 diff check clean
+
+--- A26 - no duplicate reconciler / scheduler introduced ---
+PASS  A26 no forbidden modules (got )
+PASS  A26 supervisor file does not construct a second supervisor
+
+--- A27 - no REOPENED added to IncidentLifecycleStatus ---
+PASS  A27 union extractable
+PASS  A27 no REOPENED in authoritative union
+
+--- A28 - no direct Docker access in Phase 255 code ---
+PASS  A28 supervisor does not call docker.run
+PASS  A28 incident-lifecycle does not call docker.run
+PASS  A28 supervisor does not import DockerAdapter
+
+--- A29 - no direct recovery execution in Phase 255 ---
+PASS  A29 supervisor does not import ReleaseRecoveryExecutor
+PASS  A29 incident-lifecycle does not import ReleaseRecoveryExecutor
+PASS  A29 supervisor does not call executor runOnce
+
+--- A30 - no lease acquisition in Phase 255 ---
+PASS  A30 supervisor no lease ops
+PASS  A30 incident-lifecycle no lease ops
+
+--- A31 - no recovery_attempt mutation in Phase 255 ---
+PASS  A31 supervisor does not set recovery_attempt
+PASS  A31 incident-lifecycle does not set recovery_attempt
+
+--- A32 - no false-success paths ---
+PASS  A32 review method requires DRIFTED
+PASS  A32 review method requires RESOLVED
+PASS  A32 incident-lifecycle does not write VERIFIED status
+
+============================================
+PASS: 77
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+exit=0
+--- 256 ---
+
+> test:phase256
+> tsx scripts/test-phase256-deployment-convergence.ts
+
+
+--- A00 - environment ---
+PASS  A00 postgres connected + schema bootstrapped
+
+--- A01 - source architecture audit ---
+PASS  A01 uses existing isObservationNewer ordering
+PASS  A01 uses existing CAS transition
+PASS  A01 uses existing timeline dedup
+PASS  A01 no direct docker.run
+PASS  A01 no lease operations
+PASS  A01 does not mutate recovery_attempt
+PASS  A01 does not import executor
+
+--- A02 - observation ordering: newer applied, older rejected ---
+PASS  A02 newer applied (got APPLIED)
+PASS  A02 older rejected (got STALE_REJECTED)
+PASS  A02 status unchanged by stale
+
+--- A03 - reordered delivery: state follows ordering ---
+PASS  A03 event-3 applied
+PASS  A03 event-1 rejected
+PASS  A03 event-2 rejected
+PASS  A03 final status is newest
+
+--- A04 - duplicate observation idempotency ---
+PASS  A04 first applied
+PASS  A04 second not applied (got STALE_REJECTED)
+PASS  A04 exactly one transition event
+
+--- A05 - concurrent duplicate observation ---
+PASS  A05 exactly one APPLIED across two concurrent callers (got 1)
+PASS  A05 exactly one transition event
+
+--- A06 - three observers converge deterministically ---
+PASS  A06 exactly one APPLIED (got 1)
+PASS  A06 status = REQUIRE_REVIEW
+PASS  A06 last_observation_at = newest
+
+--- A07 - deployment identity mismatch rejected ---
+PASS  A07 identity mismatch detected (got IDENTITY_MISMATCH)
+PASS  A07 status unchanged
+PASS  A07 evidence recorded
+
+--- A08 - decision durability surface ---
+PASS  A08 no new recovery_decisions table
+PASS  A08 no DDL from convergence module
+PASS  A08 existing decision column preserved
+
+--- A09 - decision/intent/execution separation ---
+PASS  A09 no docker execution
+PASS  A09 no rollback call
+PASS  A09 no policy engine
+PASS  A09 no executor import
+
+--- A10 - recovery intent supersession ---
+PASS  A10 supersession applied
+PASS  A10 status -> REQUIRE_REVIEW (got REQUIRE_REVIEW)
+PASS  A10 intent key cleared
+
+--- A11 - CLOSED incident late observation ---
+PASS  A11 CLOSED not applied (got STALE_REJECTED)
+PASS  A11 status remains CLOSED
+PASS  A11 evidence recorded
+
+--- A12 - durable state survives reopen ---
+PASS  A12 first applied
+PASS  A12 status persisted after reopen
+PASS  A12 timestamp persisted
+PASS  A12 stale rejected after reopen
+
+--- A13 - persistence failure behavior ---
+PASS  A13 unreachable postgres surfaces as failure
+PASS  A13 no in-memory fallback
+
+--- A14 - transactionAsync composition ---
+PASS  A14 tx sees own writes
+PASS  A14 tx commit persisted
+
+--- A15 - timeline uniqueness ---
+PASS  A15 exactly one transition event
+
+--- A16 - concurrent lifecycle reconciliation (6 callers) ---
+PASS  A16 exactly one APPLIED across six concurrent (got 1)
+
+--- A17 - concurrent supersession ---
+PASS  A17 exactly one supersession wins (got 1)
+
+--- A18 - obsolete intent cannot target replacement deployment ---
+PASS  A18 replacement deployment rejected
+PASS  A18 assertDeploymentBinding refuses foreign
+PASS  A18 assertDeploymentBinding accepts correct
+
+--- A19 - authorization gate ---
+PASS  A19 no policy engine
+PASS  A19 no executor
+PASS  A19 no handoff call
+PASS  A19 no recovery request
+
+--- A20 - no false execution success ---
+PASS  A20 no SUCCESS literal
+PASS  A20 no EXECUTED literal
+PASS  A20 no COMPLETED literal
+
+--- A21 - no duplicate reconciler / scheduler ---
+PASS  A21 no setInterval
+PASS  A21 no setTimeout
+PASS  A21 no Scheduler reference
+
+--- A22 - Phase 255 compatibility ---
+PASS  A22 Phase 255 review method preserved
+PASS  A22 supervisor still calls Phase 255 review
+PASS  A22 Phase 255 CLOSED-skip counter preserved
+
+--- A23 - TypeScript ---
+PASS  A23 tsc clean
+
+--- A24 - production build ---
+PASS  A24 build pass
+
+--- A25 - git diff --check ---
+PASS  A25 diff check clean
+
+--- A26 - no unrelated implementation ---
+PASS  A26 no test-file imports
+PASS  A26 no worker-module imports
+
+============================================
+PASS: 71
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+exit=0

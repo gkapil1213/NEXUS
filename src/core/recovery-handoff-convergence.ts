@@ -189,16 +189,23 @@ export async function convergeRecoveryHandoffAsync(
 
   // 6. Supersession guard, using the intent service's own key computation.
   //    If the incident is correlated to a *different* intent key, this
-  //    handoff refers to a superseded obligation.
+  //    handoff refers to a superseded obligation and must be rejected.
   const requestedIntentKey = intentKeyForRollback(input, input.providerContext, input.intentService);
-  if (
-    incident.recovery_intent_key != null &&
-    incident.recovery_intent_key.length > 0 &&
-    incident.recovery_intent_key !== requestedIntentKey
-  ) {
+
+  const preClaim = incident.recovery_intent_key;
+  if (preClaim != null && preClaim.length > 0) {
+    if (preClaim === requestedIntentKey) {
+      // Idempotent repeat with the same key: RECONCILED, no new ACCEPTED event.
+      return {
+        outcome: "RECONCILED",
+        reason: "incident already correlated to the requested recovery intent",
+        intentKey: preClaim,
+        lifecycleAfter: lifecycleBefore,
+      };
+    }
     const reason =
       "incident correlated to a different intent key: correlated=" +
-      incident.recovery_intent_key + " requested=" + requestedIntentKey;
+      preClaim + " requested=" + requestedIntentKey;
     await input.incidentStore.appendIncidentTimelineAsync(incident.id, {
       type: "RECOVERY_HANDOFF_REJECTED",
       at: nowIso,
@@ -208,7 +215,7 @@ export async function convergeRecoveryHandoffAsync(
   }
 
   // 7. Delegate to the existing Phase 250 entry point (same call Phase 253
-  //    uses). Durable idempotency and concurrency are provided by
+  //    uses). Durable idempotency of the intent row itself is provided by
   //    ReleaseDeploymentIntentService.getOrCreate via deterministic key.
   const result = await requestDriftRecoveryIntent({
     intentService: input.intentService,
@@ -237,34 +244,55 @@ export async function convergeRecoveryHandoffAsync(
     return rejected("intent service returned no intentKey", lifecycleBefore);
   }
 
-  // 8. Correlate the incident if this is a new correlation.
-  const already = incident.recovery_intent_key === intentKey;
-  if (!already) {
-    await input.incidentStore.updateIncidentAsync(incident.id, {
-      recovery_intent_key: intentKey,
-      status: "RECOVERY_REQUESTED",
-    });
+  // 8. Atomic claim. Only the caller that wins this conditional UPDATE is
+  //    the unique ACCEPTED winner. All other concurrent callers see
+  //    claim === false and must reread the durable row to determine whether
+  //    they RECONCILE (same key) or REJECT (different key).
+  const claimed = await input.incidentStore.claimRecoveryIntentIfUnassignedAsync(
+    incident.id,
+    intentKey,
+    "RECOVERY_REQUESTED",
+  );
+
+  if (claimed) {
+    // Deterministic ACCEPTED event identity: {incident_id, intent_key,
+    // RECOVERY_HANDOFF_ACCEPTED}. No random material in the hash material.
     await input.incidentStore.appendIncidentTimelineAsync(incident.id, {
       type: "RECOVERY_HANDOFF_ACCEPTED",
-      at: nowIso,
+      at: incident.created_at,
       payload: {
         intent_key: intentKey,
-        intent_result_status: result.status,
-        deployment_id: input.deploymentId,
-        authorization_by: input.authorization.authorizedBy,
-        worker_id: input.workerId,
+        marker: "RECOVERY_HANDOFF_ACCEPTED",
       },
     });
+    const after = (await input.incidentStore.getIncidentAsync(incident.id)) ?? incident;
+    return {
+      outcome: "ACCEPTED",
+      reason: result.reason,
+      intentKey,
+      lifecycleAfter: after.status,
+      intent: result.intent,
+    };
   }
 
-  const refreshed = (await input.incidentStore.getIncidentAsync(incident.id)) ?? incident;
-  const outcome: RecoveryHandoffOutcome =
-    result.status === "CREATED" && !already ? "ACCEPTED" : "RECONCILED";
-  return {
-    outcome,
-    reason: result.reason,
-    intentKey,
-    lifecycleAfter: refreshed.status,
-    intent: result.intent,
-  };
+  // 9. Lost the claim race. The durable row is authoritative.
+  const after = (await input.incidentStore.getIncidentAsync(incident.id)) ?? incident;
+  if (after.recovery_intent_key === intentKey) {
+    return {
+      outcome: "RECONCILED",
+      reason: "another worker claimed the same recovery intent first",
+      intentKey,
+      lifecycleAfter: after.status,
+      intent: result.intent,
+    };
+  }
+  const lostReason =
+    "concurrent claim lost to a different intent key: winner=" +
+    String(after.recovery_intent_key) + " requested=" + intentKey;
+  await input.incidentStore.appendIncidentTimelineAsync(incident.id, {
+    type: "RECOVERY_HANDOFF_REJECTED",
+    at: nowIso,
+    payload: { reason: lostReason, worker_id: input.workerId },
+  }).catch(() => undefined);
+  return rejected(lostReason, after.status);
 }

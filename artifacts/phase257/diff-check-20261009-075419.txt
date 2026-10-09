@@ -1,0 +1,8 @@
+﻿git : warning: in the working copy of 'scripts/test-phase257-recovery-handoff-convergence.ts', CRLF will be replaced by LF the next time Git touches it
+At line:31 char:1
++ git diff --check 2>&1 | Out-File "artifacts\phase257\diff-check-$stam ...
++ ~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (warning: in the... Git touches it:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+warning: in the working copy of 'src/core/recovery-handoff-convergence.ts', CRLF will be replaced by LF the next time Git touches it

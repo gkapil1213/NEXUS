@@ -356,39 +356,87 @@ async function main() {
   }
 
   // A14 ----------------------------------------------------------------
-  section("A14 - concurrent duplicate handoff");
+  section("A14 - concurrent duplicate handoff stress (8 callers x 3 rounds)");
   try {
-    await wipe();
-    const s = await seedIncident({ env: "a14", status: "REQUIRE_REVIEW" });
-    const runs = await Promise.all([
-      convergeRecoveryHandoffAsync({
+    let roundsOk = true;
+    const roundReports: Array<{ round: number; accepted: number; reconciled: number; rejected: number; blocked: number; notExecuted: number; sameKey: boolean; timelineAccepted: number }> = [];
+
+    for (let round = 1; round <= 3; round++) {
+      await wipe();
+      const env = "a14r" + round;
+      const s = await seedIncident({ env, status: "REQUIRE_REVIEW" });
+      const callers = Array.from({ length: 8 }, (_, i) => convergeRecoveryHandoffAsync({
         incidentStore: store, history, intentService,
         incidentId: s.id, deploymentId: s.deploymentId,
         expected: { release_id: s.releaseId, artifact_id: s.artifactId, artifact_digest: s.digest, environment: "p257" },
-        providerContext: pcFor("a14"), authorization: auth, workerId: "w-a",
-      }),
-      convergeRecoveryHandoffAsync({
-        incidentStore: store, history, intentService,
-        incidentId: s.id, deploymentId: s.deploymentId,
-        expected: { release_id: s.releaseId, artifact_id: s.artifactId, artifact_digest: s.digest, environment: "p257" },
-        providerContext: pcFor("a14"), authorization: auth, workerId: "w-b",
-      }),
-      convergeRecoveryHandoffAsync({
-        incidentStore: store, history, intentService,
-        incidentId: s.id, deploymentId: s.deploymentId,
-        expected: { release_id: s.releaseId, artifact_id: s.artifactId, artifact_digest: s.digest, environment: "p257" },
-        providerContext: pcFor("a14"), authorization: auth, workerId: "w-c",
-      }),
-    ]);
-    const accepted = runs.filter((r) => r.outcome === "ACCEPTED").length;
-    const reconciled = runs.filter((r) => r.outcome === "RECONCILED").length;
-    const total = accepted + reconciled;
-    ok(total === 3, "A14 all three converged (got accepted=" + accepted + " reconciled=" + reconciled + ")");
-    ok(accepted >= 1, "A14 at least one ACCEPTED");
-    const back = await store.getIncidentAsync(s.id);
-    ok(back?.recovery_intent_key != null, "A14 incident correlated once");
+        providerContext: pcFor(env),
+        authorization: auth,
+        workerId: "w-a14-" + round + "-" + i,
+      }));
+      const runs = await Promise.all(callers);
+      const accepted = runs.filter((r) => r.outcome === "ACCEPTED").length;
+      const reconciled = runs.filter((r) => r.outcome === "RECONCILED").length;
+      const rejected = runs.filter((r) => r.outcome === "REJECTED").length;
+      const blockedR = runs.filter((r) => r.outcome === "BLOCKED").length;
+      const notExec = runs.filter((r) => r.outcome === "NOT_EXECUTED").length;
+
+      const keys = new Set(runs.map((r) => r.intentKey).filter((k): k is string => k != null));
+      const sameKey = keys.size === 1;
+
+      const after = await store.getIncidentAsync(s.id);
+      const tl = await store.getIncidentTimelineAsync(s.id);
+      const acceptedEvents = tl.filter((e) => e.event_type === "RECOVERY_HANDOFF_ACCEPTED");
+
+      roundReports.push({ round, accepted, reconciled, rejected, blocked: blockedR, notExecuted: notExec, sameKey, timelineAccepted: acceptedEvents.length });
+
+      const okRound =
+        accepted === 1 &&
+        reconciled === 7 &&
+        rejected === 0 &&
+        blockedR === 0 &&
+        notExec === 0 &&
+        sameKey === true &&
+        acceptedEvents.length === 1 &&
+        after?.recovery_intent_key != null &&
+        after.status === "RECOVERY_REQUESTED";
+      if (!okRound) roundsOk = false;
+
+      console.log("    round " + round + ": accepted=" + accepted + " reconciled=" + reconciled + " rejected=" + rejected + " timelineAccepted=" + acceptedEvents.length + " sameKey=" + sameKey);
+    }
+
+    ok(roundsOk, "A14 all 3 rounds: exact 1 ACCEPTED / 7 RECONCILED / 0 REJECTED / 0 BLOCKED / 0 NOT_EXECUTED / same key / 1 timeline event");
+    ok(roundReports.length === 3, "A14 three stress rounds executed");
+    ok(roundReports.every((r) => r.accepted === 1), "A14 every round had exactly 1 ACCEPTED");
+    ok(roundReports.every((r) => r.reconciled === 7), "A14 every round had exactly 7 RECONCILED");
+    ok(roundReports.every((r) => r.rejected === 0), "A14 every round had exactly 0 REJECTED");
+    ok(roundReports.every((r) => r.sameKey === true), "A14 every round returned the same intent key");
+    ok(roundReports.every((r) => r.timelineAccepted === 1), "A14 every round appended exactly 1 ACCEPTED timeline event");
   } catch (e) {
     blk("A14", String(e instanceof Error ? e.message : e).slice(0, 250));
+  }
+
+  // A14b ----------------------------------------------------------------
+  section("A14b - persistent aftermath of concurrent winner");
+  try {
+    await wipe();
+    const s = await seedIncident({ env: "a14b", status: "REQUIRE_REVIEW" });
+    const runs = await Promise.all(Array.from({ length: 8 }, (_, i) => convergeRecoveryHandoffAsync({
+      incidentStore: store, history, intentService,
+      incidentId: s.id, deploymentId: s.deploymentId,
+      expected: { release_id: s.releaseId, artifact_id: s.artifactId, artifact_digest: s.digest, environment: "p257" },
+      providerContext: pcFor("a14b"),
+      authorization: auth,
+      workerId: "w-a14b-" + i,
+    })));
+    const keys = new Set(runs.map((r) => r.intentKey).filter((k): k is string => k != null));
+    const after = await store.getIncidentAsync(s.id);
+    ok(keys.size === 1, "A14b single winning intent key");
+    ok(after?.recovery_intent_key === [...keys][0], "A14b incident correlated to winner");
+    const tl = await store.getIncidentTimelineAsync(s.id);
+    const ev = tl.filter((e) => e.event_type === "RECOVERY_HANDOFF_ACCEPTED");
+    ok(ev.length === 1, "A14b exactly one ACCEPTED event (got " + ev.length + ")");
+  } catch (e) {
+    blk("A14b", String(e instanceof Error ? e.message : e).slice(0, 250));
   }
 
   // A15 ----------------------------------------------------------------
