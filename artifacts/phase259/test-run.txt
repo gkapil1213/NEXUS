@@ -1,0 +1,58 @@
+Phase 259 test run — 2026-10-09
+
+npm run typecheck
+> tsc --noEmit
+(no output — clean)
+
+npm run test:phase259
+> tsx scripts/test-phase259-stage-executor-persistence-honesty.ts
+
+mode=shared db=set prefix=engrun-259-...
+[PASS] 259A store throws -> ok:false -- reason=PERSISTENCE_FAILED_AFTER_BLOCKED:PERSISTENCE_FAILED
+[PASS] 259B CAS rejected -> ok:false -- reason=PERSISTENCE_FAILED_AFTER_BLOCKED:CAS_REJECTED
+[PASS] 259C transitionStage rejected -> ok:false -- reason=STAGE_TRANSITION_REJECTED:STALE
+[PASS] 259D happy path unchanged -- status=SUCCEEDED job=SUCCEEDED
+[PASS] 259E Phase 258 behavior preserved -- reason=PLANNING_EXECUTOR_THREW:simulated throw
+[PASS] 259F BLOCKED not persisted -> ok:false -- reason=PERSISTENCE_FAILED_AFTER_BLOCKED:PERSISTENCE_FAILED
+
+===== Phase 259 summary =====
+PASS: 6
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+
+npm run test:phase258
+===== Phase 258 summary =====
+PASS: 6
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+
+npm run test:phase218
+===== Phase 218 summary =====
+PASS: 26
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+
+npm run test:phase257
+============================================
+PASS: 69
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+
+npm run build
+✓ 166 modules transformed.
+✓ built in 7.03s
+
+git diff --check
+(no output — clean)
+
+git show --stat --oneline HEAD
+85d9391 fix(phase259): honest persistence-failure reporting in engineering stage executor
+ package.json                                       |   1 +
+ ...-phase259-stage-executor-persistence-honesty.ts | 231 +++++++++++++++++++++
+ src/core/engineering-stage-executor.ts             |  91 ++++++--
+ 3 files changed, 300 insertions(+), 23 deletions(-)
