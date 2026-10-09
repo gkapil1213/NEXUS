@@ -81,7 +81,9 @@
                     "test:phase255":  "tsx scripts/test-phase255-resolved-deployment-lifecycle.ts",
                     "test:phase256":  "tsx scripts/test-phase256-deployment-convergence.ts",
                     "test:phase257":  "tsx scripts/test-phase257-recovery-handoff-convergence.ts",
+                    "test:phase258":  "tsx scripts/test-phase258-stage-executor-error-hardening.ts",
                     "test:phase253":  "tsx scripts/test-phase253-recovery-handoff-integrity.ts"
+                    
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",
