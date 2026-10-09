@@ -99,16 +99,22 @@ export class EngineeringStageExecutor {
     if (!stage) return { ok: false, reason: "STAGE_NOT_FOUND_FOR_RUN" };
 
     if (!WIRED_STAGES.has(stageType)) {
-      await this.markStageJob(runId, stageType, "BLOCKED",
+      const persist = await this.markStageJob(runId, stageType, "BLOCKED",
         "engineering_run.stage_blocked", { reason: "STAGE_NOT_WIRED" });
+      if (!persist.ok) {
+        return { ok: false, reason: "PERSISTENCE_FAILED_AFTER_BLOCKED:STAGE_NOT_WIRED:" + (persist.reason ?? "UNKNOWN") };
+      }
       return { ok: true, runId, stageType, status: "BLOCKED",
                reason: "STAGE_NOT_WIRED", artifactRef: null };
     }
 
     const dep = await this.assertUpstreamComplete(runId, stageType);
     if (!dep.ok) {
-      await this.markStageJob(runId, stageType, "BLOCKED",
+      const persist = await this.markStageJob(runId, stageType, "BLOCKED",
         "engineering_run.stage_blocked", { reason: dep.reason });
+      if (!persist.ok) {
+        return { ok: false, reason: "PERSISTENCE_FAILED_AFTER_BLOCKED:" + (persist.reason ?? "UNKNOWN") };
+      }
       return { ok: true, runId, stageType, status: "BLOCKED",
                reason: dep.reason, artifactRef: null };
     }
@@ -188,7 +194,10 @@ export class EngineeringStageExecutor {
     }
     if (outcome.status === "SUCCEEDED" && outcome.plan) {
       const artifactRef = "artifact://plan-" + outcome.plan.planId;
-      await this.applyStageCompletion(runId, "PLANNING", artifactRef, "plan validated");
+      const completion = await this.applyStageCompletion(runId, "PLANNING", artifactRef, "plan validated");
+      if (!completion.ok) {
+        return { ok: false, reason: completion.reason ?? "PERSISTENCE_FAILED_AFTER_SUCCEEDED" };
+      }
       return { ok: true, runId, stageType: "PLANNING",
                status: "SUCCEEDED", reason: outcome.reason, artifactRef };
     }
@@ -223,7 +232,10 @@ export class EngineeringStageExecutor {
 
     if (outcome.status === "SUCCEEDED" && outcome.architecture) {
       const artifactRef = "artifact://architecture-" + outcome.architecture.architectureId;
-      await this.applyStageCompletion(runId, "ARCHITECTURE", artifactRef, "architecture validated");
+      const completion = await this.applyStageCompletion(runId, "ARCHITECTURE", artifactRef, "architecture validated");
+      if (!completion.ok) {
+        return { ok: false, reason: completion.reason ?? "PERSISTENCE_FAILED_AFTER_SUCCEEDED" };
+      }
       return { ok: true, runId, stageType: "ARCHITECTURE",
         status: "SUCCEEDED", reason: outcome.reason, artifactRef };
     }
@@ -283,7 +295,10 @@ export class EngineeringStageExecutor {
 
     if (outcome.status === "SUCCEEDED") {
       const artifactRef = outcome.artifactId ? "artifact://" + outcome.artifactId : null;
-      await this.applyStageCompletion(runId, "IMPLEMENTATION", artifactRef, "implementation applied");
+      const completion = await this.applyStageCompletion(runId, "IMPLEMENTATION", artifactRef, "implementation applied");
+      if (!completion.ok) {
+        return { ok: false, reason: completion.reason ?? "PERSISTENCE_FAILED_AFTER_SUCCEEDED" };
+      }
       return { ok: true, runId, stageType: "IMPLEMENTATION",
         status: "SUCCEEDED", reason: outcome.reason, artifactRef };
     }
@@ -318,7 +333,10 @@ export class EngineeringStageExecutor {
     }
 
     if (outcome.status === "SUCCEEDED") {
-      await this.applyStageCompletion(runId, "BUILD", outcome.artifactRef, "build succeeded");
+      const completion = await this.applyStageCompletion(runId, "BUILD", outcome.artifactRef, "build succeeded");
+      if (!completion.ok) {
+        return { ok: false, reason: completion.reason ?? "PERSISTENCE_FAILED_AFTER_SUCCEEDED" };
+      }
       return { ok: true, runId, stageType: "BUILD", status: "SUCCEEDED",
                reason: outcome.reason, artifactRef: outcome.artifactRef };
     }
@@ -354,7 +372,10 @@ export class EngineeringStageExecutor {
     }
 
     if (outcome.status === "SUCCEEDED") {
-      await this.applyStageCompletion(runId, "TEST", outcome.artifactRef, "test succeeded");
+      const completion = await this.applyStageCompletion(runId, "TEST", outcome.artifactRef, "test succeeded");
+      if (!completion.ok) {
+        return { ok: false, reason: completion.reason ?? "PERSISTENCE_FAILED_AFTER_SUCCEEDED" };
+      }
       return { ok: true, runId, stageType: "TEST", status: "SUCCEEDED",
                reason: outcome.reason, artifactRef: outcome.artifactRef };
     }
@@ -381,7 +402,10 @@ export class EngineeringStageExecutor {
     }
 
     if (outcome.status === "SUCCEEDED") {
-      await this.applyStageCompletion(runId, "DIAGNOSIS", outcome.artifactRef, "diagnosis completed");
+      const completion = await this.applyStageCompletion(runId, "DIAGNOSIS", outcome.artifactRef, "diagnosis completed");
+      if (!completion.ok) {
+        return { ok: false, reason: completion.reason ?? "PERSISTENCE_FAILED_AFTER_SUCCEEDED" };
+      }
       return { ok: true, runId, stageType: "DIAGNOSIS", status: "SUCCEEDED",
                reason: outcome.reason, artifactRef: outcome.artifactRef };
     }
@@ -417,7 +441,10 @@ export class EngineeringStageExecutor {
     }
 
     if (outcome.status === "SUCCEEDED") {
-      await this.applyStageCompletion(runId, "REPAIR", outcome.artifactRef, "repair succeeded");
+      const completion = await this.applyStageCompletion(runId, "REPAIR", outcome.artifactRef, "repair succeeded");
+      if (!completion.ok) {
+        return { ok: false, reason: completion.reason ?? "PERSISTENCE_FAILED_AFTER_SUCCEEDED" };
+      }
       return { ok: true, runId, stageType: "REPAIR", status: "SUCCEEDED",
                reason: outcome.reason, artifactRef: outcome.artifactRef };
     }
@@ -453,23 +480,26 @@ export class EngineeringStageExecutor {
     }
 
     if (outcome.status === "SUCCEEDED") {
-      await this.applyStageCompletion(runId, "SECURITY_REVIEW", outcome.artifactRef, "security review passed");
+      const completion = await this.applyStageCompletion(runId, "SECURITY_REVIEW", outcome.artifactRef, "security review passed");
+      if (!completion.ok) {
+        return { ok: false, reason: completion.reason ?? "PERSISTENCE_FAILED_AFTER_SUCCEEDED" };
+      }
       return { ok: true, runId, stageType: "SECURITY_REVIEW", status: "SUCCEEDED",
                reason: outcome.reason, artifactRef: outcome.artifactRef };
     }
     return this.applyStageOutcome(runId, "SECURITY_REVIEW", outcome.status, outcome.reason, outcome.artifactRef);
   }
 
-    private async applyStageCompletion(
+  private async applyStageCompletion(
     runId: string,
     stageType: EngineeringStageType,
     artifactRef: string | null,
     reason: string,
-  ): Promise<void> {
+  ): Promise<{ ok: boolean; reason?: string }> {
     const stages = await this.deps.runService.getEngineeringRunStages(runId);
     const stage = stages.find((s) => s.stageType === stageType);
     if (stage && !(stage.capabilityStatus === "AVAILABLE" && stage.artifactRef === artifactRef)) {
-      await this.deps.runService.transitionStage({
+      const t = await this.deps.runService.transitionStage({
         runId,
         stageId: stage.id,
         expectedCapabilityStatus: stage.capabilityStatus,
@@ -477,9 +507,16 @@ export class EngineeringStageExecutor {
         artifactRef,
         reason,
       });
+      if (!t.ok && !t.updated) {
+        return { ok: false, reason: "STAGE_TRANSITION_REJECTED:" + t.reason };
+      }
     }
-    await this.markStageJob(runId, stageType, "SUCCEEDED",
+    const persist = await this.markStageJob(runId, stageType, "SUCCEEDED",
       "engineering_run.stage_succeeded", { reason, artifactRef });
+    if (!persist.ok) {
+      return { ok: false, reason: "PERSISTENCE_FAILED_AFTER_SUCCEEDED:" + (persist.reason ?? "UNKNOWN") };
+    }
+    return { ok: true };
   }
 
   private async applyStageOutcome(
@@ -493,8 +530,11 @@ export class EngineeringStageExecutor {
       outcomeStatus === "SUCCEEDED" ? "SUCCEEDED" :
       outcomeStatus === "BLOCKED"   ? "BLOCKED"   :
       "FAILED";
-    await this.markStageJob(runId, stageType, jobStatus,
+    const persist = await this.markStageJob(runId, stageType, jobStatus,
       "engineering_run.stage_" + jobStatus.toLowerCase(), { reason });
+    if (!persist.ok) {
+      return { ok: false, reason: "PERSISTENCE_FAILED_AFTER_" + outcomeStatus + ":" + (persist.reason ?? "UNKNOWN") };
+    }
     return { ok: true, runId, stageType,
              status: (outcomeStatus as StageExecutionStatus),
              reason, artifactRef };
@@ -506,12 +546,14 @@ export class EngineeringStageExecutor {
     targetStatus: string,
     eventType: string,
     payload: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<{ ok: boolean; reason?: string }> {
     const jobId = runId + "__" + stageType;
     const current = await this.deps.store.getJobAsync(jobId);
-    if (!current) return;
-    if (current.status === targetStatus) return;
-    if (JOB_TERMINAL.has(current.status) && targetStatus !== current.status) return;
+    if (!current) return { ok: false, reason: "JOB_NOT_FOUND" };
+    if (current.status === targetStatus) return { ok: true };
+    if (JOB_TERMINAL.has(current.status) && targetStatus !== current.status) {
+      return { ok: true };
+    }
 
     try {
       const result = await this.deps.store.recoverJobAtomicAsync({
@@ -523,11 +565,13 @@ export class EngineeringStageExecutor {
         event: { eventType, payload },
       });
 
-      if (!result.ok) return;
+      if (!result.ok) {
+        return { ok: false, reason: "CAS_REJECTED" };
+      }
 
       const stages = await this.deps.runService.getEngineeringRunStages(runId);
       const stage = stages.find((s) => s.stageType === stageType);
-      if (!stage) return;
+      if (!stage) return { ok: false, reason: "STAGE_ROW_MISSING" };
 
       await this.deps.runService.recordStageExecutionEvent(
         runId,
@@ -536,7 +580,8 @@ export class EngineeringStageExecutor {
         payload,
       );
     } catch {
-      /* durable job transition/event handling remains idempotent and observable */
+      return { ok: false, reason: "PERSISTENCE_FAILED" };
     }
+    return { ok: true };
   }
 }

@@ -82,6 +82,7 @@
                     "test:phase256":  "tsx scripts/test-phase256-deployment-convergence.ts",
                     "test:phase257":  "tsx scripts/test-phase257-recovery-handoff-convergence.ts",
                     "test:phase258":  "tsx scripts/test-phase258-stage-executor-error-hardening.ts",
+                    "test:phase259":  "tsx scripts/test-phase259-stage-executor-persistence-honesty.ts",
                     "test:phase253":  "tsx scripts/test-phase253-recovery-handoff-integrity.ts"
                     
                 },
