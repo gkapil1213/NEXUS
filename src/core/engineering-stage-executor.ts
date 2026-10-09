@@ -550,9 +550,14 @@ export class EngineeringStageExecutor {
     const jobId = runId + "__" + stageType;
     const current = await this.deps.store.getJobAsync(jobId);
     if (!current) return { ok: false, reason: "JOB_NOT_FOUND" };
-    if (current.status === targetStatus) return { ok: true };
+    if (current.status === targetStatus) {
+      return { ok: true, reason: "IDEMPOTENT" };
+    }
     if (JOB_TERMINAL.has(current.status) && targetStatus !== current.status) {
-      return { ok: true };
+      // Phase 260 §4B: never return success merely because a job is
+      // already in a terminal state. The requested transition would
+      // conflict with the durable terminal — report it.
+      return { ok: false, reason: "TERMINAL_CONFLICT:" + current.status };
     }
 
     try {
@@ -565,7 +570,25 @@ export class EngineeringStageExecutor {
         event: { eventType, payload },
       });
 
-      if (!result.ok) {
+            if (!result.ok) {
+        // CAS rejected. Distinguish three genuinely different cases by
+        // re-reading the authoritative job state:
+        //   - idempotent retry (durable already at target) → ok:true
+        //   - terminal conflict (durable is a different terminal) → ok:false
+        //   - lost race (durable is still non-terminal) → ok:false CAS_REJECTED
+        let after;
+        try {
+          after = await this.deps.store.getJobAsync(jobId);
+        } catch {
+          return { ok: false, reason: "RECONCILIATION_UNAVAILABLE" };
+        }
+        if (!after) return { ok: false, reason: "JOB_NOT_FOUND" };
+        if (after.status === targetStatus) {
+          return { ok: true };
+        }
+        if (JOB_TERMINAL.has(after.status)) {
+          return { ok: false, reason: "TERMINAL_CONFLICT:" + after.status };
+        }
         return { ok: false, reason: "CAS_REJECTED" };
       }
 
