@@ -85,6 +85,7 @@ async function main() {
   const kernel = new NexusKernel();
   try { await kernel.boot(); } catch (e) {
     rec("260A", "kernel boot", "FAIL", e instanceof Error ? e.message : String(e));
+    process.exitCode = 1;
     return;
   }
   const realStore = (kernel as any).executionStore as any;
