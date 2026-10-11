@@ -1,4 +1,4 @@
-﻿import { runPhase1Suite } from "../src/core/tests.ts";
+import { runPhase1Suite } from "../src/core/tests.ts";
 
 console.log("NEXUS CORE VERIFICATION");
 console.log("========================");
@@ -45,6 +45,7 @@ try {
   console.log(`TOTAL:   ${(report.passed ?? 0) + (report.failed ?? 0) + (report.blocked ?? 0)}`);
 
   process.exitCode = report.failed > 0 ? 1 : 0;
+  process.exit(process.exitCode);
 } catch (error) {
   console.error("");
   console.error("CORE TEST RUNNER FAILED");
