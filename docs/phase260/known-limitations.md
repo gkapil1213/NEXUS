@@ -2,6 +2,22 @@
 
 ## 1. Partial-persistence repair is deferred (§4C)
 
+> **Update (Phase 261):** the outcome-event path described below is
+> closed by the transactional outbox shipped in Phase 261. The
+> engineering-stage executor's terminal transitions now write their
+> `engineering_run_events` intent atomically with the job CAS, so a
+> crash between the two writes can no longer produce the
+> `MISSING_RUN_EVENT` condition for those transitions. See
+> `docs/phase261/phase260-handoff.md` for the correspondence.
+>
+> The limitation remains in force for the progress-event path: eight
+> executors/orchestrators write `engineering_run_events` directly with
+> no corresponding job-status transition. See
+> `docs/phase261/known-limitations.md` §1.
+>
+> The reconciler still detects `MISSING_RUN_EVENT` and still does not
+> repair it. Test `260G` remains NOT EXECUTED.
+
 ### The limitation
 
 The engineering-stage executor composes two durable writes that are
