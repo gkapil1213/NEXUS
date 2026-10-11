@@ -1,4 +1,4 @@
-﻿// src/core/engineering-run-event-drainer.ts
+// src/core/engineering-run-event-drainer.ts
 // Phase 261: drain worker for the transactional outbox.
 //
 // Reads pending rows from engineering_run_event_outbox and delivers them
@@ -9,6 +9,17 @@
 // No in-memory coordination state. Multiple workers in different processes
 // are safe: a row is claimed by a single UPDATE that filters on
 // claim_expires_at, so the loser sees zero rows and moves on.
+//
+// Phase 261A hardening:
+//   * Claim errors throw (OutboxClaimError) instead of producing an empty
+//     success report. Callers can no longer confuse "no work" with
+//     "database unreachable".
+//   * Malformed payloads are permanently failed with a MALFORMED_PAYLOAD:*
+//     last_error. The original payload column is preserved for investigation;
+//     nothing is delivered to engineering_run_events.
+//   * All ack updates (deliver/retry/permanent-fail) are fenced by
+//     claimed_by and inspect the affected-row count. A fence miss (changes=0)
+//     is reported as lostClaims, never as delivered/retried/permanentlyFailed.
 
 import type { ExecutionStore } from "./execution-store";
 import type { EngineeringRunService } from "./engineering-run-service";
@@ -18,21 +29,37 @@ export interface DrainReport {
   delivered: number;
   retried: number;
   permanentlyFailed: number;
+  /** Phase 261A: ack updates whose WHERE fence matched zero rows (we lost
+   *  the claim between the SELECT and the UPDATE). These are not errors in
+   *  the delivery sense — the row will be re-claimed after lease expiry —
+   *  but they must not be counted as successful acknowledgements. */
+  lostClaims: number;
+}
+
+/** Phase 261A: distinct error type for claim failures so callers can
+ *  classify without string-matching. The original cause is preserved on
+ *  `cause` for logging. */
+export class OutboxClaimError extends Error {
+  constructor(message: string, public readonly cause?: unknown) {
+    super(message);
+    this.name = "OutboxClaimError";
+  }
 }
 
 const MAX_ATTEMPTS = 5;
 const DEFAULT_BATCH = 32;
 const DEFAULT_LEASE_MS = 60_000;
 const ERROR_TRUNCATE = 500;
+const PAYLOAD_ERR_TRUNCATE = 200;
 
 // Exponential backoff in ms: 1s, 4s, 16s, 64s, 256s.
 function backoffMs(attempts: number): number {
   return Math.min(1000 * Math.pow(4, attempts - 1), 15 * 60_000);
 }
 
-function truncateErr(e: unknown): string {
+function truncateErr(e: unknown, limit: number = ERROR_TRUNCATE): string {
   const msg = e instanceof Error ? e.message : String(e);
-  return msg.length > ERROR_TRUNCATE ? msg.slice(0, ERROR_TRUNCATE) + "..." : msg;
+  return msg.length > limit ? msg.slice(0, limit) + "..." : msg;
 }
 
 interface ClaimedRow {
@@ -61,20 +88,53 @@ export class EngineeringRunEventDrainer {
   }
 
   async drain(now: number = Date.now()): Promise<DrainReport> {
-    const report: DrainReport = { claimed: 0, delivered: 0, retried: 0, permanentlyFailed: 0 };
+    const report: DrainReport = {
+      claimed: 0,
+      delivered: 0,
+      retried: 0,
+      permanentlyFailed: 0,
+      lostClaims: 0,
+    };
 
     let claimed: ClaimedRow[];
     try {
       claimed = await this.claimBatch(now);
-    } catch {
-      // If the outbox table is unavailable (e.g. bootstrap not run yet),
-      // return an empty report rather than crashing the caller's tick.
-      return report;
+    } catch (e) {
+      // Phase 261A: do NOT return an empty report on claim failure.
+      // A caller cannot distinguish "no work" from "database unreachable"
+      // if we do, and that is exactly the failure mode this phase fixes.
+      throw new OutboxClaimError(
+        "claimBatch failed: " + truncateErr(e, ERROR_TRUNCATE),
+        e,
+      );
     }
     report.claimed = claimed.length;
 
     for (const row of claimed) {
-      const payload = row.payload ? (() => { try { return JSON.parse(row.payload!); } catch { return {}; } })() : {};
+      // -------- Payload parsing --------
+      // Phase 261A: malformed payload is a permanent, non-retryable failure.
+      // We never deliver a fabricated {} and never overwrite the original
+      // payload column, so operators can inspect the raw bytes.
+      let payload: Record<string, unknown>;
+      if (row.payload === null || row.payload === undefined) {
+        payload = {};
+      } else {
+        try {
+          const parsed = JSON.parse(row.payload);
+          payload = (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+            ? parsed as Record<string, unknown>
+            : {};
+        } catch (e) {
+          const msg = "MALFORMED_PAYLOAD: " + truncateErr(e, PAYLOAD_ERR_TRUNCATE);
+          const attempts = row.attempts + 1;
+          const marked = await this.markPermanentlyFailed(row.outbox_id, attempts, msg, now);
+          if (marked) report.permanentlyFailed++;
+          else report.lostClaims++;
+          continue;
+        }
+      }
+
+      // -------- Delivery --------
       try {
         await this.runService.recordStageExecutionEventWithId(
           row.event_id,
@@ -83,16 +143,19 @@ export class EngineeringRunEventDrainer {
           row.event_type,
           payload,
         );
-        await this.markDelivered(row.outbox_id, now);
-        report.delivered++;
+        const marked = await this.markDelivered(row.outbox_id, now);
+        if (marked) report.delivered++;
+        else report.lostClaims++;
       } catch (e) {
         const attempts = row.attempts + 1;
         if (attempts >= MAX_ATTEMPTS) {
-          await this.markPermanentlyFailed(row.outbox_id, attempts, truncateErr(e), now);
-          report.permanentlyFailed++;
+          const marked = await this.markPermanentlyFailed(row.outbox_id, attempts, truncateErr(e), now);
+          if (marked) report.permanentlyFailed++;
+          else report.lostClaims++;
         } else {
-          await this.scheduleRetry(row.outbox_id, attempts, truncateErr(e), now + backoffMs(attempts));
-          report.retried++;
+          const marked = await this.scheduleRetry(row.outbox_id, attempts, truncateErr(e), now + backoffMs(attempts));
+          if (marked) report.retried++;
+          else report.lostClaims++;
         }
       }
     }
@@ -122,21 +185,24 @@ export class EngineeringRunEventDrainer {
     return rows;
   }
 
-  private async markDelivered(outboxId: string, now: number): Promise<void> {
+  /** @returns true iff the UPDATE matched the row this worker still owns. */
+  private async markDelivered(outboxId: string, now: number): Promise<boolean> {
     const engine = this.store["asyncDb"];
-    if (!engine) return;
-    await engine.prepareAsync(`
+    if (!engine) return false;
+    const r = await engine.prepareAsync(`
       UPDATE engineering_run_event_outbox
          SET delivered_at = ?,
              claimed_at = NULL, claimed_by = NULL, claim_expires_at = NULL
        WHERE outbox_id = ? AND claimed_by = ?
     `).run(now, outboxId, this.workerId);
+    return r.changes > 0;
   }
 
-  private async scheduleRetry(outboxId: string, attempts: number, lastError: string, nextAttemptAt: number): Promise<void> {
+  /** @returns true iff the UPDATE matched the row this worker still owns. */
+  private async scheduleRetry(outboxId: string, attempts: number, lastError: string, nextAttemptAt: number): Promise<boolean> {
     const engine = this.store["asyncDb"];
-    if (!engine) return;
-    await engine.prepareAsync(`
+    if (!engine) return false;
+    const r = await engine.prepareAsync(`
       UPDATE engineering_run_event_outbox
          SET attempts = ?,
              next_attempt_at = ?,
@@ -144,12 +210,14 @@ export class EngineeringRunEventDrainer {
              claimed_at = NULL, claimed_by = NULL, claim_expires_at = NULL
        WHERE outbox_id = ? AND claimed_by = ?
     `).run(attempts, nextAttemptAt, lastError, outboxId, this.workerId);
+    return r.changes > 0;
   }
 
-  private async markPermanentlyFailed(outboxId: string, attempts: number, lastError: string, now: number): Promise<void> {
+  /** @returns true iff the UPDATE matched the row this worker still owns. */
+  private async markPermanentlyFailed(outboxId: string, attempts: number, lastError: string, now: number): Promise<boolean> {
     const engine = this.store["asyncDb"];
-    if (!engine) return;
-    await engine.prepareAsync(`
+    if (!engine) return false;
+    const r = await engine.prepareAsync(`
       UPDATE engineering_run_event_outbox
          SET attempts = ?,
              last_error = ?,
@@ -157,5 +225,6 @@ export class EngineeringRunEventDrainer {
              claimed_at = NULL, claimed_by = NULL, claim_expires_at = NULL
        WHERE outbox_id = ? AND claimed_by = ?
     `).run(attempts, lastError, now, outboxId, this.workerId);
+    return r.changes > 0;
   }
 }
