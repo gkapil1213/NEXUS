@@ -167,7 +167,38 @@ This is intentional — an outbox with pending rows is not a reason to
 refuse to serve. The rows remain durable and are retried on the next
 interval tick.
 
-## 9. Not production-grade verification
+## 9. `npm run test:core` does not complete in this environment
+
+The Phase 1 core suite (`scripts/run-core-tests.ts` →
+`src/core/tests.ts`) exits after printing its banner, without
+completing the suite. The suite was last modified on 2026-09-21
+(Phase 170, commit `00c817f`) and has not been maintained since.
+
+Evidence gathered during Phase 261a diagnostics:
+
+- The kernel boots correctly in shared mode: 14.9s, all 10 boot
+  steps report `ok` (verified via an isolated `diag-boot.ts`).
+- Direct `PgClient` connect: 68ms. Simple query: 5ms.
+- `bootstrapPgSchema` acquires its transaction-scoped advisory lock
+  and runs to completion without error.
+- The first 8 tests pass when the loop is sliced to
+  `tests.slice(0, 8)`: `PASS: 8, FAIL: 0`, 30 seconds.
+- The full suite does not produce any output past the banner. The
+  failure is not captured by the runner's `try/catch` because it
+  occurs before the loop reaches `report.results`.
+
+The runner was patched (commit `955d42d`) to call `process.exit()`
+after the summary so that a completing suite terminates
+deterministically rather than hanging on the kernel's un-cleared
+`executionReconcileTimer`. That patch is correct but does not fix
+the full-suite failure, which is a separate defect.
+
+Status: **NOT EXECUTED** at the full-suite level. The suite is not
+part of the Phase 261 acceptance path. The active regression
+surface for the transactional outbox is `test:phase183a`,
+`test:phase260`, and `test:phase261`, all of which pass.
+
+## 10. Not production-grade verification
 
 Phase 261 tests run against a local containerized PostgreSQL. They are
 not a substitute for production-environment verification under real
