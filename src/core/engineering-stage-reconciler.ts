@@ -25,6 +25,9 @@ export type StageReconciliationFinding =
   | { kind: "STAGE_JOB_MISMATCH"; jobStatus: string; stageStatus: string }
   | { kind: "TERMINAL_CONFLICT"; jobStatus: string; stageStatus: string }
   | { kind: "MISSING_RUN_EVENT"; jobStatus: string; expectedEventTypes: string[] }
+  | { kind: "OUTBOX_PENDING"; jobStatus: string; outboxId: string; eventType: string }
+  | { kind: "OUTBOX_RETRYABLE"; jobStatus: string; outboxId: string; eventType: string; attempts: number; lastError: string | null }
+  | { kind: "OUTBOX_PERMANENTLY_FAILED"; jobStatus: string; outboxId: string; eventType: string; attempts: number; lastError: string | null }
   | { kind: "UNREADABLE"; reason: string };
 
 const TERMINAL_JOB_STATUSES = new Set(["SUCCEEDED", "FAILED", "BLOCKED", "CANCELLED", "DEAD_LETTER"]);
@@ -109,21 +112,65 @@ export async function reconcileEngineeringStage(input: {
     }
   }
 
-  // ---- Run-event presence check ----------------------------------------
-  // For a terminal job status, the corresponding engineering_run_events
-  // row should exist. Its absence indicates partial persistence.
+  // ---- Outbox / run-event presence check -------------------------------
+  // Phase 261: the outbox is now the primary source of truth for delivery
+  // state. Order of precedence:
+  //   1. Outbox row exists and delivery is not yet terminal
+  //      -> OUTBOX_PENDING (attempts = 0) / OUTBOX_RETRYABLE (attempts > 0)
+  //   2. Outbox row exists and is permanently failed
+  //      -> OUTBOX_PERMANENTLY_FAILED
+  //   3. Outbox row exists and is delivered, or no outbox row exists at
+  //      all -> fall back to the destination presence check.
+  //      Missing destination is still MISSING_RUN_EVENT (Phase 260 fallback).
   const expected = EXPECTED_RUN_EVENT_FOR_JOB[jobStatus];
   if (expected && expected.length > 0) {
-    let events;
+    let outbox;
     try {
-      events = await runService.getEngineeringRunEvents(runId);
+      outbox = await runService.getLatestOutboxForStage(runId, stageType);
     } catch (e) {
-      findings.push({ kind: "UNREADABLE", reason: "getEngineeringRunEvents:" + (e instanceof Error ? e.message : String(e)) });
+      findings.push({ kind: "UNREADABLE", reason: "getLatestOutboxForStage:" + (e instanceof Error ? e.message : String(e)) });
       return { findings, ok: false };
     }
-    const hasAny = events.some((ev) => expected.indexOf(ev.eventType) >= 0);
-    if (!hasAny) {
-      findings.push({ kind: "MISSING_RUN_EVENT", jobStatus, expectedEventTypes: expected });
+
+    if (outbox && outbox.permanentlyFailedAt !== null) {
+      findings.push({
+        kind: "OUTBOX_PERMANENTLY_FAILED",
+        jobStatus,
+        outboxId: outbox.outboxId,
+        eventType: outbox.eventType,
+        attempts: outbox.attempts,
+        lastError: outbox.lastError,
+      });
+    } else if (outbox && outbox.deliveredAt === null) {
+      if (outbox.attempts === 0) {
+        findings.push({
+          kind: "OUTBOX_PENDING",
+          jobStatus,
+          outboxId: outbox.outboxId,
+          eventType: outbox.eventType,
+        });
+      } else {
+        findings.push({
+          kind: "OUTBOX_RETRYABLE",
+          jobStatus,
+          outboxId: outbox.outboxId,
+          eventType: outbox.eventType,
+          attempts: outbox.attempts,
+          lastError: outbox.lastError,
+        });
+      }
+    } else {
+      let events;
+      try {
+        events = await runService.getEngineeringRunEvents(runId);
+      } catch (e) {
+        findings.push({ kind: "UNREADABLE", reason: "getEngineeringRunEvents:" + (e instanceof Error ? e.message : String(e)) });
+        return { findings, ok: false };
+      }
+      const hasAny = events.some((ev) => expected.indexOf(ev.eventType) >= 0);
+      if (!hasAny) {
+        findings.push({ kind: "MISSING_RUN_EVENT", jobStatus, expectedEventTypes: expected });
+      }
     }
   }
 

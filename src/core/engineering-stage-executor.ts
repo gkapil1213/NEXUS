@@ -1,4 +1,4 @@
-// src/core/engineering-stage-executor.ts
+﻿// src/core/engineering-stage-executor.ts
 // Phase 218: production engineering-stage executor.
 //
 // Runtime integration layer between the durable engineering-run DAG
@@ -151,8 +151,8 @@ export class EngineeringStageExecutor {
     runId: string,
     stageType: EngineeringStageType,
   ): Promise<{ ok: true } | { ok: false; reason: string }> {
-    // Phase 221: DIAGNOSIS analyzes prior-stage terminal outcomes —
-    // including FAILED — so the SUCCEEDED-only gate does not apply.
+    // Phase 221: DIAGNOSIS analyzes prior-stage terminal outcomes â€”
+    // including FAILED â€” so the SUCCEEDED-only gate does not apply.
     // The diagnosis executor itself enforces evidence sufficiency and
     // returns BLOCKED when the prior stages are not yet diagnosable.
     if (stageType === "DIAGNOSIS") {
@@ -554,9 +554,9 @@ export class EngineeringStageExecutor {
       return { ok: true, reason: "IDEMPOTENT" };
     }
     if (JOB_TERMINAL.has(current.status) && targetStatus !== current.status) {
-      // Phase 260 §4B: never return success merely because a job is
+      // Phase 260 Â§4B: never return success merely because a job is
       // already in a terminal state. The requested transition would
-      // conflict with the durable terminal — report it.
+      // conflict with the durable terminal â€” report it.
       return { ok: false, reason: "TERMINAL_CONFLICT:" + current.status };
     }
 
@@ -568,14 +568,23 @@ export class EngineeringStageExecutor {
         expectedLeaseId: current.currentLeaseId ?? null,
         patch: {},
         event: { eventType, payload },
+        outboxEvent: {
+          outboxId: "outbox-" + jobId + "__" + eventType,
+          idempotencyKey: jobId + "__" + eventType,
+          eventId: "eevt-" + jobId + "__" + eventType,
+          runId,
+          stageId: jobId,
+          eventType,
+          payload,
+        },
       });
 
             if (!result.ok) {
         // CAS rejected. Distinguish three genuinely different cases by
         // re-reading the authoritative job state:
-        //   - idempotent retry (durable already at target) → ok:true
-        //   - terminal conflict (durable is a different terminal) → ok:false
-        //   - lost race (durable is still non-terminal) → ok:false CAS_REJECTED
+        //   - idempotent retry (durable already at target) â†’ ok:true
+        //   - terminal conflict (durable is a different terminal) â†’ ok:false
+        //   - lost race (durable is still non-terminal) â†’ ok:false CAS_REJECTED
         let after;
         try {
           after = await this.deps.store.getJobAsync(jobId);
@@ -592,16 +601,6 @@ export class EngineeringStageExecutor {
         return { ok: false, reason: "CAS_REJECTED" };
       }
 
-      const stages = await this.deps.runService.getEngineeringRunStages(runId);
-      const stage = stages.find((s) => s.stageType === stageType);
-      if (!stage) return { ok: false, reason: "STAGE_ROW_MISSING" };
-
-      await this.deps.runService.recordStageExecutionEvent(
-        runId,
-        stage.id,
-        eventType,
-        payload,
-      );
     } catch {
       return { ok: false, reason: "PERSISTENCE_FAILED" };
     }

@@ -472,6 +472,73 @@ export class EngineeringRunService {
     await this.appendEvent(runId, stageId, eventType, payload);
   }
 
+  /**
+   * Phase 261: caller-supplied event_id variant used by the outbox
+   * drainer. Idempotent on event_id via ON CONFLICT DO NOTHING, so a
+   * retry after the destination committed but before the outbox was
+   * marked delivered does not create a duplicate row.
+   */
+  async recordStageExecutionEventWithId(
+    eventId: string,
+    runId: string,
+    stageId: string,
+    eventType: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const now = Date.now();
+    await this.withPg(async (pg) => {
+      await pg.query(
+        "INSERT INTO engineering_run_events (event_id, run_id, stage_id, event_type, payload, created_at) " +
+        "VALUES ($1,$2,$3,$4,$5,$6) " +
+        "ON CONFLICT (event_id) DO NOTHING",
+        [eventId, runId, stageId, eventType, JSON.stringify(payload), now],
+      );
+    });
+  }
+
+  /**
+   * Phase 261: read the latest outbox row for a given stage, or null if
+   * none exists. Used by the reconciler to distinguish "delivery in
+   * flight" from "delivery permanently failed" from "no outbox row at
+   * all (pre-Phase-261 stage)".
+   */
+  async getLatestOutboxForStage(
+    runId: string,
+    stageType: string,
+  ): Promise<{
+    outboxId: string;
+    eventId: string;
+    eventType: string;
+    attempts: number;
+    deliveredAt: number | null;
+    permanentlyFailedAt: number | null;
+    lastError: string | null;
+    nextAttemptAt: number | null;
+  } | null> {
+    const jobId = runId + "__" + stageType;
+    return this.withPg(async (pg) => {
+      const r = await pg.query<any>(
+        "SELECT outbox_id, event_id, event_type, attempts, delivered_at, " +
+        "       permanently_failed_at, last_error, next_attempt_at " +
+        "  FROM engineering_run_event_outbox " +
+        " WHERE job_id = $1 " +
+        " ORDER BY created_at DESC LIMIT 1",
+        [jobId],
+      );
+      if (!r.rowCount || r.rowCount === 0) return null;
+      const row = r.rows[0];
+      return {
+        outboxId: row.outbox_id,
+        eventId: row.event_id,
+        eventType: row.event_type,
+        attempts: Number(row.attempts ?? 0),
+        deliveredAt: row.delivered_at === null ? null : Number(row.delivered_at),
+        permanentlyFailedAt: row.permanently_failed_at === null ? null : Number(row.permanently_failed_at),
+        lastError: row.last_error ?? null,
+        nextAttemptAt: row.next_attempt_at === null ? null : Number(row.next_attempt_at),
+      };
+    });
+  }
   private async appendEvent(
     runId: string,
     stageId: string | null,

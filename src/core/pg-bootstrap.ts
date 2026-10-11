@@ -840,5 +840,52 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_remote_dispatches_status
         ON remote_dispatches (status)
     `);
+
+    // Phase 261: transactional outbox for engineering_run_events.
+    // Records delivery intent atomically with the job transition that
+    // produced it. Consumed by EngineeringRunEventDrainer. Destination
+    // writes are idempotent on event_id (engineering_run_events.event_id
+    // is the primary key). Mirrors
+    // src/db/migrations/174_phase261_engineering_run_event_outbox.sql.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS engineering_run_event_outbox (
+        outbox_id        TEXT PRIMARY KEY,
+        idempotency_key  TEXT NOT NULL,
+        event_id         TEXT NOT NULL,
+        job_id           TEXT NOT NULL,
+        run_id           TEXT NOT NULL,
+        stage_id         TEXT,
+        event_type       TEXT NOT NULL,
+        payload          TEXT,
+        created_at       BIGINT NOT NULL,
+        attempts         INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at  BIGINT,
+        claimed_at       BIGINT,
+        claimed_by       TEXT,
+        claim_expires_at BIGINT,
+        delivered_at     BIGINT,
+        last_error       TEXT,
+        permanently_failed_at BIGINT
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_idempotency_key
+        ON engineering_run_event_outbox(idempotency_key)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_outbox_due
+        ON engineering_run_event_outbox(next_attempt_at)
+        WHERE delivered_at IS NULL AND permanently_failed_at IS NULL
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_outbox_expired_claims
+        ON engineering_run_event_outbox(claim_expires_at)
+        WHERE delivered_at IS NULL AND claimed_at IS NOT NULL
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_outbox_failed
+        ON engineering_run_event_outbox(permanently_failed_at)
+        WHERE permanently_failed_at IS NOT NULL
+    `);
   });
 }

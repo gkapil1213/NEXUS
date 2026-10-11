@@ -1,5 +1,5 @@
-/**
- * NEXUS Phase 1 — domain type system.
+﻿/**
+ * NEXUS Phase 1 â€” domain type system.
  *
  * Strong, discriminated types for the whole platform foundation. No `any`:
  * unknown external data enters only through validators (see security.ts).
@@ -77,7 +77,7 @@ export const PERMISSIONS = [
   "config:read",
   "github:read",
   "github:push",
-  // Phase 3 Pass 3 — CI/CD + Git provider foundation. Provider-specific read/
+  // Phase 3 Pass 3 â€” CI/CD + Git provider foundation. Provider-specific read/
   // write (github:read/github:push) are reused where applicable; these are the
   // provider-agnostic pipeline/git/change-request capabilities.
   "pipeline:create",
@@ -89,7 +89,7 @@ export const PERMISSIONS = [
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
-/** Identity lifecycle: ACTIVE → SUSPENDED / DISABLED. Non-active identities
+/** Identity lifecycle: ACTIVE â†’ SUSPENDED / DISABLED. Non-active identities
  *  cannot authenticate or pass any authorization check. */
 export type IdentityStatus = "active" | "suspended" | "disabled";
 
@@ -99,14 +99,14 @@ export interface User {
   name: string;
   role: Role;
   status: IdentityStatus;
-  password_hash: string; // PBKDF2 — plaintext never persisted
+  password_hash: string; // PBKDF2 â€” plaintext never persisted
   salt: string;
   iterations: number;
   created_at: number;
-  updated_at: number; // Phase 2 — last identity change (status/role)
+  updated_at: number; // Phase 2 â€” last identity change (status/role)
 }
 
-/** Public view of a user — never includes credential material. */
+/** Public view of a user â€” never includes credential material. */
 export interface PublicUser {
   id: Id;
   email: string;
@@ -125,7 +125,7 @@ export interface Session {
   revoked: boolean;
 }
 
-/** A pointer to a secret — never the value. */
+/** A pointer to a secret â€” never the value. */
 export interface SecretReference {
   id: Id;
   name: string;
@@ -176,9 +176,9 @@ export interface Task {
 /* ---------------------------------- Agents -------------------------------- */
 
 /**
- * Phase 2 Pass 2 — the centralized capability model. Deliberately narrow:
+ * Phase 2 Pass 2 â€” the centralized capability model. Deliberately narrow:
  * read/inspect/analyze/generate only. There is NO shell, command, filesystem
- * or deployment capability — arbitrary execution is out of scope by design.
+ * or deployment capability â€” arbitrary execution is out of scope by design.
  */
 export const AGENT_CAPABILITIES = [
   "inspect",
@@ -188,14 +188,14 @@ export const AGENT_CAPABILITIES = [
   "read_execution",
   "run_test",
   "generate_artifact",
-  // Phase 3 Pass 1 — DevOps build pipeline capabilities
+  // Phase 3 Pass 1 â€” DevOps build pipeline capabilities
   "build",
   "detect_project",
   "generate_sbom",
 ] as const;
 export type AgentCapability = (typeof AGENT_CAPABILITIES)[number];
 
-/* ------------------------- Pass 2 — risk & policy -------------------------- */
+/* ------------------------- Pass 2 â€” risk & policy -------------------------- */
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
@@ -207,7 +207,7 @@ export type OperationType =
   | "ARTIFACT_GENERATE";
 
 /** Canonical mapping for every operation. An operation with no mapping can
- *  never execute — the policy engine fails closed on unknown operations. */
+ *  never execute â€” the policy engine fails closed on unknown operations. */
 export interface OperationSpec {
   operation: OperationType;
   capability: AgentCapability;
@@ -246,9 +246,9 @@ export interface AgentDefinition {
   description: string;
   version: string;
   capabilities: AgentCapability[];
-  /** Phase 2 — declared risk of the operations this agent performs. */
+  /** Phase 2 â€” declared risk of the operations this agent performs. */
   risk_level?: "LOW" | "MEDIUM" | "HIGH";
-  /** Phase 2 — permissions the invoking identity must hold for this agent
+  /** Phase 2 â€” permissions the invoking identity must hold for this agent
    *  to be allowed to run. Agents never inherit permissions from requests. */
   required_permissions?: Permission[];
 }
@@ -258,13 +258,13 @@ export interface AgentContext {
   project_id: Id;
   request: string;
   permissions: Permission[];
-  configuration: Record<string, unknown>; // safe values only — never secrets
+  configuration: Record<string, unknown>; // safe values only â€” never secrets
   evidence_refs: Id[];
   secret_refs: SecretReference[]; // references only; values never enter context
-  /** Pass 3 — workspace boundary. Present only when the execution was granted
+  /** Pass 3 â€” workspace boundary. Present only when the execution was granted
    *  a workspace. Never a host path, never another execution's workspace. */
   workspace_id?: Id;
-  workspace_reference?: string; // "ws://<id>" — logical reference, not a host path
+  workspace_reference?: string; // "ws://<id>" â€” logical reference, not a host path
   allowed_root?: string; // normalized root the file policy confines ops to
   authorized_file_operations?: FileOp[];
 }
@@ -308,7 +308,7 @@ export type NexusEventType =
   | "project.member.restored"
   | "project.member.revoked"
   | "project.ownership.transferred"
-  // Phase 2 — security & isolation events (append-only, ordered like all others)
+  // Phase 2 â€” security & isolation events (append-only, ordered like all others)
   | "session.refreshed"
   | "authorization.granted"
   | "authorization.denied"
@@ -320,7 +320,7 @@ export type NexusEventType =
   | "network.blocked"
   | "approval.requested"
   | "approval.decided"
-  // Phase 2 Pass 3 — workspace & sandbox isolation events (append-only)
+  // Phase 2 Pass 3 â€” workspace & sandbox isolation events (append-only)
   | "workspace.activated"
   | "workspace.access.denied"
   | "workspace.file.read"
@@ -330,7 +330,7 @@ export type NexusEventType =
   | "workspace.cleanup.started"
   | "workspace.cleanup.completed"
   | "workspace.cleanup.failed"
-  // Phase 3 Pass 1 — DevOps pipeline events (append-only, strictly ordered)
+  // Phase 3 Pass 1 â€” DevOps pipeline events (append-only, strictly ordered)
   | "devops.pipeline.started"
   | "devops.pipeline.completed"
   | "devops.pipeline.failed"
@@ -347,7 +347,7 @@ export type NexusEventType =
   | "devops.sbom.completed"
   | "devops.artifact.started"
   | "devops.artifact.completed"
-  // Phase 3 Pass 2 — container pipeline events (append-only, strictly ordered)
+  // Phase 3 Pass 2 â€” container pipeline events (append-only, strictly ordered)
   | "docker.detect.started"
   | "docker.detect.completed"
   | "dockerfile.generate.started"
@@ -364,7 +364,7 @@ export type NexusEventType =
   | "sbom.completed"
   | "artifact.register.started"
   | "artifact.register.completed"
-  // Phase 3 Pass 3 — CI/CD + Git provider events (append-only, strictly ordered)
+  // Phase 3 Pass 3 â€” CI/CD + Git provider events (append-only, strictly ordered)
   | "pipeline.plan.created"
   | "pipeline.generation.started"
   | "pipeline.generation.completed"
@@ -384,11 +384,13 @@ export type NexusEventType =
   | "pipeline.blocked"
   // Phase 207: scheduler and execution reconciliation observability
   | "execution.reconcile.tick_error"
-  | "scheduler.tick_error";
+  | "scheduler.tick_error"
+  // Phase 261: outbox drainer shutdown visibility
+  | "outbox_drain_on_shutdown";
 
 export interface NexusEvent {
   id: Id;
-  seq: number; // strictly increasing — append-only ordering guarantee
+  seq: number; // strictly increasing â€” append-only ordering guarantee
   execution_id: Id | null;
   attempt_id?: Id | null;
   type: NexusEventType;
@@ -414,7 +416,7 @@ export interface AuditRecord {
 
 /* --------------------------------- Evidence ------------------------------- */
 
-/** Where a piece of evidence came from — categories must never be mixed. */
+/** Where a piece of evidence came from â€” categories must never be mixed. */
 export type EvidenceSource = "REAL_EXECUTION" | "STATIC_ANALYSIS" | "ENVIRONMENT_BLOCK";
 
 export type EvidenceType = "hash" | "log" | "report" | "metric" | "file";
@@ -422,7 +424,7 @@ export type EvidenceType = "hash" | "log" | "report" | "metric" | "file";
 export interface EvidenceInput {
   type: EvidenceType;
   source: EvidenceSource;
-  content: string; // raw content — hashed + stored at record time
+  content: string; // raw content â€” hashed + stored at record time
   metadata?: Record<string, unknown>;
 }
 
@@ -442,7 +444,7 @@ export interface Evidence {
 export interface ArtifactInput {
   kind: string;
   name: string;
-  content: string; // real bytes/content — digested at record time
+  content: string; // real bytes/content â€” digested at record time
 }
 
 export interface ArtifactReference {
@@ -501,7 +503,7 @@ export interface BootStep {
 
 /* --------------------------------- Results -------------------------------- */
 
-/** Structured API result — consistent success/error envelope. */
+/** Structured API result â€” consistent success/error envelope. */
 export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: SystemError };
@@ -530,11 +532,11 @@ export interface SuiteReport {
   engine: string;
 }
 
-/* ============================ Phase 2 — Security ============================ */
+/* ============================ Phase 2 â€” Security ============================ */
 
 /* -------------------------------- Workspaces ------------------------------- */
 
-/** Pass 3 — full workspace lifecycle. */
+/** Pass 3 â€” full workspace lifecycle. */
 export type WorkspaceStatus = "CREATING" | "READY" | "ACTIVE" | "CLEANING" | "DESTROYED" | "FAILED";
 
 /** File operations an agent is authorized to perform inside its workspace. */
@@ -552,13 +554,13 @@ export interface WorkspaceRecord {
   id: Id;
   project_id: Id;
   execution_id: Id;
-  owner_identity_id: Id; // Pass 3 — the identity the workspace was created for
+  owner_identity_id: Id; // Pass 3 â€” the identity the workspace was created for
   status: WorkspaceStatus;
   file_count: number;
   total_bytes: number;
   created_at: number;
-  updated_at: number; // Pass 3 — last lifecycle/state change
-  expires_at: number; // Pass 3 — TTL; expired workspaces cannot be activated
+  updated_at: number; // Pass 3 â€” last lifecycle/state change
+  expires_at: number; // Pass 3 â€” TTL; expired workspaces cannot be activated
   destroyed_at: number | null;
 }
 
@@ -603,7 +605,7 @@ export interface CommandClassification {
 /* ----------------------------- Natural language ---------------------------- */
 
 /** A structured operation parsed from natural language. Only catalog intents
- *  are recognized — unrecognized text never becomes an executable command. */
+ *  are recognized â€” unrecognized text never becomes an executable command. */
 export interface OperationIntent {
   verb: string;
   operation: string; // catalog id, e.g. "inspect.project"
@@ -629,7 +631,7 @@ export interface PolicyDecision {
   checks: PolicyCheck[];
 }
 
-/** Full security preview of a requested operation — every check that ran. */
+/** Full security preview of a requested operation â€” every check that ran. */
 export interface SecurityPreviewResult {
   operation: string;
   actor: string;
@@ -673,7 +675,7 @@ export interface ExecutionPolicy {
 
 export type SandboxKind = "browser" | "container" | "vm" | "remote-worker";
 
-/** Pass 3 — explicit honesty marker. LOGICAL_BOUNDARY means path/policy
+/** Pass 3 â€” explicit honesty marker. LOGICAL_BOUNDARY means path/policy
  *  confinement only; REAL_ISOLATION means OS/container/VM separation and must
  *  never be claimed unless that isolation actually executed. */
 export type IsolationBoundary = "REAL_ISOLATION" | "LOGICAL_BOUNDARY";
@@ -691,7 +693,7 @@ export interface SandboxIsolationReport {
 export interface SandboxCommandResult {
   command: string;
   classification: CommandKind;
-  exit_code: number; // 0 ok · non-zero failure · 124 timeout
+  exit_code: number; // 0 ok Â· non-zero failure Â· 124 timeout
   stdout: string;
   stderr: string;
   duration_ms: number;
@@ -725,7 +727,7 @@ export interface ExecutionSandbox {
 /** Minimal authenticated identity accepted by sandbox operations. */
 export type SandboxActor = { id: Id; email: string; role: Role; status: IdentityStatus };
 
-/* ============================ Phase 3 — DevOps ============================= */
+/* ============================ Phase 3 â€” DevOps ============================= */
 
 /* ------------------------------ Artifact kinds ----------------------------- */
 
@@ -736,7 +738,7 @@ export type ArtifactKind =
   | "SECURITY_REPORT"
   | "SBOM"
   | "LOG"
-  // Phase 3 Pass 2 — container artifacts
+  // Phase 3 Pass 2 â€” container artifacts
   | "DOCKER_IMAGE"
   | "IMAGE_DIGEST"
   | "SOURCE_SBOM"
@@ -744,7 +746,7 @@ export type ArtifactKind =
   | "DOCKERFILE"
   | "DOCKERFILE_SCAN"
   | "IMAGE_SCAN_REPORT"
-  // Phase 3 Pass 3 — CI/CD artifacts
+  // Phase 3 Pass 3 â€” CI/CD artifacts
   | "PIPELINE_CONFIG"
   | "PIPELINE_VALIDATION_REPORT"
   | "CHANGE_REQUEST"
@@ -767,7 +769,7 @@ export interface DetectionResult {
   test_command: string | null;
   entrypoint: string | null;
   confidence: number; // 0..1
-  dockerfile: boolean; // detection only — Docker is NOT built in this pass
+  dockerfile: boolean; // detection only â€” Docker is NOT built in this pass
   docker_compose: boolean;
   evidence: string[]; // the actual files that grounded the detection
 }
@@ -775,7 +777,7 @@ export interface DetectionResult {
 /* -------------------------------- Build plan ------------------------------- */
 
 /**
- * Structured build description. Commands are validated against an allowlist —
+ * Structured build description. Commands are validated against an allowlist â€”
  * an LLM string is NEVER executed directly. working_directory is confined to
  * the workspace by the Phase 2 FileAccessPolicy.
  */
@@ -807,13 +809,13 @@ export type PipelineStageName =
   | "BUILDING"
   | "TESTING"
   | "SECURITY_REVIEW"
-  // Phase 3 Pass 2 — container stages (inserted between SECURITY and SBOM)
+  // Phase 3 Pass 2 â€” container stages (inserted between SECURITY and SBOM)
   | "DOCKERFILE_DETECTION"
   | "DOCKERFILE_VALIDATION"
   | "DOCKER_BUILD"
   | "IMAGE_INSPECTION"
   | "IMAGE_SECURITY_SCAN"
-  // Phase 106 — registry publication (between container scan and SBOM)
+  // Phase 106 â€” registry publication (between container scan and SBOM)
   | "REGISTRY_PUBLISH"
   | "SBOM_GENERATION"
   | "ARTIFACT_REGISTRATION";
@@ -840,7 +842,7 @@ export interface PipelineRun {
 
 /**
  * Exactly ONE logical stage record per (execution_id + stage + attempt).
- * A stage is finalized in place (RUNNING → terminal), never duplicated.
+ * A stage is finalized in place (RUNNING â†’ terminal), never duplicated.
  */
 export interface PipelineStage {
   id: Id;
@@ -886,12 +888,12 @@ export interface SecurityScanResult {
   blocked_reason: string | null;
 }
 
-/* ========================= Phase 3 Pass 2 — Containers ===================== */
+/* ========================= Phase 3 Pass 2 â€” Containers ===================== */
 
 /* ---------------------------- Docker runtime ------------------------------ */
 
 /** Honest runtime capability. This environment has no Docker daemon, so build
- *  and inspect are BLOCKED — never faked as available. */
+ *  and inspect are BLOCKED â€” never faked as available. */
 export type DockerRuntimeStatus = "AVAILABLE" | "UNAVAILABLE" | "BLOCKED";
 
 export interface DockerRuntimeInfo {
@@ -925,8 +927,8 @@ export interface DockerfileSource {
 
 export interface ImageReference {
   repository: string; // "nexus/<project>"
-  tag: string; // "<commit-sha>" or "<execution-id>" — never "latest"
-  digest: string | null; // "sha256:..." — only set after a REAL build
+  tag: string; // "<commit-sha>" or "<execution-id>" â€” never "latest"
+  digest: string | null; // "sha256:..." â€” only set after a REAL build
   full: string; // repository:tag
 }
 
@@ -988,7 +990,7 @@ export interface SbomRecord {
   components: SbomComponent[];
 }
 
-/** Registry abstraction — foundation only. Push is NOT implemented this pass. */
+/** Registry abstraction â€” foundation only. Push is NOT implemented this pass. */
 export interface ContainerRegistryProvider {
   name: string;
   authenticate(): Promise<{ ok: boolean; reason: string | null }>;
@@ -998,7 +1000,7 @@ export interface ContainerRegistryProvider {
   delete(ref: ImageReference): Promise<{ ok: boolean; reason: string | null }>;
 }
 
-/* ========================= Phase 3 Pass 4 — CI execution =================== */
+/* ========================= Phase 3 Pass 4 â€” CI execution =================== */
 
 /** The ordered CI execution stages. */
 export const CI_STAGES = [
@@ -1017,7 +1019,7 @@ export const CI_STAGES = [
 ] as const;
 export type CiStageName = (typeof CI_STAGES)[number];
 
-/** Per-stage states. BLOCKED ≠ FAILED ≠ PASSED — never collapsed.
+/** Per-stage states. BLOCKED â‰  FAILED â‰  PASSED â€” never collapsed.
  *  Distinct from the Pass 3 remote-pipeline `CiStageStatus`. */
 export type CiExecStageStatus = "PENDING" | "RUNNING" | "PASSED" | "FAILED" | "BLOCKED" | "SKIPPED" | "CANCELLED";
 
@@ -1041,7 +1043,7 @@ export const REQUIRED_CI_STAGES: CiStageName[] = [
 ];
 
 /**
- * Controlled execution context. ONLY references — never secret values.
+ * Controlled execution context. ONLY references â€” never secret values.
  * A secret must never be placed here; agents resolve them via CredentialService.
  */
 export interface CiExecutionContext {
@@ -1056,7 +1058,7 @@ export interface CiExecutionContext {
 
 export interface CiExecution {
   id: string;
-  idempotency_key: string; // (project, commit_sha, pipeline) — dedups submissions
+  idempotency_key: string; // (project, commit_sha, pipeline) â€” dedups submissions
   project_id: string;
   pipeline_id: string | null;
   commit_sha: string | null;
@@ -1148,7 +1150,7 @@ export interface QualityGateResult {
   evaluated_at: number;
 }
 
-/* ===================== Phase 3 Pass 3 — CI/CD + Git provider ================= */
+/* ===================== Phase 3 Pass 3 â€” CI/CD + Git provider ================= */
 
 /** Supported CI/git providers. GitHub Actions + GitLab CI initially. */
 export type CiProvider = "github" | "gitlab";
@@ -1439,7 +1441,7 @@ export interface RollbackTestReport {
 
   reason: string | null;
 }
-/* ===================== Phase 4 Pass 1 — Security Control Plane ===================== */
+/* ===================== Phase 4 Pass 1 â€” Security Control Plane ===================== */
 
 export type SecurityExecutionStatus =
   | "QUEUED"
@@ -1588,7 +1590,7 @@ export interface RiskAssessment {
   explanation: string[];
   created_at: string;
 }
-/* ===================== Phase 4 Pass 7 — Continuous Security Operations ===================== */
+/* ===================== Phase 4 Pass 7 â€” Continuous Security Operations ===================== */
 
 export type SecurityFindingLifecycleStatus =
   | "OPEN"
@@ -1681,7 +1683,7 @@ export type DriftEventType =
   | "policy_changed"
   | "deployment_mismatch"
   | "evidence_mismatch"
-  // Phase 216 — AI provider gateway lifecycle events
+  // Phase 216 â€” AI provider gateway lifecycle events
   | "ai.provider.requested"
   | "ai.provider.completed"
   | "ai.provider.failed"

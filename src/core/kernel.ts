@@ -1,10 +1,10 @@
 /**
- * NEXUS Phase 1 â€” NexusKernel.
+ * NEXUS Phase 1 Ã¢â‚¬â€ NexusKernel.
  *
  * The platform foundation: initializes persistence, events, audit, agents,
  * services and orchestration in a strict order, tracks boot steps for the
  * UI, and fails loudly (never partially-silently) when a subsystem cannot
- * start. Contains no business logic â€” that lives in services and agents.
+ * start. Contains no business logic Ã¢â‚¬â€ that lives in services and agents.
  */
 import { AuditService } from "./audit";
 import { AgentRegistry, InspectorAgent } from "./agents";
@@ -104,6 +104,7 @@ import { ReleaseRecoveryExecutor, type RecoveryRunReport } from "./release-recov
 import { ReleaseRecoveryEvidenceReconciler } from "./release-recovery-evidence-reconciliation";
 import { ReleaseRecoverySupervisor, type RecoverySupervisorStatus } from "./release-recovery-supervisor";
 import { DistributedScheduler, type SchedulerTickReport } from "./distributed-scheduler";
+import { EngineeringRunEventDrainer } from "./engineering-run-event-drainer";
 import { RecoveryOperationsService } from "./recovery-operations";
 import { RecoveryControlService } from "./recovery-control-service";
 import { DriftObservationSupervisor, type DriftObservationSupervisorStatus, type DriftObservationScope } from "./drift-observation-supervisor";
@@ -124,17 +125,17 @@ export interface KernelServices {
   sessions: SessionService;
   secrets: SecretProvider;
   github: GitHubService;
-  // Phase 2 Pass 1 â€” centralized authorization + identity lifecycle.
+  // Phase 2 Pass 1 Ã¢â‚¬â€ centralized authorization + identity lifecycle.
   authz: AuthorizationService;
   identity: IdentityService;
-  // Phase 2 Pass 2 â€” secure agent execution & execution policy.
+  // Phase 2 Pass 2 Ã¢â‚¬â€ secure agent execution & execution policy.
   agentPolicy: AgentPolicyEngine;
   execPolicy: ExecutionPolicyEngine;
   agentExec: AgentExecutionService;
-  // Phase 2 Pass 3 â€” workspace isolation & sandbox.
+  // Phase 2 Pass 3 Ã¢â‚¬â€ workspace isolation & sandbox.
   workspaces: WorkspaceService;
   sandbox: ExecutionSandbox;
-  // Phase 3 Pass 3 â€” CI/CD pipeline + Git provider foundation.
+  // Phase 3 Pass 3 Ã¢â‚¬â€ CI/CD pipeline + Git provider foundation.
   cicd: {
     agent: PipelineAgent;
     validator: PipelineValidator;
@@ -142,7 +143,7 @@ export interface KernelServices {
     gitlab: GitLabProvider;
     engine: CiPipelineEngine;
   };
-  // Phase 3 Pass 5 â€” runtime bridge (process execution + Docker/Trivy/Playwright).
+  // Phase 3 Pass 5 Ã¢â‚¬â€ runtime bridge (process execution + Docker/Trivy/Playwright).
   runtime: RuntimeBridge;
   // Canonical deployment orchestration: real Docker container + real
   // health/smoke verification + rollback against previous KNOWN_GOOD.
@@ -255,7 +256,7 @@ export class NexusKernel {
       if (configBlocked()) {
         throw Err.startup("CONFIG_INVALID", `configuration validation failed: ${CONFIG.issues.join("; ")}`);
       }
-      this.step("config", "ok", `${CONFIG.env} Ãƒâ€šÃ‚Â· v${CONFIG.version}`);
+      this.step("config", "ok", `${CONFIG.env} ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· v${CONFIG.version}`);
 
       // Phase 183: shared-backend wiring. When NEXUS_PERSISTENCE_MODE=shared
       // is configured with a valid DATABASE_URL, connect to the shared
@@ -293,7 +294,7 @@ export class NexusKernel {
         this.step("persistence", "fail", "probe failed");
         throw Err.startup("PERSISTENCE_FAILED", "persistence engine failed its round-trip probe");
       }
-      this.step("persistence", "ok", `${engine.kind} Ãƒâ€šÃ‚Â· ${latency}ms`);
+      this.step("persistence", "ok", `${engine.kind} ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${latency}ms`);
 
       // 3. events
       this.step("events", "running");
@@ -396,6 +397,9 @@ const memberships = new ProjectMembershipStore(rawDb);
               if (this.executionReconcileInFlight) return;
               this.executionReconcileInFlight = true;
               const _tickNow = Date.now();
+              if (this.engineeringOutboxDrainer) {
+                void this.engineeringOutboxDrainer.drain(_tickNow).catch(() => { /* drainer never throws; defensive */ });
+              }
               this.executionEngine!.recoverStaleJobs(_tickNow)
                 .catch((err) => {
                   const msg = err instanceof Error ? err.message : String(err);
@@ -428,16 +432,16 @@ const memberships = new ProjectMembershipStore(rawDb);
       }
       this.step("orchestration", "ok", "deterministic path assembled");
 
-      // Phase 2 Pass 1 â€” centralized authorization + identity lifecycle.
+      // Phase 2 Pass 1 Ã¢â‚¬â€ centralized authorization + identity lifecycle.
       const authz = new AuthorizationService(audit);
       const identity = new IdentityService(engine, authz, audit);
 
-      // Phase 2 Pass 2 â€” secure agent execution & execution policy.
+      // Phase 2 Pass 2 Ã¢â‚¬â€ secure agent execution & execution policy.
       const agentPolicy = new AgentPolicyEngine();
       const execPolicy = new ExecutionPolicyEngine(registry, authz, agentPolicy);
       const agentExec = new AgentExecutionService({ engine, registry, authz, agentPolicy, execPolicy, audit, events });
 
-      // Phase 2 Pass 3 â€” workspace isolation & sandbox (logical boundary;
+      // Phase 2 Pass 3 Ã¢â‚¬â€ workspace isolation & sandbox (logical boundary;
       // BrowserSandbox.isolationReport() states the true isolation level).
       const filePolicy = new FileAccessPolicy();
       const workspaces = new WorkspaceService({
@@ -452,7 +456,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       const sandbox: ExecutionSandbox = new BrowserSandbox(workspaces);
       agentExec.attachSandbox(workspaces);
 
-      // Phase 3 Pass 3 â€” CI/CD pipeline + Git provider foundation. The GitHub
+      // Phase 3 Pass 3 Ã¢â‚¬â€ CI/CD pipeline + Git provider foundation. The GitHub
       // provider wraps the same GitHubService instance (connection on demand);
       // remote operations stay honestly BLOCKED until a token is connected.
       const github = new GitHubService();
@@ -582,7 +586,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         (cicd as Record<string, unknown>).ownership = _phase135Ownership;
       }
 
-      // Phase 3 Pass 5 â€” runtime bridge. Detects process-execution capability
+      // Phase 3 Pass 5 Ã¢â‚¬â€ runtime bridge. Detects process-execution capability
       // honestly: BLOCKED in the managed browser workspace, AVAILABLE only after
       // real probes when a host bridge is injected. Emits events + audit.
       this.step("runtime", "running");
@@ -601,6 +605,11 @@ const memberships = new ProjectMembershipStore(rawDb);
           const engRegistry = new EngineeringCapabilityRegistry(
             undefined, undefined, EngineeringStageExecutor.wiring());
           const engRunService = new EngineeringRunService(engDbUrl, engStore, engRegistry);
+          this.engineeringOutboxDrainer = new EngineeringRunEventDrainer(engStore, engRunService);
+          // Phase 261: recover pending outbox events after the drainer is initialized.
+          void this.engineeringOutboxDrainer.drain(Date.now()).catch((error) => {
+            console.error("[engineering-outbox] Startup drain failed:", error);
+          });
           const engPlanning = new EngineeringPlanningOrchestrator(engDbUrl, engStore, engArtifacts);
           const engImplementation = new EngineeringImplementationOrchestrator(engDbUrl, engArtifacts, workspaces);
           const engBuild = new EngineeringBuildExecutor({
@@ -680,9 +689,9 @@ const memberships = new ProjectMembershipStore(rawDb);
           dispatchSvc.attachEngineeringExecutor(engStageExec);
         }
       } catch { /* non-fatal; engineering stages report BLOCKED */ }
-      this.step("runtime", "ok", `${runtime.kind()} Ãƒâ€šÃ‚Â· docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
+      this.step("runtime", "ok", `${runtime.kind()} ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
 
-      // Canonical deployment orchestration â€” uses the same RuntimeBridge
+      // Canonical deployment orchestration Ã¢â‚¬â€ uses the same RuntimeBridge
       // (docker + smoke) and the same NexusEngine (via DeploymentHistoryService).
       const deploymentHistory = new DeploymentHistoryService(engine);
       const deployments = new CanonicalDeploymentOrchestrator(
@@ -729,7 +738,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       const releaseDecision = new ProductionReleaseDecisionService(securityApi, securityGate);
 
       // Phase 103: durable release intent + lease state lives in the same
-      // SQLite ExecutionStore used by the execution runtime. Optional â€”
+      // SQLite ExecutionStore used by the execution runtime. Optional Ã¢â‚¬â€
       // when the sqlite engine is unavailable, the bridge falls back to the
       // legacy Phase 102 path (no durable intent, no crash recovery).
       const releaseIntents = this.executionStore
@@ -762,7 +771,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         intents: releaseIntents,
         // Phase 107: enables the bridge to prefer the authoritative registry
         // digest recorded by REGISTRY_PUBLISH (IMAGE_DIGEST artifact) over the
-        // caller-supplied imageDigest. Optional dep â€” falls through when absent.
+        // caller-supplied imageDigest. Optional dep Ã¢â‚¬â€ falls through when absent.
         engine,
       });
       const deploymentObserver = new DockerDeploymentObserver({ history: deploymentHistory, docker: runtime.docker });
@@ -981,10 +990,10 @@ const memberships = new ProjectMembershipStore(rawDb);
       const running = this.steps.find((s) => s.status === "running");
       if (running) this.step(running.id, "fail", this.failure.message);
 
-      // Phase 193 §7: boot is a transaction-like lifecycle. Release any
+      // Phase 193 Â§7: boot is a transaction-like lifecycle. Release any
       // resources already acquired so a subsequent boot does not inherit
       // leaked state. Reuses the same idempotent stop methods shutdown()
-      // uses. Never throws — the original boot failure is the root cause.
+      // uses. Never throws â€” the original boot failure is the root cause.
       await this.cleanupOnFailedBoot();
 
       throw this.failure;
@@ -1192,6 +1201,8 @@ const memberships = new ProjectMembershipStore(rawDb);
   private distributedSchedulerLastError: string | null = null;
   private distributedSchedulerLastTickAt: number | null = null;
   private distributedSchedulerSkippedTicks = 0;
+  /** Phase 261: transactional outbox drainer (shared mode only). */
+  private engineeringOutboxDrainer?: EngineeringRunEventDrainer;
   /** Phase 207: execution reconcile tick timer (all modes). */
   private executionReconcileTimer?: ReturnType<typeof setInterval>;
   private executionReconcileInFlight = false;
@@ -1201,7 +1212,7 @@ const memberships = new ProjectMembershipStore(rawDb);
   private cicdOwnership?: CiReconciliationOwnershipService;
 
   /**
-   * Phase 193 §7: best-effort cleanup after a failed boot. Reverse order of
+   * Phase 193 Â§7: best-effort cleanup after a failed boot. Reverse order of
    * acquisition. Never throws; the original boot failure is the root cause.
    */
   private async cleanupOnFailedBoot(): Promise<void> {
@@ -1230,6 +1241,23 @@ const memberships = new ProjectMembershipStore(rawDb);
     await this.stopCicdReconciliationScheduler();
     await this.stopDriftObserver();
     await this.stopRecoverySupervisor({ finalPass: options?.finalRecoveryPass ?? false });
+
+    // Phase 261: observable shutdown drain. Even when finalRecoveryPass is
+    // false, do one bounded drain and emit a signal if anything was still
+    // pending, so orphaned outbox rows (attempts=0, delivered_at=null) show
+    // up in the event log instead of being discovered later by hand.
+    if (!(options?.finalRecoveryPass ?? false) && this.engineeringOutboxDrainer) {
+      try {
+        const pending = await this.engineeringOutboxDrainer.drain(Date.now());
+        if (pending.claimed > 0 || pending.delivered > 0) {
+          void this.services?.events?.emit?.({
+            type: "outbox_drain_on_shutdown",
+            source: "NexusKernel.shutdown",
+            payload: { ...pending, finalRecoveryPass: false },
+          });
+        }
+      } catch { /* best-effort */ }
+    }
 
     // Phase 183: close the shared-backend pool if we opened one.
     if (this.pgClient) {
@@ -1287,15 +1315,15 @@ const memberships = new ProjectMembershipStore(rawDb);
       latency_ms: null,
     });
 
-    // GitHub is an optional integration â€” unconnected is a valid, honest state.
+    // GitHub is an optional integration Ã¢â‚¬â€ unconnected is a valid, honest state.
     const gh = this.services.github.state();
     const rate = gh.rate;
     subsystems.push({
       name: "github",
       status: gh.connected ? "healthy" : "degraded",
       detail: gh.connected
-        ? `connected as @${gh.identity?.login}${rate ? ` Ãƒâ€šÃ‚Â· rate ${rate.remaining}/${rate.limit}` : ""}`
-        : "not connected â€” optional integration (token held in memory only)",
+        ? `connected as @${gh.identity?.login}${rate ? ` ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· rate ${rate.remaining}/${rate.limit}` : ""}`
+        : "not connected Ã¢â‚¬â€ optional integration (token held in memory only)",
       latency_ms: null,
     });
 
@@ -1344,7 +1372,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
         metadata: { role: "OWNER" }, // no credential material
       });
       const session = await services.sessions.issue(user.id);
-      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", result: "allow" });
+      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦", result: "allow" });
       return { user: toPublicUser(user), session };
     },
 
@@ -1372,11 +1400,11 @@ export function createAuthApi(services: KernelServices): AuthApi {
         });
         throw Err.auth(
           user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
-          `account is ${user.status} â€” authentication refused`,
+          `account is ${user.status} Ã¢â‚¬â€ authentication refused`,
         );
       }
       const session = await services.sessions.issue(user.id);
-      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", result: "allow" });
+      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦", result: "allow" });
       return { user: toPublicUser(user), session };
     },
 
@@ -1385,7 +1413,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
       await services.sessions.revoke(token);
       if (session) {
         const user = await services.engine.get<User>("users", session.user_id);
-        await services.audit.record({ actor: user?.email ?? "unknown", action: "auth.logout", resource_type: "session", resource_id: token.slice(0, 8) + "ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦", result: "info" });
+        await services.audit.record({ actor: user?.email ?? "unknown", action: "auth.logout", resource_type: "session", resource_id: token.slice(0, 8) + "ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦", result: "info" });
       }
     },
 
@@ -1396,7 +1424,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
       if (user.status !== "active") {
         throw Err.auth(
           user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
-          `account is ${user.status} â€” authentication refused`,
+          `account is ${user.status} Ã¢â‚¬â€ authentication refused`,
         );
       }
       return { user: toPublicUser(user), session };
