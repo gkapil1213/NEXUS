@@ -400,21 +400,30 @@ const memberships = new ProjectMembershipStore(rawDb);
               if (this.engineeringOutboxDrainer && !this.outboxShuttingDown) {
                 this.trackOutboxDrain("Periodic drain", this.engineeringOutboxDrainer.drain(_tickNow));
               }
-              this.executionEngine!.recoverStaleJobs(_tickNow)
-                .catch((err) => {
+              const reconcileRun = this.executionEngine!.recoverStaleJobs(_tickNow)
+                .catch(async (err) => {
                   const msg = err instanceof Error ? err.message : String(err);
                   this.executionReconcileLastError = msg;
-                  if (this.services?.events) {
-                    void this.services.events.emit({
+                  try {
+                    await this.services?.events?.emit?.({
                       type: "execution.reconcile.tick_error",
                       source: "NexusKernel.executionReconcile",
                       payload: { error: msg, at: _tickNow },
                     });
+                  } catch (eventErr) {
+                    const eventMsg = eventErr instanceof Error
+                      ? eventErr.message
+                      : String(eventErr);
+                    console.error(
+                      "[execution-reconcile] Failed to persist tick error:",
+                      eventMsg,
+                    );
                   }
                 })
                 .finally(() => {
                   this.executionReconcileInFlight = false;
                 });
+              this.executionReconcilePromise = reconcileRun.then(() => undefined, () => undefined);
             }, _execTickMs);
             const _t = this.executionReconcileTimer as { unref?: () => void };
             if (typeof _t.unref === "function") _t.unref();
@@ -1088,7 +1097,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       }
       this.distributedSchedulerInFlight = true;
       const now = Date.now();
-      void (async () => {
+      const tick = (async () => {
         try {
           await scheduler.recoverStaleAttemptsTick(now);
           const result = await scheduler.tick(now);
@@ -1098,17 +1107,26 @@ const memberships = new ProjectMembershipStore(rawDb);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           this.distributedSchedulerLastError = msg;
-          if (this.services?.events) {
-            void this.services.events.emit({
+          try {
+            await this.services?.events?.emit?.({
               type: "scheduler.tick_error",
               source: "NexusKernel.distributedScheduler",
               payload: { error: msg, at: now },
             });
+          } catch (eventErr) {
+            const eventMsg = eventErr instanceof Error
+              ? eventErr.message
+              : String(eventErr);
+            console.error(
+              "[distributed-scheduler] Failed to persist tick error:",
+              eventMsg,
+            );
           }
         } finally {
           this.distributedSchedulerInFlight = false;
         }
       })();
+      this.distributedSchedulerPromise = tick.then(() => undefined, () => undefined);
     }, intervalMs);
     const t = this.distributedSchedulerTimer as { unref?: () => void };
     if (typeof t.unref === "function") t.unref();
@@ -1120,10 +1138,10 @@ const memberships = new ProjectMembershipStore(rawDb);
       try { clearInterval(this.distributedSchedulerTimer); } catch { /* ignore */ }
       this.distributedSchedulerTimer = undefined;
     }
-    const deadline = Date.now() + 5_000;
-    while (this.distributedSchedulerInFlight && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    // Phase 263e: await the tracked tick promise rather than a fixed bound.
+    // The tick's own error handling means this never rejects; awaiting it
+    // guarantees no scheduler work is outstanding when stop() returns.
+    try { await this.distributedSchedulerPromise; } catch { /* never throws */ }
   }
 
   /** Phase 207: scheduler status snapshot. */
@@ -1195,6 +1213,10 @@ const memberships = new ProjectMembershipStore(rawDb);
   private distributedScheduler?: DistributedScheduler;
   private distributedSchedulerTimer?: ReturnType<typeof setInterval>;
   private distributedSchedulerInFlight = false;
+  /** Phase 263e: in-flight distributed-scheduler tick promise. Tracked so
+   *  stopDistributedScheduler() can await the active tick rather than
+   *  returning after a fixed bound with work still running. Never rejects. */
+  private distributedSchedulerPromise: Promise<void> = Promise.resolve();
   private distributedSchedulerLastResult: SchedulerTickReport | null = null;
   private distributedSchedulerLastError: string | null = null;
   private distributedSchedulerLastTickAt: number | null = null;
@@ -1218,6 +1240,10 @@ const memberships = new ProjectMembershipStore(rawDb);
   /** Phase 207: execution reconcile tick timer (all modes). */
   private executionReconcileTimer?: ReturnType<typeof setInterval>;
   private executionReconcileInFlight = false;
+  /** Phase 263e: in-flight reconcile promise. Tracked so shutdown can
+   *  await the active tick before closing the shared pool. Assigned in
+   *  the periodic tick; resolves to undefined either way (never rejects). */
+  private executionReconcilePromise: Promise<void> = Promise.resolve();
   private executionReconcileLastError: string | null = null;
 
   /** Phase 134: durable cross-instance ownership for the CI reconciliation scheduler. */
@@ -1270,6 +1296,8 @@ const memberships = new ProjectMembershipStore(rawDb);
     try { await this.stopCicdReconciliationScheduler(); } catch { /* best-effort */ }
     try { await this.stopRecoverySupervisor({ finalPass: false }); } catch { /* best-effort */ }
     try { await this.awaitInFlightOutboxDrains(); } catch { /* best-effort */ }
+    try { this.executionEngine?.markShuttingDown(); } catch { /* best-effort */ }
+    try { await this.executionReconcilePromise; } catch { /* best-effort */ }
     if (this.pgClient) {
       try { await this.pgClient.close(); } catch { /* best-effort */ }
       setPgClient(null);
@@ -1305,6 +1333,8 @@ const memberships = new ProjectMembershipStore(rawDb);
     // Phase 262L: await any in-flight startup/periodic drains before the
     // shutdown drain runs and before the pool closes.
     try { await this.awaitInFlightOutboxDrains(); } catch { /* best-effort */ }
+    try { this.executionEngine?.markShuttingDown(); } catch { /* best-effort */ }
+    try { await this.executionReconcilePromise; } catch { /* best-effort */ }
 
     // Phase 261 / 262B: observable shutdown drain. Even when finalRecoveryPass
     // is false, do one bounded drain and emit a signal if anything was still

@@ -137,6 +137,17 @@ export class ExecutionEngine {
      */
     private shuttingDown = false;
 
+    /**
+     * Signal process-local shutdown. Once set, recoverStaleJobs() and
+     * reconcileExecutionRecoveryOperations() return immediately. The
+     * kernel calls this at the start of shutdown/cleanup, before awaiting
+     * any reconcile tick already in flight. Durable claims are not
+     * released here; lease expiry remains the correctness mechanism.
+     */
+    markShuttingDown(): void {
+      this.shuttingDown = true;
+    }
+
     // ============================================================
   // Phase 183d: async attempt-persistence facade.
   // When the store has an async backend (shared mode), route the four
