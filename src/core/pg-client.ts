@@ -26,23 +26,56 @@ export interface PgProbeResult {
 export class PgClient {
   private pool: Pool | null = null;
   private lastError: string | null = null;
+  private connectPromise: Promise<void> | null = null;
+
+  constructor(
+    private readonly poolFactory: (connectionString: string) => Pool =
+      (connectionString) => new Pool({
+        connectionString,
+        max: 10,
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: 5_000,
+      }),
+  ) {}
 
   async connect(connectionString: string): Promise<void> {
     if (this.pool) return;
-    const pool = new Pool({
-      connectionString,
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
-    });
-    const client = await pool.connect();
+    if (this.connectPromise) return this.connectPromise;
+
+    const attempt = this.initializeConnection(connectionString);
+    this.connectPromise = attempt;
+
     try {
-      await client.query("SELECT 1");
+      await attempt;
     } finally {
-      client.release();
+      if (this.connectPromise === attempt) {
+        this.connectPromise = null;
+      }
     }
-    this.pool = pool;
-    this.lastError = null;
+  }
+
+  private async initializeConnection(connectionString: string): Promise<void> {
+    const pool = this.poolFactory(connectionString);
+
+    try {
+      const client = await pool.connect();
+      try {
+        await client.query("SELECT 1");
+      } finally {
+        client.release();
+      }
+
+      this.pool = pool;
+      this.lastError = null;
+    } catch (error) {
+      // A pool that failed startup validation must not outlive this attempt.
+      try {
+        await pool.end();
+      } catch {
+        // Preserve the original connection or validation error.
+      }
+      throw error;
+    }
   }
 
   isConnected(): boolean {
@@ -92,10 +125,24 @@ export class PgClient {
   }
 
   async close(): Promise<void> {
+    const pending = this.connectPromise;
+    if (pending) {
+      try {
+        await pending;
+      } catch {
+        // Initialization already failed and performed its cleanup.
+      }
+    }
+
     if (!this.pool) return;
+
     const p = this.pool;
     this.pool = null;
-    try { await p.end(); } catch { /* ignore */ }
+    try {
+      await p.end();
+    } catch {
+      // Preserve the existing best-effort shutdown behavior.
+    }
   }
 }
 
