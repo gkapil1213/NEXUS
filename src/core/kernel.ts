@@ -104,7 +104,7 @@ import { ReleaseRecoveryExecutor, type RecoveryRunReport } from "./release-recov
 import { ReleaseRecoveryEvidenceReconciler } from "./release-recovery-evidence-reconciliation";
 import { ReleaseRecoverySupervisor, type RecoverySupervisorStatus } from "./release-recovery-supervisor";
 import { DistributedScheduler, type SchedulerTickReport } from "./distributed-scheduler";
-import { EngineeringRunEventDrainer } from "./engineering-run-event-drainer";
+import { EngineeringRunEventDrainer, type DrainReport } from "./engineering-run-event-drainer";
 import { RecoveryOperationsService } from "./recovery-operations";
 import { RecoveryControlService } from "./recovery-control-service";
 import { DriftObservationSupervisor, type DriftObservationSupervisorStatus, type DriftObservationScope } from "./drift-observation-supervisor";
@@ -397,8 +397,8 @@ const memberships = new ProjectMembershipStore(rawDb);
               if (this.executionReconcileInFlight) return;
               this.executionReconcileInFlight = true;
               const _tickNow = Date.now();
-              if (this.engineeringOutboxDrainer) {
-                void this.engineeringOutboxDrainer.drain(_tickNow).catch(() => { /* drainer never throws; defensive */ });
+              if (this.engineeringOutboxDrainer && !this.outboxShuttingDown) {
+                this.trackOutboxDrain("Periodic drain", this.engineeringOutboxDrainer.drain(_tickNow));
               }
               this.executionEngine!.recoverStaleJobs(_tickNow)
                 .catch((err) => {
@@ -600,16 +600,14 @@ const memberships = new ProjectMembershipStore(rawDb);
         const engDbUrl = process.env.DATABASE_URL ?? "";
         const engStore = this.executionStore;
         const dispatchSvc = this.dispatchService;
-        if (engDbUrl && engStore && dispatchSvc) {
+        if (engDbUrl && engStore && dispatchSvc && engStore.hasAsyncBackend()) {
           const engArtifacts = new ArtifactStore(engStore, engDbUrl);
           const engRegistry = new EngineeringCapabilityRegistry(
             undefined, undefined, EngineeringStageExecutor.wiring());
           const engRunService = new EngineeringRunService(engDbUrl, engStore, engRegistry);
           this.engineeringOutboxDrainer = new EngineeringRunEventDrainer(engStore, engRunService);
           // Phase 261: recover pending outbox events after the drainer is initialized.
-          void this.engineeringOutboxDrainer.drain(Date.now()).catch((error) => {
-            console.error("[engineering-outbox] Startup drain failed:", error);
-          });
+          this.trackOutboxDrain("Startup drain", this.engineeringOutboxDrainer.drain(Date.now()));
           const engPlanning = new EngineeringPlanningOrchestrator(engDbUrl, engStore, engArtifacts);
           const engImplementation = new EngineeringImplementationOrchestrator(engDbUrl, engArtifacts, workspaces);
           const engBuild = new EngineeringBuildExecutor({
@@ -1203,6 +1201,20 @@ const memberships = new ProjectMembershipStore(rawDb);
   private distributedSchedulerSkippedTicks = 0;
   /** Phase 261: transactional outbox drainer (shared mode only). */
   private engineeringOutboxDrainer?: EngineeringRunEventDrainer;
+  /**
+   * Phase 262L: in-flight outbox drain promises started by the eager
+   * startup drain at boot, by the periodic reconcile tick, or by an
+   * explicit call. Each entry is a promise whose .catch() has already
+   * been attached, so it never surfaces as an unhandled rejection.
+   * The set empties itself as each tracked promise settles.
+   */
+  private outboxDrainsInFlight = new Set<Promise<unknown>>();
+  /** Phase 262L: set true at the start of shutdown/cleanup, prevents
+   *  new periodic drains from starting. */
+  private outboxShuttingDown = false;
+  /** Phase 262L: memoized shutdown promise. Repeated shutdown() calls
+   *  return the same promise; no duplicate cleanup work. */
+  private shutdownPromise?: Promise<void>;
   /** Phase 207: execution reconcile tick timer (all modes). */
   private executionReconcileTimer?: ReturnType<typeof setInterval>;
   private executionReconcileInFlight = false;
@@ -1215,14 +1227,49 @@ const memberships = new ProjectMembershipStore(rawDb);
    * Phase 193 Â§7: best-effort cleanup after a failed boot. Reverse order of
    * acquisition. Never throws; the original boot failure is the root cause.
    */
+  /**
+   * Phase 262L: track an outbox drain promise. Attaches a .catch so it
+   * can never become an unhandled rejection, logs any failure via the
+   * same console.error pattern as the eager startup drain, and removes
+   * itself from the in-flight set when it settles.
+   */
+  private trackOutboxDrain(label: string, p: Promise<unknown>): void {
+    let tracked: Promise<unknown>;
+    tracked = p
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[engineering-outbox] ${label} failed:`, msg);
+      })
+      .finally(() => {
+        this.outboxDrainsInFlight.delete(tracked);
+      });
+    this.outboxDrainsInFlight.add(tracked);
+  }
+
+  /**
+   * Phase 262L: wait for every tracked outbox drain to settle. The loop
+   * re-checks the set because a settling promise could, in principle,
+   * be replaced by a new one before outboxShuttingDown is honored.
+   * Promise.allSettled sees no rejections because each tracked promise
+   * already carries a .catch.
+   */
+  private async awaitInFlightOutboxDrains(): Promise<void> {
+    while (this.outboxDrainsInFlight.size > 0) {
+      const pending = Array.from(this.outboxDrainsInFlight);
+      await Promise.allSettled(pending);
+    }
+  }
+
   private async cleanupOnFailedBoot(): Promise<void> {
     try { await this.stopDistributedScheduler(); } catch { /* best-effort */ }
+    this.outboxShuttingDown = true;
     if (this.executionReconcileTimer) {
       try { clearInterval(this.executionReconcileTimer); } catch { /* ignore */ }
       this.executionReconcileTimer = undefined;
     }
     try { await this.stopCicdReconciliationScheduler(); } catch { /* best-effort */ }
     try { await this.stopRecoverySupervisor({ finalPass: false }); } catch { /* best-effort */ }
+    try { await this.awaitInFlightOutboxDrains(); } catch { /* best-effort */ }
     if (this.pgClient) {
       try { await this.pgClient.close(); } catch { /* best-effort */ }
       setPgClient(null);
@@ -1232,31 +1279,60 @@ const memberships = new ProjectMembershipStore(rawDb);
     this.cicdOwnership = undefined;
   }
 
+  /**
+   * Phase 262L: memoized shutdown. Repeated calls return the same
+   * promise; no duplicate cleanup work and no interleaved cleanup.
+   */
   async shutdown(options?: { finalRecoveryPass?: boolean }): Promise<void> {
-    await this.stopDistributedScheduler();
+    if (this.shutdownPromise) return this.shutdownPromise;
+    this.shutdownPromise = this._shutdown(options);
+    return this.shutdownPromise;
+  }
+
+  private async _shutdown(options?: { finalRecoveryPass?: boolean }): Promise<void> {
+    try { await this.stopDistributedScheduler(); } catch { /* best-effort */ }
+    // Phase 262L: block new periodic drains and wait for in-flight ones
+    // before we clear the timer and close the pool.
+    this.outboxShuttingDown = true;
     if (this.executionReconcileTimer) {
       try { clearInterval(this.executionReconcileTimer); } catch { /* ignore */ }
       this.executionReconcileTimer = undefined;
     }
     await this.stopCicdReconciliationScheduler();
-    await this.stopDriftObserver();
-    await this.stopRecoverySupervisor({ finalPass: options?.finalRecoveryPass ?? false });
+    try { await this.stopDriftObserver(); } catch { /* best-effort */ }
+    try { await this.stopRecoverySupervisor({ finalPass: options?.finalRecoveryPass ?? false }); } catch { /* best-effort */ }
 
-    // Phase 261: observable shutdown drain. Even when finalRecoveryPass is
-    // false, do one bounded drain and emit a signal if anything was still
-    // pending, so orphaned outbox rows (attempts=0, delivered_at=null) show
-    // up in the event log instead of being discovered later by hand.
+    // Phase 262L: await any in-flight startup/periodic drains before the
+    // shutdown drain runs and before the pool closes.
+    try { await this.awaitInFlightOutboxDrains(); } catch { /* best-effort */ }
+
+    // Phase 261 / 262B: observable shutdown drain. Even when finalRecoveryPass
+    // is false, do one bounded drain and emit a signal if anything was still
+    // pending. Phase 262B: the emit is awaited (previously `void`) so the
+    // event is persisted before the pool closes, and both drain and emit
+    // failures are logged instead of silently swallowed. Neither failure
+    // aborts the remaining shutdown sequence.
     if (!(options?.finalRecoveryPass ?? false) && this.engineeringOutboxDrainer) {
+      let drainReport: DrainReport | null = null;
       try {
-        const pending = await this.engineeringOutboxDrainer.drain(Date.now());
-        if (pending.claimed > 0 || pending.delivered > 0) {
-          void this.services?.events?.emit?.({
+        drainReport = await this.engineeringOutboxDrainer.drain(Date.now());
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[engineering-outbox] Shutdown drain failed:", msg);
+      }
+
+      if (drainReport && (drainReport.claimed > 0 || drainReport.delivered > 0)) {
+        try {
+          await this.services?.events?.emit?.({
             type: "outbox_drain_on_shutdown",
             source: "NexusKernel.shutdown",
-            payload: { ...pending, finalRecoveryPass: false },
+            payload: { ...drainReport, finalRecoveryPass: false },
           });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error("[engineering-outbox] Shutdown drain event persist failed:", msg);
         }
-      } catch { /* best-effort */ }
+      }
     }
 
     // Phase 183: close the shared-backend pool if we opened one.
@@ -1265,7 +1341,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       setPgClient(null);
       this.pgClient = undefined;
     }
-    await this.stopGateway();
+    try { await this.stopGateway(); } catch { /* best-effort */ }
     this.bootPromise = undefined;
   }
 

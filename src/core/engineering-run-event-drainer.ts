@@ -6,10 +6,6 @@
 // Delivery is durable at-least-once; the destination INSERT uses
 // ON CONFLICT (event_id) DO NOTHING so retries cannot create duplicates.
 //
-// No in-memory coordination state. Multiple workers in different processes
-// are safe: a row is claimed by a single UPDATE that filters on
-// claim_expires_at, so the loser sees zero rows and moves on.
-//
 // Phase 261A hardening:
 //   * Claim errors throw (OutboxClaimError) instead of producing an empty
 //     success report. Callers can no longer confuse "no work" with
@@ -20,6 +16,15 @@
 //   * All ack updates (deliver/retry/permanent-fail) are fenced by
 //     claimed_by and inspect the affected-row count. A fence miss (changes=0)
 //     is reported as lostClaims, never as delivered/retried/permanentlyFailed.
+//
+// Phase 262:
+//   * claimBatch is now a single PostgreSQL transaction on one connection:
+//     SELECT ... FOR UPDATE SKIP LOCKED to partition eligible rows across
+//     concurrent workers, then UPDATE ... WHERE outbox_id = ANY(...) to
+//     claim exactly the rows this transaction locked. This eliminates the
+//     multi-row batch race that the previous single-statement
+//     UPDATE...IN(SELECT...) could exhibit under contention. The transaction
+//     commits before any delivery attempt runs.
 
 import type { ExecutionStore } from "./execution-store";
 import type { EngineeringRunService } from "./engineering-run-service";
@@ -163,26 +168,71 @@ export class EngineeringRunEventDrainer {
     return report;
   }
 
+  /**
+   * Phase 262: atomic claim over a single PostgreSQL transaction.
+   *
+   * Selection, locking, and update all happen on one connection inside
+   * one transactionAsync block. `FOR UPDATE SKIP LOCKED` partitions the
+   * eligible set across concurrent workers: a row locked by another
+   * transaction is skipped, not waited for. The subsequent UPDATE
+   * targets exactly the rows this transaction locked (`= ANY(...)`),
+   * so two workers can never claim the same row.
+   *
+   * The transaction commits when the callback returns, before the caller
+   * begins delivering the claimed rows. This keeps the claim durable
+   * even if the process dies mid-delivery; the row is reclaimed by lease
+   * expiry under Phase 261's existing retry semantics.
+   *
+   * Eligibility conditions are unchanged from Phase 261:
+   *   - delivered_at IS NULL
+   *   - permanently_failed_at IS NULL
+   *   - next_attempt_at IS NULL OR next_attempt_at <= now
+   *   - claimed_at IS NULL OR claim_expires_at < now
+   * Ordering is unchanged: created_at ASC. Batch size is unchanged:
+   * this.batchSize.
+   */
   private async claimBatch(now: number): Promise<ClaimedRow[]> {
     const expiresAt = now + this.leaseMs;
     const engine = this.store["asyncDb"];
-    if (!engine) return [];
-    const rows = await engine.prepareAsync(`
-      UPDATE engineering_run_event_outbox
-         SET claimed_at = ?, claimed_by = ?, claim_expires_at = ?
-       WHERE outbox_id IN (
-         SELECT outbox_id
-           FROM engineering_run_event_outbox
-          WHERE delivered_at IS NULL
-            AND permanently_failed_at IS NULL
-            AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-            AND (claimed_at IS NULL OR claim_expires_at < ?)
-          ORDER BY created_at ASC
-          LIMIT ?
-       )
-       RETURNING outbox_id, event_id, run_id, stage_id, event_type, payload, attempts
-    `).all<ClaimedRow>(now, this.workerId, expiresAt, now, now, this.batchSize);
-    return rows;
+    if (!engine) {
+      throw new OutboxClaimError(
+        "claimBatch requires a PostgreSQL async backend " +
+        "(NEXUS_PERSISTENCE_MODE=shared). The engineering_run_event_outbox " +
+        "table and FOR UPDATE SKIP LOCKED semantics are PostgreSQL-only.",
+      );
+    }
+
+    return await engine.transactionAsync(async (tx) => {
+      // 1. Lock eligible rows. SKIP LOCKED means a concurrent worker's
+      //    locked rows are ignored rather than blocked on, so N workers
+      //    partition the eligible set without contention.
+      const candidates = await tx.prepareAsync(`
+        SELECT outbox_id
+          FROM engineering_run_event_outbox
+         WHERE delivered_at IS NULL
+           AND permanently_failed_at IS NULL
+           AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+           AND (claimed_at IS NULL OR claim_expires_at < ?)
+         ORDER BY created_at ASC
+         LIMIT ?
+         FOR UPDATE SKIP LOCKED
+      `).all<{ outbox_id: string }>(now, now, this.batchSize);
+
+      if (candidates.length === 0) return [];
+
+      const ids = candidates.map((r) => r.outbox_id);
+
+      // 2. Claim exactly the rows this transaction locked. `= ANY($1)`
+      //    binds the JS string[] as a PostgreSQL text[] parameter.
+      const claimed = await tx.prepareAsync(`
+        UPDATE engineering_run_event_outbox
+           SET claimed_at = ?, claimed_by = ?, claim_expires_at = ?
+         WHERE outbox_id = ANY(?)
+         RETURNING outbox_id, event_id, run_id, stage_id, event_type, payload, attempts
+      `).all<ClaimedRow>(now, this.workerId, expiresAt, ids);
+
+      return claimed;
+    });
   }
 
   /** @returns true iff the UPDATE matched the row this worker still owns. */

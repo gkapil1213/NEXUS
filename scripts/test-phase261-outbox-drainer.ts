@@ -241,16 +241,19 @@ async function main(): Promise<void> {
         const real = store.asyncDb;
         const fakeStore: any = {
           asyncDb: {
-            prepareAsync: (sql: string) => {
-              if (/UPDATE engineering_run_event_outbox[\s\S]+SET claimed_at/.test(sql)) {
-                return {
-                  all: async () => { throw new Error("pg_boom_claim"); },
-                  run: async () => { throw new Error("pg_boom_claim"); },
-                  get: async () => { throw new Error("pg_boom_claim"); },
-                };
-              }
-              return real.prepareAsync(sql);
-            },
+            transactionAsync: async (fn: (tx: any) => Promise<any>) =>
+              fn({
+                prepareAsync: (sql: string) => {
+                  if (/SELECT\s+outbox_id[\s\S]+FROM engineering_run_event_outbox/i.test(sql)) {
+                    return {
+                      all: async () => { throw new Error("pg_boom_claim"); },
+                      run: async () => { throw new Error("pg_boom_claim"); },
+                      get: async () => { throw new Error("pg_boom_claim"); },
+                    };
+                  }
+                  return real.prepareAsync(sql);
+                },
+              }),
           },
         };
         const d = new EngineeringRunEventDrainer(fakeStore, runService, { workerId: "err-claim" });
