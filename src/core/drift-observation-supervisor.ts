@@ -102,6 +102,7 @@ export interface DriftObservationSupervisorStatus {
 export class DriftObservationSupervisor {
   private timer?: ReturnType<typeof setInterval>;
   private inFlight = false;
+  private inFlightPromise: Promise<void> = Promise.resolve();
   private startedAt: number | null = null;
   private lastTickAt: number | null = null;
   private lastTickReport: DriftObservationTickReport | null = null;
@@ -123,13 +124,14 @@ export class DriftObservationSupervisor {
     this.timer = setInterval(() => { void this.tick(); }, this.deps.intervalMs);
   }
 
-  /** Stop the periodic loop. Idempotent. */
+  /** Stop the periodic loop. Idempotent. Awaits any in-flight tick. */
   async stop(): Promise<void> {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = undefined;
     }
     this.startedAt = null;
+    await this.inFlightPromise;
   }
 
   /** Execute exactly one observation cycle, respecting the no-overlap guard. */
@@ -155,21 +157,30 @@ export class DriftObservationSupervisor {
       this.skippedTicks++;
       return this.lastTickReport ?? this.emptyReport();
     }
+
     this.inFlight = true;
+    const run = (async (): Promise<DriftObservationTickReport> => {
+      try {
+        const report = await this.runTick();
+        this.lastTickAt = report.tickAt;
+        this.lastTickReport = report;
+        this.lastError = null;
+        this.totalTicks++;
+        return report;
+      } catch (e) {
+        this.lastError = e instanceof Error ? e.message : String(e);
+        const report = this.emptyReport();
+        report.errors.push(this.lastError);
+        this.lastTickReport = report;
+        this.lastTickAt = report.tickAt;
+        return report;
+      }
+    })();
+
+    this.inFlightPromise = run.then(() => undefined, () => undefined);
+
     try {
-      const report = await this.runTick();
-      this.lastTickAt = report.tickAt;
-      this.lastTickReport = report;
-      this.lastError = null;
-      this.totalTicks++;
-      return report;
-    } catch (e) {
-      this.lastError = e instanceof Error ? e.message : String(e);
-      const report = this.emptyReport();
-      report.errors.push(this.lastError);
-      this.lastTickReport = report;
-      this.lastTickAt = report.tickAt;
-      return report;
+      return await run;
     } finally {
       this.inFlight = false;
     }
