@@ -255,27 +255,33 @@ export class ProductionReleaseEnforcementService {
     // Phase 138: mirror to durable store when available. Read path prefers durable.
     if (this.store) {
       const authRecord = {
-      authorizationId: authorization.authorizationId,
-      releaseId: authorization.releaseId,
-      artifactId: authorization.artifactId,
-      artifactDigest: authorization.artifactDigest,
-      commitSha: authorization.commitSha,
-      environment: authorization.environment,
-      securityDecisionId: authorization.securityDecisionId,
-      approvalId: authorization.approvalId,
-      executionId: authorization.executionId ?? null,
-      projectId: authorization.projectId ?? null,
-      imageRepository: authorization.imageRepository ?? null,
-      imageTag: authorization.imageTag ?? null,
-      imageId: authorization.imageId ?? null,
-      containerName: authorization.containerName ?? null,
-      containerPort: authorization.containerPort ?? null,
-      issuedAt: authorization.issuedAt,
-      expiresAt: authorization.expiresAt,
-      consumedAt: null,
-      consumedByAttemptId: null,
-      revokedAt: null,
-    });
+        authorizationId: authorization.authorizationId,
+        releaseId: authorization.releaseId,
+        artifactId: authorization.artifactId,
+        artifactDigest: authorization.artifactDigest,
+        commitSha: authorization.commitSha,
+        environment: authorization.environment,
+        securityDecisionId: authorization.securityDecisionId,
+        approvalId: authorization.approvalId,
+        executionId: authorization.executionId ?? null,
+        projectId: authorization.projectId ?? null,
+        imageRepository: authorization.imageRepository ?? null,
+        imageTag: authorization.imageTag ?? null,
+        imageId: authorization.imageId ?? null,
+        containerName: authorization.containerName ?? null,
+        containerPort: authorization.containerPort ?? null,
+        issuedAt: authorization.issuedAt,
+        expiresAt: authorization.expiresAt,
+        consumedAt: null,
+        consumedByAttemptId: null,
+        revokedAt: null,
+      };
+      if (this.store.hasAsyncBackend()) {
+        await this.store.createProductionAuthorizationAsync(authRecord as any);
+      } else {
+        this.store.createProductionAuthorization(authRecord as any);
+      }
+    }
     return {
       status: "AUTHORIZED",
       authorization,
