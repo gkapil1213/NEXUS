@@ -113,6 +113,7 @@ export interface NexusEngine {
   del(store: StoreName, key: string): Promise<void>;
   clear(store: StoreName): Promise<void>;
   maxSeq(store: StoreName): Promise<number>;
+  nextSeq(store: StoreName): Promise<number>;
   stores(): string[];
   sqlQuery(sql: string, ...params: unknown[]): unknown[];
   prepare(sql: string): SQLStatement;
@@ -333,6 +334,22 @@ class IdbEngine implements NexusEngine {
     return rows.reduce((m, r) => Math.max(m, r.seq ?? 0), 0);
   }
 
+  async nextSeq(store: StoreName): Promise<number> {
+    // Atomic within a single readwrite transaction: read the counter,
+    // increment, and persist, without yielding to another task.
+    const os = this.tx(store, "readwrite");
+    const tx = os.transaction;
+    const rec = await new Promise<Record<string, unknown> | undefined>((resolve, reject) => {
+      const req = os.get("__seq__");
+      req.onsuccess = () => resolve(req.result as Record<string, unknown> | undefined);
+      req.onerror = () => reject(Err.persistence("READ_FAILED", "sequence read failed"));
+    });
+    const next = ((rec?.next as number | undefined) ?? 0) + 1;
+    os.put({ __key: "__seq__", next });
+    await this.done(tx);
+    return next;
+  }
+
   stores(): string[] {
     return Array.from(this.db.objectStoreNames);
   }
@@ -392,6 +409,12 @@ class MemEngine implements NexusEngine {
   async maxSeq(store: StoreName): Promise<number> {
     const rows = await this.all<{ seq?: number }>(store);
     return rows.reduce((m, r) => Math.max(m, r.seq ?? 0), 0);
+  }
+  private seqCounters = new Map<StoreName, number>();
+  async nextSeq(store: StoreName): Promise<number> {
+    const next = (this.seqCounters.get(store) ?? 0) + 1;
+    this.seqCounters.set(store, next);
+    return next;
   }
   stores(): string[] {
     return [...NEXUS_STORES];

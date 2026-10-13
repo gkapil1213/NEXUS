@@ -122,6 +122,32 @@ export class SQLiteEngine implements NexusEngine {
     return row?.maxSeq ?? 0;
   }
 
+  async nextSeq(store: StoreName): Promise<number> {
+    // Seed the counter on first use from any existing max for this store,
+    // so an allocator introduced against a pre-populated table continues
+    // past the current max instead of restarting at 1.
+    const existing = this.db
+      .prepare(`SELECT next FROM nexus_sequences WHERE store = ?`)
+      .get(store) as { next: number } | undefined;
+    if (!existing) {
+      const maxRow = this.db
+        .prepare(`SELECT MAX(CAST(json_extract(value, '$.seq') AS INTEGER)) as maxSeq FROM nexus_records WHERE store = ?`)
+        .get(store) as { maxSeq: number | null } | undefined;
+      const seed = maxRow?.maxSeq ?? 0;
+      this.db
+        .prepare(`INSERT INTO nexus_sequences (store, next) VALUES (?, ?) ON CONFLICT(store) DO NOTHING`)
+        .run(store, seed);
+    }
+    // Single atomic statement: the increment and readback cannot be
+    // interleaved with another writer (WAL + busy_timeout serialize).
+    const row = this.db
+      .prepare(`INSERT INTO nexus_sequences (store, next) VALUES (?, 1)
+                ON CONFLICT(store) DO UPDATE SET next = next + 1
+                RETURNING next`)
+      .get(store) as { next: number } | undefined;
+    return row?.next ?? 1;
+  }
+
   stores(): string[] {
     const rows = this.db.prepare(`SELECT DISTINCT store FROM nexus_records`).all() as { store: string }[];
     return rows.map((r) => r.store);

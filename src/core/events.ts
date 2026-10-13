@@ -42,12 +42,11 @@ export class EventService {
     const run = async (): Promise<NexusEvent> => {
       await this.ready;
       // Re-sync with persistence, then increment the GLOBAL counter.
-      const storedMax = await this.engine.maxSeq("events");
-      globalSeq = Math.max(globalSeq, storedMax) + 1;
+      const seq = await this.engine.nextSeq("events");
 
       const event: NexusEvent = {
         id: nid("evt"),
-        seq: globalSeq,
+        seq,
         execution_id: input.execution_id ?? null,
         attempt_id: input.attempt_id ?? null,
         type: input.type,
