@@ -1,17 +1,24 @@
 import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 // Isolate the security suite from production. Pass1/Pass2/Pass7 construct
 // services over openEngine(), which resolves to CONFIG.persistence.dbName
 // (nexus.sqlite) unless NEXUS_DB_PATH is set. Every child spawned below
 // inherits this environment, so the suite runs against a temp database.
-if (!process.env.NEXUS_DB_PATH) {
-  const dir = mkdtempSync(join(tmpdir(), "nexus-security-"));
-  process.env.NEXUS_DB_PATH = join(dir, "security.sqlite");
-  process.env.NEXUS_PERSISTENCE_ENGINE = "sqlite";
+const SECURITY_DB_DIR = mkdtempSync(join(tmpdir(), "nexus-security-"));
+const SECURITY_DB_PATH = resolve(SECURITY_DB_DIR, "security.sqlite");
+const PRODUCTION_DB_PATH = resolve("nexus.sqlite");
+
+if (SECURITY_DB_PATH.toLowerCase() === PRODUCTION_DB_PATH.toLowerCase()) {
+  throw new Error("Refusing to run security tests against the production database");
 }
+
+process.env.NEXUS_DB_PATH = SECURITY_DB_PATH;
+process.env.NEXUS_PERSISTENCE_ENGINE = "sqlite";
+
+console.log(`Security test database: ${SECURITY_DB_PATH}`);
 
 async function runCommand(cmd: string): Promise<number> {
   console.log(`\n--- Running: ${cmd} ---`);
@@ -21,7 +28,7 @@ async function runCommand(cmd: string): Promise<number> {
 
   return new Promise((resolve) => {
     // nosemgrep: spawn-shell-true, detect-child-process
-    const child = spawn(command, args, { stdio: "inherit", shell: true, windowsHide: true });
+    const child = spawn(command, args, { stdio: "inherit", shell: true, windowsHide: true, env: { ...process.env, NEXUS_DB_PATH: SECURITY_DB_PATH, NEXUS_PERSISTENCE_ENGINE: "sqlite" } });
     child.on("close", (code) => resolve(code ?? 0));
     child.on("error", (err) => {
       console.error(`Failed to start ${cmd}: ${err}`);
