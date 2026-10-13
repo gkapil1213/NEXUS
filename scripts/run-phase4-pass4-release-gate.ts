@@ -90,7 +90,8 @@ async function main() {
   // Scenario 1: Valid signed artifact, all evidence PASS -> PASS
   console.log("Scenario 1: Valid signed artifact");
   const digest1 = "a".repeat(64);
-  const rel1 = "rel-pass4-1";`n  const exec1 = await runScan("exec-pass4-1", "proj-pass4", "commit1", digest1, rel1);
+  const rel1 = "rel-pass4-1";
+  const exec1 = await runScan("exec-pass4-1", "proj-pass4", "commit1", digest1, rel1);
   const decision1 = await gate.evaluate({
     release_id: rel1,
     execution_id: "exec-pass4-1",
@@ -104,9 +105,10 @@ async function main() {
     process.exit(1);
   }
 
-  // Scenario 2: Missing signature (no artifact digest -> signature BLOCKED) -> BLOCKED
+  // Scenario 2: Missing signature -> BLOCKED
   console.log("\nScenario 2: Missing signature");
-  const rel2 = "rel-pass4-2";`n  const exec2 = await runScan("exec-pass4-2", "proj-pass4", "commit2", undefined, rel2);
+  const rel2 = "rel-pass4-2";
+  const exec2 = await runScan("exec-pass4-2", "proj-pass4", "commit2", undefined, rel2);
   const decision2 = await gate.evaluate({
     release_id: rel2,
     execution_id: "exec-pass4-2",
@@ -123,12 +125,13 @@ async function main() {
   // Scenario 3: Tampered artifact (digest mismatch) -> FAIL/BLOCKED
   console.log("\nScenario 3: Tampered artifact");
   const digest3 = "c".repeat(64);
-  const rel3 = "rel-pass4-3";`n  const exec3 = await runScan("exec-pass4-3", "proj-pass4", "commit3", digest3, rel3);
+  const rel3 = "rel-pass4-3";
+  const exec3 = await runScan("exec-pass4-3", "proj-pass4", "commit3", digest3, rel3);
   const decision3 = await gate.evaluate({
     release_id: rel3,
     execution_id: "exec-pass4-3",
     artifact_id: "artifact-pass4-3",
-    artifact_digest: "d".repeat(64), // wrong digest
+    artifact_digest: "d".repeat(64),
     execution: exec3,
   });
   console.log(`Release gate status: ${decision3.status}`);
@@ -137,7 +140,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log("\n✅ All release gate scenarios passed.");
+  console.log("\nAll release gate scenarios passed.");
   process.exit(0);
 }
 

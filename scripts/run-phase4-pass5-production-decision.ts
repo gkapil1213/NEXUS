@@ -69,10 +69,12 @@ async function main() {
   const gate = new SecurityReleaseGate(api);
   const decisionService = new ProductionReleaseDecisionService(api, gate);
 
-  // Helper to run a full scan and return execution object
-  async function runScan(executionId: string, projectId: string, commit: string, artifactDigest?: string) {
-    const exec = await api.startExecution(projectId, executionId, commit, artifactDigest, `rel_${executionId}`);
-    await ingestCleanEvidence(api, projectId, executionId, commit, artifactDigest, `rel_${executionId}`);
+  // Helper to run a full scan and return execution object.
+  // Ingests PASS evidence with the SAME releaseId the gate is called with,
+  // so the assurance release-mismatch rule does not fire on these scenarios.
+  async function runScan(executionId: string, projectId: string, commit: string, artifactDigest: string | undefined, releaseId: string) {
+    const exec = await api.startExecution(projectId, executionId, commit, artifactDigest, releaseId);
+    await ingestCleanEvidence(api, projectId, executionId, commit, artifactDigest, releaseId);
     return exec;
   }
 
@@ -81,9 +83,10 @@ async function main() {
   // Scenario 1: Valid signed artifact, approval granted -> ALLOW
   console.log("Scenario 1: Valid signed artifact + approval");
   const digest1 = "a".repeat(64);
-  const exec1 = await runScan("exec-p5-1", "proj-p5", "commit1", digest1);
+  const rel1 = "rel-p5-1";
+  const exec1 = await runScan("exec-p5-1", "proj-p5", "commit1", digest1, rel1);
   const approval1: ProductionApproval = {
-    releaseId: "rel-p5-1",
+    releaseId: rel1,
     artifactId: "artifact-p5-1",
     artifactDigest: digest1,
     environment: "production",
@@ -92,7 +95,7 @@ async function main() {
     status: "APPROVED",
   };
   const decision1 = await decisionService.decide({
-    releaseId: "rel-p5-1",
+    releaseId: rel1,
     executionId: "exec-p5-1",
     artifactId: "artifact-p5-1",
     artifactDigest: digest1,
@@ -107,9 +110,10 @@ async function main() {
 
   // Scenario 2: Unsigned artifact -> BLOCKED
   console.log("\nScenario 2: Unsigned artifact (no signature)");
-  const exec2 = await runScan("exec-p5-2", "proj-p5", "commit2", undefined);
+  const rel2 = "rel-p5-2";
+  const exec2 = await runScan("exec-p5-2", "proj-p5", "commit2", undefined, rel2);
   const decision2 = await decisionService.decide({
-    releaseId: "rel-p5-2",
+    releaseId: rel2,
     executionId: "exec-p5-2",
     artifactId: "artifact-p5-2",
     artifactDigest: "b".repeat(64),
@@ -125,9 +129,10 @@ async function main() {
   // Scenario 3: Tampered artifact -> FAIL/BLOCKED
   console.log("\nScenario 3: Tampered artifact");
   const digest3 = "c".repeat(64);
-  const exec3 = await runScan("exec-p5-3", "proj-p5", "commit3", digest3);
+  const rel3 = "rel-p5-3";
+  const exec3 = await runScan("exec-p5-3", "proj-p5", "commit3", digest3, rel3);
   const decision3 = await decisionService.decide({
-    releaseId: "rel-p5-3",
+    releaseId: rel3,
     executionId: "exec-p5-3",
     artifactId: "artifact-p5-3",
     artifactDigest: "d".repeat(64), // wrong digest
@@ -143,9 +148,10 @@ async function main() {
   // Scenario 4: Missing approval -> BLOCKED
   console.log("\nScenario 4: Valid artifact but missing approval");
   const digest4 = "e".repeat(64);
-  const exec4 = await runScan("exec-p5-4", "proj-p5", "commit4", digest4);
+  const rel4 = "rel-p5-4";
+  const exec4 = await runScan("exec-p5-4", "proj-p5", "commit4", digest4, rel4);
   const decision4 = await decisionService.decide({
-    releaseId: "rel-p5-4",
+    releaseId: rel4,
     executionId: "exec-p5-4",
     artifactId: "artifact-p5-4",
     artifactDigest: digest4,

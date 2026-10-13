@@ -81,7 +81,8 @@ async function main() {
     executionId: string,
     projectId: string,
     commit: string,
-    artifactDigest?: string,
+    artifactDigest: string | undefined,
+    releaseId: string,
     signArtifact = false
   ) {
     const exec = await api.startExecution(
@@ -89,9 +90,9 @@ async function main() {
       executionId,
       commit,
       artifactDigest,
-      `rel_${executionId}`
+      releaseId
     );
-    await ingestCleanEvidence(api, projectId, executionId, commit, artifactDigest, `rel_${executionId}`);
+    await ingestCleanEvidence(api, projectId, executionId, commit, artifactDigest, releaseId);
 
     if (signArtifact && artifactDigest) {
       // Sign the artifact so that enforcement can verify it
@@ -105,10 +106,11 @@ async function main() {
     // Scenario 1: Valid signed artifact + approval
     console.log("Scenario 1: Valid signed artifact + approval");
     const digest1 = "a".repeat(64);
-    const exec1 = await runScan("exec-p6-1", "proj-p6", "commit1", digest1, true);
+    const rel1 = "rel-p6-1";
+    const exec1 = await runScan("exec-p6-1", "proj-p6", "commit1", digest1, rel1, true);
 
     const approval1: ProductionApproval = {
-      releaseId: "rel-p6-1",
+      releaseId: rel1,
       artifactId: "artifact-p6-1",
       artifactDigest: digest1,
       environment: "production",
@@ -118,7 +120,7 @@ async function main() {
     };
 
     const authResult1 = await enforcement.requestRelease({
-      releaseId: "rel-p6-1",
+      releaseId: rel1,
       executionId: "exec-p6-1",
       artifactId: "artifact-p6-1",
       artifactDigest: digest1,
@@ -138,18 +140,19 @@ async function main() {
 
     // Scenario 2: Unsigned artifact
     console.log("Scenario 2: Unsigned artifact");
-    const exec2 = await runScan("exec-p6-2", "proj-p6", "commit2", undefined);
+    const rel2 = "rel-p6-2";
+    const exec2 = await runScan("exec-p6-2", "proj-p6", "commit2", undefined, rel2);
 
     const approval2: ProductionApproval = {
       ...approval1,
-      releaseId: "rel-p6-2",
+      releaseId: rel2,
       artifactId: "artifact-p6-2",
       artifactDigest: "b".repeat(64),
       environment: "production",
     };
 
     const authResult2 = await enforcement.requestRelease({
-      releaseId: "rel-p6-2",
+      releaseId: rel2,
       executionId: "exec-p6-2",
       artifactId: "artifact-p6-2",
       artifactDigest: "b".repeat(64),
@@ -203,7 +206,7 @@ async function main() {
     // Scenario 4: Deployment provider unavailable
     console.log("Scenario 4: Deployment provider unavailable");
     const freshAuthResult = await enforcement.requestRelease({
-      releaseId: "rel-p6-1",
+      releaseId: rel1,
       executionId: "exec-p6-1",
       artifactId: "artifact-p6-1",
       artifactDigest: digest1,
