@@ -170,17 +170,23 @@ async function main() {
     }
     console.log("PASS\n");
 
-    // Scenario 3: Replay authorization
+    // Scenario 3: Replay authorization. Phase 138 consumes the authorization
+    // on the executeRelease (provider-invocation) boundary, not on
+    // authorizeExecution. Same-attempt retries are allowed; a different
+    // attempt after consumption is replay and must be BLOCKED.
     console.log("Scenario 3: Replay authorization");
     const auth = authResult1.authorization!;
+    const attempt1 = "attempt-p6-1-primary";
+
     const firstAuth = await enforcement.authorizeExecution(
       auth.authorizationId,
       auth.releaseId,
       auth.artifactId,
       auth.commitSha,
-      auth.environment
+      auth.environment,
+      attempt1
     );
-    console.log(`First execution:\nExpected: AUTHORIZED\nActual: ${firstAuth.status}\n`);
+    console.log(`First authorize:\nExpected: AUTHORIZED\nActual: ${firstAuth.status}\n`);
     if (firstAuth.status !== "AUTHORIZED") {
       console.log("FAILED");
       process.exitCode = 1;
@@ -188,15 +194,43 @@ async function main() {
     }
     console.log("PASS\n");
 
-    const secondAuth = await enforcement.authorizeExecution(
+    const retryAuth = await enforcement.authorizeExecution(
       auth.authorizationId,
       auth.releaseId,
       auth.artifactId,
       auth.commitSha,
-      auth.environment
+      auth.environment,
+      attempt1
     );
-    console.log(`Second execution:\nExpected: BLOCKED\nActual: ${secondAuth.status}\n`);
-    if (secondAuth.status !== "BLOCKED") {
+    console.log(`Same-attempt retry:\nExpected: AUTHORIZED\nActual: ${retryAuth.status}\n`);
+    if (retryAuth.status !== "AUTHORIZED") {
+      console.log("FAILED");
+      process.exitCode = 1;
+      return;
+    }
+    console.log("PASS\n");
+
+    // Consume the authorization. Provider is unwired, so this returns
+    // BLOCKED, but the consumption is committed before provider invocation.
+    await enforcement.executeRelease(
+      auth.authorizationId,
+      auth.releaseId,
+      auth.artifactId,
+      auth.commitSha,
+      auth.environment,
+      attempt1
+    );
+
+    const replayAuth = await enforcement.authorizeExecution(
+      auth.authorizationId,
+      auth.releaseId,
+      auth.artifactId,
+      auth.commitSha,
+      auth.environment,
+      "attempt-p6-1-replay"
+    );
+    console.log(`Replay (different attempt):\nExpected: BLOCKED\nActual: ${replayAuth.status}\n`);
+    if (replayAuth.status !== "BLOCKED") {
       console.log("FAILED");
       process.exitCode = 1;
       return;
