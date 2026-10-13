@@ -251,7 +251,7 @@ export class ProductionReleaseEnforcementService {
       containerPort: params.containerPort,
     };
 
-    this.authorizations.set(authorization.authorizationId, authorization);
+    if (!this.store) { this.authorizations.set(authorization.authorizationId, authorization); }
     // Phase 138: mirror to durable store when available. Read path prefers durable.
     if (this.store) {
       const authRecord = {
@@ -328,7 +328,7 @@ export class ProductionReleaseEnforcementService {
           containerName: durable.containerName ?? undefined,
           containerPort: durable.containerPort ?? undefined,
         }
-      : this.authorizations.get(authorizationId);
+      : (this.store?.hasAsyncBackend() ? undefined : this.authorizations.get(authorizationId));
     if (!auth) {
       this.auditDecision({ action: "release.authorization.rejected", result: "deny", resource_type: "production_execution_authorization", resource_id: authorizationId, metadata: { reason: "authorization_not_found", releaseId, artifactId, environment } });
       return { status: "BLOCKED", blockers: ["Authorization not found"], reasons: ["Authorization not found"] };
