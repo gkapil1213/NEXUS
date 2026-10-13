@@ -1,4 +1,17 @@
 import { spawn } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Isolate the security suite from production. Pass1/Pass2/Pass7 construct
+// services over openEngine(), which resolves to CONFIG.persistence.dbName
+// (nexus.sqlite) unless NEXUS_DB_PATH is set. Every child spawned below
+// inherits this environment, so the suite runs against a temp database.
+if (!process.env.NEXUS_DB_PATH) {
+  const dir = mkdtempSync(join(tmpdir(), "nexus-security-"));
+  process.env.NEXUS_DB_PATH = join(dir, "security.sqlite");
+  process.env.NEXUS_PERSISTENCE_ENGINE = "sqlite";
+}
 
 async function runCommand(cmd: string): Promise<number> {
   console.log(`\n--- Running: ${cmd} ---`);
