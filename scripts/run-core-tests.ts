@@ -1,4 +1,18 @@
-import { runPhase1Suite } from "../src/core/tests.ts";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Isolate the core suite from production. Every other test script uses an
+// isolated temp SQLite file (or :memory:); this runner must do the same or
+// it accumulates state in nexus.sqlite across runs.
+if (!process.env.NEXUS_DB_PATH) {
+  const dir = mkdtempSync(join(tmpdir(), "nexus-core-"));
+  process.env.NEXUS_DB_PATH = join(dir, "core.sqlite");
+  process.env.NEXUS_PERSISTENCE_ENGINE = "sqlite";
+}
+
+// Dynamic import so CONFIG reads the env vars set above.
+const { runPhase1Suite } = await import("../src/core/tests.ts");
 
 console.log("NEXUS CORE VERIFICATION");
 console.log("========================");
