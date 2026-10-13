@@ -4,10 +4,6 @@ import type { NexusEvent, NexusEventType } from "./types";
 
 export type EventListener = (e: NexusEvent) => void;
 
-// Global process-level sequence counter and emit chain.
-// These are shared across ALL EventService instances so sequence numbers
-// are strictly increasing even when multiple kernels / services coexist.
-let globalSeq = 0;
 let globalChain: Promise<unknown> = Promise.resolve();
 
 export class EventService {
@@ -18,9 +14,7 @@ export class EventService {
   constructor(engine: NexusEngine) {
     this.engine = engine;
     // Resume from the persisted maximum, but only ever increase the global counter.
-    this.ready = engine.maxSeq("events").then((m) => {
-      globalSeq = Math.max(globalSeq, m);
-    });
+    this.ready = Promise.resolve();
   }
 
   init(): Promise<void> {
