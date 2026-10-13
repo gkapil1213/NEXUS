@@ -600,7 +600,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
       category: "p3-workspace",
       fn: async () => {
         const projectId = await p3Project();
-        await expectThrow(() => services.workspaces.create(scratchUser, { project_id: projectId, execution_id: "aex_p3_viewer" }), "permission");
+        await expectThrow(() => services.workspaces.create(scratchUser, { project_id: projectId, execution_id: "aex_p3_viewer" }), "does not hold");
       },
     },
     {
@@ -1764,7 +1764,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
         const p = await services.projects.create(ownerUser, { name: "engws-deny" });
         created.projects.push(p.id);
         const intent = parseIntent("Build an API with auth");
-        await expectThrow(() => generatePlan(services, scratchUser, p, intent, { scaffold: true }), "permission");
+        await expectThrow(() => generatePlan(services, scratchUser, p, intent, { scaffold: true }), "does not hold");
         // workspace create was denied + audited for the viewer
         const audit = await services.audit.list(50);
         assert(audit.some((a) => a.result === "deny"), "denial audited");
