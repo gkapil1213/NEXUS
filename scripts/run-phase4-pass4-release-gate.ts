@@ -3,6 +3,47 @@ import { SecurityApi } from "../src/core/security-api";
 import { SecurityScannerRunner } from "../src/core/security-scanner-runner";
 import { SecurityReleaseGate } from "../src/core/security-release-gate";
 
+// Ingest a deterministic, clean evidence set so the release gate's
+// decision logic is tested against controlled inputs rather than real
+// scanner output. Mirrors run-phase4-pass1-security.ts.
+async function ingestCleanEvidence(
+  api: SecurityApi,
+  projectId: string,
+  executionId: string,
+  commit: string,
+  artifactDigest: string | undefined,
+  releaseId: string,
+): Promise<void> {
+  const categories: Array<[string, string]> = [
+    ["SAST", "semgrep"],
+    ["SCA", "npm-audit"],
+    ["SECRET", "gitleaks"],
+    ["CONTAINER", "trivy"],
+    ["SBOM", "trivy-sbom"],
+    ["IAC", "trivy-config"],
+    ["DAST", "dast"],
+    ["SUPPLY_CHAIN", "supply-chain"],
+    ["SIGNATURE", "signature"],
+  ];
+  for (const [category, scanner] of categories) {
+    const now = new Date().toISOString();
+    await api.ingestEvidence({
+      project_id: projectId,
+      execution_id: executionId,
+      release_id: releaseId,
+      commit_sha: commit,
+      artifact_digest: artifactDigest,
+      environment: "local",
+      scanner,
+      category: category as any,
+      status: "PASS",
+      started_at: now,
+      completed_at: now,
+      duration_ms: 1,
+    } as any);
+  }
+}
+
 async function main() {
   const engine = await openEngine();
   const api = new SecurityApi(engine);
@@ -24,7 +65,8 @@ async function main() {
       artifactDigest,
       `rel_${executionId}`
     );
-    await runner.runAll(executionId, projectId, commit, artifactDigest, `rel_${executionId}`);
+    // Deterministic clean evidence instead of real scanner output.
+    await ingestCleanEvidence(api, projectId, executionId, commit, artifactDigest, `rel_${executionId}`);
     return exec;
   }
 
