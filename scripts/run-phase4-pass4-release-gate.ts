@@ -2,6 +2,22 @@ import { openEngine } from "../src/core/db";
 import { SecurityApi } from "../src/core/security-api";
 import { SecurityScannerRunner } from "../src/core/security-scanner-runner";
 import { SecurityReleaseGate } from "../src/core/security-release-gate";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+// Isolate this script from production. Direct `npx tsx` invocation
+// otherwise resolves openEngine() to nexus.sqlite and writes test
+// executions/evidence/findings/decisions into the operator database.
+const PASS_DB_DIR = mkdtempSync(join(tmpdir(), "nexus-phase4-"));
+const PASS_DB_PATH = resolve(PASS_DB_DIR, "phase4.sqlite");
+const PRODUCTION_DB_PATH = resolve("nexus.sqlite");
+if (PASS_DB_PATH.toLowerCase() === PRODUCTION_DB_PATH.toLowerCase()) {
+  throw new Error("Refusing to run phase4 pass scripts against the production database");
+}
+process.env.NEXUS_DB_PATH = PASS_DB_PATH;
+process.env.NEXUS_PERSISTENCE_ENGINE = "sqlite";
+console.log(`Phase4 test database: ${PASS_DB_PATH}`);
 
 async function main() {
   const engine = await openEngine();
