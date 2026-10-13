@@ -253,7 +253,8 @@ export class ProductionReleaseEnforcementService {
 
     this.authorizations.set(authorization.authorizationId, authorization);
     // Phase 138: mirror to durable store when available. Read path prefers durable.
-    this.store?.createProductionAuthorization({
+    if (this.store) {
+      const authRecord = {
       authorizationId: authorization.authorizationId,
       releaseId: authorization.releaseId,
       artifactId: authorization.artifactId,
@@ -293,7 +294,11 @@ export class ProductionReleaseEnforcementService {
   ): Promise<AuthorizationResult> {
     // Phase 138: prefer durable record when present. Falls back to the in-memory
     // Map only for authorizations issued before the store was wired (legacy path).
-    const durable = this.store?.getProductionAuthorization(authorizationId);
+    const durable = this.store
+      ? (this.store.hasAsyncBackend()
+          ? await this.store.getProductionAuthorizationAsync(authorizationId)
+          : this.store.getProductionAuthorization(authorizationId))
+      : undefined;
     const auth: ProductionExecutionAuthorization | undefined = durable
       ? {
           authorizationId: durable.authorizationId,
@@ -501,7 +506,9 @@ export class ProductionReleaseEnforcementService {
     const auth = authResult.authorization;
     if (!auth.consumed) {
       if (this.store) {
-        const cas = this.store.consumeProductionAuthorization(authorizationId, attemptId);
+        const cas = this.store.hasAsyncBackend()
+          ? await this.store.consumeProductionAuthorizationAsync(authorizationId, attemptId)
+          : this.store.consumeProductionAuthorization(authorizationId, attemptId);
         if (!cas.consumed && cas.consumedByAttemptId !== attemptId) {
           return {
             status: "BLOCKED",
@@ -531,7 +538,9 @@ export class ProductionReleaseEnforcementService {
     // is bound to this exact attempt. If the store exists, re-read and require
     // consumed_by_attempt_id === attemptId. Otherwise fail closed.
     if (this.store) {
-      const fresh = this.store.getProductionAuthorization(authorizationId);
+      const fresh = this.store.hasAsyncBackend()
+        ? await this.store.getProductionAuthorizationAsync(authorizationId)
+        : this.store.getProductionAuthorization(authorizationId);
       if (!fresh) {
         return {
           status: "BLOCKED",

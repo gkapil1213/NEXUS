@@ -491,7 +491,42 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
         last_recovery_decision_at BIGINT
       )
     `);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_status ON release_deployment_intents (status)`);
+
+    // Phase 138: durable production execution authorizations.
+    // Mirrors src/db/migrations/153_phase138_durable_production_authorizations.sql
+    // and the inline ensureAuthorizationTable() in execution-store.ts.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS production_execution_authorizations (
+        authorization_id       TEXT PRIMARY KEY,
+        release_id             TEXT NOT NULL,
+        artifact_id            TEXT NOT NULL,
+        artifact_digest        TEXT NOT NULL,
+        commit_sha             TEXT NOT NULL,
+        environment            TEXT NOT NULL,
+        security_decision_id   TEXT NOT NULL,
+        approval_id            TEXT NOT NULL,
+        execution_id           TEXT,
+        project_id             TEXT,
+        image_repository       TEXT,
+        image_tag              TEXT,
+        image_id               TEXT,
+        container_name         TEXT,
+        container_port         INTEGER,
+        issued_at              TEXT NOT NULL,
+        expires_at             TEXT NOT NULL,
+        consumed_at            TEXT,
+        consumed_by_attempt_id TEXT,
+        revoked_at             TEXT,
+        created_at             BIGINT NOT NULL,
+        updated_at             BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_prod_auth_release_env
+        ON production_execution_authorizations(release_id, environment);
+      CREATE INDEX IF NOT EXISTS idx_prod_auth_consumed_by
+        ON production_execution_authorizations(consumed_by_attempt_id);
+      CREATE INDEX IF NOT EXISTS idx_prod_auth_expires
+        ON production_execution_authorizations(expires_at);
+    `);    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_status ON release_deployment_intents (status)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_reconciled ON release_deployment_intents (reconciled_at)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_next_retry ON release_deployment_intents (next_retry_at)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_reconcile ON release_deployment_intents (status, reconciled_at)`);

@@ -4442,6 +4442,81 @@ export class ExecutionStore {
     return (info.changes ?? 0) > 0;
   }
 
+
+  /* -------- Phase 252: async siblings for durable production authorizations -------- */
+  // In shared (Postgres) mode the sync path hits the local SQLite mirror, which
+  // is process-local and not durable. These async siblings route through
+  // requireAsyncDb() so issuance, lookup, consumption, and revocation are
+  // authoritative across processes. Callers must check hasAsyncBackend().
+
+  async createProductionAuthorizationAsync(auth: StoredProductionAuthorization): Promise<void> {
+    const engine = this.requireAsyncDb();
+    const now = Date.now();
+    await engine.prepareAsync(
+      "INSERT INTO production_execution_authorizations (" +
+      "  authorization_id, release_id, artifact_id, artifact_digest, commit_sha," +
+      "  environment, security_decision_id, approval_id, execution_id, project_id," +
+      "  image_repository, image_tag, image_id, container_name, container_port," +
+      "  issued_at, expires_at, consumed_at, consumed_by_attempt_id, revoked_at," +
+      "  created_at, updated_at" +
+      ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" +
+      " ON CONFLICT (authorization_id) DO NOTHING"
+    ).run(
+      auth.authorizationId, auth.releaseId, auth.artifactId, auth.artifactDigest,
+      auth.commitSha, auth.environment, auth.securityDecisionId, auth.approvalId,
+      auth.executionId, auth.projectId, auth.imageRepository, auth.imageTag,
+      auth.imageId, auth.containerName, auth.containerPort, auth.issuedAt,
+      auth.expiresAt, auth.consumedAt, auth.consumedByAttemptId, auth.revokedAt,
+      now, now,
+    );
+  }
+
+  async getProductionAuthorizationAsync(
+    authorizationId: string,
+  ): Promise<StoredProductionAuthorization | undefined> {
+    const engine = this.requireAsyncDb();
+    const row = await engine.prepareAsync(
+      "SELECT * FROM production_execution_authorizations WHERE authorization_id = ?"
+    ).get<any>(authorizationId);
+    return row ? this.mapProductionAuthorization(row) : undefined;
+  }
+
+  async consumeProductionAuthorizationAsync(
+    authorizationId: string,
+    attemptId: string,
+    now: Date = new Date(),
+  ): Promise<{ consumed: boolean; consumedAt: string | null; consumedByAttemptId: string | null }> {
+    const engine = this.requireAsyncDb();
+    const iso = now.toISOString();
+    const info = await engine.prepareAsync(
+      "UPDATE production_execution_authorizations SET " +
+      "  consumed_at = COALESCE(consumed_at, ?), " +
+      "  consumed_by_attempt_id = COALESCE(consumed_by_attempt_id, ?), " +
+      "  updated_at = ? " +
+      "WHERE authorization_id = ? " +
+      "  AND (consumed_at IS NULL OR consumed_by_attempt_id = ?)"
+    ).run(iso, attemptId, Date.now(), authorizationId, attemptId);
+    const fresh = await this.getProductionAuthorizationAsync(authorizationId);
+    return {
+      consumed: (info.changes ?? 0) > 0,
+      consumedAt: fresh?.consumedAt ?? null,
+      consumedByAttemptId: fresh?.consumedByAttemptId ?? null,
+    };
+  }
+
+  async revokeProductionAuthorizationAsync(
+    authorizationId: string,
+    now: Date = new Date(),
+  ): Promise<boolean> {
+    const engine = this.requireAsyncDb();
+    const info = await engine.prepareAsync(
+      "UPDATE production_execution_authorizations SET " +
+      "  revoked_at = COALESCE(revoked_at, ?), " +
+      "  updated_at = ? " +
+      "WHERE authorization_id = ?"
+    ).run(now.toISOString(), Date.now(), authorizationId);
+    return (info.changes ?? 0) > 0;
+  }
   private mapProductionAuthorization(row: any): StoredProductionAuthorization {
     return {
       authorizationId: row.authorization_id,
