@@ -76,7 +76,9 @@ function makeHarness(): Harness {
   } as any;
 
   const enforcement = new ProductionReleaseEnforcementService(
-    {} as any,
+    {
+      getEvidence: async (_executionId: string) => [] as any[],
+    } as any,
     securityGate,
     decisionService,
     provider,

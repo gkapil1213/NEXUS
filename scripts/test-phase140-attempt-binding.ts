@@ -87,7 +87,31 @@ function makeHarness(): Harness {
   } as any;
 
   const enforcement = new ProductionReleaseEnforcementService(
-    {} as any,
+    {
+      getEvidence: async (_executionId: string) => {
+        const now = Date.now();
+        const cats = [
+          "SAST","SCA","SECRET","IAC","CONTAINER",
+          "SBOM","DAST","SUPPLY_CHAIN","SIGNATURE",
+        ] as const;
+        return cats.map((cat, i) => ({
+          id: `ev-phase140-${i}`,
+          project_id: PROJECT,
+          execution_id: EXEC_ID,
+          release_id: RELEASE_ID,
+          commit_sha: COMMIT,
+          artifact_id: ARTIFACT_ID,
+          artifact_digest: DIGEST,
+          environment: ENV,
+          scanner: `phase140-${cat.toLowerCase()}`,
+          category: cat,
+          status: "PASS",
+          started_at: new Date(now - 1000).toISOString(),
+          completed_at: new Date(now).toISOString(),
+          expires_at: new Date(now + 3600_000).toISOString(),
+        })) as any[];
+      },
+    } as any,
     securityGate,
     decisionService,
     provider,
