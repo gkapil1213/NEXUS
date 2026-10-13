@@ -90,7 +90,8 @@
         "test:phase262l": "tsx scripts/test-phase262l-outbox-drain-lifecycle.ts",
         "test:phase263a": "tsx scripts/test-phase263a-pg-client-cleanup.ts",
         "test:phase263d": "tsx scripts/test-phase263d-drift-lifecycle.ts",
-        "test:phase263e": "tsx scripts/test-phase263e-kernel-shutdown-drain.ts"
+        "test:phase263e": "tsx scripts/test-phase263e-kernel-shutdown-drain.ts",
+                    "test:phase263f":  "tsx scripts/test-phase263f-event-sequence-atomicity.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",
