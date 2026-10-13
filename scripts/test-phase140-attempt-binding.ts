@@ -46,6 +46,7 @@ interface Harness {
   bridge: ReleaseDeploymentBridge;
   enforcement: ProductionReleaseEnforcementService;
   provider: AttemptRecordingProvider;
+  deploymentCalls: { count: number };
 }
 
 const RELEASE_ID = "phase140-release";
@@ -123,8 +124,11 @@ function makeHarness(): Harness {
     audit: { record: async (e: any) => e },
   };
 
+  const deploymentCalls = { count: 0 };
+
   const orchestrator = {
     async deploy(_req: any) {
+      deploymentCalls.count++;
       return {
         deployment: {
           id: "dep-bridge-phase140",
@@ -146,7 +150,7 @@ function makeHarness(): Harness {
     intents,
   });
 
-  return { store, intents, bridge, enforcement, provider };
+  return { store, intents, bridge, enforcement, provider, deploymentCalls };
 }
 
 function seedAttempt(
@@ -345,6 +349,7 @@ async function T05_bridgeRequiresAndPropagatesAttempt(): Promise<void> {
   } as any);
 
   ok(missing.status === "BLOCKED", "T05 bridge without attemptId BLOCKED");
+  ok(h.deploymentCalls.count === 0, "T05 missing attemptId caused zero orchestrator calls");
 
   const attemptId = "phase140-bridge-attempt";
   const result = await h.bridge.execute({
@@ -364,6 +369,7 @@ async function T05_bridgeRequiresAndPropagatesAttempt(): Promise<void> {
   } as any);
 
   console.log("  T05 actual result:", JSON.stringify(result)); ok(result.status !== "BLOCKED", "T05 bridge with attemptId reaches deployment path");
+  ok(h.deploymentCalls.count === 1, "T05 valid attemptId caused exactly one orchestrator call");
 
   const created = await h.intents.getOrCreate(intentInput(attemptId));
   ok(created.intent.attemptId === attemptId, "T05 durable intent retains bridge attemptId");
