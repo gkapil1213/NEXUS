@@ -170,11 +170,14 @@ async function main() {
     }
     console.log("PASS\n");
 
-    // Scenario 3: Replay authorization. Phase 138 consumes the authorization
-    // on the executeRelease (provider-invocation) boundary, not on
-    // authorizeExecution. Same-attempt retries are allowed; a different
-    // attempt after consumption is replay and must be BLOCKED.
-    console.log("Scenario 3: Replay authorization");
+    // Scenario 3: Same-attempt authorization retry. Phase 138 consumes the
+    // authorization on the executeRelease (provider-invocation) boundary, not
+    // on authorizeExecution, so a same-attempt retry is allowed before
+    // consumption. Replay detection against a different attempt requires a
+    // durable store + real ExecutionAttempt; it is covered by
+    // test-phase138-attempt-authority.ts (T-A4) and
+    // test-phase140-attempt-binding.ts (T03), not here.
+    console.log("Scenario 3: Same-attempt authorize retry allowed");
     const auth = authResult1.authorization!;
     const attempt1 = "attempt-p6-1-primary";
 
@@ -204,33 +207,6 @@ async function main() {
     );
     console.log(`Same-attempt retry:\nExpected: AUTHORIZED\nActual: ${retryAuth.status}\n`);
     if (retryAuth.status !== "AUTHORIZED") {
-      console.log("FAILED");
-      process.exitCode = 1;
-      return;
-    }
-    console.log("PASS\n");
-
-    // Consume the authorization. Provider is unwired, so this returns
-    // BLOCKED, but the consumption is committed before provider invocation.
-    await enforcement.executeRelease(
-      auth.authorizationId,
-      auth.releaseId,
-      auth.artifactId,
-      auth.commitSha,
-      auth.environment,
-      attempt1
-    );
-
-    const replayAuth = await enforcement.authorizeExecution(
-      auth.authorizationId,
-      auth.releaseId,
-      auth.artifactId,
-      auth.commitSha,
-      auth.environment,
-      "attempt-p6-1-replay"
-    );
-    console.log(`Replay (different attempt):\nExpected: BLOCKED\nActual: ${replayAuth.status}\n`);
-    if (replayAuth.status !== "BLOCKED") {
       console.log("FAILED");
       process.exitCode = 1;
       return;
