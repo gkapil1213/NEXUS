@@ -183,15 +183,17 @@ export class ExecutionRecoveryOperationStore {
         "       claim_owner = ?, " +
         "       claim_expires_at = ?, " +
         "       attempt_count = attempt_count + 1, " +
+        "       next_attempt_at = NULL, " +
         "       updated_at = ? " +
         " WHERE operation_id = ? " +
         "   AND (state = 'PENDING' " +
         "        OR state = 'FAILED' " +
         "        OR state = 'RECOVERY_REQUIRED' " +
         "        OR (state IN ('CLAIMED','IN_PROGRESS') " +
-        "            AND (claim_expires_at IS NULL OR claim_expires_at <= ?)))"
+        "            AND (claim_expires_at IS NULL OR claim_expires_at <= ?))) " +
+        "   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)"
       )
-      .run(input.owner, expiresAt, now, input.operationId, now);
+      .run(input.owner, expiresAt, now, input.operationId, now, now);
 
     if (result.changes === 1) {
       return { claimed: true, operation: this.getOperation(input.operationId) };
@@ -469,7 +471,7 @@ export class ExecutionRecoveryOperationStore {
       .prepare(
         "SELECT * FROM execution_recovery_operations " +
         " WHERE (state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
-        "    OR state = 'FAILED') " +
+        "    OR (state = 'FAILED' AND (last_failure_class IS NULL OR last_failure_class <> 'NON_RETRYABLE'))) " +
         "   AND (next_attempt_at IS NULL OR next_attempt_at <= ?) " +
         " ORDER BY created_at ASC"
       )
@@ -565,14 +567,16 @@ export class AsyncExecutionRecoveryOperationStore {
       "       claim_owner = ?, " +
       "       claim_expires_at = ?, " +
       "       attempt_count = attempt_count + 1, " +
+      "       next_attempt_at = NULL, " +
       "       updated_at = ? " +
       " WHERE operation_id = ? " +
       "   AND (state = 'PENDING' " +
       "        OR state = 'FAILED' " +
       "        OR state = 'RECOVERY_REQUIRED' " +
       "        OR (state IN ('CLAIMED','IN_PROGRESS') " +
-      "            AND (claim_expires_at IS NULL OR claim_expires_at <= ?)))",
-    ).run(input.owner, expiresAt, now, input.operationId, now);
+      "            AND (claim_expires_at IS NULL OR claim_expires_at <= ?))) " +
+      "   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)",
+    ).run(input.owner, expiresAt, now, input.operationId, now, now);
 
     if (r.changes === 1) {
       return { claimed: true, operation: await this.getOperation(input.operationId) };
@@ -688,7 +692,7 @@ export class AsyncExecutionRecoveryOperationStore {
     const rows = await this.asyncDb.prepareAsync(
       "SELECT * FROM execution_recovery_operations " +
       " WHERE (state IN ('PENDING','CLAIMED','IN_PROGRESS') " +
-      "    OR state = 'FAILED') " +
+      "    OR (state = 'FAILED' AND (last_failure_class IS NULL OR last_failure_class <> 'NON_RETRYABLE'))) " +
       "   AND (next_attempt_at IS NULL OR next_attempt_at <= ?) " +
       " ORDER BY created_at ASC"
     ).all<any>(now);

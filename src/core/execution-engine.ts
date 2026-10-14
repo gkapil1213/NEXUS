@@ -2299,7 +2299,7 @@ export class ExecutionEngine {
             : this.store.recoveryOps;
         // Phase 159: bounded iteration. Default Infinity preserves prior behavior.
         // A production scheduler may pass a finite limit to cap per-tick work.
-        const allCandidates = await ops.listResumableOperations();
+        const allCandidates = await ops.listResumableOperations(now);
         const candidates = Number.isFinite(limit) && limit >= 0 ? allCandidates.slice(0, limit) : allCandidates;
         for (const op of candidates) {
             // Phase 145: a FAILED operation whose retry budget is exhausted
