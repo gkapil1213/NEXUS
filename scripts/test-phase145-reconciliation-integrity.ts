@@ -96,7 +96,7 @@ async function main() {
       operationType: "ORPHAN_RECOVERY", state: "FAILED", attemptCount: 2,
       lastError: "TRANSIENT_1",
     });
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     ok(getJob(h.db, "j1").status === "QUEUED", "145-1 job QUEUED");
     ok(getRecoveryOp(h.db, "j1", "ORPHAN_RECOVERY").state === "COMPLETED", "145-1 op COMPLETED");
   }
@@ -111,7 +111,7 @@ async function main() {
       operationType: "ORPHAN_RECOVERY", state: "FAILED", attemptCount: 5,
       lastError: "TRANSIENT_REPEATED",
     });
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     const op = getRecoveryOp(h.db, "j2", "ORPHAN_RECOVERY");
     ok(op.state === "RECOVERY_REQUIRED", "145-2 op RECOVERY_REQUIRED");
     ok(op.last_error && op.last_error.indexOf("MAX_RECOVERY_ATTEMPTS_EXCEEDED") === 0, "145-2 diagnostic error");
@@ -130,7 +130,7 @@ async function main() {
       operationType: "ORPHAN_RECOVERY", state: "CLAIMED", attemptCount: 1,
       claimOwner: "live-owner", claimExpiresAt: future,
     });
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     const op = getRecoveryOp(h.db, "j3", "ORPHAN_RECOVERY");
     ok(op.state === "CLAIMED", "145-3 still CLAIMED");
     ok(op.claim_owner === "live-owner", "145-3 owner unchanged");
@@ -167,7 +167,7 @@ async function main() {
       operationId: "op5", jobId: "j5", leaseId: "L5", workerId: "w5",
       operationType: "ORPHAN_RECOVERY", state: "FAILED", attemptCount: 1,
     });
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     ok(getRecoveryOp(h.db, "j5", "ORPHAN_RECOVERY").state === "COMPLETED", "145-5 op COMPLETED");
     ok(countEvents(h.db, "j5", "execution.recovery.requeued") === 0, "145-5 no dup requeue event");
     ok(countObligations(h.db, "j5") === 0, "145-5 no spurious obligation");
@@ -182,9 +182,9 @@ async function main() {
       operationId: "op6", jobId: "j6", leaseId: "L6", workerId: "w6",
       operationType: "ORPHAN_RECOVERY", state: "FAILED", attemptCount: 2,
     });
-    h.engine.reconcileExecutionRecoveryOperations();
-    h.engine.reconcileExecutionRecoveryOperations();
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     ok(getJob(h.db, "j6").status === "QUEUED", "145-6 job QUEUED");
     ok(getRecoveryOp(h.db, "j6", "ORPHAN_RECOVERY").state === "COMPLETED", "145-6 op COMPLETED");
     ok(countEvents(h.db, "j6", "execution.recovery.requeued") === 1, "145-6 one requeue event");
@@ -202,7 +202,7 @@ async function main() {
       operationType: "ORPHAN_RECOVERY", state: "CLAIMED", attemptCount: 1,
       claimOwner: "dead", claimExpiresAt: past,
     });
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     ok(getJob(h.db, "j7").status === "QUEUED", "145-7 resumed to QUEUED");
     ok(getRecoveryOp(h.db, "j7", "ORPHAN_RECOVERY").state === "COMPLETED", "145-7 op COMPLETED");
   }
@@ -223,9 +223,9 @@ async function main() {
       {} as any,
       {}
     );
-    h.engine.reconcileExecutionRecoveryOperations();
-    engine2.reconcileExecutionRecoveryOperations();
-    h.engine.reconcileExecutionRecoveryOperations();
+    const reconcile1 = h.engine.reconcileExecutionRecoveryOperations();
+    const reconcile2 = engine2.reconcileExecutionRecoveryOperations();
+    await Promise.all([reconcile1, reconcile2]);
     ok(getJob(h.db, "j8").status === "QUEUED", "145-8 job QUEUED");
     ok(countEvents(h.db, "j8", "execution.recovery.requeued") === 1, "145-8 one requeue event");
     ok(countObligations(h.db, "j8") === 0, "145-8 no spurious obligation");
@@ -240,7 +240,7 @@ async function main() {
       operationId: "op9", jobId: "j9", leaseId: "L9", workerId: "w9",
       operationType: "CANCELLATION", state: "FAILED", attemptCount: 1,
     });
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     ok(getRecoveryOp(h.db, "j9", "CANCELLATION").state === "COMPLETED", "145-9 op COMPLETED");
     ok(countEvents(h.db, "j9", "execution.recovery.cancelled") === 0, "145-9 no dup cancelled event");
   }
@@ -254,7 +254,7 @@ async function main() {
       operationId: "op10", jobId: "j10", leaseId: "L10", workerId: "w10",
       operationType: "TIMEOUT", state: "FAILED", attemptCount: 1,
     });
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     ok(getRecoveryOp(h.db, "j10", "TIMEOUT").state === "COMPLETED", "145-10 op COMPLETED");
     ok(countEvents(h.db, "j10", "execution.recovery.rerouted") === 0, "145-10 no dup rerouted event");
   }
@@ -268,7 +268,7 @@ async function main() {
       operationId: "op11", jobId: "j11", leaseId: "L11", workerId: "w11",
       operationType: "ORPHAN_RECOVERY", state: "FAILED", attemptCount: 1,
     });
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     ok(getRecoveryOp(h.db, "j11", "ORPHAN_RECOVERY").state === "COMPLETED", "145-11 op COMPLETED");
     ok(countEvents(h.db, "j11", "execution.recovery.requeued") === 0, "145-11 no dup requeued event");
   }
@@ -283,7 +283,7 @@ async function main() {
       operationType: "ORPHAN_RECOVERY", state: "RECOVERY_REQUIRED", attemptCount: 3,
       lastError: "OPERATOR_ATTENTION",
     });
-    h.engine.reconcileExecutionRecoveryOperations();
+    await h.engine.reconcileExecutionRecoveryOperations();
     const op = getRecoveryOp(h.db, "j12", "ORPHAN_RECOVERY");
     ok(op.state === "RECOVERY_REQUIRED", "145-12 op still RECOVERY_REQUIRED");
     ok(getJob(h.db, "j12").status === "ORPHANED", "145-12 job unchanged");
