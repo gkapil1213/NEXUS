@@ -91,7 +91,9 @@
         "test:phase263a": "tsx scripts/test-phase263a-pg-client-cleanup.ts",
         "test:phase263d": "tsx scripts/test-phase263d-drift-lifecycle.ts",
         "test:phase263e": "tsx scripts/test-phase263e-kernel-shutdown-drain.ts",
-                    "test:phase263f":  "tsx scripts/test-phase263f-event-sequence-atomicity.ts"
+                    "test:phase263f":  "tsx scripts/test-phase263f-event-sequence-atomicity.ts",
+                    "test:phase267": "tsx scripts/test-phase267-crash-restart-recovery.ts",
+                    "test:phase267:shutdown": "tsx scripts/test-phase267-shutdown-reconciliation.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",
