@@ -91,6 +91,12 @@ async function makeHarness(): Promise<Harness> {
 
   const store = new ExecutionStore(engine as any);
 
+  // Seed an authoritative execution record so the bridge's Phase 170
+  // project-resolution check (`engine.get("executions", req.executionId)`)
+  // finds it. Without this, bridge.execute returns
+  // "execution <EXEC_ID> not found" and every downstream assertion fails.
+  await engine.put("executions", EXEC_ID, { id: EXEC_ID, project_id: PROJECT });
+
   const events = new EventService(engine as any);
   await events.init();
 
@@ -115,7 +121,34 @@ async function makeHarness(): Promise<Harness> {
   } as any;
 
   const enforcement = new ProductionReleaseEnforcementService(
-    {} as any,
+    {
+      // Phase 248 continuity gate: authorizeExecution calls
+      // api.getEvidence(). Provide the canonical nine-category PASS evidence
+      // bound to this test's identity constants so the gate passes.
+      getEvidence: async (_executionId: string) => {
+        const now = Date.now();
+        const cats = [
+          "SAST","SCA","SECRET","IAC","CONTAINER",
+          "SBOM","DAST","SUPPLY_CHAIN","SIGNATURE",
+        ] as const;
+        return cats.map((cat, i) => ({
+          id: `ev-phase141-${i}`,
+          project_id: PROJECT,
+          execution_id: EXEC_ID,
+          release_id: RELEASE_ID,
+          commit_sha: COMMIT,
+          artifact_id: ARTIFACT_ID,
+          artifact_digest: DIGEST,
+          environment: ENV,
+          scanner: `phase141-${cat.toLowerCase()}`,
+          category: cat,
+          status: "PASS",
+          started_at: new Date(now - 1000).toISOString(),
+          completed_at: new Date(now).toISOString(),
+          expires_at: new Date(now + 3600_000).toISOString(),
+        })) as any[];
+      },
+    } as any,
     securityGate,
     decisionService,
     provider,

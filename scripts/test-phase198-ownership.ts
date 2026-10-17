@@ -25,6 +25,30 @@ function ok(n: string, c: boolean, d = "") {
   else   { fail++; console.log("[FAILED] " + n + (d ? "  " + d : "")); }
 }
 function clean(p: string) { for (const e of ["", "-wal", "-shm"]) { try { unlinkSync(p + e); } catch {} } }
+function isPgUnavailable(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  const unavailableCodes = new Set([
+    "ECONNREFUSED",
+    "ENOTFOUND",
+    "ETIMEDOUT",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "ECONNRESET",
+  ]);
+
+  function visit(value: any): boolean {
+    if (!value || typeof value !== "object" || seen.has(value)) return false;
+    seen.add(value);
+
+    if (typeof value.code === "string" && unavailableCodes.has(value.code)) {
+      return true;
+    }
+    if (Array.isArray(value.errors) && value.errors.some(visit)) return true;
+    return visit(value.cause);
+  }
+
+  return visit(error);
+}
 
 async function open(dbPath: string) {
   const engine = await SQLiteEngine.open(dbPath);
@@ -281,18 +305,47 @@ async function main() {
     // applying the shared schema inside the test rather than requiring an
     // external bootstrap step.
     const pgBoot = new PgClient();
-    await pgBoot.connect(url);
-    try { await bootstrapPgSchema(pgBoot); }
-    finally { await pgBoot.close(); }
+    let setupReady = false;
+    let setupFailed = false;
 
-    const res = await runChild(url, "race-lease", "job_p198_s7");
-    if (res.code !== 0) {
-      blocked++;
-      console.log("[BLOCKED] S7 child exit=" + res.code + " stderr=" + res.stderr.trim().slice(0, 200));
-    } else {
-      ok("J exactly one ACTIVE lease wins", res.json?.winners === 1, "winners=" + res.json?.winners);
-      ok("J loser sees { acquired: false }", res.json?.loserAcquired === false, "loserAcquired=" + res.json?.loserAcquired);
-      ok("J single ACTIVE lease in DB", res.json?.activeLeaseCount === 1, "count=" + res.json?.activeLeaseCount);
+    try {
+      await pgBoot.connect(url);
+      await bootstrapPgSchema(pgBoot);
+      setupReady = true;
+    } catch (error) {
+      setupFailed = true;
+      const detail = error instanceof Error ? error.message : String(error);
+
+      if (!pgBoot.isConnected() && isPgUnavailable(error)) {
+        blocked++;
+        console.log("[BLOCKED] S7 PostgreSQL unavailable: " + detail);
+      } else {
+        fail++;
+        console.log("[FAILED] S7 PostgreSQL connection/schema setup: " + detail);
+      }
+    } finally {
+      if (pgBoot.isConnected()) {
+        try {
+          await pgBoot.close();
+        } catch (error) {
+          setupFailed = true;
+          fail++;
+          console.log("[FAILED] S7 PostgreSQL cleanup: " +
+            (error instanceof Error ? error.message : String(error)));
+        }
+      }
+    }
+
+    if (setupReady && !setupFailed) {
+      const res = await runChild(url, "race-lease", "job_p198_s7");
+      if (res.code !== 0) {
+        blocked++;
+        console.log("[BLOCKED] S7 child exit=" + res.code + " stderr=" + res.stderr.trim().slice(0, 200));
+      } else {
+        ok("J exactly one ACTIVE lease wins", res.json?.winners === 1, "winners=" + res.json?.winners);
+        ok("J loser sees { acquired: false }", res.json?.loserAcquired === false, "loserAcquired=" + res.json?.loserAcquired);
+        ok("J single ACTIVE lease in DB", res.json?.activeLeaseCount === 1, "count=" + res.json?.activeLeaseCount);
+      }
     }
   }
 
