@@ -2300,7 +2300,29 @@ export class ExecutionEngine {
         // Phase 159: bounded iteration. Default Infinity preserves prior behavior.
         // A production scheduler may pass a finite limit to cap per-tick work.
         const allCandidates = await ops.listResumableOperations(now);
-        const candidates = Number.isFinite(limit) && limit >= 0 ? allCandidates.slice(0, limit) : allCandidates;
+        // Phase 265: strict limit validation. A reconciliation tick accepts
+        // one of three shapes for `limit`:
+        //   - a non-negative integer N: process at most N candidates
+        //   - Number.POSITIVE_INFINITY: process every eligible candidate
+        //   - the default value (Infinity) when the caller omits it
+        // Any other value (negative, NaN, fractional, -Infinity) is rejected
+        // with an explicit error. Prior behavior silently converted invalid
+        // limits into "process everything", which could turn a caller bug
+        // into an unbounded reconciliation pass.
+        const isValidLimit =
+            limit === Number.POSITIVE_INFINITY ||
+            (Number.isFinite(limit) && Number.isInteger(limit) && limit >= 0);
+        if (!isValidLimit) {
+            throw new Error(
+                "reconcileExecutionRecoveryOperations: invalid limit " +
+                String(limit) +
+                " (must be a non-negative integer or Infinity)"
+            );
+        }
+        const candidates =
+            limit === Number.POSITIVE_INFINITY
+                ? allCandidates
+                : allCandidates.slice(0, limit);
         for (const op of candidates) {
             // Phase 145: a FAILED operation whose retry budget is exhausted
             // escalates to RECOVERY_REQUIRED rather than looping forever.

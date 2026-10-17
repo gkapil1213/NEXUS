@@ -57,6 +57,16 @@ export class PgClient {
   private async initializeConnection(connectionString: string): Promise<void> {
     const pool = this.poolFactory(connectionString);
 
+    // Phase 265: an idle client socket error (Postgres terminating a
+    // backend during a forced DROP DATABASE, a network reset, or a
+    // server-side idle kill) is emitted as an 'error' event on the Pool.
+    // Without a listener, Node treats it as an unhandled error and crashes
+    // the process. Capture it into lastError; the pool is being or will be
+    // closed anyway, and callers see state via probe()/query() failures.
+    pool.on("error", (err: Error) => {
+      this.lastError = err.message;
+    });
+
     try {
       const client = await pool.connect();
       try {
