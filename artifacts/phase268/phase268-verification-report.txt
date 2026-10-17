@@ -1,0 +1,365 @@
+
+===== tsc --noEmit =====
+cmd: npx tsc --noEmit
+exit: 0
+
+
+===== phase265 regression =====
+cmd: npx tsx scripts/test-phase265-recovery-reconciliation-integrity.ts
+exit: 0
+=== Phase 265 - End-to-End Recovery Reconciliation Integrity ===
+
+
+265-A future retry deadline blocks reconciliation
+  ok   265-A before: state FAILED
+  ok   265-A before: next_attempt_at = future deadline
+  ok   265-A after: state still FAILED
+  ok   265-A after: next_attempt_at unchanged
+  ok   265-A after: no claim owner
+  ok   265-A after: attempt_count unchanged
+
+265-B due retry deadline permits reconciliation
+  ok   265-B op transitioned out of FAILED (state=RECOVERY_REQUIRED)
+  ok   265-B claim ownership consistent with state
+
+265-C supplied now overrides wall clock
+  ok   265-C supplied now made future-vs-wall-clock op eligible (state=RECOVERY_REQUIRED)
+
+265-D NON_RETRYABLE failure excluded from auto-retry
+  ok   265-D still FAILED (not auto-retried)
+  ok   265-D failure class persisted
+  ok   265-D no claim owner assigned
+
+265-E claim-time deadline enforcement
+  ok   265-E claim before deadline refused
+  ok   265-E claim at/after deadline succeeds
+
+265-F concurrent reconciliation - one claim winner
+  ok   265-F exactly one concurrent claim winner (got 1)
+  ok   265-F persisted row shows exactly one owner
+
+265-G limit caps per-tick work
+  ok   265-G limit=1 processed exactly one candidate (got 1)
+  ok   265-G two candidates remain untouched (got 2)
+
+265-H limit boundary values
+  ok   265-H limit=0 processed nothing
+  ok   265-H limit=Infinity processed the candidate (state=RECOVERY_REQUIRED)
+
+265-I RECOVERY_REQUIRED invariant preserved
+  ok   265-I reconcile did not auto-retry RECOVERY_REQUIRED
+  ok   265-I no claim owner assigned by reconcile
+  ok   265-I escalation claim still succeeds
+
+265-J invalid limit rejected without unbounded work
+  ok   265-J limit=-1 rejected with throw
+  ok   265-J limit=-1 error names invalid limit (got: reconcileExecutionRecoveryOperations: invalid limit -1 (must be a non-negative integer or Infinity))
+  ok   265-J limit=NaN rejected with throw
+  ok   265-J limit=NaN error names invalid limit (got: reconcileExecutionRecoveryOperations: invalid limit NaN (must be a non-negative integer or Infinity))
+  ok   265-J limit=-Infinity rejected with throw
+  ok   265-J limit=-Infinity error names invalid limit (got: reconcileExecutionRecoveryOperations: invalid limit -Infinity (must be a non-negative integer or Infinity))
+  ok   265-J limit=2.5 rejected with throw
+  ok   265-J limit=2.5 error names invalid limit (got: reconcileExecutionRecoveryOperations: invalid limit 2.5 (must be a non-negative integer or Infinity))
+  ok   265-J invalid limits did not process any candidate (untouched=3)
+
+265-K valid limit boundaries preserved
+  ok   265-K limit=0 processed nothing
+  ok   265-K limit=Infinity processed the candidate (state=RECOVERY_REQUIRED)
+  ok   265-K limit=2 processed exactly two candidates (got 2)
+  [setup] created isolated database postgres_p265_64zekgbe
+
+265-A-PG future retry deadline blocks reconciliation
+  ok   265-A-PG still FAILED
+  ok   265-A-PG next_attempt_at unchanged
+  ok   265-A-PG no claim owner
+
+265-D-PG NON_RETRYABLE excluded
+  ok   265-D-PG still FAILED
+  ok   265-D-PG class persisted
+
+265-G-PG limit caps per-tick work
+  ok   265-G-PG limit=1 processed exactly one (got 1)
+  [cleanup] dropped isolated database postgres_p265_64zekgbe
+
+============================================
+PASS: 41
+FAIL: 0
+BLOCKED: 0
+============================================
+
+===== phase266 regression =====
+cmd: npx tsx scripts/test-phase266-recovery-reconciliation-concurrency.ts
+exit: 0
+=== Phase 266 - Recovery Reconciliation Concurrency (two engines, one store) ===
+
+
+266-1 two engines reconcile concurrently - one claim winner
+  ok   266-1 attempt_count incremented by at most 1 (got +1)
+  ok   266-1 persisted claim_owner is null or engine-owned (got null)
+  ok   266-1 persisted state is a legitimate post-reconcile state (got RECOVERY_REQUIRED)
+
+266-2 race stress - N iterations, invariant holds each time
+  ok   266-2 no invariant violation across 25 iterations (violations=0)
+
+266-3 RECOVERY_REQUIRED not auto-retried by concurrent engines
+  ok   266-3 state unchanged (got RECOVERY_REQUIRED)
+  ok   266-3 no engine claimed it
+  ok   266-3 attempt_count unchanged
+
+266-4 supplied now controls eligibility (two engines)
+  ok   266-4 at wall clock: still FAILED (got FAILED)
+  ok   266-4 at logicalNow: processed (state=RECOVERY_REQUIRED)
+
+266-5 invalid limit rejected by both engines
+  ok   266-5 both engines rejected limit=-1
+  ok   266-5 both engines rejected limit=NaN
+  ok   266-5 both engines rejected limit=-Infinity
+  ok   266-5 both engines rejected limit=2.5
+  ok   266-5 rejected calls did not touch candidate (state=FAILED)
+  [setup] created isolated database postgres_p266_r9gphriw
+
+266-B-PG due retry deadline permits reconciliation
+  ok   266-B-PG processed (state=RECOVERY_REQUIRED)
+  ok   266-B-PG attempt_count <= 2 (got 2)
+
+266-C-PG supplied now controls eligibility
+  ok   266-C-PG at wall clock: FAILED (got FAILED)
+  ok   266-C-PG at logicalNow: processed (state=RECOVERY_REQUIRED)
+
+266-E-PG claim-time deadline enforcement
+  ok   266-E-PG claim before deadline refused
+  ok   266-E-PG claim at/after deadline succeeds
+
+266-I-PG RECOVERY_REQUIRED not auto-retried
+  ok   266-I-PG state preserved (got RECOVERY_REQUIRED)
+  ok   266-I-PG no claim owner
+
+266-J-PG invalid limits rejected; 266-K-PG valid limits honored
+  ok   266-J-PG limit=-1 rejected with throw
+  ok   266-J-PG limit=NaN rejected with throw
+  ok   266-J-PG limit=-Infinity rejected with throw
+  ok   266-J-PG limit=2.5 rejected with throw
+  ok   266-K-PG limit=0 processed nothing
+  [cleanup] dropped isolated database postgres_p266_r9gphriw
+
+============================================
+PASS: 27
+FAIL: 0
+BLOCKED: 0
+============================================
+
+===== phase267 crash regression =====
+cmd: npm run test:phase267
+exit: 0
+
+> test:phase267
+> tsx scripts/test-phase267-crash-restart-recovery.ts
+
+=== Phase 267 - Crash/Restart Recovery (recovery-operation lifecycle) ===
+
+
+--- Sc267-1 termination after create, before claim ---
+PASS  Sc267-1a: afterCreate fault hook was reached
+PASS  Sc267-1a: injected fault surfaced
+PASS  Sc267-1a: operation was persisted before the fault
+PASS  Sc267-1a: persisted state is PENDING (got PENDING)
+PASS  Sc267-1b REAL CHILD-PROCESS RESTART: child exited cleanly (code=0)
+PASS  Sc267-1b REAL CHILD-PROCESS RESTART: op id returned
+PASS  Sc267-1b REAL CHILD-PROCESS RESTART: op durable across process boundary
+PASS  Sc267-1b REAL CHILD-PROCESS RESTART: state PENDING (got PENDING)
+PASS  Sc267-1c REAL CHILD-PROCESS RESTART (PG): child exited cleanly
+PASS  Sc267-1c REAL CHILD-PROCESS RESTART (PG): state PENDING (got PENDING)
+
+--- Sc267-2 termination after claim, before in-progress ---
+PASS  Sc267-2a: afterClaim fault hook was reached
+PASS  Sc267-2a: injected fault surfaced
+PASS  Sc267-2a: operation persisted
+PASS  Sc267-2a: state is CLAIMED (got CLAIMED)
+PASS  Sc267-2a: claim owner persisted
+PASS  Sc267-2a: claim expiry persisted
+PASS  Sc267-2b REAL CHILD-PROCESS RESTART: child was SIGKILLed (code=1)
+PASS  Sc267-2b REAL CHILD-PROCESS RESTART: op id captured before crash
+PASS  Sc267-2b REAL CHILD-PROCESS RESTART: op persisted after crash
+PASS  Sc267-2b REAL CHILD-PROCESS RESTART: state CLAIMED (got CLAIMED)
+PASS  Sc267-2b REAL CHILD-PROCESS RESTART: owner matches child (got child-5272)
+
+--- Sc267-3 termination while in progress ---
+PASS  Sc267-3 REAL CHILD-PROCESS RESTART: child SIGKILLed (code=1)
+PASS  Sc267-3 REAL CHILD-PROCESS RESTART: state IN_PROGRESS (got IN_PROGRESS)
+PASS  Sc267-3 REAL CHILD-PROCESS RESTART: owner preserved
+PASS  Sc267-3 REAL CHILD-PROCESS RESTART: attempt_count=1 (got 1)
+
+--- Sc267-4 commit-before-completion ---
+PASS  Sc267-4a: beforeComplete fault hook was reached
+PASS  Sc267-4a: recovery operation persisted
+PASS  Sc267-4a: job mutation committed (status=RETRY_SCHEDULED)
+PASS  Sc267-4a: operation did not falsely complete (state=FAILED)
+
+--- Sc267-6 claim expiry + other-engine recovery ---
+PASS  Sc267-6 engineB reclaims after expiry
+PASS  Sc267-6 owner is engineB
+PASS  Sc267-6 engineA cannot complete reclaimed op
+
+--- Sc267-7 two engines racing post-restart ---
+PASS  Sc267-7 exactly one post-restart claim wins (got 1)
+
+--- Sc267-8 repeated startup reconciliation idempotence ---
+PASS  Sc267-8 exactly one recovery op after 5 reconcile passes (got 1)
+
+--- Sc267-9 stale ownership cannot finalize ---
+PASS  Sc267-9 unknown owner cannot complete
+
+--- Sc267-10 database errors do not convert unknown to success ---
+PASS  Sc267-10 IN-PROCESS FAULT: injected DB error surfaces (not swallowed)
+
+============================================
+PASS: 36
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+
+===== phase267 shutdown regression =====
+cmd: npm run test:phase267:shutdown
+exit: 0
+
+> test:phase267:shutdown
+> tsx scripts/test-phase267-shutdown-reconciliation.ts
+
+=== Phase 267 - Shutdown / Reconciliation Integrity ===
+
+
+--- Sc267-S1 shutdown flag ---
+PASS  Sc267-S1 initial: not shutting down
+PASS  Sc267-S1 flag set after markShuttingDown()
+PASS  Sc267-S1 idempotent re-mark
+
+--- Sc267-S2 reconcile no-op after shutdown ---
+PASS  Sc267-S2 op remains PENDING after shutdown (got PENDING)
+PASS  Sc267-S2 no claim owner assigned after shutdown
+
+--- Sc267-S3 durable claims survive shutdown ---
+PASS  Sc267-S3 claim_owner preserved
+PASS  Sc267-S3 state preserved (got CLAIMED)
+
+--- Sc267-S4 no false completion on shutdown ---
+PASS  Sc267-S4 IN_PROGRESS not falsely COMPLETED (got IN_PROGRESS)
+
+--- Sc267-S5 in-flight op reclaimable after TTL ---
+PASS  Sc267-S5 engineB reclaims after TTL
+PASS  Sc267-S5 owner is engineB
+
+--- Sc267-S6 live claim not stolen by peer shutdown ---
+PASS  Sc267-S6 live claim preserved (owner=engineA)
+
+============================================
+PASS: 11
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+
+===== phase268 races =====
+cmd: npx tsx scripts/test-phase268-recovery-races.ts
+exit: 0
+=== Phase 268 - Recovery Races (retry eligibility + stale owner) ===
+
+
+--- 268-A1 retry eligibility changes between inspection and claim ---
+PASS  268-A1 at T1=1000: op excluded from resumable list
+PASS  268-A1 stale worker (now=1000) refused claim: eligibility enforced at boundary
+PASS  268-A1 at T2=62000: op included in resumable list
+PASS  268-A1 fresh worker (now=62000) succeeds claim
+PASS  268-A1 persisted claim_owner is freshWorker (got freshWorker)
+
+--- 268-A2 stale recovery racing newer attempt ---
+PASS  268-A2 new owner reclaims after TTL
+PASS  268-A2 persisted owner is newOwner
+PASS  268-A2 stale markCompleted refused
+PASS  268-A2 stale markFailed refused
+PASS  268-A2 stale markRecoveryRequired refused
+PASS  268-A2 final state CLAIMED owned by newOwner (state=CLAIMED, owner=newOwner)
+
+============================================
+PASS: 11
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+
+===== phase268 audit boundary =====
+cmd: npx tsx scripts/test-phase268-audit-boundary.ts
+exit: 0
+=== Phase 268 - Audit Boundary Escalation ===
+
+
+--- 268-C1 job missing at reconcile: op escalates to RECOVERY_REQUIRED ---
+PASS  268-C1 op escalated to RECOVERY_REQUIRED (state=RECOVERY_REQUIRED)
+PASS  268-C1 lastError records JOB_NOT_FOUND (got JOB_NOT_FOUND_DURING_RECONCILE)
+PASS  268-C1 second reconcile does not auto-retry RECOVERY_REQUIRED
+
+--- 268-C2 terminal job NOT re-opened by recovery ---
+PASS  268-C2 terminal job stays SUCCEEDED (got SUCCEEDED)
+
+============================================
+PASS: 4
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+
+===== phase268 shutdown parity =====
+cmd: npx tsx scripts/test-phase268-shutdown-parity.ts
+exit: 0
+=== Phase 268 - Postgres Shutdown Parity ===
+
+  [setup] created isolated database postgres_p268s_3td4fc1f
+
+--- 268-S-PG1 shutdown flag ---
+PASS  268-S-PG1 initial: not shutting down
+PASS  268-S-PG1 flag set
+
+--- 268-S-PG2 reconcile no-op after shutdown ---
+PASS  268-S-PG2 op remains PENDING after shutdown (got PENDING)
+PASS  268-S-PG2 no claim owner assigned after shutdown
+
+--- 268-S-PG3 durable claims survive shutdown ---
+PASS  268-S-PG3 claim_owner preserved across shutdown
+PASS  268-S-PG3 state CLAIMED preserved
+
+--- 268-S-PG4 no false completion on shutdown ---
+PASS  268-S-PG4 IN_PROGRESS not falsely COMPLETED (state=IN_PROGRESS)
+
+--- 268-S-PG5 in-flight op reclaimable after TTL ---
+PASS  268-S-PG5 engineB reclaims after TTL
+PASS  268-S-PG5 owner is engineB
+
+--- 268-S-PG6 live claim not stolen by peer shutdown ---
+PASS  268-S-PG6 live claim preserved (owner=engineA)
+  [cleanup] dropped isolated database postgres_p268s_3td4fc1f
+
+============================================
+PASS: 10
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+============================================
+
+===== git diff --check HEAD =====
+cmd: git diff --check HEAD
+exit: 0
+warning: in the working copy of 'scripts/test-phase141-deployment-evidence.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'scripts/test-phase199-recovery-operation-reclaim.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/core/pg-client.ts', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'artifacts/phase268/phase268-verification-report.txt', CRLF will be replaced by LF the next time Git touches it
+
+===== SUMMARY =====
+tsc exit=0
+phase265 exit=0
+phase266 exit=0
+phase267-crash exit=0
+phase267-shutdown exit=0
+phase268-races exit=0
+phase268-audit exit=0
+phase268-shutdown exit=0
+diffcheck exit=0

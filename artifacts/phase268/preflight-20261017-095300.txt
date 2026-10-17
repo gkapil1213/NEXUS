@@ -1,0 +1,92 @@
+﻿Captured: 2026-10-17T09:53:02.1818431+05:30
+Branch:
+master
+HEAD:
+a231760de440b381bae72c40f3464cd0a21df88a
+Status:
+ M scripts/test-phase141-deployment-evidence.ts
+ M scripts/test-phase198-ownership.ts
+ M scripts/test-phase199-recovery-operation-reclaim.ts
+ M src/core/execution-engine.ts
+ M src/core/pg-client.ts
+?? artifacts/phase268/
+?? phase266-baseline-stash.txt
+?? phase266-baseline-status.txt
+?? phase266-direct-test-results.json
+?? phase266-read-claim-locations.txt
+?? phase266-read-engine.txt
+?? phase266-read-pgclient.txt
+?? phase266-read-phase265.txt
+?? phase266-verification-report.txt
+?? phase267-preflight.txt
+?? phase267-run.txt
+?? phase267-targeted.txt
+?? phase267-verification-report-before-rerun.txt
+?? phase267-verification-report.txt
+?? phase267-verify-live-pg.txt
+?? phase267-verify-live.txt
+?? scripts/patch-empty-lease.ps1
+?? scripts/phase266-verify.ps1
+?? scripts/phase267-verify.ps1
+?? scripts/test-phase199-recovery-operation-reclaim.ts.bak
+?? scripts/test-phase199-recovery-operation-reclaim.ts.pre-aggregate-bypass.bak
+?? scripts/test-phase265-recovery-reconciliation-integrity.ts
+?? scripts/test-phase266-recovery-reconciliation-concurrency.ts
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-debug.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-fault-fixture-fix-20261016-113810.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-fault-fixture-fix.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-2a-isolation-20261016.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-4a-strengthen.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-byline.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-empty-lease-v2.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-empty-lease.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-final.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-fixture-realign.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-marker.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-targeted-fixture-repair-20261016-130000.bak
+?? scripts/test-phase267-crash-restart-recovery.ts.pre-targeted-fixture-repair-v2-20261016-131034.bak
+Unstaged diff stat:
+ scripts/test-phase141-deployment-evidence.ts       | 35 ++++++++-
+ scripts/test-phase198-ownership.ts                 | 77 ++++++++++++++++----
+ .../test-phase199-recovery-operation-reclaim.ts    | 84 +++++++++++-----------
+ src/core/execution-engine.ts                       | 24 ++++++-
+ src/core/pg-client.ts                              | 10 +++
+ 5 files changed, 175 insertions(+), 55 deletions(-)
+Staged diff stat:
+Untracked files:
+artifacts/phase268/baseline-20261017-094752.txt
+phase266-baseline-stash.txt
+phase266-baseline-status.txt
+phase266-direct-test-results.json
+phase266-read-claim-locations.txt
+phase266-read-engine.txt
+phase266-read-pgclient.txt
+phase266-read-phase265.txt
+phase266-verification-report.txt
+phase267-preflight.txt
+phase267-run.txt
+phase267-targeted.txt
+phase267-verification-report-before-rerun.txt
+phase267-verification-report.txt
+phase267-verify-live-pg.txt
+phase267-verify-live.txt
+scripts/patch-empty-lease.ps1
+scripts/phase266-verify.ps1
+scripts/phase267-verify.ps1
+scripts/test-phase199-recovery-operation-reclaim.ts.bak
+scripts/test-phase199-recovery-operation-reclaim.ts.pre-aggregate-bypass.bak
+scripts/test-phase265-recovery-reconciliation-integrity.ts
+scripts/test-phase266-recovery-reconciliation-concurrency.ts
+scripts/test-phase267-crash-restart-recovery.ts.pre-debug.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-fault-fixture-fix-20261016-113810.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-fault-fixture-fix.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-2a-isolation-20261016.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-4a-strengthen.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-byline.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-empty-lease-v2.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-empty-lease.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-final.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-fixture-realign.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-sc267-marker.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-targeted-fixture-repair-20261016-130000.bak
+scripts/test-phase267-crash-restart-recovery.ts.pre-targeted-fixture-repair-v2-20261016-131034.bak
