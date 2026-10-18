@@ -5,6 +5,12 @@ Set-Location $root
 $report = Join-Path $root 'phase266-verification-report.txt'
 Remove-Item $report -ErrorAction SilentlyContinue
 
+# Pre-flight: warn if DATABASE_URL is unset (PG parity will BLOCK, not FAIL)
+if (-not $env:DATABASE_URL) {
+    Write-Host "`nWARNING: DATABASE_URL not set. PG parity tests will report BLOCKED, not FAIL." -ForegroundColor Yellow
+    Write-Host "         Set DATABASE_URL for full coverage, or set NEXUS_VERIFY_REQUIRE_PG=1 to fail on blocked." -ForegroundColor Yellow
+}
+
 function Run-Step([string]$label, [string]$cmd) {
   Write-Host "`n===== $label =====" -ForegroundColor Cyan
   Write-Host "`$ $cmd" -ForegroundColor DarkGray
@@ -43,6 +49,33 @@ $failed = @($codes.GetEnumerator() | Where-Object { $_.Value -ne 0 })
 if ($failed.Count -gt 0) {
     Write-Host "`nFAILURE GATE: $($failed.Count) step(s) failed." -ForegroundColor Red
     exit 1
+}
+
+# Strict PostgreSQL gate: require actual PostgreSQL execution when requested.
+if ($env:NEXUS_VERIFY_REQUIRE_PG -eq "1") {
+    if ([string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
+        Write-Host "`nPG REQUIRED: DATABASE_URL is not set." -ForegroundColor Red
+        exit 1
+    }
+
+    $reportText = Get-Content $report -Raw -ErrorAction Stop
+
+    # Narrow patterns: [BLOCKED] markers, BLOCKED: N counts > 0, NOT EXECUTED: N > 0.
+    # Does NOT match "BLOCKED: 0", narrative "BLOCKED <text>", or "NOT EXECUTED: 0".
+    $blockedLines = @(
+        $reportText -split "`r?`n" |
+        Where-Object {
+            $_ -match '^\s*\[BLOCKED\]' -or
+            $_ -match '^\s*BLOCKED:\s*[1-9]\d*\s*$' -or
+            $_ -match '^\s*NOT EXECUTED\s*:\s*[1-9]'
+        }
+    )
+
+    if ($blockedLines.Count -gt 0) {
+        Write-Host "`nPG REQUIRED: blocked/not-executed checks detected:" -ForegroundColor Red
+        $blockedLines | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+        exit 1
+    }
 }
 
 Write-Host "`nFAILURE GATE: all registered steps returned exit 0." -ForegroundColor Green
