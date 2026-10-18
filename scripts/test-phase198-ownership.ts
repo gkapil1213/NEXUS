@@ -28,12 +28,22 @@ function clean(p: string) { for (const e of ["", "-wal", "-shm"]) { try { unlink
 function isPgUnavailable(error: unknown): boolean {
   const seen = new Set<unknown>();
   const unavailableCodes = new Set([
+    // Network-level failures
     "ECONNREFUSED",
     "ENOTFOUND",
     "ETIMEDOUT",
     "EHOSTUNREACH",
     "ENETUNREACH",
     "ECONNRESET",
+    // Postgres SQLSTATE codes for connection/auth failures
+    "28P01",   // invalid_password
+    "28000",   // invalid_authorization_specification
+    "3D000",   // invalid_catalog_name (database not found)
+    "53300",   // too_many_connections
+    "57P03",   // cannot_connect_now (server starting up)
+    "08000",   // connection_exception
+    "08003",   // connection_does_not_exist
+    "08006",   // connection_failure
   ]);
 
   function visit(value: any): boolean {
