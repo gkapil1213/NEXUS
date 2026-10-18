@@ -91,12 +91,12 @@
         "test:phase263a": "tsx scripts/test-phase263a-pg-client-cleanup.ts",
         "test:phase263d": "tsx scripts/test-phase263d-drift-lifecycle.ts",
         "test:phase263e": "tsx scripts/test-phase263e-kernel-shutdown-drain.ts",
-        "test:phase263f": "tsx scripts/test-phase263f-event-sequence-atomicity.ts",
-        "test:phase267": "tsx scripts/test-phase267-crash-restart-recovery.ts",
-        "test:phase267:shutdown": "tsx scripts/test-phase267-shutdown-reconciliation.ts",
-        "test:phase268:races": "tsx scripts/test-phase268-recovery-races.ts",
-        "test:phase268:audit": "tsx scripts/test-phase268-audit-boundary.ts",
-        "test:phase268:shutdown": "tsx scripts/test-phase268-shutdown-parity.ts",
+                    "test:phase263f":  "tsx scripts/test-phase263f-event-sequence-atomicity.ts",
+                    "test:phase267": "tsx scripts/test-phase267-crash-restart-recovery.ts",
+                    "test:phase267:shutdown": "tsx scripts/test-phase267-shutdown-reconciliation.ts",
+                    "test:phase268:races": "tsx scripts/test-phase268-recovery-races.ts",
+                    "test:phase268:audit": "tsx scripts/test-phase268-audit-boundary.ts",
+                    "test:phase268:shutdown": "tsx scripts/test-phase268-shutdown-parity.ts",
         "test:phase270:shutdown": "tsx scripts/test-phase270-postgres-shutdown-reconciliation.ts"
     },
     "dependencies": {
