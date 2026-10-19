@@ -1,5 +1,6 @@
 import { nid, openEngine, type NexusEngine } from "./db";
 import { Err } from "./errors";
+import { redactSecrets } from "./secret-redaction";
 import type { NexusEvent, NexusEventType } from "./types";
 
 export type EventListener = (e: NexusEvent) => void;
@@ -46,7 +47,7 @@ export class EventService {
         type: input.type,
         timestamp: Date.now(),
         source: input.source,
-        payload: input.payload ?? {},
+        payload: (input.payload ? redactSecrets(input.payload) : {}) as Record<string, unknown>,
       };
       await this.engine.put("events", event.id, event);
       this.listeners.forEach((fn) => fn(event));

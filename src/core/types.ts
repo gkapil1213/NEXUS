@@ -396,7 +396,7 @@ export interface NexusEvent {
   type: NexusEventType;
   timestamp: number;
   source: string;
-  payload: Record<string, unknown>;
+  payload: Record<string, unknown>; // key-based secret redaction before event storage
 }
 
 /* ---------------------------------- Audit --------------------------------- */

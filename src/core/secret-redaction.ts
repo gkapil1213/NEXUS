@@ -33,11 +33,11 @@ export function redactSecrets<T>(input: T): T {
   }
 
   if (typeof input === 'string') {
-    // If string looks like a secret (long random string, JWT, etc.) redact if its key was sensitive; but here we don't know key.
-    // Since this function is called on entire objects, we only redact values when the key is sensitive.
-    return input;
+    return input.replace(
+      /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi,
+      '$1[REDACTED]@'
+    ) as T;
   }
-
   if (Array.isArray(input)) {
     return input.map((item) => redactSecrets(item)) as unknown as T;
   }
@@ -47,7 +47,7 @@ export function redactSecrets<T>(input: T): T {
     for (const [key, value] of Object.entries(input)) {
       const lowerKey = key.toLowerCase();
       const isSensitive = Array.from(SENSITIVE_KEYS).some(
-        (sk) => lowerKey === sk || lowerKey.includes(sk) || sk.includes(lowerKey)
+        (sk) => lowerKey === sk || lowerKey.includes(sk)
       );
       if (isSensitive) {
         result[key] = '[REDACTED]';
