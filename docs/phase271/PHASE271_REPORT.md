@@ -1,4 +1,4 @@
-﻿# Phase 271 - Event Redaction and Emission Integrity
+# Phase 271 - Event Redaction and Emission Integrity
 
 ## Baseline
 
@@ -88,7 +88,7 @@ Observed assertion values:
   271-6: serialized payload contains no raw secret value
   271-7a: connectionstring="[REDACTED]", note="x"
   271-7b: got="Connection failed: postgres://[REDACTED]@h/db (retry later)"
-  271-8: 1000 emits in 531ms (bound 2000ms; latest targeted run)
+  271-8: full harness run 827ms; bound 2000ms (earlier targeted runs: 364ms and 531ms)
 
 Command: npx tsc --noEmit
 Result: exit 0
@@ -159,6 +159,3 @@ the source redaction change.
 These results support the tested implementation and recorded regression
 checks. They are not a comprehensive production security audit. Review the
 residual limitations above before treating event redaction as complete.
-
-
-

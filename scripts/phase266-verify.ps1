@@ -40,6 +40,7 @@ $codes['phase266']  = Run-Step 'phase266'              'npx tsx scripts/test-pha
 $codes['phase270a'] = Run-Step 'phase270 crash-restart'  'npx tsx scripts/test-phase270-crash-restart-recovery.ts'
 $codes['phase270b'] = Run-Step 'phase270 shutdown'       'npx tsx scripts/test-phase270-postgres-shutdown-reconciliation.ts'
 $codes['phase270c'] = Run-Step 'phase270 server-restart' 'npx tsx scripts/test-phase270-server-restart.ts'
+$codes['phase271'] = Run-Step 'phase271 event redaction' 'npx tsx scripts/test-phase271-event-redaction.ts'
 $codes['diffcheck'] = Run-Step 'git diff --check'      'git diff --check'
 
 Write-Host "`n===== SUMMARY =====" -ForegroundColor Green
