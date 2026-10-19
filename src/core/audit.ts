@@ -36,6 +36,13 @@ const SECRET_PATTERNS: [RegExp, string][] = [
 /** Redact secret-looking material from arbitrary text. */
 export function redactText(text: string): string {
   let out = text;
+  // Phase 272: URL authority redaction (preserves scheme+host, redacts userinfo).
+  // Applied first, matching secret-redaction.ts behavior, so URL structure is
+  // preserved while the credential is scrubbed.
+  out = out.replace(
+    /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi,
+    '$1[REDACTED]@'
+  );
   for (const [re, label] of SECRET_PATTERNS) {
     re.lastIndex = 0;
     out = out.replace(re, `[REDACTED:${label}]`);
