@@ -11,6 +11,7 @@
 // No SQLite fallback. No in-memory authority. Every statement parameterized.
 
 import type { AsyncNexusEngine } from "./db";
+import { redactSecrets } from './secret-redaction';
 import type { Incident } from "./observability-types";
 import { sha256Hex } from "./integrity";
 
@@ -314,7 +315,7 @@ export class AsyncIncidentStore {
     event: { type: string; payload?: Record<string, unknown> | null; at?: string },
   ): Promise<{ inserted: boolean; seq: number | null }> {
     const at = event.at ?? new Date().toISOString();
-    const payloadJson = event.payload ? JSON.stringify(event.payload) : null;
+    const payloadJson = event.payload ? JSON.stringify(redactSecrets(event.payload)) : null;
     const eventHash = sha256Hex(event.type + "|" + at + "|" + (payloadJson ?? ""));
 
     // Fast path: identical event hash already exists => idempotent no-op.

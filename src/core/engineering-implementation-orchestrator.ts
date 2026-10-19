@@ -19,6 +19,7 @@
 // proposal, and mutation failure each map to a distinct honest status.
 
 import { createHash } from "node:crypto";
+import { redactSecrets } from './secret-redaction';
 import { PgClient } from "./pg-client";
 import type { ArtifactStore } from "./artifact-store";
 import type { WorkspaceService, WorkspaceActor } from "./workspace";
@@ -89,7 +90,7 @@ export class EngineeringImplementationOrchestrator {
       await pg.query(
         "INSERT INTO engineering_run_events (event_id, run_id, stage_id, event_type, payload, created_at) " +
         "VALUES ($1,$2,$3,$4,$5,$6)",
-        [eventId, runId, null, eventType, JSON.stringify(payload), now],
+        [eventId, runId, null, eventType, JSON.stringify(redactSecrets(payload)), now],
       );
     });
   }

@@ -19,6 +19,7 @@
 // Real command failures → FAILED.
 
 import { promises as fs } from "node:fs";
+import { redactSecrets } from './secret-redaction';
 import * as os from "node:os";
 import * as path from "node:path";
 import { PgClient } from "./pg-client";
@@ -209,7 +210,7 @@ export class EngineeringBuildExecutor {
       await pg.query(
         "INSERT INTO engineering_run_events (event_id, run_id, stage_id, event_type, payload, created_at) " +
         "VALUES ($1,$2,$3,$4,$5,$6)",
-        [genEventId(), runId, stageId, eventType, JSON.stringify(payload), Date.now()],
+        [genEventId(), runId, stageId, eventType, JSON.stringify(redactSecrets(payload)), Date.now()],
       );
     } finally { await pg.close(); }
   }

@@ -10,6 +10,7 @@
 // as SUCCEEDED.
 
 import { PgClient } from "./pg-client";
+import { redactSecrets } from './secret-redaction';
 import type { ExecutionStore } from "./execution-store";
 import type { ArtifactStore } from "./artifact-store";
 import type { WorkspaceActor } from "./workspace";
@@ -109,7 +110,7 @@ export class EngineeringDiagnosisExecutor {
       await pg.query(
         "INSERT INTO engineering_run_events (event_id, run_id, stage_id, event_type, payload, created_at) " +
         "VALUES ($1,$2,$3,$4,$5,$6)",
-        [genEventId(), runId, stageId, eventType, JSON.stringify(payload), Date.now()],
+        [genEventId(), runId, stageId, eventType, JSON.stringify(redactSecrets(payload)), Date.now()],
       );
     } finally { await pg.close(); }
   }
