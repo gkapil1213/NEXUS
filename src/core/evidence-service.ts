@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { redactSecrets } from "./redaction";
+import { redactSecrets } from "./secret-redaction";
 
 export interface ScannerEvidence {
   execution_id: string;
@@ -45,9 +45,7 @@ export class EvidenceService {
   }
 
   private sanitize<T>(obj: T): T {
-    const json = JSON.stringify(obj);
-    const sanitized = redactSecrets(json);
-    return JSON.parse(sanitized);
+    return redactSecrets(obj);
   }
 
   async writeEvidence(data: EvidenceRecord): Promise<void> {
