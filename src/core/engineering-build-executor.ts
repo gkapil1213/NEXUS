@@ -347,7 +347,7 @@ export class EngineeringBuildExecutor {
       const record = await this.deps.artifacts.registerArtifactAsync(
         {
           artifactId: "art-build-" + runId,
-          jobId: runId,
+          jobId: runId + "__BUILD",
           name: "build-log-" + runId + ".json",
           type: "ENGINEERING_BUILD_LOG",
           metadata: { runId, command, exitCode, durationMs, language: det.language },
@@ -356,7 +356,14 @@ export class EngineeringBuildExecutor {
         logContent,
       );
       artifactRef = "artifact://" + record.artifactId;
-    } catch { /* artifact failure does not mask build result */ }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await this.appendEvent(runId, stageId, "engineering_build.failed", {
+        reason: "ARTIFACT_REGISTRATION_FAILED",
+        detail: sanitize(msg).slice(0, 500),
+      }).catch(() => { /* best-effort */ });
+      /* artifact failure does not mask build result — artifactRef stays null */
+    }
 
     // 10. Determine final status.
     if (execError) {
