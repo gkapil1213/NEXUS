@@ -238,7 +238,9 @@ async function main() {
     const outcome = await execF.runBuild({ runId, workspaceId: "ws-219F-" + Date.now(), actor: fakeActor }); outcomeF = outcome;
     if (outcome.status === "SUCCEEDED") {
       ok(outcome.exitCode === 0, "exitCode=" + outcome.exitCode);
-      rec("219F", "successful build", "PASS", "exit=0 duration=" + outcome.durationMs + "ms");
+      ok(typeof outcome.artifactRef === "string" && outcome.artifactRef.length > 0,
+         "219F SUCCEEDED without artifactRef — build log was not persisted");
+      rec("219F", "successful build", "PASS", "exit=0 artifactRef=" + outcome.artifactRef + " duration=" + outcome.durationMs + "ms");
     } else if (outcome.status === "BLOCKED") {
       rec("219F", "successful build", "BLOCKED", "reason=" + outcome.reason);
     } else {
