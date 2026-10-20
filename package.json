@@ -4,6 +4,7 @@
     "type": "module",
     "scripts": {
         "test:phase272": "tsx scripts/test-phase272-evidence-redaction.ts",
+        "test:phase271": "tsx scripts/test-phase271-event-redaction.ts",
         "dev": "vite",
         "start": "tsx scripts/run-server.ts",
         "build": "vite build",
