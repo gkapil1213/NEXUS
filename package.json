@@ -5,6 +5,7 @@
     "scripts": {
         "test:phase272": "tsx scripts/test-phase272-evidence-redaction.ts",
         "test:phase273": "tsx scripts/test-phase273-end-to-end-redaction.ts",
+        "test:phase274": "tsx scripts/test-phase274-executor-sanitize.ts",
         "test:phase271": "tsx scripts/test-phase271-event-redaction.ts",
         "dev": "vite",
         "start": "tsx scripts/run-server.ts",
