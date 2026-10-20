@@ -82,6 +82,8 @@ async function main() {
       token_count: 7,
       token: "must-be-redacted",
       password: "must-be-redacted",
+      db_password: "DB_PASSWORD_SENTINEL",
+      aws_secret_key: "AWS_SECRET_KEY_SENTINEL",
     };
     const redacted = redactSecrets(input) as any;
     ok(redacted.session_started_at === 12345,
@@ -93,14 +95,28 @@ async function main() {
     ok(redacted.token === "[REDACTED]",
        "273-4 plain token redacted, got=" + JSON.stringify(redacted.token));
     ok(redacted.password === "[REDACTED]",
+    ok(redacted.db_password === "[REDACTED]", "273-4 db_password redacted");
+    ok(redacted.aws_secret_key === "[REDACTED]", "273-4 aws_secret_key redacted");
        "273-4 password redacted, got=" + JSON.stringify(redacted.password));
   }
 
+  // 273-4b: prefixed and compound sensitive keys must still be redacted
+  // (added after Phase 273 was found to leak db_password and aws_secret_key)
+  section("273-4b prefixed/compound sensitive keys");
+  {
+    const r1 = redactSecrets({ db_password: "x", aws_secret_key: "y", my_auth_token: "z" }) as any;
+    ok(r1.db_password === "[REDACTED]", "273-4b db_password redacted, got=" + JSON.stringify(r1.db_password));
+    ok(r1.aws_secret_key === "[REDACTED]", "273-4b aws_secret_key redacted, got=" + JSON.stringify(r1.aws_secret_key));
+    ok(r1.my_auth_token === "[REDACTED]", "273-4b my_auth_token redacted, got=" + JSON.stringify(r1.my_auth_token));
+    ok(r1.not_a_secret_field === undefined, "273-4b unrelated field stays absent");
+  }
   // 273-5: Phase 271 regression — password redaction.
   section("273-5 Phase 271 regression");
   {
     const redacted = redactSecrets({ password: "supersecret", user: "alice" }) as any;
-    ok(redacted.password === "[REDACTED]", "273-5 password still [REDACTED]");
+    ok(redacted.password === "[REDACTED]",
+    ok(redacted.db_password === "[REDACTED]", "273-4 db_password redacted");
+    ok(redacted.aws_secret_key === "[REDACTED]", "273-4 aws_secret_key redacted"); "273-5 password still [REDACTED]");
     ok(redacted.user === "alice", "273-5 user still preserved");
   }
 
