@@ -1,4 +1,4 @@
-﻿// src/core/engineering-security-review-executor.ts
+// src/core/engineering-security-review-executor.ts
 // Phase 223: real engineering SECURITY_REVIEW stage executor.
 //
 // Consumes the authorized workspace from a completed REPAIR stage, runs the
@@ -17,6 +17,7 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { PgClient } from "./pg-client";
+import { redactSecrets } from "./secret-redaction";
 import type { ExecutionStore } from "./execution-store";
 import type { ArtifactStore } from "./artifact-store";
 import type { WorkspaceService, WorkspaceActor } from "./workspace";
@@ -66,13 +67,9 @@ function genEventId(): string {
   return "eevt-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
 }
 
-function sanitize(s: string): string {
+export function sanitize(s: string): string {
   if (!s) return "";
-  return s
-    .replace(/postgres:\/\/[^@\s]+@/gi, "postgres://<redacted>@")
-    .replace(/(sk-|pk-|Bearer\s+)[A-Za-z0-9._-]{16,}/g, "$1<redacted>")
-    .replace(/(api[_-]?key\s*[:=]\s*)[A-Za-z0-9._-]{16,}/gi, "$1<redacted>")
-    .slice(0, 4096);
+  return redactSecrets(s).slice(0, 4096);
 }
 
 function mapSeverity(raw: string): "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO" | "UNKNOWN" {

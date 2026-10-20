@@ -11,6 +11,7 @@
 // and events, then returns SUCCEEDED / FAILED / BLOCKED honestly.
 
 import { PgClient } from "./pg-client";
+import { redactSecrets } from "./secret-redaction";
 import type { ExecutionStore } from "./execution-store";
 import type { ArtifactStore } from "./artifact-store";
 import type { WorkspaceActor } from "./workspace";
@@ -53,12 +54,9 @@ function genEventId(): string {
   return "eevt-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
 }
 
-function sanitize(s: string): string {
+export function sanitize(s: string): string {
   if (!s) return "";
-  return s
-    .replace(/postgres:\/\/[^@\s]+@/gi, "postgres://<redacted>@")
-    .replace(/(sk-|pk-|Bearer\s+)[A-Za-z0-9._-]{16,}/g, "$1<redacted>")
-    .slice(0, 4096);
+  return redactSecrets(s).slice(0, 4096);
 }
 
 export class EngineeringReleaseReadyExecutor {

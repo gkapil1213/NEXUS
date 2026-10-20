@@ -1,4 +1,4 @@
-﻿// src/core/engineering-diagnosis-executor.ts
+// src/core/engineering-diagnosis-executor.ts
 // Phase 221: real engineering DIAGNOSIS stage executor.
 //
 // Consumes BUILD/TEST execution evidence from durable job + event state,
@@ -80,13 +80,9 @@ function genEventId(): string {
   return "eevt-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
 }
 
-function sanitize(s: string): string {
+export function sanitize(s: string): string {
   if (!s) return "";
-  return s
-    .replace(/postgres:\/\/[^@\s]+@/gi, "postgres://<redacted>@")
-    .replace(/(sk-|pk-|Bearer\s+)[A-Za-z0-9._-]{16,}/g, "$1<redacted>")
-    .replace(/(api[_-]?key\s*[:=]\s*)[A-Za-z0-9._-]{16,}/gi, "$1<redacted>")
-    .slice(0, 4096);
+  return redactSecrets(s).slice(0, 4096);
 }
 
 export class EngineeringDiagnosisExecutor {

@@ -1,4 +1,4 @@
-﻿// src/core/engineering-repair-executor.ts
+// src/core/engineering-repair-executor.ts
 // Phase 222: real engineering REPAIR stage executor.
 //
 // Consumes the diagnosis artifact produced by EngineeringDiagnosisExecutor,
@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { PgClient } from "./pg-client";
+import { redactSecrets } from "./secret-redaction";
 import type { ExecutionStore } from "./execution-store";
 import type { ArtifactStore } from "./artifact-store";
 import type { WorkspaceService, WorkspaceActor } from "./workspace";
@@ -77,13 +78,9 @@ function sha256Hex(s: string): string {
   return createHash("sha256").update(s, "utf8").digest("hex");
 }
 
-function sanitize(s: string): string {
+export function sanitize(s: string): string {
   if (!s) return "";
-  return s
-    .replace(/postgres:\/\/[^@\s]+@/gi, "postgres://<redacted>@")
-    .replace(/(sk-|pk-|Bearer\s+)[A-Za-z0-9._-]{16,}/g, "$1<redacted>")
-    .replace(/(api[_-]?key\s*[:=]\s*)[A-Za-z0-9._-]{16,}/gi, "$1<redacted>")
-    .slice(0, 8192);
+  return redactSecrets(s).slice(0, 8192);
 }
 
 export class EngineeringRepairExecutor {
