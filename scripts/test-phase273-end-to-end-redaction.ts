@@ -73,8 +73,8 @@ async function main() {
     }
   }
 
-  // 273-4: non-secret metadata with sensitive substrings must survive.
-  section("273-4 non-secret metadata preservation");
+  // 273-4: sensitive keys redacted; safe metadata preserved.
+  section("273-4 sensitive and metadata keys");
   {
     const input = {
       session_started_at: 12345,
@@ -82,44 +82,49 @@ async function main() {
       token_count: 7,
       token: "must-be-redacted",
       password: "must-be-redacted",
+      session_id: "SESSION_ID_SENTINEL",
       db_password: "DB_PASSWORD_SENTINEL",
       aws_secret_key: "AWS_SECRET_KEY_SENTINEL",
+      my_auth_token: "MY_AUTH_TOKEN_SENTINEL",
     };
     const redacted = redactSecrets(input) as any;
-    ok(redacted.session_started_at === 12345,
-       "273-4 session_started_at survives, got=" + JSON.stringify(redacted.session_started_at));
-    ok(redacted.authorization_level === "admin",
-       "273-4 authorization_level survives, got=" + JSON.stringify(redacted.authorization_level));
-    ok(redacted.token_count === 7,
-       "273-4 token_count survives, got=" + JSON.stringify(redacted.token_count));
-    ok(redacted.token === "[REDACTED]",
-       "273-4 plain token redacted, got=" + JSON.stringify(redacted.token));
-    ok(redacted.password === "[REDACTED]",
+    ok(redacted.session_started_at === 12345, "273-4 session_started_at preserved");
+    ok(redacted.authorization_level === "admin", "273-4 authorization_level preserved");
+    ok(redacted.token_count === 7, "273-4 token_count preserved");
+    ok(redacted.token === "[REDACTED]", "273-4 token redacted");
+    ok(redacted.password === "[REDACTED]", "273-4 password redacted");
+    ok(redacted.session_id === "[REDACTED]", "273-4 session_id redacted");
     ok(redacted.db_password === "[REDACTED]", "273-4 db_password redacted");
     ok(redacted.aws_secret_key === "[REDACTED]", "273-4 aws_secret_key redacted");
-       "273-4 password redacted, got=" + JSON.stringify(redacted.password));
+    ok(redacted.my_auth_token === "[REDACTED]", "273-4 my_auth_token redacted");
   }
 
-  // 273-4b: prefixed and compound sensitive keys must still be redacted
-  // (added after Phase 273 was found to leak db_password and aws_secret_key)
-  section("273-4b prefixed/compound sensitive keys");
+  // 273-4b: compound sensitive keys and safe metadata regression.
+  section("273-4b compound sensitive keys");
   {
-    const r1 = redactSecrets({ db_password: "x", aws_secret_key: "y", my_auth_token: "z" }) as any;
-    ok(r1.db_password === "[REDACTED]", "273-4b db_password redacted, got=" + JSON.stringify(r1.db_password));
-    ok(r1.aws_secret_key === "[REDACTED]", "273-4b aws_secret_key redacted, got=" + JSON.stringify(r1.aws_secret_key));
-    ok(r1.my_auth_token === "[REDACTED]", "273-4b my_auth_token redacted, got=" + JSON.stringify(r1.my_auth_token));
-    ok(r1.not_a_secret_field === undefined, "273-4b unrelated field stays absent");
+    const redacted = redactSecrets({
+      db_password: "x",
+      aws_secret_key: "y",
+      my_auth_token: "z",
+      session_id: "s",
+      authorization_level: "admin",
+      token_count: 7,
+    }) as any;
+    ok(redacted.db_password === "[REDACTED]", "273-4b db_password redacted");
+    ok(redacted.aws_secret_key === "[REDACTED]", "273-4b aws_secret_key redacted");
+    ok(redacted.my_auth_token === "[REDACTED]", "273-4b my_auth_token redacted");
+    ok(redacted.session_id === "[REDACTED]", "273-4b session_id redacted");
+    ok(redacted.authorization_level === "admin", "273-4b safe level preserved");
+    ok(redacted.token_count === 7, "273-4b safe count preserved");
   }
+
   // 273-5: Phase 271 regression — password redaction.
   section("273-5 Phase 271 regression");
   {
     const redacted = redactSecrets({ password: "supersecret", user: "alice" }) as any;
-    ok(redacted.password === "[REDACTED]",
-    ok(redacted.db_password === "[REDACTED]", "273-4 db_password redacted");
-    ok(redacted.aws_secret_key === "[REDACTED]", "273-4 aws_secret_key redacted"); "273-5 password still [REDACTED]");
+    ok(redacted.password === "[REDACTED]", "273-5 password still [REDACTED]");
     ok(redacted.user === "alice", "273-5 user still preserved");
   }
-
   // 273-6: Phase 272 regression — URL credentials.
   section("273-6 Phase 272 regression — URL credentials");
   {
