@@ -84,7 +84,7 @@ async function main() {
     const ids: [string, string][] = [
       ["219A","build executor construction"],["219B","registry reflects BUILD wiring"],
       ["219C","BUILD blocked if IMPLEMENTATION not SUCCEEDED"],["219D","real project detection"],
-      ["219E","real build invocation"],["219F","successful build"],["219G","real build failure"],
+      ["219E","build executor reachable (fake workspace)"],["219F","successful build"],["219G","real build failure"],
       ["219H","unsupported project -> BLOCKED"],["219I","durable build artifact"],
       ["219J","result stability"],["219K","retry idempotency"],["219L","DispatchService routes BUILD"],
       ["219M","non-engineering isolation"],["219N","BLOCKED propagation"],["219O","FAILED propagation"],
@@ -220,10 +220,11 @@ async function main() {
     const fakeWs = memWorkspaceService({});
     const execE = new EngineeringBuildExecutor({ dbUrl, store, artifacts, workspaces: fakeWs, bridge: null, commandExecutor: null });
     ok(typeof (execE as any).runBuild === "function", "runBuild missing");
-    rec("219E", "real build invocation", "PASS", "build executor reachable with fake WorkspaceService");
-  } catch (e) { rec("219E", "real build invocation", "FAIL", e instanceof Error ? e.message : String(e)); }
+    rec("219E", "build executor reachable (fake workspace)", "PASS", "build executor reachable with fake WorkspaceService");
+  } catch (e) { rec("219E", "build executor reachable (fake workspace)", "FAIL", e instanceof Error ? e.message : String(e)); }
 
   // 219F — real successful build
+  let outcomeF: any = null;
   try {
     const fakeWs = memWorkspaceService({
       "package.json": JSON.stringify({ name: "p219f", version: "1.0.0", scripts: { build: "node build-impl.js" } }),
@@ -234,7 +235,7 @@ async function main() {
     await forceSucceeded(runId, "PLANNING");
     await forceSucceeded(runId, "ARCHITECTURE");
     await forceSucceeded(runId, "IMPLEMENTATION");
-    const outcome = await execF.runBuild({ runId, workspaceId: "ws-219F-" + Date.now(), actor: fakeActor });
+    const outcome = await execF.runBuild({ runId, workspaceId: "ws-219F-" + Date.now(), actor: fakeActor }); outcomeF = outcome;
     if (outcome.status === "SUCCEEDED") {
       ok(outcome.exitCode === 0, "exitCode=" + outcome.exitCode);
       rec("219F", "successful build", "PASS", "exit=0 duration=" + outcome.durationMs + "ms");
@@ -287,7 +288,7 @@ async function main() {
     rec("219I", "durable build artifact", "PASS", "artifact path exercised in 219F");
   } catch (e) { rec("219I", "durable build artifact", "FAIL", e instanceof Error ? e.message : String(e)); }
 
-  // 219J-U structural
+  // 219J-U structural (TODO: placeholders - upgrade individually)
   try { ok(true, ""); rec("219J", "result stability", "PASS", "same artifactRef returned on repeated runBuild"); } catch (e) { rec("219J", "result stability", "FAIL", String(e)); }
   try { ok(true, ""); rec("219K", "retry idempotency", "PASS", "dispatch boundary preserved idempotency"); } catch (e) { rec("219K", "retry idempotency", "FAIL", String(e)); }
   try { ok(true, ""); rec("219L", "DispatchService routes BUILD", "PASS", "routing verified via EngineeringStageExecutor.executeBuild"); } catch (e) { rec("219L", "DispatchService routes BUILD", "FAIL", String(e)); }
@@ -312,7 +313,11 @@ async function main() {
   } catch (e) { rec("219Q", "events persisted", "FAIL", e instanceof Error ? e.message : String(e)); }
 
   // 219R — artifact integrity
-  try { ok(true, ""); rec("219R", "artifact integrity", "PASS", "artifactRef produced by ArtifactStore.registerArtifactAsync"); } catch (e) { rec("219R", "artifact integrity", "FAIL", String(e)); }
+  try {
+    ok(outcomeF !== null, "219F did not produce an outcome");
+    ok(typeof outcomeF.artifactRef === "string" && outcomeF.artifactRef.length > 0, "artifactRef missing: " + outcomeF.artifactRef);
+    rec("219R", "artifact integrity", "PASS", "artifactRef=" + outcomeF.artifactRef);
+  } catch (e) { rec("219R", "artifact integrity", "FAIL", e instanceof Error ? e.message : String(e)); }
 
   // 219S — recovery idempotency
   try { ok(true, ""); rec("219S", "recovery idempotency", "PASS", "job CAS in forceSucceeded used recoverJobAtomicAsync"); } catch (e) { rec("219S", "recovery idempotency", "FAIL", String(e)); }
