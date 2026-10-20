@@ -3,6 +3,7 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "test:phase272": "tsx scripts/test-phase272-evidence-redaction.ts",
         "dev": "vite",
         "start": "tsx scripts/run-server.ts",
         "build": "vite build",
