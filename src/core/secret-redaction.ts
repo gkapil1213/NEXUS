@@ -105,9 +105,11 @@ function redactSecretsImpl<T>(input: T, seen: WeakSet<object>): T {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(input)) {
       const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const isSensitive = Array.from(SENSITIVE_KEYS).some(
-        (sk) => normalizedKey === sk.toLowerCase().replace(/[^a-z0-9]/g, '')
-      );
+      const isSensitive = Array.from(SENSITIVE_KEYS).some((sk) => {
+        const normalizedSecretKey = sk.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return normalizedKey === normalizedSecretKey ||
+          normalizedKey === `${normalizedSecretKey}s`;
+      });
       if (isSensitive) {
         result[key] = '[REDACTED]';
       } else {
