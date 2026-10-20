@@ -191,6 +191,8 @@ const BOOT_ORDER = [
 ] as const;
 
 export class NexusKernel {
+  /** Phase 219: engineering ArtifactStore, exposed for tests and diagnostics. */
+  artifactStore: ArtifactStore | null = null;
   readonly steps: BootStep[] = BOOT_ORDER.map(([id, label]) => ({ id, label, status: "pending", detail: null }));
   services!: KernelServices;
   status: "booting" | "ready" | "failed" = "booting";
@@ -611,6 +613,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         const dispatchSvc = this.dispatchService;
         if (engDbUrl && engStore && dispatchSvc && engStore.hasAsyncBackend()) {
           const engArtifacts = new ArtifactStore(engStore, engDbUrl);
+          this.artifactStore = engArtifacts;
           const engRegistry = new EngineeringCapabilityRegistry(
             undefined, undefined, EngineeringStageExecutor.wiring());
           const engRunService = new EngineeringRunService(engDbUrl, engStore, engRegistry);
