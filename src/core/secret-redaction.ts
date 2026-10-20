@@ -2,6 +2,8 @@
 
 const SENSITIVE_KEYS = new Set([
   'password',
+  'db_password',
+  'aws_secret_key',
   'passwd',
   'pwd',
   'token',
@@ -33,6 +35,13 @@ const SENSITIVE_KEYS = new Set([
   'signing_key',
   'encryption_key',
 ]);
+// Phase 273: keys ending with one of these suffixes are treated as
+// non-secret metadata even when they contain a sensitive substring
+// (e.g. session_started_at, authorization_level, token_count).
+const SAFE_SUFFIXES = [
+  '_at', '_ms', '_count', '_level', '_id', '_type', '_status',
+  '_name', '_length', '_bytes', '_duration', '_index', '_size',
+];
 
 const STRING_SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/ghp_[A-Za-z0-9_-]{20,}/g, "[REDACTED:github_token]"],
@@ -105,11 +114,14 @@ function redactSecretsImpl<T>(input: T, seen: WeakSet<object>): T {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(input)) {
       const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const isSensitive = Array.from(SENSITIVE_KEYS).some((sk) => {
-        const normalizedSecretKey = sk.toLowerCase().replace(/[^a-z0-9]/g, '');
-        return normalizedKey === normalizedSecretKey ||
-          normalizedKey === `${normalizedSecretKey}s`;
+      const hasSafeSuffix = SAFE_SUFFIXES.some(
+        (sfx) => normalizedKey.endsWith(sfx.replace(/[^a-z0-9]/g, ''))
+      );
+      const isSensitive = !hasSafeSuffix && Array.from(SENSITIVE_KEYS).some((sk) => {
+        const normalizedSk = sk.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return normalizedKey === normalizedSk || normalizedKey.includes(normalizedSk);
       });
+
       if (isSensitive) {
         result[key] = '[REDACTED]';
       } else {
