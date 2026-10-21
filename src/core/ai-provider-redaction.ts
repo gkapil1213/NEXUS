@@ -9,9 +9,28 @@ const BASIC = /\bBasic\s+[A-Za-z0-9+/=]{10,}/gi;
 const KEY_VALUE = /\b(access_token|refresh_token|id_token|token|password|passwd|pwd|api[_-]?key|apikey|secret|client_secret|authorization)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;&]+)/gi;
 const PRIVATE_KEY = /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g;
 
+// Phase 276: the ai-provider path previously covered only Bearer / Basic /
+// key=value / PEM. It silently passed AWS access key IDs, GitHub personal
+// access tokens, provider `sk-` keys, and URL-embedded credentials through to
+// logs and error messages. These four patterns close that gap. They are
+// duplicated here (rather than imported from secret-redaction.ts) to keep this
+// module's marker convention — `Bearer [REDACTED]`, `Basic [REDACTED]` — stable
+// for any consumer that string-matches on it.
+const URL_CRED     = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi;
+const AWS_KEY      = /AKIA[0-9A-Z]{16}/g;
+const GITHUB_TOKEN = /\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_-]{20,}/g;
+const PROVIDER_KEY = /\bsk-[A-Za-z0-9]{16,}/g;
+
 export function redactSecrets(input: string): string {
   if (!input) return input;
   let s = input;
+  // Phase 276: URL credentials first, so a following pattern cannot consume
+  // only part of the userinfo and leave the rest visible.
+  s = s.replace(URL_CRED,     "$1[REDACTED]@");
+  s = s.replace(AWS_KEY,      "[REDACTED:aws_access_key]");
+  s = s.replace(GITHUB_TOKEN, "[REDACTED:github_token]");
+  s = s.replace(PROVIDER_KEY, "[REDACTED:provider_api_key]");
+  // Phase 216 patterns — unchanged.
   s = s.replace(BEARER, "Bearer [REDACTED]");
   s = s.replace(BASIC, "Basic [REDACTED]");
   s = s.replace(KEY_VALUE, (_m, k) => k + ": [REDACTED]");

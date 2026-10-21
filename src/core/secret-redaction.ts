@@ -1,6 +1,6 @@
-// src/core/secret-redaction.ts
+﻿// src/core/secret-redaction.ts
 
-const SENSITIVE_KEYS = new Set([
+export const SENSITIVE_KEYS = new Set([
   'password',
   'db_password',
   'aws_secret_key',
@@ -38,7 +38,7 @@ const SENSITIVE_KEYS = new Set([
 // Phase 273: keys ending with one of these suffixes are treated as
 // non-secret metadata even when they contain a sensitive substring
 // (e.g. session_started_at, authorization_level, token_count).
-const SAFE_SUFFIXES = [
+export const SAFE_SUFFIXES = [
   '_at', '_ms', '_count', '_level', '_type', '_status',
   '_name', '_length', '_bytes', '_duration', '_index', '_size',
 ];

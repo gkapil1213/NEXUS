@@ -9,22 +9,39 @@
 
 import { nid, type NexusEngine } from "./db";
 import type { AuditRecord, AuditResult } from "./types";
+import { SENSITIVE_KEYS, SAFE_SUFFIXES } from "./secret-redaction";
 
-/** Keys whose values are dropped entirely before persistence. */
-const FORBIDDEN_KEYS = new Set([
-  "password",
-  "password_hash",
-  "token",
-  "secret",
-  "apikey",
-  "api_key",
-  "authorization",
-  "cookie",
-  "private_key",
+/**
+ * Phase 276: keys whose values are dropped entirely before persistence.
+ *
+ * The previous implementation used an exact-match Set. That is what let
+ * client_secret, refresh_token, access_token, session_id and aws_secret_key
+ * survive `redactMetadata` even though the shared redactor (`secret-redaction`)
+ * treats them as sensitive. This version uses the same normalize-and-substring
+ * rule (plus the same SAFE_SUFFIXES exemption) as `secret-redaction.ts`, so
+ * the two redactors can no longer drift apart on key coverage.
+ *
+ * `salt` is not in SENSITIVE_KEYS; it is retained as a NEXUS-specific
+ * extra because salts must never reach the ledger.
+ */
+const NORMALIZED_SENSITIVE_KEYS: string[] = [
+  ...Array.from(SENSITIVE_KEYS).map((k) => k.toLowerCase().replace(/[^a-z0-9]/g, "")),
   "salt",
-]);
+];
+
+const NORMALIZED_SAFE_SUFFIXES: string[] = SAFE_SUFFIXES.map(
+  (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
+);
+
+function isSensitiveKey(rawKey: string): boolean {
+  const normalized = rawKey.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const hasSafeSuffix = NORMALIZED_SAFE_SUFFIXES.some((s) => normalized.endsWith(s));
+  if (hasSafeSuffix) return false;
+  return NORMALIZED_SENSITIVE_KEYS.some((k) => normalized.includes(k));
+}
 
 const SECRET_PATTERNS: [RegExp, string][] = [
+  [/\bBearer\s+[A-Za-z0-9._~+\/=\-]{16,}/gi, "bearer token"],
   [/ghp_[A-Za-z0-9]{20,}/g, "github token"],
   [/gho_[A-Za-z0-9]{20,}/g, "github oauth token"],
   [/sk-[A-Za-z0-9]{16,}/g, "provider api key"],
@@ -59,7 +76,7 @@ export function redactMetadata(value: unknown, depth = 0): unknown {
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (FORBIDDEN_KEYS.has(k.toLowerCase())) continue;
+      if (isSensitiveKey(k)) continue;
       out[k] = redactMetadata(v, depth + 1);
     }
     return out;
