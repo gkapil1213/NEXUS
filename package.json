@@ -105,7 +105,8 @@
         "test:phase270:shutdown": "tsx scripts/test-phase270-postgres-shutdown-reconciliation.ts",
         "test:phase270:crash-restart": "tsx scripts/test-phase270-crash-restart-recovery.ts",
         "test:phase270:server-restart": "tsx scripts/test-phase270-server-restart.ts",
-        "test:phase276": "tsx scripts/test-phase276-redaction-bypass-audit.ts"
+        "test:phase276": "tsx scripts/test-phase276-redaction-bypass-audit.ts",
+        "test:phase277": "tsx scripts/test-phase277-redaction-coverage.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",

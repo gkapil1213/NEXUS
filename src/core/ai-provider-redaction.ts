@@ -1,4 +1,4 @@
-﻿// src/core/ai-provider-redaction.ts
+// src/core/ai-provider-redaction.ts
 // Phase 216: reusable secret redaction. Extends the pattern already used by
 // release-recovery-supervisor.ts so all AI provider traffic passes through
 // one canonical redactor before it can reach an event, artifact, log line,
@@ -17,9 +17,9 @@ const PRIVATE_KEY = /-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+P
 // module's marker convention — `Bearer [REDACTED]`, `Basic [REDACTED]` — stable
 // for any consumer that string-matches on it.
 const URL_CRED     = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi;
-const AWS_KEY      = /AKIA[0-9A-Z]{16}/g;
+const AWS_KEY      = /(?:AKIA|ASIA)[0-9A-Z]{16}/g;
 const GITHUB_TOKEN = /\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_-]{20,}/g;
-const PROVIDER_KEY = /\bsk-[A-Za-z0-9]{16,}/g;
+const PROVIDER_KEY = /\bsk-[A-Za-z0-9][A-Za-z0-9-]{15,}/g;
 
 export function redactSecrets(input: string): string {
   if (!input) return input;
