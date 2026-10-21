@@ -47,7 +47,7 @@ const STRING_SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/ghp_[A-Za-z0-9_-]{20,}/g, "[REDACTED:github_token]"],
   [/gho_[A-Za-z0-9_-]{20,}/g, "[REDACTED:github_oauth_token]"],
   [/sk-[A-Za-z0-9]{16,}/g, "[REDACTED:provider_api_key]"],
-  [/\bBearer\s+[A-Za-z0-9._~+\/=\-]{16,}=*/gi, "[REDACTED:bearer_token]"],
+  [/\bBearer\s+[A-Za-z0-9._~+\/=\-]{16,}/gi, "[REDACTED:bearer_token]"],
   [/AKIA[0-9A-Z]{16}/g, "[REDACTED:aws_access_key]"],
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[REDACTED:private_key]"],
   [/(api[_-]?key|secret|token|password)\s*[:=]\s*["']?[A-Za-z0-9_\-]{12,}["']?/gi, "[REDACTED:embedded_credential]"],
