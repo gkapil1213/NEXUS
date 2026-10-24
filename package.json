@@ -106,7 +106,11 @@
         "test:phase270:crash-restart": "tsx scripts/test-phase270-crash-restart-recovery.ts",
         "test:phase270:server-restart": "tsx scripts/test-phase270-server-restart.ts",
         "test:phase276": "tsx scripts/test-phase276-redaction-bypass-audit.ts",
-        "test:phase277": "tsx scripts/test-phase277-redaction-coverage.ts"
+        "test:phase277": "tsx scripts/test-phase277-redaction-coverage.ts",
+        "test:phase278": "tsx scripts/test-phase278-redaction-callsite-audit.ts",
+        "test:phase279": "tsx scripts/test-phase279-redaction-boundary-integration.ts",
+        "test:phase280": "tsx scripts/test-phase280-redaction-serialization.ts",
+        "test:phase281": "tsx scripts/test-phase281-audit-metadata-normalization.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",

@@ -72,17 +72,51 @@ export function redactText(text: string): string {
 export function redactMetadata(value: unknown, depth = 0): unknown {
   if (depth > 10) return "[truncated]";
   if (typeof value === "string") return redactText(value);
-  if (typeof value === "number" || typeof value === "boolean" || value === null) return value;
-  // Phase 280: BigInt is not JSON-serializable. Convert to decimal string so
-  // persisted audit metadata cannot throw on JSON.stringify downstream.
-  // Deterministic decimal representation; JSON round-tripping yields a string.
+  if (typeof value === "number") {
+    // Phase 281: NaN and ±Infinity are not JSON-round-trip-safe.
+    if (!Number.isFinite(value)) return String(value);
+    return value;
+  }
+  if (typeof value === "boolean" || value === null) return value;
   if (typeof value === "bigint") return value.toString();
+  if (typeof value === "symbol") return "[symbol]";
+  if (typeof value === "function") return "[function]";
+
   if (Array.isArray(value)) return value.map((v) => redactMetadata(v, depth + 1));
+
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isNaN(t) ? "[Invalid Date]" : value.toISOString();
+  }
+
+  if (value instanceof Map) {
+    const entries: Array<[unknown, unknown]> = [];
+    for (const [k, v] of value) {
+      const keyNorm = typeof k === "string" ? redactText(k) : redactMetadata(k, depth + 1);
+      entries.push([keyNorm, redactMetadata(v, depth + 1)]);
+    }
+    return { "$map": entries };
+  }
+
+  if (value instanceof Set) {
+    const elements: unknown[] = [];
+    for (const v of value) {
+      elements.push(redactMetadata(v, depth + 1));
+    }
+    return { "$set": elements };
+  }
+
   if (typeof value === "object") {
+    const proto = Object.getPrototypeOf(value);
+    const isPlain = proto === Object.prototype || proto === null;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       if (isSensitiveKey(k)) continue;
       out[k] = redactMetadata(v, depth + 1);
+    }
+    if (!isPlain) {
+      const className = (value as object).constructor?.name ?? "unknown";
+      return { "$class": className, ...out };
     }
     return out;
   }
