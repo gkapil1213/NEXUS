@@ -110,7 +110,8 @@
         "test:phase278": "tsx scripts/test-phase278-redaction-callsite-audit.ts",
         "test:phase279": "tsx scripts/test-phase279-redaction-boundary-integration.ts",
         "test:phase280": "tsx scripts/test-phase280-redaction-serialization.ts",
-        "test:phase281": "tsx scripts/test-phase281-audit-metadata-normalization.ts"
+        "test:phase281": "tsx scripts/test-phase281-audit-metadata-normalization.ts",
+        "test:phase282": "tsx scripts/test-phase282-audit-metadata-security.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",

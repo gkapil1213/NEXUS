@@ -69,11 +69,30 @@ export function redactText(text: string): string {
 }
 
 /** Deep-clean a metadata object: forbidden keys removed, strings redacted. */
-export function redactMetadata(value: unknown, depth = 0): unknown {
+function safeAuditClassName(value: object): string {
+  try {
+    const proto = Object.getPrototypeOf(value);
+    if (!proto) return "unknown";
+
+    const ctor = Object.getOwnPropertyDescriptor(proto, "constructor");
+    if (!ctor || !("value" in ctor) || typeof ctor.value !== "function") {
+      return "unknown";
+    }
+
+    const name = Object.getOwnPropertyDescriptor(ctor.value, "name");
+    if (name && "value" in name && typeof name.value === "string") {
+      return name.value || "unknown";
+    }
+
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+function redactMetadataInternal(value: unknown, depth = 0): unknown {
   if (depth > 10) return "[truncated]";
   if (typeof value === "string") return redactText(value);
   if (typeof value === "number") {
-    // Phase 281: NaN and ±Infinity are not JSON-round-trip-safe.
     if (!Number.isFinite(value)) return String(value);
     return value;
   }
@@ -90,8 +109,11 @@ export function redactMetadata(value: unknown, depth = 0): unknown {
   }
 
   if (value instanceof Map) {
+    // Phase 282: string Map keys are subject to the same sensitive-key
+    // policy as ordinary object keys. Sensitive entries are dropped.
     const entries: Array<[unknown, unknown]> = [];
     for (const [k, v] of value) {
+      if (typeof k === "string" && isSensitiveKey(k)) continue;
       const keyNorm = typeof k === "string" ? redactText(k) : redactMetadata(k, depth + 1);
       entries.push([keyNorm, redactMetadata(v, depth + 1)]);
     }
@@ -110,12 +132,22 @@ export function redactMetadata(value: unknown, depth = 0): unknown {
     const proto = Object.getPrototypeOf(value);
     const isPlain = proto === Object.prototype || proto === null;
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    // Phase 282: traverse via own-property descriptors so getters are never
+    // invoked. Non-enumerable own properties are omitted, matching the
+    // visibility of Object.entries.
+    for (const k of Object.getOwnPropertyNames(value)) {
       if (isSensitiveKey(k)) continue;
-      out[k] = redactMetadata(v, depth + 1);
+      const desc = Object.getOwnPropertyDescriptor(value, k);
+      if (!desc) continue;
+      if (desc.get || desc.set) {
+        out[k] = "[getter]";
+        continue;
+      }
+      if (!desc.enumerable) continue;
+      out[k] = redactMetadata(desc.value, depth + 1);
     }
     if (!isPlain) {
-      const className = (value as object).constructor?.name ?? "unknown";
+      const className = safeAuditClassName(value as object);
       return { "$class": className, ...out };
     }
     return out;
@@ -173,5 +205,13 @@ export class AuditService {
     } catch {
       return false;
     }
+  }
+}
+
+export function redactMetadata(value: unknown, depth = 0): unknown {
+  try {
+    return redactMetadataInternal(value, depth);
+  } catch {
+    return "[unavailable metadata]";
   }
 }
