@@ -9,63 +9,42 @@
 
 import { nid, type NexusEngine } from "./db";
 import type { AuditRecord, AuditResult } from "./types";
-import { SENSITIVE_KEYS, SAFE_SUFFIXES } from "./secret-redaction";
+import { makeSensitiveKeyClassifier, redactTextWith, SECRET_TEXT_PATTERNS } from "./secret-redaction";
 
 /**
- * Phase 276: keys whose values are dropped entirely before persistence.
- *
- * The previous implementation used an exact-match Set. That is what let
- * client_secret, refresh_token, access_token, session_id and aws_secret_key
- * survive `redactMetadata` even though the shared redactor (`secret-redaction`)
- * treats them as sensitive. This version uses the same normalize-and-substring
- * rule (plus the same SAFE_SUFFIXES exemption) as `secret-redaction.ts`, so
- * the two redactors can no longer drift apart on key coverage.
- *
- * `salt` is not in SENSITIVE_KEYS; it is retained as a NEXUS-specific
- * extra because salts must never reach the ledger.
+ * Phase 283: shared classifier from secret-redaction.ts, extended with `salt`
+ * because salts must never reach the audit ledger. The base policy
+ * (SENSITIVE_KEYS + SAFE_SUFFIXES exemption) is owned by the shared redactor
+ * so the two redactors cannot drift on key coverage
+ * (Phase 282 SECURITY_POLICY.md:41-46).
  */
-const NORMALIZED_SENSITIVE_KEYS: string[] = [
-  ...Array.from(SENSITIVE_KEYS).map((k) => k.toLowerCase().replace(/[^a-z0-9]/g, "")),
-  "salt",
-];
+const isSensitiveKey = makeSensitiveKeyClassifier(["salt"]);
 
-const NORMALIZED_SAFE_SUFFIXES: string[] = SAFE_SUFFIXES.map(
-  (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
-);
+/**
+ * Phase 283: the driver and URL-userinfo scrub are shared with the general
+ * redactor; only the marker set is audit-specific. Audit markers use spaces
+ * (`[REDACTED:github token]`), locked by test-phase278. The shared redactor
+ * uses underscores (`[REDACTED:github_token]`), locked by test-phase277/273.
+ * Both formats are consumer-visible; do not unify.
+ */
+const AUDIT_MARKERS: Readonly<Record<string, string>> = {
+  "[REDACTED:github_token]": "[REDACTED:github token]",
+  "[REDACTED:github_oauth_token]": "[REDACTED:github oauth token]",
+  "[REDACTED:provider_api_key]": "[REDACTED:provider api key]",
+  "[REDACTED:bearer_token]": "[REDACTED:bearer token]",
+  "[REDACTED:aws_access_key]": "[REDACTED:aws access key]",
+  "[REDACTED:private_key]": "[REDACTED:private key]",
+  "[REDACTED:embedded_credential]": "[REDACTED:embedded credential]",
+};
 
-function isSensitiveKey(rawKey: string): boolean {
-  const normalized = rawKey.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const hasSafeSuffix = NORMALIZED_SAFE_SUFFIXES.some((s) => normalized.endsWith(s));
-  if (hasSafeSuffix) return false;
-  return NORMALIZED_SENSITIVE_KEYS.some((k) => normalized.includes(k));
-}
-
-const SECRET_PATTERNS: [RegExp, string][] = [
-  [/\bBearer\s+[A-Za-z0-9._~+\/=\-]{16,}/gi, "bearer token"],
-  [/ghp_[A-Za-z0-9]{20,}/g, "github token"],
-  [/gho_[A-Za-z0-9]{20,}/g, "github oauth token"],
-  [/gh[usr]_[A-Za-z0-9]{20,}/g, "github token"],
-  [/\bsk-[A-Za-z0-9][A-Za-z0-9-]{15,}/g, "provider api key"],
-  [/(?:AKIA|ASIA)[0-9A-Z]{16}/g, "aws access key"],
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "private key"],
-  [/(api[_-]?key|secret|token|password)\s*[:=]\s*["']?[A-Za-z0-9_\-]{12,}["']?/gi, "embedded credential"],
-];
+const AUDIT_TEXT_PATTERNS: ReadonlyArray<readonly [RegExp, string]> =
+  SECRET_TEXT_PATTERNS.map(([pattern, marker]) =>
+    [pattern, AUDIT_MARKERS[marker] ?? marker] as const
+  );
 
 /** Redact secret-looking material from arbitrary text. */
 export function redactText(text: string): string {
-  let out = text;
-  // Phase 272: URL authority redaction (preserves scheme+host, redacts userinfo).
-  // Applied first, matching secret-redaction.ts behavior, so URL structure is
-  // preserved while the credential is scrubbed.
-  out = out.replace(
-    /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi,
-    '$1[REDACTED]@'
-  );
-  for (const [re, label] of SECRET_PATTERNS) {
-    re.lastIndex = 0;
-    out = out.replace(re, `[REDACTED:${label}]`);
-  }
-  return out;
+  return redactTextWith(text, AUDIT_TEXT_PATTERNS);
 }
 
 /** Deep-clean a metadata object: forbidden keys removed, strings redacted. */
@@ -101,7 +80,18 @@ function redactMetadataInternal(value: unknown, depth = 0): unknown {
   if (typeof value === "symbol") return "[symbol]";
   if (typeof value === "function") return "[function]";
 
-  if (Array.isArray(value)) return value.map((v) => redactMetadata(v, depth + 1));
+  if (Array.isArray(value)) {
+    const out: unknown[] = new Array(value.length);
+    for (let index = 0; index < value.length; index++) {
+      const desc = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!desc) continue;
+      if (!desc.enumerable) continue;
+      out[index] = "value" in desc
+        ? redactMetadata(desc.value, depth + 1)
+        : "[getter]";
+    }
+    return out;
+  }
 
   if (value instanceof Date) {
     const t = value.getTime();
@@ -138,12 +128,11 @@ function redactMetadataInternal(value: unknown, depth = 0): unknown {
     for (const k of Object.getOwnPropertyNames(value)) {
       if (isSensitiveKey(k)) continue;
       const desc = Object.getOwnPropertyDescriptor(value, k);
-      if (!desc) continue;
-      if (desc.get || desc.set) {
+      if (!desc || !desc.enumerable) continue;
+      if (!("value" in desc)) {
         out[k] = "[getter]";
         continue;
       }
-      if (!desc.enumerable) continue;
       out[k] = redactMetadata(desc.value, depth + 1);
     }
     if (!isPlain) {

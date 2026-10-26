@@ -43,15 +43,72 @@ export const SAFE_SUFFIXES = [
   '_name', '_length', '_bytes', '_duration', '_index', '_size',
 ];
 
-const STRING_SECRET_PATTERNS: Array<[RegExp, string]> = [
+/**
+ * Phase 283: shared sensitive-key classifier.
+ *
+ * Normalizes the raw key (lowercase, strip non-alphanumeric), exempts it if it
+ * ends with a SAFE_SUFFIXES entry, and substring-matches against SENSITIVE_KEYS
+ * plus any caller-supplied extra keys. `audit.ts` extends this with `["salt"]`;
+ * the shared redactor uses the base classifier unchanged.
+ */
+const NORMALIZED_SENSITIVE_KEYS: string[] = Array.from(SENSITIVE_KEYS).map(
+  (k) => k.toLowerCase().replace(/[^a-z0-9]/g, ''),
+);
+const NORMALIZED_SAFE_SUFFIXES: string[] = SAFE_SUFFIXES.map(
+  (s) => s.toLowerCase().replace(/[^a-z0-9]/g, ''),
+);
+
+export function makeSensitiveKeyClassifier(
+  extraKeys: readonly string[] = [],
+): (rawKey: string) => boolean {
+  const combined = [
+    ...NORMALIZED_SENSITIVE_KEYS,
+    ...extraKeys.map((k) => k.toLowerCase().replace(/[^a-z0-9]/g, '')),
+  ];
+  return (rawKey: string): boolean => {
+    const normalized = rawKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (NORMALIZED_SAFE_SUFFIXES.some((s) => normalized.endsWith(s))) return false;
+    return combined.some((k) => normalized.includes(k));
+  };
+}
+
+export const isSensitiveKey: (rawKey: string) => boolean = makeSensitiveKeyClassifier();
+
+export const SECRET_TEXT_PATTERNS: Array<[RegExp, string]> = [
   [/ghp_[A-Za-z0-9_-]{20,}/g, "[REDACTED:github_token]"],
   [/gho_[A-Za-z0-9_-]{20,}/g, "[REDACTED:github_oauth_token]"],
+  [/gh[usr]_[A-Za-z0-9_-]{20,}/g, "[REDACTED:github_token]"],
   [/\bsk-[A-Za-z0-9][A-Za-z0-9-]{15,}/g, "[REDACTED:provider_api_key]"],
   [/\bBearer\s+[A-Za-z0-9._~+\/=\-]{16,}/gi, "[REDACTED:bearer_token]"],
   [/(?:AKIA|ASIA)[0-9A-Z]{16}/g, "[REDACTED:aws_access_key]"],
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[REDACTED:private_key]"],
-  [/(api[_-]?key|secret|token|password)\s*[:=]\s*["']?[A-Za-z0-9_\-]{12,}["']?/gi, "[REDACTED:embedded_credential]"],
+  [/(?<![A-Za-z0-9_])(?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|auth[_-]?token|session[_-]?token|client[_-]?secret|token|password|passwd|pwd|secret)(?![A-Za-z0-9_]|_(?:at|ms|count|level|type|status|name|length|bytes|duration|index|size))\s*[:=]\s*(?:["']([^"']{1,})["']|(?!\[REDACTED:)([^\s"',;)\]}>]*[^\s"',;.)\]}>]))/gi, "[REDACTED:embedded_credential]"],
 ];
+
+/**
+ * Phase 283: shared text-redaction driver.
+ *
+ * Applies the URL-userinfo scrub (identical to audit's pre-283 behavior), then
+ * every [RegExp, marker] pair the caller supplies. Marker strings are
+ * caller-owned policy: audit uses spaces in its markers, this file uses
+ * underscores. Both formats are consumer-visible and locked by their own
+ * test suites; do not unify.
+ */
+export function redactTextWith(
+  text: string,
+  patterns: ReadonlyArray<readonly [RegExp, string]>,
+): string {
+  let out = text.replace(
+    /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi,
+    '$1[REDACTED]@',
+  );
+  for (const [re, label] of patterns) {
+    re.lastIndex = 0;
+    out = out.replace(re, label);
+  }
+
+  return out;
+}
 
 /**
  * Phase 273: cycle-safe entry point.
@@ -65,6 +122,23 @@ export function redactSecrets<T>(input: T): T {
   return redactSecretsImpl(input, new WeakSet<object>());
 }
 
+function readErrorField(
+  error: Error,
+  key: "name" | "message" | "stack"
+): unknown {
+  let current: object | null = error;
+
+  while (current !== null) {
+    const descriptor = Object.getOwnPropertyDescriptor(current, key);
+    if (descriptor) {
+      return "value" in descriptor ? descriptor.value : "[getter]";
+    }
+    current = Object.getPrototypeOf(current);
+  }
+
+  return undefined;
+}
+
 function redactSecretsImpl<T>(input: T, seen: WeakSet<object>): T {
   if (input === null || input === undefined) {
     return input;
@@ -74,28 +148,30 @@ function redactSecretsImpl<T>(input: T, seen: WeakSet<object>): T {
   // Object.entries (they live on the prototype). Serialize them explicitly
   // so the diagnostic is preserved in a redacted form instead of being
   // silently dropped.
+  //
+  // Phase 283: use descriptor-based field access so user-installed getters
+  // on Error fields are never invoked. Natural V8 fields are non-enumerable
+  // data properties on the prototype and are read correctly. A getter
+  // descriptor (whether user-installed or otherwise) yields "[getter]".
   if (input instanceof Error) {
+    const errorName = readErrorField(input, "name");
+    const errorMessage = readErrorField(input, "message");
+    const errorStack = readErrorField(input, "stack");
+
     const out: Record<string, unknown> = {
-      name: input.name,
-      message: redactSecretsImpl(input.message, seen),
+      name: redactSecretsImpl(errorName, seen),
+      message: redactSecretsImpl(errorMessage, seen),
     };
-    if (input.stack) {
-      out.stack = redactSecretsImpl(input.stack, seen);
+
+    if (errorStack) {
+      out.stack = redactSecretsImpl(errorStack, seen);
     }
+
     return out as unknown as T;
   }
 
   if (typeof input === 'string') {
-    let s = input as unknown as string;
-    s = s.replace(
-      /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi,
-      '$1[REDACTED]@'
-    );
-    for (const [re, label] of STRING_SECRET_PATTERNS) {
-      re.lastIndex = 0;
-      s = s.replace(re, label);
-    }
-    return s as unknown as T;
+    return redactTextWith(input as unknown as string, SECRET_TEXT_PATTERNS) as unknown as T;
   }
 
   if (Array.isArray(input)) {
@@ -103,7 +179,20 @@ function redactSecretsImpl<T>(input: T, seen: WeakSet<object>): T {
       return '[REDACTED:cycle]' as unknown as T;
     }
     seen.add(input as unknown as object);
-    return input.map((item) => redactSecretsImpl(item, seen)) as unknown as T;
+
+    const result: unknown[] = new Array(input.length);
+    for (let index = 0; index < input.length; index++) {
+      const descriptor = Object.getOwnPropertyDescriptor(input, String(index));
+      if (!descriptor) continue;
+
+      if (!("value" in descriptor)) {
+        result[index] = "[getter]";
+        continue;
+      }
+
+      result[index] = redactSecretsImpl(descriptor.value, seen);
+    }
+    return result as unknown as T;
   }
 
   if (typeof input === 'object') {
@@ -113,20 +202,18 @@ function redactSecretsImpl<T>(input: T, seen: WeakSet<object>): T {
     seen.add(input as object);
 
     const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(input)) {
-      const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const hasSafeSuffix = SAFE_SUFFIXES.some(
-        (sfx) => normalizedKey.endsWith(sfx.replace(/[^a-z0-9]/g, ''))
-      );
-      const isSensitive = !hasSafeSuffix && Array.from(SENSITIVE_KEYS).some((sk) => {
-        const normalizedSk = sk.toLowerCase().replace(/[^a-z0-9]/g, '');
-        return normalizedKey === normalizedSk || normalizedKey.includes(normalizedSk);
-      });
+    for (const key of Object.keys(input)) {
+      const isSensitive = isSensitiveKey(key);
+
+      const descriptor = Object.getOwnPropertyDescriptor(input, key);
+      if (!descriptor || !descriptor.enumerable) continue;
 
       if (isSensitive) {
         result[key] = '[REDACTED]';
+      } else if (!("value" in descriptor)) {
+        result[key] = "[getter]";
       } else {
-        result[key] = redactSecretsImpl(value, seen);
+        result[key] = redactSecretsImpl(descriptor.value, seen);
       }
     }
     return result as unknown as T;

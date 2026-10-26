@@ -74,10 +74,17 @@ export function createHttpApp(deps: HttpAppDeps): Application {
     app.use((req: any, res, next) => {
       const start = Date.now();
       res.on("finish", () => {
+        // Phase 285: log only the pathname; never log the query string.
+        // Query strings can carry credentials (?token=..., ?api_key=...).
+        // req.path is Express's pathname (no query string). If req.path is
+        // unavailable, fall back to "/" — never req.url or req.originalUrl,
+        // both of which include the query string.
+        const rawPath = typeof req.path === "string" ? req.path : "";
+        const path = rawPath.startsWith("/") ? rawPath : "/" + rawPath;
         emitAccessLog({
           rid: req.requestId,
           method: req.method,
-          path: req.originalUrl || req.url,
+          path,
           status: res.statusCode,
           ms: Date.now() - start,
           principal: req.actor?.email ?? null,

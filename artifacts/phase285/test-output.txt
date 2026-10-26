@@ -1,0 +1,535 @@
+﻿Phase 285 verification — refreshed run
+Date: 2026-10-26 12:13:17 +05:30
+Branch: master
+HEAD: 5c6acd5
+
+=== test:phase285 ===
+Command: npm run test:phase285
+
+> test:phase285
+> tsx scripts/test-phase285-runtime-redaction-callsite-audit.ts
+
+
+Phase 285 runtime redaction call-site audit: PASS
+Assertions: 71; passed: 71; failures: 0
+exit: 0
+
+=== test:phase273 ===
+Command: npm run test:phase273
+
+> test:phase273
+> tsx scripts/test-phase273-end-to-end-redaction.ts
+
+=== Phase 273 - End-to-End Redaction ===
+
+
+--- 273-1 redactSecrets catches ghp_ tokens in free text ---
+PASS  273-1 ghp_ token must not survive redaction, got="build output: token=[REDACTED:github_token]"
+PASS  273-1 ghp_ redaction uses [REDACTED:github_token], got="build output: token=[REDACTED:github_token]"
+
+--- 273-2 Error instance handling ---
+PASS  273-2 redactSecrets(Error) must not return null/undefined
+PASS  273-2 redactSecrets(Error) must return object
+PASS  273-2 Error's serialized form must not contain raw token
+PASS  273-2 redacted Error must preserve .message, got={"name":"Error","message":"connect failed: token=[REDACTED:github_token] on db","stack":"[getter]"}
+
+--- 273-3 cyclic object safety ---
+PASS  273-3 cyclic object must not throw, got=null
+PASS  273-3 cyclic object must return value
+PASS  273-3 self-reference becomes [REDACTED:cycle], got={"name":"root","child":{"name":"child","parent":"[REDACTED:cycle]"}}
+
+--- 273-4 sensitive and metadata keys ---
+PASS  273-4 session_started_at preserved
+PASS  273-4 authorization_level preserved
+PASS  273-4 token_count preserved
+PASS  273-4 token redacted
+PASS  273-4 password redacted
+PASS  273-4 session_id redacted
+PASS  273-4 db_password redacted
+PASS  273-4 aws_secret_key redacted
+PASS  273-4 my_auth_token redacted
+
+--- 273-4b compound sensitive keys ---
+PASS  273-4b db_password redacted
+PASS  273-4b aws_secret_key redacted
+PASS  273-4b my_auth_token redacted
+PASS  273-4b session_id redacted
+PASS  273-4b safe level preserved
+PASS  273-4b safe count preserved
+
+--- 273-5 Phase 271 regression ---
+PASS  273-5 password still [REDACTED]
+PASS  273-5 user still preserved
+
+--- 273-5b shared string-redaction closing bracket ---
+PASS  273-5b preserves the original closing bracket, got="error: [REDACTED:embedded_credential]]"
+PASS  273-5b preserves paired surrounding brackets, got="error: [[REDACTED:embedded_credential]]"
+
+--- 273-6 Phase 272 regression - URL credentials ---
+PASS  273-6 password must not survive
+PASS  273-6 preserves postgres://[REDACTED]@db.example.test/, got="Connection failed: postgres://[REDACTED]@db.example.test/nexus"
+
+--- 273-7 Phase 272 regression - nested evidence shape ---
+PASS  273-7 execution_id preserved
+PASS  273-7 duration_ms preserved
+PASS  273-7 password redacted
+PASS  273-7 access_token redacted
+PASS  273-7 connectionString redacted
+
+============================================
+PASS: 35
+FAIL: 0
+============================================
+exit: 0
+
+=== test:phase277 ===
+Command: npm run test:phase277
+
+> test:phase277
+> tsx scripts/test-phase277-redaction-coverage.ts
+
+=== Phase 277 — redaction coverage completion ===
+
+
+--- 277-1 sk-proj-* fully redacted (Gap A — both redactors) ---
+PASS  277-1 ai: sk-proj full value removed
+PASS  277-1 ai: marker present
+PASS  277-1 ai: prefix context preserved
+PASS  277-1 ai: suffix context preserved
+PASS  277-1 shared: sk-proj full value removed
+PASS  277-1 shared: marker present
+PASS  277-1 shared: prefix context preserved
+PASS  277-1 shared: suffix context preserved
+
+--- 277-2 classic sk-* still redacted (Phase 276 regression) ---
+PASS  277-2 ai: sk-* removed
+PASS  277-2 ai: marker present
+PASS  277-2 shared: sk-* removed
+PASS  277-2 shared: marker present
+
+--- 277-3 sk- negative controls (do not over-redact) ---
+PASS  277-3 ai: 'sk-short' unchanged
+PASS  277-3 shared: 'sk-short' unchanged
+PASS  277-3 ai: 'sk--...' unchanged
+PASS  277-3 shared: 'sk--...' unchanged
+PASS  277-3 ai: non-secret unchanged
+PASS  277-3 shared: non-secret unchanged
+
+--- 277-4 ASIA* fully redacted (Gap B — both redactors) ---
+PASS  277-4 ai: ASIA full value removed
+PASS  277-4 ai: marker present
+PASS  277-4 ai: prefix context preserved
+PASS  277-4 ai: suffix context preserved
+PASS  277-4 shared: ASIA full value removed
+PASS  277-4 shared: marker present
+PASS  277-4 shared: prefix context preserved
+PASS  277-4 shared: suffix context preserved
+
+--- 277-5 AKIA* still redacted (Phase 276 regression) ---
+PASS  277-5 ai: AKIA removed
+PASS  277-5 ai: marker present
+PASS  277-5 shared: AKIA removed
+PASS  277-5 shared: marker present
+
+--- 277-6 AWS access-key negative controls (do not over-redact) ---
+PASS  277-6 ai: short ASIA-shaped string unchanged
+PASS  277-6 shared: short ASIA-shaped string unchanged
+PASS  277-6 ai: lowercase asia unchanged
+PASS  277-6 shared: lowercase asia unchanged
+
+--- 277-7 marker stability (consumer-visible labels unchanged) ---
+PASS  277-7 ai: provider_api_key marker stable
+PASS  277-7 shared: provider_api_key marker stable
+PASS  277-7 ai: aws_access_key marker stable
+PASS  277-7 shared: aws_access_key marker stable
+PASS  277-7 ai: ASIA uses aws_access_key marker
+PASS  277-7 shared: ASIA uses aws_access_key marker
+
+--- 277-8 idempotence (second pass is a no-op) ---
+PASS  277-8 ai: second pass no-op
+PASS  277-8 shared: second pass no-op
+
+--- 277-9 no partial exposure (whole credential removed, not just prefix) ---
+PASS  277-9 ai: sk-proj tail absent
+PASS  277-9 shared: sk-proj tail absent
+PASS  277-9 ai: ASIA tail absent
+PASS  277-9 shared: ASIA tail absent
+
+--- 277-10 Phase 273 safe-suffix regression (shared redactor) ---
+PASS  277-10 token_count preserved
+PASS  277-10 session_started_at preserved
+PASS  277-10 authorization_level preserved
+PASS  277-10 client_secret value redacted
+
+============================================
+PASS: 50
+FAIL: 0
+============================================
+exit: 0
+
+=== test:phase278 ===
+Command: npm run test:phase278
+
+> test:phase278
+> tsx scripts/test-phase278-redaction-callsite-audit.ts
+
+=== Phase 278 — redaction call-site audit ===
+
+
+--- 278-1 audit.redactText — ghu/ghs/ghr + sk-proj + ASIA (Finding A) ---
+PASS  278-1 audit.redactText: ghu full removed
+PASS  278-1 audit.redactText: ghu marker present
+PASS  278-1 audit.redactText: ghu prefix preserved
+PASS  278-1 audit.redactText: ghs full removed
+PASS  278-1 audit.redactText: ghr full removed
+PASS  278-1 audit.redactText: sk-proj full removed
+PASS  278-1 audit.redactText: sk-proj marker present
+PASS  278-1 audit.redactText: ASIA full removed
+PASS  278-1 audit.redactText: ASIA marker present
+PASS  278-1 audit.redactText: ghp still removed
+PASS  278-1 audit.redactText: AKIA still removed
+PASS  278-1 audit.redactText: sk-* still removed
+
+--- 278-2 audit.redactMetadata — same coverage on object shapes ---
+PASS  278-2 redactMetadata: sk-proj absent from string value
+PASS  278-2 redactMetadata: ASIA absent from string value
+PASS  278-2 redactMetadata: ghu absent from string value
+
+--- 278-3 github-actions-cicd-provider.redactSecrets (Finding B) ---
+PASS  278-3 cicd redactSecrets: sk-proj removed
+PASS  278-3 cicd redactSecrets: sk-proj marker present
+PASS  278-3 cicd redactSecrets: ASIA removed
+PASS  278-3 cicd redactSecrets: ASIA marker present
+PASS  278-3 cicd redactSecrets: URL removed
+PASS  278-3 cicd redactSecrets: URL marker present
+PASS  278-3 cicd redactSecrets: api_key= removed
+PASS  278-3 cicd redactSecrets: api_key= marker present
+PASS  278-3 cicd redactSecrets: secret= removed
+PASS  278-3 cicd redactSecrets: secret= marker present
+PASS  278-3 cicd redactSecrets: password= removed
+PASS  278-3 cicd redactSecrets: password= marker present
+PASS  278-3 cicd redactSecrets: Basic removed
+PASS  278-3 cicd redactSecrets: Basic marker present
+PASS  278-3 cicd redactSecrets: PEM removed
+PASS  278-3 cicd redactSecrets: PEM marker present
+PASS  278-3 cicd: ghp_ still removed
+PASS  278-3 cicd: AKIA covered (added by Phase 278)
+PASS  278-3 cicd: Bearer still removed
+
+--- 278-4 nexus-host-bridge.mjs redact() (Finding D) ---
+PASS  278-4 bridge redact(): sk-proj removed
+PASS  278-4 bridge redact(): sk-proj marker present
+PASS  278-4 bridge redact(): ASIA removed
+PASS  278-4 bridge redact(): ASIA marker present
+PASS  278-4 bridge redact(): ghu removed
+PASS  278-4 bridge redact(): ghu marker present
+PASS  278-4 bridge redact(): Bearer removed
+PASS  278-4 bridge redact(): Bearer marker present
+PASS  278-4 bridge redact(): URL removed
+PASS  278-4 bridge redact(): URL marker present
+PASS  278-4 bridge redact(): AKIA still removed
+
+--- 278-5 Phase 271-277 regression — shared redactor unchanged ---
+PASS  278-5 shared: ghp_ still redacted
+PASS  278-5 shared: AKIA still redacted
+PASS  278-5 shared: ASIA still redacted
+PASS  278-5 shared: sk-proj still redacted
+PASS  278-5 shared: URL creds still redacted
+PASS  278-5 shared: PEM still redacted
+
+--- 278-6 negative controls — no over-redaction ---
+PASS  278-6 redactText: sk-short unchanged
+PASS  278-6 redactText: short ASIA unchanged
+PASS  278-6 redactText: lowercase asia unchanged
+PASS  278-6 redactText: non-secret unchanged
+PASS  278-6 cicd: sk-short unchanged
+PASS  278-6 cicd: short ASIA unchanged
+PASS  278-6 bridge: sk-short unchanged
+PASS  278-6 bridge: non-secret unchanged
+
+--- 278-7 idempotence ---
+PASS  278-7 redactText: second pass no-op
+PASS  278-7 cicd: second pass no-op
+PASS  278-7 bridge: second pass no-op
+
+--- 278-8 marker stability ---
+PASS  278-8 redactText: provider api key label preserved
+PASS  278-8 redactText: aws access key label preserved
+PASS  278-8 redactText: ghu uses existing github token label
+PASS  278-8 bridge: provider api key label preserved
+PASS  278-8 bridge: aws access key label preserved
+PASS  278-8 bridge: bearertoken marker for new Bearer rule
+
+============================================
+PASS: 68
+FAIL: 0
+============================================
+exit: 0
+
+=== test:phase284 ===
+Command: npm run test:phase284
+
+> test:phase284
+> tsx scripts/test-phase284-redaction-policy-contracts.ts
+
+=== Phase 284 — redaction policy contracts ===
+
+
+--- 284-1 canonical source is exported and shaped correctly ---
+PASS 284-1 SECRET_TEXT_PATTERNS is an array
+PASS 284-1 SECRET_TEXT_PATTERNS has at least 8 entries (got 8)
+PASS 284-1 every entry is [RegExp, string]
+PASS 284-1 every shared marker is underscore-based
+
+--- 284-2 audit consumes the canonical source (source-level) ---
+PASS 284-2 audit.ts imports SECRET_TEXT_PATTERNS from ./secret-redaction
+PASS 284-2 audit.ts has no SECRET_PATTERNS identifier (old duplicate gone)
+PASS 284-2 AUDIT_TEXT_PATTERNS is derived from SECRET_TEXT_PATTERNS.map(...)
+
+--- 284-3 drift detector: no duplicate pattern source in audit.ts ---
+PASS 284-3 audit.ts contains zero independent RegExp literals outside comments (found 0)
+PASS 284-3 URL-userinfo regex present in secret-redaction.ts
+PASS 284-3 URL-userinfo regex absent from audit.ts (found 0)
+
+--- 284-3b redaction.ts is a documented exception (locked shape) ---
+PASS 284-3b redaction.ts legacyPatterns has exactly 10 entries (found 10)
+PASS 284-3b redaction.ts still covers AWS_SECRET_ACCESS_KEY
+PASS 284-3b redaction.ts still covers COSIGN_PASSWORD
+PASS 284-3b redaction.ts still covers Authorization
+PASS 284-3b redaction.ts calls sharedRedact before the legacy pattern loop
+
+--- 284-4 AUDIT_MARKERS covers every canonical marker (drift guard) ---
+PASS 284-4 every canonical marker has an AUDIT_MARKERS entry (missing: [])
+PASS 284-4 AUDIT_MARKERS has at least one entry
+PASS 284-4 no audit marker contains an underscore-separated suffix
+
+--- 284-5 marker compatibility matrix — shared path ---
+PASS 284-5 shared: github_token absent
+PASS 284-5 shared: github_token marker present
+PASS 284-5 shared: github_token context preserved
+PASS 284-5 shared: github_oauth_token absent
+PASS 284-5 shared: github_oauth_token marker present
+PASS 284-5 shared: github_oauth_token context preserved
+PASS 284-5 shared: github_token absent
+PASS 284-5 shared: github_token marker present
+PASS 284-5 shared: github_token context preserved
+PASS 284-5 shared: github_token absent
+PASS 284-5 shared: github_token marker present
+PASS 284-5 shared: github_token context preserved
+PASS 284-5 shared: github_token absent
+PASS 284-5 shared: github_token marker present
+PASS 284-5 shared: github_token context preserved
+PASS 284-5 shared: provider_api_key absent
+PASS 284-5 shared: provider_api_key marker present
+PASS 284-5 shared: provider_api_key context preserved
+PASS 284-5 shared: provider_api_key absent
+PASS 284-5 shared: provider_api_key marker present
+PASS 284-5 shared: provider_api_key context preserved
+PASS 284-5 shared: aws_access_key absent
+PASS 284-5 shared: aws_access_key marker present
+PASS 284-5 shared: aws_access_key context preserved
+PASS 284-5 shared: aws_access_key absent
+PASS 284-5 shared: aws_access_key marker present
+PASS 284-5 shared: aws_access_key context preserved
+PASS 284-5 shared: bearer_token absent
+PASS 284-5 shared: bearer_token marker present
+PASS 284-5 shared: bearer_token context preserved
+PASS 284-5 shared: private_key absent
+PASS 284-5 shared: private_key marker present
+PASS 284-5 shared: private_key context preserved
+PASS 284-5 shared: embedded_credential absent
+PASS 284-5 shared: embedded_credential marker present
+PASS 284-5 shared: embedded_credential context preserved
+PASS 284-5 shared: URL userinfo redacted, host preserved
+
+--- 284-6 marker compatibility matrix — audit path ---
+PASS 284-6 audit: github token absent
+PASS 284-6 audit: github token marker present
+PASS 284-6 audit: github token context preserved
+PASS 284-6 audit: github oauth token absent
+PASS 284-6 audit: github oauth token marker present
+PASS 284-6 audit: github oauth token context preserved
+PASS 284-6 audit: github token absent
+PASS 284-6 audit: github token marker present
+PASS 284-6 audit: github token context preserved
+PASS 284-6 audit: provider api key absent
+PASS 284-6 audit: provider api key marker present
+PASS 284-6 audit: provider api key context preserved
+PASS 284-6 audit: provider api key absent
+PASS 284-6 audit: provider api key marker present
+PASS 284-6 audit: provider api key context preserved
+PASS 284-6 audit: aws access key absent
+PASS 284-6 audit: aws access key marker present
+PASS 284-6 audit: aws access key context preserved
+PASS 284-6 audit: aws access key absent
+PASS 284-6 audit: aws access key marker present
+PASS 284-6 audit: aws access key context preserved
+PASS 284-6 audit: bearer token absent
+PASS 284-6 audit: bearer token marker present
+PASS 284-6 audit: bearer token context preserved
+PASS 284-6 audit: private key absent
+PASS 284-6 audit: private key marker present
+PASS 284-6 audit: private key context preserved
+PASS 284-6 audit: embedded credential absent
+PASS 284-6 audit: embedded credential marker present
+PASS 284-6 audit: embedded credential context preserved
+PASS 284-6 audit: URL userinfo redacted, host preserved
+
+--- 284-7 negative controls — no over-redaction ---
+PASS 284-7 shared: sk-short unchanged
+PASS 284-7 audit: sk-short unchanged
+PASS 284-7 shared: ASIA1234 unchanged
+PASS 284-7 audit: ASIA1234 unchanged
+PASS 284-7 shared: asiaMMMMMMMMMMMMMMMM unchanged
+PASS 284-7 audit: asiaMMMMMMMMMMMMMMMM unchanged
+PASS 284-7 shared: hello world unchanged
+PASS 284-7 audit: hello world unchanged
+
+--- 284-8 idempotence — redacted output is stable ---
+PASS 284-8 shared idempotent for ghp_AAAAAAAAAAAAAAAA
+PASS 284-8 audit idempotent for ghp_AAAAAAAAAAAAAAAA
+PASS 284-8 shared idempotent for ASIAIIIIIIIIIIIIIIII
+PASS 284-8 audit idempotent for ASIAIIIIIIIIIIIIIIII
+PASS 284-8 shared idempotent for -----BEGIN RSA PRIVA
+PASS 284-8 audit idempotent for -----BEGIN RSA PRIVA
+PASS 284-8 shared idempotent for postgres://user:pass
+PASS 284-8 audit idempotent for postgres://user:pass
+
+--- 284-9 derived-marker consistency — shared/audit differ only by underscores ---
+PASS 284-9 [REDACTED:github_token] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:github_oauth_token] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:github_token] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:provider_api_key] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:bearer_token] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:aws_access_key] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:private_key] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:embedded_credential] has the expected explicit audit marker mapping
+
+--- 284-10 metadata path preserves getter-safety and sensitive-key rules ---
+PASS 284-10 salt is dropped (audit-specific extension)
+PASS 284-10 ordinary field preserved
+PASS 284-10 audit getter never invoked
+PASS 284-10 audit accessor marked [getter]
+PASS 284-10 getter return value absent
+
+--- 284-11 serialization safety ---
+PASS 284-11 representative outputs serialize with JSON.stringify
+
+============================================
+PASS: 116
+FAIL: 0
+============================================
+exit: 0
+
+=== test:phase180 ===
+Command: npm run test:phase180
+
+> test:phase180
+> tsx scripts/test-phase180-http-production-hardening.ts
+
+
+A - Request validation
+  ok   A1 malformed JSON rejected (400 MALFORMED_JSON)
+  ok   A2 non-JSON content type rejected (4xx)
+  ok   A3 invalid HTTP method rejected
+  ok   A4 missing projectId rejected (400)
+  ok   A5 unknown path parameter rejected (404)
+  ok   A6 invalid environment rejected
+  ok   A7 invalid control field rejected
+  ok   A8 oversized body rejected (413)
+
+B - Security
+  ok   B9 X-Content-Type-Options nosniff
+  ok   B9 X-Frame-Options DENY
+  ok   B9 Referrer-Policy no-referrer
+  ok   B9 Cache-Control no-store on authenticated control surface
+  ok   B10 bearer token not present in response body
+  ok   B10 password keyword absent from response body
+  ok   B11 auth error contains no internal credential material
+  ok   B12 no stack trace in error response
+  ok   B13 malformed X-Request-Id rejected; server-generated one substituted
+  ok   B14 valid X-Request-Id preserved verbatim
+  ok   B14b overlong X-Request-Id not trusted
+  ok   B9b security headers also applied to /health
+
+C - Authentication
+  ok   C15 unauthenticated request rejected (401)
+  ok   C16 authenticated request accepted (200)
+  ok   C17 invalid token rejected (401)
+
+D - Authorization
+  ok   D18 project authorization preserved (DEVELOPER no membership -> 403)
+  ok   D19 environment isolation preserved (mismatch -> 400)
+  ok   D20 cancellation permission preserved (DEVELOPER lacks execution:cancel)
+  ok   D21 reconciliation permission preserved (DEVELOPER no membership)
+
+E - Idempotency
+  ok   E22 duplicate same request returns identical response
+  ok   E23 duplicate after restart returns same durable response
+  ok   E24 same key with different body -> 409 IDEMPOTENCY_KEY_REUSED
+  ok   E25 concurrent duplicate requests converge to identical response
+
+F - Timeout / resource safety
+  ok   F26 request completes well within timeout deadline
+  ok   F27 abandoned request does not corrupt durable state
+  ok   F28 no false success: status is RECOVERY_REQUIRED
+
+G - Rate / abuse
+  ok   G29 repeated unauthorized requests eventually rate limited
+  ok   G30 control-request abuse eventually rate limited
+  ok   G31 legitimate request remains functional before/at limit
+
+H - Health
+  ok   H32 liveness endpoint returns live
+  ok   H33 readiness endpoint returns ready with all deps wired
+  ok   H34 health endpoints do not mutate intent state
+  ok   H35 readiness does not invoke provider (no provider/docker audit events)
+  ok   H36 health does not acquire lease
+
+I - Shutdown
+  ok   I37/I38 run-server boots and emits listening event
+  ok   I37 graceful shutdown trigger leads to clean exit (code 0)
+  ok   I38 shutdown_complete event emitted
+  ok   I40 durable state (sqlite + migrations table) survives shutdown
+  ok   I39 no new requests accepted after shutdown (port closed)
+  ok   I41 process exited cleanly (resources closed)
+
+J - Concurrency
+  ok   J42 concurrent reconcile both resolve
+  ok   J43 concurrent cancel both resolve
+  ok   J44 concurrent reconcile+cancel remains coherent
+  ok   J45 lease fencing preserved (LEASE_HELD)
+
+K - Error contract
+  ok   K46 deterministic 400 (missing Idempotency-Key)
+  ok   K47 deterministic 401
+  ok   K48 deterministic 403
+  ok   K49 deterministic 404
+  ok   K50 deterministic 409 (terminal state)
+  ok   K51 deterministic 413 (oversized body)
+  ok   K52 4xx/5xx body contains no stack frames or module paths
+  ok   K52 response envelope matches SystemError shape when error
+
+=== Phase 180 Summary ===
+Passed: 60
+Failed: 0
+exit: 0
+
+=== typecheck ===
+Command: npm run typecheck
+
+> typecheck
+> tsc --noEmit
+
+exit: 0
+
+=== git diff --check ===
+Command: git diff --check
+warning: in the working copy of 'scripts/nexus-host-bridge.mjs', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'scripts/verify-pass5-fixed-windows.mjs', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/core/worker-gateway.ts', CRLF will be replaced by LF the next time Git touches it
+exit: 0
+
+Overall command status: PASS
+Failed checks: 0
+No commit or push performed.

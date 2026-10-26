@@ -111,7 +111,11 @@
         "test:phase279": "tsx scripts/test-phase279-redaction-boundary-integration.ts",
         "test:phase280": "tsx scripts/test-phase280-redaction-serialization.ts",
         "test:phase281": "tsx scripts/test-phase281-audit-metadata-normalization.ts",
-        "test:phase282": "tsx scripts/test-phase282-audit-metadata-security.ts"
+        "test:phase282": "tsx scripts/test-phase282-audit-metadata-security.ts",
+        "test:phase283": "tsx scripts/test-phase283-redaction-getter-safety.ts",
+        "test:phase284": "tsx scripts/test-phase284-redaction-policy-contracts.ts",
+        "test:phase285": "tsx scripts/test-phase285-runtime-redaction-callsite-audit.ts",
+        "test:phase286": "tsx scripts/test-phase286-worker-gateway-validation.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",

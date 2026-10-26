@@ -5,7 +5,7 @@
 // redactText() helper from core/audit.ts so secrets never reach logs.
 // Opt-in: createHttpApp only emits access lines when accessLog=true.
 
-import { redactText } from "../core/audit";
+import { redactMetadata, redactText } from "../core/audit";
 
 export interface AccessLogFields {
   rid: string;
@@ -46,15 +46,21 @@ export function emitAccessLog(fields: AccessLogFields): void {
 }
 
 export function emitServerEvent(kind: string, fields: Record<string, unknown> = {}): void {
+  const redacted = redactMetadata(fields);
+  const safeFields =
+    redacted !== null && typeof redacted === "object" && !Array.isArray(redacted)
+      ? Object.fromEntries(
+          Object.entries(redacted as Record<string, unknown>).map(([key, value]) => [
+            key,
+            typeof value === "string" ? value.slice(0, 256) : value,
+          ]),
+        )
+      : {};
+
   const line = JSON.stringify({
+    ...safeFields,
     ts: Date.now(),
     kind: "http.server." + clip(kind, 64),
-    ...Object.fromEntries(
-      Object.entries(fields).map(([k, v]) => [
-        k,
-        typeof v === "string" ? redactText(v).slice(0, 256) : v,
-      ]),
-    ),
   });
   try { process.stdout.write(line + "\n"); } catch { /* best-effort */ }
 }

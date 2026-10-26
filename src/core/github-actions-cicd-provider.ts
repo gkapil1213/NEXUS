@@ -325,8 +325,16 @@ export function mapGitHubStatus(run: GitHubWorkflowRun): string {
  */
 export function redactSecrets(input: string): string {
   return input
+    // Phase 105 patterns — unchanged.
     .replace(/gh[pousr]_[A-Za-z0-9]{20,}/g, "[REDACTED]")
     .replace(/github_pat_[A-Za-z0-9_]{20,}/g, "[REDACTED]")
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]{10,}/gi, "Bearer [REDACTED]")
-    .replace(/token[=:]\s*[A-Za-z0-9._~+/=-]{10,}/gi, "token=[REDACTED]");
+    .replace(/token[=:]\s*[A-Za-z0-9._~+/=-]{10,}/gi, "token=[REDACTED]")
+    // Phase 278 additions — URL first so partial-userinfo cannot survive.
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi, "$1[REDACTED]@")
+    .replace(/(?:AKIA|ASIA)[0-9A-Z]{16}/g, "[REDACTED]")
+    .replace(/\bsk-[A-Za-z0-9][A-Za-z0-9-]{15,}/g, "[REDACTED]")
+    .replace(/\bBasic\s+[A-Za-z0-9+/=]{10,}/gi, "Basic [REDACTED]")
+    .replace(/(api[_-]?key|secret|password|passwd|pwd)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;&]+)/gi, "[REDACTED]")
+    .replace(/-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g, "[REDACTED]");
 }

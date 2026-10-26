@@ -1,5 +1,5 @@
 // scripts/test-phase273-end-to-end-redaction.ts
-// Phase 273 — End-to-end secret redaction audit and regression hardening.
+// Phase 273 - End-to-end secret redaction audit and regression hardening.
 //
 // This file starts RED on the current code. Each failing assertion documents
 // a concrete gap that Phase 273 will fix. After the fixes land, this file
@@ -22,7 +22,7 @@ function sentinel(prefix: string): string {
 }
 
 async function main() {
-  console.log("=== Phase 273 — End-to-End Redaction ===\n");
+  console.log("=== Phase 273 - End-to-End Redaction ===\n");
 
   // 273-1: redactSecrets catches GitHub tokens in free text (baseline).
   // The *executor-local sanitize* gap is documented in the report; Fix 1
@@ -118,15 +118,30 @@ async function main() {
     ok(redacted.token_count === 7, "273-4b safe count preserved");
   }
 
-  // 273-5: Phase 271 regression — password redaction.
+  // 273-5: Phase 271 regression - password redaction.
   section("273-5 Phase 271 regression");
   {
     const redacted = redactSecrets({ password: "supersecret", user: "alice" }) as any;
     ok(redacted.password === "[REDACTED]", "273-5 password still [REDACTED]");
     ok(redacted.user === "alice", "273-5 user still preserved");
   }
-  // 273-6: Phase 272 regression — URL credentials.
-  section("273-6 Phase 272 regression — URL credentials");
+  // 273-5b: shared string-redaction punctuation regressions.
+  section("273-5b shared string-redaction closing bracket");
+  {
+    const loneBracket = redactSecrets("error: token=ABC123]") as string;
+    ok(
+      loneBracket === "error: [REDACTED:embedded_credential]]",
+      "273-5b preserves the original closing bracket, got=" + JSON.stringify(loneBracket)
+    );
+
+    const pairedBrackets = redactSecrets("error: [token=ABC123]") as string;
+    ok(
+      pairedBrackets === "error: [[REDACTED:embedded_credential]]",
+      "273-5b preserves paired surrounding brackets, got=" + JSON.stringify(pairedBrackets)
+    );
+  }
+  // 273-6: Phase 272 regression - URL credentials.
+  section("273-6 Phase 272 regression - URL credentials");
   {
     const text = "Connection failed: postgres://user:secretpw@db.example.test/nexus";
     const redacted = redactSecrets(text) as string;
@@ -136,8 +151,8 @@ async function main() {
        "273-6 preserves postgres://[REDACTED]@db.example.test/, got=" + JSON.stringify(redacted));
   }
 
-  // 273-7: Phase 272 regression — nested evidence shape.
-  section("273-7 Phase 272 regression — nested evidence shape");
+  // 273-7: Phase 272 regression - nested evidence shape.
+  section("273-7 Phase 272 regression - nested evidence shape");
   {
     const input = {
       metadata: { execution_id: "phase273-regression", duration_ms: 123 },
