@@ -62,16 +62,15 @@ Classified per the Phase 285 prompt's Section 7 categories: `Confirmed defect`,
 
 ### G-3. Lone `]` punctuation case — OPEN
 
-- Classification: Observed output inconsistency; not resolved.
-- File: `src/core/secret-redaction.ts`, `redactTextWith` and `SECRET_TEXT_PATTERNS`.
-- Current implementation: `redactTextWith` applies the configured patterns and returns the result. There is no post-pattern cleanup that removes a closing bracket.
-- Cause: The original input's `]` is preserved as punctuation, while the redaction marker also ends with `]`.
-- Verified expected behavior in the current Phase 285 audit:
-  - `redactText("error: token=ABC123]")` -> `"error: [REDACTED:embedded credential]]"`
-  - `redactSecrets("error: token=ABC123]")` -> `"error: [REDACTED:embedded_credential]]"`
-  - Paired-bracket inputs must continue to follow the explicit regression-test expectations.
-- Regression coverage: `scripts/test-phase273-end-to-end-redaction.ts` and `scripts/test-phase285-runtime-redaction-callsite-audit.ts`.
-- Status: OPEN — the duplicate closing bracket is documented, not fixed. Do not claim a cleanup regex resolves this behavior. The separate G-2 audit-field coverage gap remains unresolved.
+### G-3. Lone `]` punctuation case — RESOLVED
+
+- **Classification:** Resolved output inconsistency.
+- **Original behavior:** `error: token=ABC123]` produced `error: [REDACTED:embedded_credential]]`, leaving a duplicate closing bracket.
+- **Fix:** `redactTextWith` now performs post-pattern cleanup to collapse an orphan closing bracket immediately following a redaction marker.
+- **Regression coverage:** Phase 273 checks the lone-bracket case and verifies that paired surrounding brackets remain intact. Phase 285 runtime audit checks the corresponding audit-marker outputs.
+- **Expected behavior:** A lone trailing `]` is collapsed, while the brackets surrounding an already bracketed credential remain preserved.
+- **Verification:** The supplied verification results report Phase 273 at 35/35 and Phase 285 at 71/71. Rerun both against the final working tree before treating this as final verification.
+- **Status:** RESOLVED — scoped regression checks pass. This does not resolve the separate G-2 audit-field coverage gap or establish production security certification.
 ### G-4. Trailing period after embedded credential â€” RESOLVED
 
 - Classification: Resolved limitation

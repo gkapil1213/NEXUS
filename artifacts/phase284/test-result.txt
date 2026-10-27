@@ -1,0 +1,7 @@
+﻿Phase: 284
+Command: npx tsx scripts/test-phase284-redaction-policy-contracts.ts
+ExitCode: 0
+AssertionsPassed: 116
+AssertionsFailed: 0
+OutputLines: 145
+TimestampLocal: 2026-10-25 09:15:27 +05:30

@@ -48,6 +48,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import fsp from "node:fs/promises";
+import { redact } from "./nexus-host-bridge-redaction.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE = path.resolve(__dirname, "..");
@@ -192,23 +193,7 @@ function sanitizedEnv() {
 
 /* --------------------------- secret redaction ------------------------------ */
 
-const SECRET_PATTERNS = [
-  [/ghp_[A-Za-z0-9]{20,}/g, "[REDACTED:github token]"],
-  [/gho_[A-Za-z0-9]{20,}/g, "[REDACTED:github oauth token]"],
-  [/sk-[A-Za-z0-9]{16,}/g, "[REDACTED:provider api key]"],
-  [/AKIA[0-9A-Z]{16}/g, "[REDACTED:aws access key]"],
-  [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, "[REDACTED:private key]"],
-  [/(api[_-]?key|secret|token|password)\s*[:=]\s*["']?[A-Za-z0-9_\-]{12,}["']?/gi, "[REDACTED:embedded credential]"],
-];
 
-function redact(text) {
-  let out = text;
-  for (const [re, label] of SECRET_PATTERNS) {
-    re.lastIndex = 0;
-    out = out.replace(re, label);
-  }
-  return out;
-}
 
 function cap(text) {
   if (text.length <= MAX_OUTPUT_BYTES) return text;

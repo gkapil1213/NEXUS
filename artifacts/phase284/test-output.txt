@@ -1,0 +1,145 @@
+﻿=== Phase 284 ├â┬ó├óΓÇÜ┬¼├óΓé¼┬¥ redaction policy contracts ===
+
+
+--- 284-1 canonical source is exported and shaped correctly ---
+PASS 284-1 SECRET_TEXT_PATTERNS is an array
+PASS 284-1 SECRET_TEXT_PATTERNS has at least 8 entries (got 8)
+PASS 284-1 every entry is [RegExp, string]
+PASS 284-1 every shared marker is underscore-based
+
+--- 284-2 audit consumes the canonical source (source-level) ---
+PASS 284-2 audit.ts imports SECRET_TEXT_PATTERNS from ./secret-redaction
+PASS 284-2 audit.ts has no SECRET_PATTERNS identifier (old duplicate gone)
+PASS 284-2 AUDIT_TEXT_PATTERNS is derived from SECRET_TEXT_PATTERNS.map(...)
+
+--- 284-3 drift detector: no duplicate pattern source in audit.ts ---
+PASS 284-3 audit.ts contains zero independent RegExp literals outside comments (found 0)
+PASS 284-3 URL-userinfo regex present in secret-redaction.ts
+PASS 284-3 URL-userinfo regex absent from audit.ts (found 0)
+
+--- 284-3b redaction.ts is a documented exception (locked shape) ---
+PASS 284-3b redaction.ts legacyPatterns has exactly 10 entries (found 10)
+PASS 284-3b redaction.ts still covers AWS_SECRET_ACCESS_KEY
+PASS 284-3b redaction.ts still covers COSIGN_PASSWORD
+PASS 284-3b redaction.ts still covers Authorization
+PASS 284-3b redaction.ts calls sharedRedact before the legacy pattern loop
+
+--- 284-4 AUDIT_MARKERS covers every canonical marker (drift guard) ---
+PASS 284-4 every canonical marker has an AUDIT_MARKERS entry (missing: [])
+PASS 284-4 AUDIT_MARKERS has at least one entry
+PASS 284-4 no audit marker contains an underscore-separated suffix
+
+--- 284-5 marker compatibility matrix ├â┬ó├óΓÇÜ┬¼├óΓé¼┬¥ shared path ---
+PASS 284-5 shared: github_token absent
+PASS 284-5 shared: github_token marker present
+PASS 284-5 shared: github_token context preserved
+PASS 284-5 shared: github_oauth_token absent
+PASS 284-5 shared: github_oauth_token marker present
+PASS 284-5 shared: github_oauth_token context preserved
+PASS 284-5 shared: github_token absent
+PASS 284-5 shared: github_token marker present
+PASS 284-5 shared: github_token context preserved
+PASS 284-5 shared: github_token absent
+PASS 284-5 shared: github_token marker present
+PASS 284-5 shared: github_token context preserved
+PASS 284-5 shared: github_token absent
+PASS 284-5 shared: github_token marker present
+PASS 284-5 shared: github_token context preserved
+PASS 284-5 shared: provider_api_key absent
+PASS 284-5 shared: provider_api_key marker present
+PASS 284-5 shared: provider_api_key context preserved
+PASS 284-5 shared: provider_api_key absent
+PASS 284-5 shared: provider_api_key marker present
+PASS 284-5 shared: provider_api_key context preserved
+PASS 284-5 shared: aws_access_key absent
+PASS 284-5 shared: aws_access_key marker present
+PASS 284-5 shared: aws_access_key context preserved
+PASS 284-5 shared: aws_access_key absent
+PASS 284-5 shared: aws_access_key marker present
+PASS 284-5 shared: aws_access_key context preserved
+PASS 284-5 shared: bearer_token absent
+PASS 284-5 shared: bearer_token marker present
+PASS 284-5 shared: bearer_token context preserved
+PASS 284-5 shared: private_key absent
+PASS 284-5 shared: private_key marker present
+PASS 284-5 shared: private_key context preserved
+PASS 284-5 shared: embedded_credential absent
+PASS 284-5 shared: embedded_credential marker present
+PASS 284-5 shared: embedded_credential context preserved
+PASS 284-5 shared: URL userinfo redacted, host preserved
+
+--- 284-6 marker compatibility matrix ├â┬ó├óΓÇÜ┬¼├óΓé¼┬¥ audit path ---
+PASS 284-6 audit: github token absent
+PASS 284-6 audit: github token marker present
+PASS 284-6 audit: github token context preserved
+PASS 284-6 audit: github oauth token absent
+PASS 284-6 audit: github oauth token marker present
+PASS 284-6 audit: github oauth token context preserved
+PASS 284-6 audit: github token absent
+PASS 284-6 audit: github token marker present
+PASS 284-6 audit: github token context preserved
+PASS 284-6 audit: provider api key absent
+PASS 284-6 audit: provider api key marker present
+PASS 284-6 audit: provider api key context preserved
+PASS 284-6 audit: provider api key absent
+PASS 284-6 audit: provider api key marker present
+PASS 284-6 audit: provider api key context preserved
+PASS 284-6 audit: aws access key absent
+PASS 284-6 audit: aws access key marker present
+PASS 284-6 audit: aws access key context preserved
+PASS 284-6 audit: aws access key absent
+PASS 284-6 audit: aws access key marker present
+PASS 284-6 audit: aws access key context preserved
+PASS 284-6 audit: bearer token absent
+PASS 284-6 audit: bearer token marker present
+PASS 284-6 audit: bearer token context preserved
+PASS 284-6 audit: private key absent
+PASS 284-6 audit: private key marker present
+PASS 284-6 audit: private key context preserved
+PASS 284-6 audit: embedded credential absent
+PASS 284-6 audit: embedded credential marker present
+PASS 284-6 audit: embedded credential context preserved
+PASS 284-6 audit: URL userinfo redacted, host preserved
+
+--- 284-7 negative controls ├â┬ó├óΓÇÜ┬¼├óΓé¼┬¥ no over-redaction ---
+PASS 284-7 shared: sk-short unchanged
+PASS 284-7 audit: sk-short unchanged
+PASS 284-7 shared: ASIA1234 unchanged
+PASS 284-7 audit: ASIA1234 unchanged
+PASS 284-7 shared: asiaMMMMMMMMMMMMMMMM unchanged
+PASS 284-7 audit: asiaMMMMMMMMMMMMMMMM unchanged
+PASS 284-7 shared: hello world unchanged
+PASS 284-7 audit: hello world unchanged
+
+--- 284-8 idempotence ├â┬ó├óΓÇÜ┬¼├óΓé¼┬¥ redacted output is stable ---
+PASS 284-8 shared idempotent for ghp_AAAAAAAAAAAAAAAA
+PASS 284-8 audit idempotent for ghp_AAAAAAAAAAAAAAAA
+PASS 284-8 shared idempotent for ASIAIIIIIIIIIIIIIIII
+PASS 284-8 audit idempotent for ASIAIIIIIIIIIIIIIIII
+PASS 284-8 shared idempotent for -----BEGIN RSA PRIVA
+PASS 284-8 audit idempotent for -----BEGIN RSA PRIVA
+PASS 284-8 shared idempotent for postgres://user:pass
+PASS 284-8 audit idempotent for postgres://user:pass
+
+--- 284-9 derived-marker consistency ΓÇö shared/audit differ only by underscores ---
+PASS 284-9 [REDACTED:github_token] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:github_oauth_token] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:github_token] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:provider_api_key] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:bearer_token] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:aws_access_key] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:private_key] has the expected explicit audit marker mapping
+PASS 284-9 [REDACTED:embedded_credential] has the expected explicit audit marker mapping
+PASS 284-10 salt is dropped (audit-specific extension)
+PASS 284-10 ordinary field preserved
+PASS 284-10 audit getter never invoked
+PASS 284-10 audit accessor marked [getter]
+PASS 284-10 getter return value absent
+
+--- 284-11 serialization safety ---
+PASS 284-11 representative outputs serialize with JSON.stringify
+
+============================================
+PASS: 116
+FAIL: 0
+============================================

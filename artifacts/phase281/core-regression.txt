@@ -1,0 +1,215 @@
+﻿
+> test:core
+> tsx scripts/run-core-tests.ts
+
+NEXUS CORE VERIFICATION
+========================
+
+Engine: sqlite
+Passed: 116
+Failed: 0
+Blocked: 0
+Duration: 9350ms
+
+--------------------------------
+TEST RESULTS
+--------------------------------
+[PASSED] kernel boots in enforced order with all steps ok
+  Evidence: boot order: config,persistence,events,audit,secrets,agents,orchestration,runtime,recovery,drift-observer
+[PASSED] health reports real subsystem state and never fakes healthy
+  Evidence: overall=degraded engine=sqlite db=1.2ms
+[PASSED] persistence round-trip survives across independent reads
+  Evidence: engine=sqlite
+[PASSED] project creation validates input and rejects invalid names
+  Evidence: invalid inputs rejected
+[PASSED] project create → get → update → archive lifecycle persists
+  Evidence: prj_bc1e6890-d2e8-406a-ace2-c1fef74b9f5f ACTIVE→PAUSED→ARCHIVED
+[PASSED] unauthorized project creation is denied and audited
+  Evidence: deny audited
+[PASSED] execution lifecycle enforces legal transitions only
+  Evidence: QUEUED→RUNNING→SUCCEEDED; further moves rejected
+[PASSED] orchestrated execution succeeds with real evidence and artifacts
+  Evidence: evidence=2 artifacts=1 events=7
+[PASSED] orchestration failure marks FAILED with the real error — never success
+  Evidence: FAILED stays FAILED; real error preserved
+[PASSED] VIEWER cannot create executions (authorization gate)
+  Evidence: denied
+[PASSED] agent registry prevents duplicate registration and discovers by capability
+  Evidence: dedupe + discovery ok
+[PASSED] agent context never contains secret values
+  Evidence: context carries references only
+[PASSED] events are append-only with strictly increasing order
+  Evidence: seq 44 → 45
+[PASSED] audit redacts secrets before persistence
+  Evidence: password/token/key all redacted
+[PASSED] evidence digests verify; tampering is detected
+  Evidence: tamper detected: sha256:926f9d787c9fa76c...
+[PASSED] artifact digests are deterministic for identical content
+  Evidence: digest stable, ids unique
+[PASSED] session lifecycle: issue → validate → logout → invalid
+  Evidence: revoked token rejected
+[PASSED] bootstrap creates OWNER with PBKDF2 hash — no plaintext password persists
+  Evidence: 1 user(s), all hashed
+[PASSED] login rejects invalid credentials and audits the failure
+  Evidence: denial audited
+[PASSED] RBAC matrix: VIEWER denied writes; suspended identity denied everything
+  Evidence: matrix enforced
+[PASSED] invalid input is rejected (email, request text)
+  Evidence: validators enforced
+[PASSED] structured errors carry code/category/recoverable without leaking internals
+  Evidence: structured + safe
+[PASSED] redactText neutralizes embedded credentials
+  Evidence: patterns neutralized
+[PASSED] REGRESSION: duplicate submissions never duplicate evidence/artifact ids
+  Evidence: 1+1 artifacts, all unique
+[PASSED] REGRESSION: event history is never overwritten by new emissions
+  Evidence: history preserved
+[PASSED] P3 workspace: authorized OWNER creation succeeds and records ownership
+  Evidence: created ws_647fa934-d395-49d8-9b80-05285c5d9fe3
+[PASSED] P3 workspace: VIEWER creation is denied (workspace:create)
+[PASSED] P3 workspace: belongs to the exact execution it was created for
+[PASSED] P3 workspace: belongs to the exact project it was created for
+[PASSED] P3 workspace: duplicate creation is handled safely (two valid records, no crash)
+[PASSED] P3 lifecycle: CREATING → READY on creation
+[PASSED] P3 lifecycle: READY → ACTIVE on activation
+[PASSED] P3 lifecycle: ACTIVE → CLEANING → DESTROYED via cleanup (audited)
+[PASSED] P3 lifecycle: destroyed workspace is terminal (destroyed_at set, not reusable)
+[PASSED] P3 lifecycle: illegal transition is rejected
+[PASSED] P3 lifecycle: cleanup is idempotent (second call is a safe no-op)
+[PASSED] P3 lifecycle: expired workspace cannot be activated (BLOCKED + audited)
+[PASSED] P3 path: valid workspace path is allowed (write + read)
+[PASSED] P3 path: '../' traversal is denied
+[PASSED] P3 path: absolute host path is denied
+[PASSED] P3 path: encoded traversal is denied
+[PASSED] P3 path: mixed-separator traversal is denied
+[PASSED] P3 path: a path referencing another workspace is denied (foreign)
+[PASSED] P3 path: a different project's workspace is denied to a non-owner
+[PASSED] P3 path: protected system/credential paths are denied
+[PASSED] P3 path: ws:// escape reference is denied; sandbox reports LOGICAL_BOUNDARY
+[PASSED] P3 files: authorized read returns written content
+[PASSED] P3 files: authorized write updates size/count bookkeeping
+[PASSED] P3 files: unauthorized read is denied (VIEWER)
+[PASSED] P3 files: unauthorized write is denied (VIEWER)
+[PASSED] P3 files: file size limit is enforced
+[PASSED] P3 files: file count limit is enforced (configurable)
+[PASSED] P3 files: total workspace size limit is enforced (configurable)
+[PASSED] P3 exec: an agent execution is bound to exactly one owned workspace
+[PASSED] P3 exec: a different identity cannot access the execution's workspace
+[PASSED] P3 exec: workspace is cleaned up after success
+[PASSED] P3 exec: workspace is cleaned up after agent failure
+[PASSED] P3 exec: workspace is cleaned up after an agent exception (interruption)
+[PASSED] P3 exec: an expired workspace cannot be activated for execution
+[PASSED] P3 audit: denied path access is audited with classification
+[PASSED] P3 audit: workspace creation is audited
+[PASSED] P3 audit: workspace cleanup is audited (started + completed)
+[PASSED] P3 audit: security preview agrees with the actual execution decision
+[PASSED] P3 audit: no secret value ever reaches workspace audit records
+[PASSED] P3 regression: duplicate execution request does not create a duplicate workspace
+[PASSED] P3 regression: workspace events preserve strictly-increasing sequence
+[PASSED] P3 regression: Phase-1 authorization behavior is unchanged (VIEWER still denied)
+[PASSED] Pass3: Node project generates a valid GitHub Actions pipeline
+  Evidence: generated .github/workflows/nexus-ci.yml
+[PASSED] Pass3: Node project generates a valid GitLab CI pipeline
+  Evidence: generated .gitlab-ci.yml
+[PASSED] Pass3: Python project generates a correct pipeline (pip + pytest)
+  Evidence: python pipeline correct
+[PASSED] Pass3: TypeScript project generates a correct pipeline
+  Evidence: typescript pipeline correct
+[PASSED] Pass3: unsupported/empty project is handled honestly (no invented steps)
+  Evidence: unknown project → no fabricated steps
+[PASSED] Pass3: valid generated GitHub YAML parses and validates VALID
+  Evidence: valid YAML → VALID
+[PASSED] Pass3: valid generated GitLab YAML parses and validates VALID
+  Evidence: valid GitLab YAML → VALID
+[PASSED] Pass3: malformed YAML is rejected (real parse, not a string check)
+  Evidence: malformed YAML rejected
+[PASSED] Pass3: missing required stage is rejected
+  Evidence: missing stage rejected
+[PASSED] Pass3: dangerous command is rejected via structured analysis
+  Evidence: dangerous command rejected
+[PASSED] Pass3: secret exposure in YAML is rejected; references are allowed
+  Evidence: secret exposure rejected
+[PASSED] Pass3: GitHub provider-specific structure is enforced (jobs key)
+  Evidence: provider structure enforced
+[PASSED] Pass3: GitHub provider interface works against a deterministic static fixture
+  Evidence: static fixture interface ok
+[PASSED] Pass3: GitLab provider interface works against a deterministic static fixture
+  Evidence: gitlab static fixture ok
+[PASSED] Pass3: GitHub provider with no connected token returns BLOCKED (never fakes success)
+  Evidence: unconnected GitHub → BLOCKED
+[PASSED] Pass3: GitLab provider remote ops are honestly BLOCKED (no credentials/network)
+  Evidence: GitLab remote → BLOCKED
+[PASSED] Pass3: no fabricated remote repository state (static ≠ remote)
+  Evidence: no fabricated remote state
+[PASSED] Pass3: DevOps branch naming is deterministic and isolated
+  Evidence: deterministic isolated branch
+[PASSED] Pass3: protected branch write is denied by default
+  Evidence: protected branches denied
+[PASSED] Pass3: static provider refuses to create a branch on a protected name
+  Evidence: protected branch creation denied
+[PASSED] Pass3: CI run QUEUED→RUNNING→SUCCEEDED with legal transitions
+  Evidence: legal CI transitions
+[PASSED] Pass3: CI run failure produces FAILED with real error
+  Evidence: failure → FAILED
+[PASSED] Pass3: unavailable provider produces BLOCKED (startRun on static fixture)
+  Evidence: unavailable provider → BLOCKED
+[PASSED] Pass3: illegal CI transitions are rejected (FAILED→SUCCEEDED, CANCELLED→RUNNING)
+  Evidence: illegal transitions rejected
+[PASSED] Pass3: retry creates a separate attempt (idempotent per attempt)
+  Evidence: retry → separate attempt
+[PASSED] Pass3: git operations require authorization (VIEWER denied, audited)
+  Evidence: RBAC gates git/pipeline ops
+[PASSED] Pass3: blocked provider operation is recorded + audited honestly
+  Evidence: blocked git op audited
+[PASSED] Pass3: provider credentials never enter model/agent context
+  Evidence: no credentials in context
+[PASSED] Pass3: generated pipelines contain secret references, never values
+  Evidence: generated pipeline secret-free
+[PASSED] Pass3: PipelineAgent registers PIPELINE_CONFIG + VALIDATION_REPORT artifacts with real digests
+  Evidence: pipeline artifacts registered
+[PASSED] Pass3: artifact digest is deterministic for identical pipeline content
+  Evidence: deterministic digests
+[PASSED] Pass3: pipeline generation + validation events are emitted and ordered
+  Evidence: pipeline events emitted + ordered
+[PASSED] Pass3: change request creation is audited and produces an artifact
+  Evidence: CR audited + idempotent
+[PASSED] engws: intent parser is deterministic and extracts real signals (no black-box AI)
+  Evidence: subject="realtime analytics dashboard auth rest api" scope=large signals=auth,api,ui,realtime,deploy
+[PASSED] engws: plan generation detects real project characteristics with honest stage availability
+  Evidence: lang=typescript ready=4 blocked=8
+[PASSED] engws: execution runs real stages — security/SBOM pass, build/test BLOCKED, never faked PASSED
+  Evidence: verdict=BLOCKED passed=4 blocked=2
+[PASSED] engws: execution registers real artifacts with digests and emits ordered events
+  Evidence: 3 artifacts · 27 events
+[PASSED] engws: VIEWER is denied plan generation and execution (authorization reused, audited)
+  Evidence: viewer denied + audited
+[PASSED] engws: the plan workspace is isolated and owned by the executing identity
+  Evidence: workspace ws_b3a49c08-0067-486b-93b9-5623418d8875 isolated
+[PASSED] rt: executable resolution is platform-aware (Windows vs POSIX), never hardcoded to one OS
+  Evidence: win32→.exe/.cmd, posix→bare names
+[PASSED] rt: argument sanitization rejects shell metacharacters and path traversal
+  Evidence: injection + traversal rejected
+[PASSED] rt: managed browser executor reports BLOCKED and never pretends to execute
+  Evidence: managed executor honestly BLOCKED
+[PASSED] rt: host executor rejects untrusted raw scripts (only registered trusted scripts allowed)
+  Evidence: untrusted scripts + misuse rejected
+[PASSED] rt: Playwright detection + smoke are BLOCKED in the managed runtime (never faked)
+  Evidence: playwright/chromium honestly BLOCKED
+[PASSED] rt: smoke test service returns BLOCKED verdict when the runtime cannot execute (health + browser)
+  Evidence: smoke verdict honestly BLOCKED
+[PASSED] rt: quality gate returns VERIFIED only when all stages PASS (evidence-based)
+  Evidence: VERIFIED 8/8
+[PASSED] rt: quality gate FAILED on any FAIL, BLOCKED on any BLOCKED — never silently PASS
+  Evidence: FAIL→FAILED, BLOCKED→BLOCKED
+[PASSED] rt: quality gate treats missing evidence as BLOCKED (never assumes PASS)
+  Evidence: absent stages default to BLOCKED
+[PASSED] rt: quality gate evaluations are audited (real audit trail, distinct verdicts)
+  Evidence: 5 gate audit records
+
+--------------------------------
+SUMMARY
+--------------------------------
+PASS:    116
+FAIL:    0
+BLOCKED: 0
+TOTAL:   116

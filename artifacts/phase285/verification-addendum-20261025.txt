@@ -1,0 +1,46 @@
+﻿NEXUS Phase 285 — Shared Secret Redaction Fix
+Date: 2026-10-25
+
+Scope:
+Fixed the trailing closing-bracket cleanup for both the space-form marker
+([REDACTED:embedded credential]) and the underscore-form marker
+([REDACTED:embedded_credential]).
+
+Reported verification results:
+- test:phase273 — 35 passed, 0 failed
+- test:phase285 — 71 passed, 0 failed
+- test:phase277 — 50 passed, 0 failed
+- test:phase278 — 68 passed, 0 failed
+- test:phase284 — 116 passed, 0 failed
+- test:phase180 — 60 passed, 0 failed
+- Aggregate across these six suites: 400 passed, 0 failed
+- npx tsc --noEmit — PASS, exit code 0
+- git diff --check — exit code 0; line-ending warnings were reported for
+  scripts/nexus-host-bridge.mjs, scripts/verify-pass5-fixed-windows.mjs,
+  and src/core/worker-gateway.ts.
+
+Behavior checked:
+1. Shared redactor, lone closing bracket:
+   error: token=ABC123] -> error: [REDACTED:embedded_credential]
+2. Shared redactor, paired brackets:
+   error: [token=ABC123] -> error: [[REDACTED:embedded_credential]]
+
+Evidence qualification:
+These results reflect the reported command outputs. This addendum is not a
+claim of independent execution by the author of this file. It does not
+establish browser verification, deployment readiness, or production security
+certification.
+
+Git:
+No commit or push is recorded by this addendum.
+
+Superseding clarification (2026-10-25):
+The fresh verification evidence at
+artifacts/phase285/verification-20261025-213906.txt reports 71 Phase 285
+assertions and 35 Phase 273 regression assertions passing. The six listed
+suites total 400 passed and 0 failed. The earlier statement that the shared
+redactor still leaves an extra closing bracket for the lone-bracket case is
+superseded by the later reported Phase 273 regression results. The historical
+statement is retained above for traceability; use the fresh evidence for the
+latest result. Verification remains scoped and is not production security
+certification.

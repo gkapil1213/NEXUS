@@ -11,10 +11,11 @@
 //   D  scripts/nexus-host-bridge.mjs redact() — misses sk-proj, ASIA, ghu,
 //                                              Bearer, URL credentials
 //
-// Test method: exercise the real production functions in each file. For
-// nexus-host-bridge.mjs, extract its SECRET_PATTERNS at test time (same
-// regex as the pre-fix probe) so the test asserts against the actual
-// patterns the file ships with, not a re-implementation.
+// Test method: exercise the production redaction functions and the shared
+// host-bridge redactor imported by nexus-host-bridge.mjs. The bridge imports
+// this same module for stdout/stderr redaction, so these assertions validate
+// the shared implementation without spawning the bridge child-process lifecycle.
+// Live host-process verification is a separate check and is not performed here.
 //
 // Every assertion inspects the value internally and reports only PASS/FAIL
 // labels. No assertion prints a synthetic secret value.
@@ -120,7 +121,7 @@ function main() {
        "278-3 cicd: Bearer still removed");
   }
 
-  section("278-4 nexus-host-bridge.mjs redact() (Finding D)");
+  section("278-4 shared host-bridge redactor (Finding D)");
   {
     const cases: Array<[string, string, string]> = [
       ["sk-proj",  F_SK_PROJ,  "sk-proj"],
