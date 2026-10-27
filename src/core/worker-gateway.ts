@@ -10,6 +10,7 @@ import { WorkerTransportMessage, WorkerTransportMessageType } from "./worker-tra
 import { WorkerSession } from "./worker-session";
 import { RemoteWorker } from "./remote-worker-models";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
+import { sha256Hex, computeResultDigest } from "./integrity";
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
 const SUPPORTED_PROTOCOL_VERSION = "1.0";
@@ -187,6 +188,29 @@ export class WorkerGateway {
             return { type: "JOB_RESULT_ACK" };
           }
           throw new Error("conflicting_duplicate_result");
+        }
+
+        // Phase 287: verify integrity before persisting.
+        if (typeof result.stdoutSha256 !== "string" || result.stdoutSha256.length !== 64) {
+          throw new Error("invalid_result_integrity");
+        }
+        if (typeof result.stderrSha256 !== "string" || result.stderrSha256.length !== 64) {
+          throw new Error("invalid_result_integrity");
+        }
+        if (typeof result.resultSha256 !== "string" || result.resultSha256.length !== 64) {
+          throw new Error("invalid_result_integrity");
+        }
+        if (sha256Hex(result.stdout ?? "") !== result.stdoutSha256) {
+          throw new Error("invalid_result_integrity");
+        }
+        if (sha256Hex(result.stderr ?? "") !== result.stderrSha256) {
+          throw new Error("invalid_result_integrity");
+        }
+        {
+          const { resultSha256: claimedSha256, ...digestInput } = result;
+          if (computeResultDigest(digestInput) !== claimedSha256) {
+            throw new Error("invalid_result_integrity");
+          }
         }
 
         const durableResult: RemoteExecutionResult = {
