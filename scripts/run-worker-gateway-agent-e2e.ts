@@ -249,6 +249,36 @@ const executionStore = new ExecutionStore(engine);
       timeoutMs: 5000,
     };
 
+    // Seed the durable ownership records required by the real result-ingest path.
+    // The gateway's production lease ownership fence remains enabled.
+    const leaseNow = Date.now();
+
+    rawDb.prepare(`
+      INSERT INTO execution_jobs (
+        id, idempotency_key, job_type, status, created_at, updated_at, current_lease_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      job.jobId,
+      `idem-${job.jobId}`,
+      job.operation,
+      "RUNNING",
+      leaseNow,
+      leaseNow,
+      job.leaseId
+    );
+
+    rawDb.prepare(`
+      INSERT INTO execution_leases (
+        lease_id, job_id, worker_id, acquired_at, expires_at, status
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      job.leaseId,
+      job.jobId,
+      workerId,
+      leaseNow,
+      leaseNow + 60000,
+      "ACTIVE"
+    );
     gateway.offerJob(workerId, job);
 
     const result = await agent.processOnce();

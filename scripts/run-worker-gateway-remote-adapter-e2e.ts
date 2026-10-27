@@ -35,6 +35,33 @@ async function main() {
   const engine = SQLiteEngine.fromDatabase(rawDb);
 
   rawDb.exec(`
+    CREATE TABLE execution_jobs (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT UNIQUE NOT NULL,
+      job_type TEXT NOT NULL,
+      payload TEXT,
+      status TEXT NOT NULL,
+      retry_policy TEXT,
+      timeout_ms INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_attempt_at INTEGER,
+      next_attempt_at INTEGER,
+      current_lease_id TEXT,
+      cancellation_requested INTEGER DEFAULT 0,
+      cancellation_acknowledged INTEGER DEFAULT 0
+    );
+    CREATE TABLE execution_leases (
+      lease_id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      acquired_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      renewed_at INTEGER,
+      released_at INTEGER,
+      status TEXT NOT NULL,
+      FOREIGN KEY (job_id) REFERENCES execution_jobs(id)
+    );
     CREATE TABLE worker_sessions (
       session_id TEXT PRIMARY KEY, worker_id TEXT NOT NULL, status TEXT NOT NULL,
       protocol_version TEXT, connection_id TEXT, created_at INTEGER NOT NULL,
@@ -138,6 +165,33 @@ async function main() {
     },
   };
   const { dispatchId: liveId } = await adapter.dispatch(liveRequest, workerId, "lease-adapter-live");
+  // Seed durable ownership for the live dispatch result-ingest path.
+  const leaseNow = Date.now();
+  rawDb.prepare(`
+    INSERT INTO execution_jobs (
+      id, idempotency_key, job_type, status, created_at, updated_at, current_lease_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "job-adapter-live",
+    "idem-job-adapter-live",
+    "node",
+    "RUNNING",
+    leaseNow,
+    leaseNow,
+    "lease-adapter-live"
+  );
+  rawDb.prepare(`
+    INSERT INTO execution_leases (
+      lease_id, job_id, worker_id, acquired_at, expires_at, status
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    "lease-adapter-live",
+    "job-adapter-live",
+    workerId,
+    leaseNow,
+    leaseNow + 60000,
+    "ACTIVE"
+  );
   const jobResult: any = await agent.processOnce();
   assert(!!jobResult, "T4 WorkerAgent.processOnce returned a result");
   assert(jobResult.success === true, "T4 real execution succeeded");
@@ -197,10 +251,10 @@ async function main() {
     "T11 worker B cannot report on worker A's dispatch"
   );
 
-  // ===== T12: cancellation explicitly not supported =====
+  // ===== T12: adapter cancellation is explicitly unsupported =====
   await expectThrow(
-    () => client.cancelJob(workerId, liveId),
-    "cancellation_not_implemented",
+    () => adapter.cancel(liveId),
+    "cancellation_not_confirmable",
     "T12 cancellation explicitly rejected (not falsely reported as success)"
   );
 
