@@ -1,0 +1,52 @@
+﻿NEXUS PHASE 287 VERIFICATION REPORT
+===================================
+
+Verification recorded: 2026-10-27 22:26:20 +05:30
+Repository: C:\Users\pc\NEXUS
+Branch: checkpoint/redaction-phases-273-285
+HEAD: decb261f46f71b2b9d0848b4c25cc26f09463127
+Phase 287 commit: 7645221
+
+RESULTS
+-------
+
+Phase 287 Worker Gateway Agent E2E:
+PASS
+Assertions: 19 PASS, 0 FAIL
+Exit code: 0
+
+Verified behaviors included:
+- Worker authenticated through local HTTP gateway transport.
+- Worker received and executed a real Node.js process.
+- Job, dispatch, and lease identity preserved.
+- Result returned to and stored by gateway.
+- Worker heartbeat reached durable worker state.
+- Validation failure returned success=false.
+- stdoutSha256, stderrSha256, and resultSha256 were valid 64-character hex strings.
+
+Phase 286 regression:
+PASS
+Assertions: 42 PASS, 0 FAIL
+Exit code: 0
+
+TypeScript typecheck:
+PASS
+Command: npm run typecheck
+Exit code: 0
+
+Git ancestry:
+PASS
+Phase 287 commit 7645221 is an ancestor of HEAD.
+
+Working tree:
+Reported clean immediately after verification.
+
+LIMITATIONS
+-----------
+The Phase 286 validation-order test uses a contract driver that mirrors
+the handler. It does not independently prove the real handleMessage
+validation order. These results do not constitute a production security
+certification or prove deployment readiness.
+
+This report records the observed test output; tests were not rerun
+by the report-writing step.
