@@ -77,14 +77,26 @@ export class WorkerAgent {
       cwd: job.cwd,
     });
     if (!validation.valid) {
+      // Phase 287: validation failures must carry valid integrity fields,
+      // or the gateway JOB_RESULT handler rejects them with
+      // invalid_result_integrity. stdout is empty; stderr carries the
+      // validation messages.
+      const stdoutText = "";
+      const stderrText = validation.errors.join("; ");
+      const stdoutSha256 = sha256Hex(stdoutText);
+      const stderrSha256 = sha256Hex(stderrText);
       const result: WorkerJobResult = {
         jobId: job.jobId,
         dispatchId: job.dispatchId,
         leaseId: job.leaseId,
         success: false,
-        stderr: validation.errors.join("; "),
+        stdout: stdoutText,
+        stderr: stderrText,
         evidence: { validation_failed: true },
+        stdoutSha256,
+        stderrSha256,
       };
+      result.resultSha256 = computeResultDigest(result as any);
       await this.transport.reportResult(this.config.workerId, result);
       this.currentJobId = undefined;
       return result;
