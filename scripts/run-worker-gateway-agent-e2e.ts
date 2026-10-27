@@ -347,6 +347,65 @@ const executionStore = new ExecutionStore(engine);
       "Worker heartbeat reached durable worker state"
     );
 
+    // Phase 287 req 4: worker validation-failure path carries integrity fields.
+    // Without 5a60c96, the failure-path result omits stdoutSha256/stderrSha256/
+    // resultSha256, and processOnce throws invalid_result_integrity. This test
+    // fails at that line against pre-fix code and passes against post-fix code.
+    {
+      const vfailNow = Date.now();
+      const vfailJobId = "job-vfail-" + vfailNow;
+      const vfailLeaseId = "lease-vfail-" + vfailNow;
+      const vfailDispatchId = "dispatch-vfail-" + vfailNow;
+      const vfailAttemptId = "attempt-vfail-" + vfailNow;
+      const vfailIdemKey = "idem-vfail-" + vfailNow;
+
+      rawDb.prepare(`
+        INSERT INTO execution_jobs (
+          id, idempotency_key, job_type, status, created_at, updated_at, current_lease_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(vfailJobId, "job-" + vfailIdemKey, "shell", "RUNNING", vfailNow, vfailNow, vfailLeaseId);
+
+      rawDb.prepare(`
+        INSERT INTO execution_leases (
+          lease_id, job_id, worker_id, acquired_at, expires_at, status
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `).run(vfailLeaseId, vfailJobId, workerId, vfailNow, vfailNow + 60000, "ACTIVE");
+
+      executionStore.upsertRemoteDispatch({
+        dispatchId: vfailDispatchId,
+        jobId: vfailJobId,
+        attemptId: vfailAttemptId,
+        workerId,
+        leaseId: vfailLeaseId,
+        idempotencyKey: vfailIdemKey,
+        status: "DISPATCHED",
+        request: { operation: "shell", args: ["echo", "rejected"] },
+        createdAt: vfailNow,
+        updatedAt: vfailNow,
+      });
+
+      const vfailResult = await agent.processOnce();
+
+      assert(vfailResult !== null, "processOnce returned a validation-failure result");
+      assert(vfailResult?.success === false, "validation-failure result reports success=false");
+      assert(
+        String(vfailResult?.stderr ?? "").includes("Operation not allowed"),
+        "stderr carries the WorkerSecurity rejection message"
+      );
+      assert(
+        typeof vfailResult?.stdoutSha256 === "string" && (vfailResult.stdoutSha256 as string).length === 64,
+        "stdoutSha256 is 64-char hex on validation-failure result"
+      );
+      assert(
+        typeof vfailResult?.stderrSha256 === "string" && (vfailResult.stderrSha256 as string).length === 64,
+        "stderrSha256 is 64-char hex on validation-failure result"
+      );
+      assert(
+        typeof vfailResult?.resultSha256 === "string" && (vfailResult.resultSha256 as string).length === 64,
+        "resultSha256 is 64-char hex on validation-failure result"
+      );
+    }
+
     await agent.stop();
 
     console.log(`\nWORKER_GATEWAY_AGENT_E2E: ${pass} PASS, ${fail} FAIL`);
