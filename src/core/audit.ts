@@ -162,10 +162,10 @@ export class AuditService {
     const rec: AuditRecord = {
       id: nid("aud"),
       timestamp: Date.now(),
-      actor: input.actor,
-      action: input.action,
-      resource_type: input.resource_type,
-      resource_id: input.resource_id,
+      actor: redactText(input.actor),
+      action: redactText(input.action),
+      resource_type: redactText(input.resource_type),
+      resource_id: redactText(input.resource_id),
       result: input.result,
       metadata: (redactMetadata(input.metadata ?? {}) as Record<string, unknown>) ?? {},
     };
