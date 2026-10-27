@@ -327,11 +327,11 @@ async function main(): Promise<void> {
       // around the credential remain preserved (see Section 4f).
       {
         input: "error: token=ABC123]",
-        expected: "error: [REDACTED:embedded credential]]",
+        expected: "error: [REDACTED:embedded credential]",
       },
       {
         input: "token=ABC123] token=DEF456]",
-        expected: "[REDACTED:embedded credential]] [REDACTED:embedded credential]]",
+        expected: "[REDACTED:embedded credential] [REDACTED:embedded credential]",
       },
       {
         input: "plain token=ABC123 end",

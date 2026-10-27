@@ -130,8 +130,8 @@ async function main() {
   {
     const loneBracket = redactSecrets("error: token=ABC123]") as string;
     ok(
-      loneBracket === "error: [REDACTED:embedded_credential]]",
-      "273-5b preserves the original closing bracket, got=" + JSON.stringify(loneBracket)
+      loneBracket === "error: [REDACTED:embedded_credential]",
+      "273-5b collapses the orphan closing bracket, got=" + JSON.stringify(loneBracket)
     );
 
     const pairedBrackets = redactSecrets("error: [token=ABC123]") as string;

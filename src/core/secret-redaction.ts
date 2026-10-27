@@ -107,6 +107,12 @@ export function redactTextWith(
     out = out.replace(re, label);
   }
 
+  // Phase 285 G-3: an orphan closing bracket immediately following an
+  // inserted redaction marker duplicates the marker's own `]`. Collapse
+  // that duplicate only when the marker is not preceded by its own
+  // opening bracket -- i.e. the input had a lone `]`, not a paired `[]`.
+  out = out.replace(/(?<!\[)(\[REDACTED:[^\]\n]+\])\]/g, '$1');
+
   return out;
 }
 
