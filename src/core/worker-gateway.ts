@@ -85,7 +85,13 @@ export class WorkerGateway {
       const result = await this.handleMessage(msg);
       this.send(res, 200, result);
     } catch (e: any) {
-      this.send(res, 400, { error: e.message || "gateway_error" });
+      // Phase 285: never echo raw exception messages to the client.
+      // Unclassified exceptions may contain credentials, paths, or
+      // internal state. Stable error codes (snake_case) pass through;
+      // everything else collapses to a generic "gateway_error".
+      const raw = typeof e?.message === "string" ? e.message : "";
+      const isStableCode = /^[a-z][a-z0-9_]+$/.test(raw);
+      this.send(res, 400, { error: isStableCode ? raw : "gateway_error" });
     }
   }
 
