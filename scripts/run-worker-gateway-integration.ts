@@ -1,3 +1,4 @@
+import { sha256Hex, computeResultDigest } from "../src/core/integrity";
 import { createServer } from "http";
 import { AddressInfo } from "net";
 import Database from "better-sqlite3";
@@ -25,7 +26,33 @@ async function main() {
   const engine = SQLiteEngine.fromDatabase(rawDb);
   // Create required tables
   rawDb.exec(`
-    CREATE TABLE IF NOT EXISTS worker_sessions (
+    CREATE TABLE IF NOT EXISTS execution_jobs (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT UNIQUE NOT NULL,
+      job_type TEXT NOT NULL,
+      payload TEXT,
+      status TEXT NOT NULL,
+      retry_policy TEXT,
+      timeout_ms INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_attempt_at INTEGER,
+      next_attempt_at INTEGER,
+      current_lease_id TEXT,
+      cancellation_requested INTEGER DEFAULT 0,
+      cancellation_acknowledged INTEGER DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS execution_leases (
+      lease_id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      acquired_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      renewed_at INTEGER,
+      released_at INTEGER,
+      status TEXT NOT NULL,
+      FOREIGN KEY (job_id) REFERENCES execution_jobs(id)
+    );    CREATE TABLE IF NOT EXISTS worker_sessions (
       session_id TEXT PRIMARY KEY,
       worker_id TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -136,6 +163,17 @@ async function main() {
     operation: "node",
     args: ["-e", "console.log('gateway-test')"],
   };
+  const leaseNow = Date.now();
+  rawDb.prepare(`
+    INSERT INTO execution_jobs (
+      id, idempotency_key, job_type, status, created_at, updated_at, current_lease_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run("job-gw-1", "idem-job-gw-1", "node", "RUNNING", leaseNow, leaseNow, "lease-gw-1");
+  rawDb.prepare(`
+    INSERT INTO execution_leases (
+      lease_id, job_id, worker_id, acquired_at, expires_at, status
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `).run("lease-gw-1", "job-gw-1", "worker-gw-1", leaseNow, leaseNow + 60000, "ACTIVE");
   gateway.offerJob("worker-gw-1", job);
 
   // Worker receives job
@@ -145,7 +183,7 @@ async function main() {
   // Execute real local process via adapter (simulating WorkerAgent real path)
   const localAdapter = new LocalProcessExecutionAdapter();
   const result = await localAdapter.execute({ operation: received.operation, args: received.args });
-  const workerResult = {
+  const workerResultBase = {
     jobId: received.jobId,
     dispatchId: received.dispatchId,
     leaseId: received.leaseId,
@@ -153,6 +191,15 @@ async function main() {
     stdout: result.stdout,
     stderr: result.stderr,
     exitCode: result.exitCode,
+  };
+  const workerResultWithChecksums = {
+    ...workerResultBase,
+    stdoutSha256: sha256Hex(workerResultBase.stdout ?? ""),
+    stderrSha256: sha256Hex(workerResultBase.stderr ?? ""),
+  };
+  const workerResult = {
+    ...workerResultWithChecksums,
+    resultSha256: computeResultDigest(workerResultWithChecksums),
   };
 
   await client.reportResult("worker-gw-1", workerResult);
