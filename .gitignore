@@ -88,3 +88,15 @@ scripts-archive/
 *.pre-*.bak
 phase2*-*.txt
 phase2*-*.json
+# Session-local backups and recovery artefacts
+*.bak-*
+*.phase[0-9]*-backup*
+*.diag-backup*
+*.prepatch*
+*.damaged-*
+__candidate-*
+__head-*
+# Stale database dumps
+database-backups/
+# Nested clone left over from accidental clone-into-wrong-dir
+/NEXUS/
