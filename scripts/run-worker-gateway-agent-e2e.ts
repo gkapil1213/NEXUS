@@ -64,6 +64,35 @@ async function main(): Promise<void> {
   const engine = SQLiteEngine.fromDatabase(rawDb);
 
   rawDb.exec(`
+    CREATE TABLE execution_jobs (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT UNIQUE NOT NULL,
+      job_type TEXT NOT NULL,
+      payload TEXT,
+      status TEXT NOT NULL,
+      retry_policy TEXT,
+      timeout_ms INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_attempt_at INTEGER,
+      next_attempt_at INTEGER,
+      current_lease_id TEXT,
+      cancellation_requested INTEGER DEFAULT 0,
+      cancellation_acknowledged INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE execution_leases (
+      lease_id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      acquired_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      renewed_at INTEGER,
+      released_at INTEGER,
+      status TEXT NOT NULL,
+      FOREIGN KEY (job_id) REFERENCES execution_jobs(id)
+    );
+
     CREATE TABLE worker_sessions (
       session_id TEXT PRIMARY KEY,
       worker_id TEXT NOT NULL,
