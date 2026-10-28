@@ -585,7 +585,7 @@ async function main(): Promise<void> {
         "C8 sequence monotonicity survives gateway restart (durable)");
     }
 
-    // C9: DOCUMENTED GAP — stale timestamp on non-AUTH message accepted
+    // C9: stale timestamp on non-AUTH message must be rejected
     {
       const auth1 = await authenticate();
       const sessionId = auth1.sessionId!;
@@ -600,10 +600,10 @@ async function main(): Promise<void> {
         payload: {},
       });
       check(r.status !== 200,
-        "C9 non-AUTH message with stale timestamp must be rejected (documented gap: currently accepted)");
+        "C9 stale timestamp on non-AUTH message rejected");
     }
 
-    // C10: DOCUMENTED GAP — failed operation advanced sequence
+    // C10: failed JOB_RESULT must not advance sequence
     {
       const auth1 = await authenticate();
       const sessionId = auth1.sessionId!;
@@ -629,7 +629,7 @@ async function main(): Promise<void> {
       const r = await post(makeMessage("JOB_RESULT", sessionId, 1, { jobId, result: badResult }));
       const session = sessions.getSession(sessionId);
       check(session?.lastSequence !== 1,
-        "C10 failed operation must not advance lastSequence (documented gap: currently advances)");
+        "C10 invalid JOB_RESULT does not advance durable lastSequence");
     }
 
     // =====================================================================

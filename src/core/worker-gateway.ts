@@ -155,8 +155,55 @@ export class WorkerGateway {
     const freshness = this.security.validateFreshMessage(messageId, sessionId, sequence);
     if (!freshness.valid) throw new Error(freshness.reason || "invalid_message");
 
-    // Accept and advance durable session sequence
-    session.lastSequence = sequence;
+    // Phase 288: enforce non-AUTH timestamp freshness when a timestamp is supplied.
+    // Missing timestamps remain compatible with existing Phase 286 fixtures.
+    if (msg.timestamp !== undefined) {
+      if (typeof msg.timestamp !== "number" || !Number.isFinite(msg.timestamp)) {
+        throw new Error("invalid_timestamp");
+      }
+      const timestampNow = Date.now();
+      if (Math.abs(timestampNow - msg.timestamp) > 5 * 60 * 1000) {
+        throw new Error(msg.timestamp < timestampNow ? "expired_timestamp" : "future_timestamp");
+      }
+    }
+    // Phase 288: preflight JOB_RESULT integrity before durable sequence mutation.
+    if (type === "JOB_RESULT") {
+      const { jobId: resultJobId, result } = payload;
+      if (!this.executionStore) throw new Error("durable_store_unavailable");
+      const dispatch = this.executionStore.getRemoteDispatch(result.dispatchId);
+      if (!dispatch || dispatch.workerId !== workerId || dispatch.jobId !== resultJobId) {
+        throw new Error("dispatch_ownership_violation");
+      }
+      const existing = this.executionStore.getRemoteExecutionResultByDispatchId(result.dispatchId);
+      if (existing) {
+        if (existing.resultSha256 !== result.resultSha256) {
+          throw new Error("conflicting_duplicate_result");
+        }
+      } else {
+        if (typeof result.stdoutSha256 !== "string" || result.stdoutSha256.length !== 64) {
+          throw new Error("invalid_result_integrity");
+        }
+        if (typeof result.stderrSha256 !== "string" || result.stderrSha256.length !== 64) {
+          throw new Error("invalid_result_integrity");
+        }
+        if (typeof result.resultSha256 !== "string" || result.resultSha256.length !== 64) {
+          throw new Error("invalid_result_integrity");
+        }
+        if (sha256Hex(result.stdout ?? "") !== result.stdoutSha256) {
+          throw new Error("invalid_result_integrity");
+        }
+        if (sha256Hex(result.stderr ?? "") !== result.stderrSha256) {
+          throw new Error("invalid_result_integrity");
+        }
+        {
+          const { resultSha256: claimedSha256, ...digestInput } = result;
+          if (computeResultDigest(digestInput) !== claimedSha256) {
+            throw new Error("invalid_result_integrity");
+          }
+        }
+      }
+    }
+session.lastSequence = sequence;
     session.lastSeenAt = Date.now();
     this.sessionStore.updateSession(session);
     this.security.acceptMessage(messageId, sessionId, sequence);
