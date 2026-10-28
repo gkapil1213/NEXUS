@@ -1,0 +1,49 @@
+﻿NEXUS Phase 286 - Real WorkerGateway Handler Verification
+Date: 2026-10-28
+Evidence type: Console results reported from local PowerShell execution
+
+REAL HANDLER TEST
+Command:
+npx tsx .\scripts\test-phase286-worker-gateway-real-handler.ts
+
+Result: PASS
+Assertions: 22 passed, 0 failed
+
+Coverage observed:
+- Live HTTP authentication and session creation
+- Unsupported protocol rejection
+- Missing and unknown session rejection
+- Stale sequence rejection
+- Valid heartbeat acknowledgement and durable sequence update
+- Duplicate message ID rejection
+- Expired session rejection and durable revocation
+
+EXISTING PHASE 286 REGRESSION
+Command:
+npm run test:phase286
+
+Result: PASS
+Assertions: 42 passed, 0 failures
+
+PHASE 287 GATEWAY-AGENT E2E
+Command:
+npx tsx .\scripts\run-worker-gateway-agent-e2e.ts
+
+Result: PASS
+Assertions: 19 passed, 0 failed
+Observed coverage includes real process execution, gateway result storage,
+identity preservation, heartbeat persistence, and validation-failure results.
+
+TYPESCRIPT TYPECHECK
+Command:
+npm run typecheck
+
+Result: PASS
+Exit code: 0
+
+LIMITATIONS
+- These checks do not establish exhaustive coverage of every gateway message type.
+- They do not constitute a production security certification.
+- The recorded results are based on console output; this file is a verification
+  summary, not a raw terminal transcript.
+- No remote push or deployment was performed.
