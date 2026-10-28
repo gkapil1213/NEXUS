@@ -11,13 +11,14 @@ import { WorkerSession } from "./worker-session";
 import { RemoteWorker } from "./remote-worker-models";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
 import { sha256Hex, computeResultDigest } from "./integrity";
+import { NexusEngine } from "./db";
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
 const SUPPORTED_PROTOCOL_VERSION = "1.0";
 
 export class WorkerGateway {
   private server: ReturnType<typeof createServer>;
-  private security = new WorkerTransportSecurity();
+  private security: WorkerTransportSecurity;
   private dispatchService?: DispatchService;
   private listeningPromise?: Promise<void>;
 
@@ -26,8 +27,10 @@ export class WorkerGateway {
     private sessionStore: WorkerSessionStore,
     private workerStore: RemoteWorkerStore,
     private auth: WorkerAuthentication,
-    private executionStore?: ExecutionStore
+    private executionStore?: ExecutionStore,
+    private engine?: NexusEngine
   ) {
+    this.security = new WorkerTransportSecurity(engine);
     this.server = createServer((req, res) => this.handleRequest(req, res));
   }
 
@@ -90,7 +93,7 @@ export class WorkerGateway {
       // internal state. Stable error codes (snake_case) pass through;
       // everything else collapses to a generic "gateway_error".
       const raw = typeof e?.message === "string" ? e.message : "";
-      const isStableCode = /^[a-z][a-z0-9_]+$/.test(raw);
+      const isStableCode = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(raw);
       this.send(res, 400, { error: isStableCode ? raw : "gateway_error" });
     }
   }
@@ -109,7 +112,12 @@ export class WorkerGateway {
     // AUTH_REQUEST handled separately
     if (type === "AUTH_REQUEST") {
       const { workerId, credential } = payload;
-      const authResult = this.auth.authenticate({ workerId, credential, timestamp: Date.now() });
+      const authResult = this.auth.authenticate({
+        workerId,
+        credential,
+        nonce: payload.nonce,
+        timestamp: msg.timestamp,
+      });
       if (!authResult.authenticated) return { type: "AUTH_RESPONSE", authenticated: false, reason: authResult.reason };
       const sessionId = authResult.sessionToken!;
       const session: WorkerSession = {
@@ -413,6 +421,14 @@ export class WorkerGateway {
 }
 
 export class WorkerGatewayClient implements WorkerTransport {
+  private static generateNonce(): string {
+    if (typeof globalThis.crypto === "undefined" || !globalThis.crypto.getRandomValues) {
+      throw new Error("secure_random_unavailable");
+    }
+    const arr = new Uint8Array(24);
+    globalThis.crypto.getRandomValues(arr);
+    return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
   private connected = false;
   private sessionId?: string;
   private authToken?: string;
@@ -443,7 +459,11 @@ export class WorkerGatewayClient implements WorkerTransport {
       workerId,
       timestamp: Date.now(),
       protocolVersion: "1.0",
-      payload: { workerId, credential },
+      payload: {
+        workerId,
+        credential,
+        nonce: WorkerGatewayClient.generateNonce(),
+      },
     });
     if (response.authenticated) {
       this.sessionId = response.sessionId;

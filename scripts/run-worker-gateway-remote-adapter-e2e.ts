@@ -90,7 +90,7 @@ async function main() {
   `);
 
   const authStore = new SqliteWorkerAuthStore(engine);
-  const auth = new WorkerAuthentication(authStore);
+  const auth = new WorkerAuthentication(authStore, undefined, engine);
   const sessionStore = new WorkerSessionStore(engine);
   const workerStore = new RemoteWorkerStore(engine);
   const executionStore = new ExecutionStore(engine);
@@ -106,7 +106,7 @@ async function main() {
   });
   authStore.setCredential(workerId, credential);
 
-  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore);
+  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine);
   await gateway.start();
   const port = (gateway as any).server.address().port;
 

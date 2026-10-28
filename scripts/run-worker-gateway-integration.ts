@@ -117,7 +117,7 @@ async function main() {
   `);
 
   const authStore = new SqliteWorkerAuthStore(engine);
-  const auth = new WorkerAuthentication(authStore);
+  const auth = new WorkerAuthentication(authStore, undefined, engine);
   const sessionStore = new WorkerSessionStore(engine);
   const workerStore = new RemoteWorkerStore(engine);
 
@@ -133,7 +133,7 @@ async function main() {
 
   // Start gateway on ephemeral port
   const executionStore = new ExecutionStore(engine);
-  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore);
+  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine);
   gateway.start();
   await new Promise(resolve => setTimeout(resolve, 50));
   const port = (gateway as any).server.address().port;

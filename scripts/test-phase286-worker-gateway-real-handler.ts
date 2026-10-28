@@ -1,4 +1,5 @@
 ﻿import Database from "better-sqlite3";
+import crypto from "crypto";
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { WorkerGateway } from "../src/core/worker-gateway";
 import { SqliteWorkerAuthStore } from "../src/core/sqlite-worker-auth-store";
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
   `);
 
   const authStore = new SqliteWorkerAuthStore(engine);
-  const auth = new WorkerAuthentication(authStore);
+  const auth = new WorkerAuthentication(authStore, undefined, engine);
   const sessions = new WorkerSessionStore(engine);
   const workers = new RemoteWorkerStore(engine);
 
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
     registeredAt: Date.now(),
   });
 
-  const gateway = new WorkerGateway(0, sessions, workers, auth);
+  const gateway = new WorkerGateway(0, sessions, workers, auth, undefined, engine);
 
   try {
     await gateway.start();
@@ -102,8 +103,13 @@ async function main(): Promise<void> {
       messageId: "auth-real-handler-1",
       type: "AUTH_REQUEST",
       workerId,
+      timestamp: Date.now(),
       protocolVersion: "1.0",
-      payload: { workerId, credential },
+      payload: {
+        workerId,
+        credential,
+        nonce: crypto.randomBytes(16).toString("hex"),
+      },
     });
 
     check(authResponse.status === 200, "live AUTH_REQUEST returns HTTP 200");

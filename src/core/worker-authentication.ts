@@ -1,75 +1,122 @@
 import { WorkerAuthenticationRequest, WorkerAuthenticationResult } from "./remote-worker-models";
+import { NexusEngine } from "./db";
 
-
-function sha256Hex(input: string): string {
-    // Lightweight deterministic hash for credential comparison.
-    // Not a cryptographic SHA-256, but sufficient for checkpoint A and browser-safe.
-    let hash = 0;
-    for (let i = 0; i < input.length; i++) {
-        const char = input.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash |= 0; // Convert to 32bit integer
-    }
-    return (hash >>> 0).toString(16).padStart(8, "0").repeat(8);
+/**
+ * Generate a session token from cryptographic randomness.
+ * Fails closed — never falls back to Math.random().
+ */
+function secureRandomToken(): string {
+  if (typeof globalThis.crypto === "undefined" || !globalThis.crypto.getRandomValues) {
+    throw new Error("secure_random_unavailable");
+  }
+  const arr = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(arr);
+  return Array.from(arr, b => b.toString(16).padStart(2, "0")).join("");
 }
 
-function randomToken(): string {
-    if (typeof globalThis.crypto !== "undefined" && globalThis.crypto.getRandomValues) {
-        const arr = new Uint8Array(32);
-        globalThis.crypto.getRandomValues(arr);
-        return Array.from(arr, b => b.toString(16).padStart(2, "0")).join("");
-    }
-    return `session_${Date.now()}_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
-}
-
-function timingSafeEqualStr(a: string, b: string): boolean {
-    if (a.length !== b.length) return false;
-    let result = 0;
-    for (let i = 0; i < a.length; i++) {
-        result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    }
-    return result === 0;
-}
+const NONCE_FORMAT = /^[A-Za-z0-9_-]{16,128}$/;
 
 export interface WorkerAuthStore {
   getCredential(workerId: string): string | undefined;
   revokeWorker(workerId: string): void;
   isRevoked(workerId: string): boolean;
+  /**
+   * Verify a credential against the stored hash. Implementations must
+   * use constant-time comparison and must handle both legacy and
+   * current hash formats. Migration happens inside this call.
+   */
+  verifyCredential(workerId: string, credential: string): { valid: boolean; upgraded?: boolean };
 }
 
 export class WorkerAuthentication {
-  constructor(private authStore: WorkerAuthStore, private nonceTtlMs = 60000) {}
+  constructor(
+    private authStore: WorkerAuthStore,
+    private authWindowMs = 5 * 60 * 1000,
+    private db?: NexusEngine,
+  ) {
+    if (this.db) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS worker_auth_nonces (
+          worker_id TEXT NOT NULL,
+          nonce TEXT NOT NULL,
+          seen_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          PRIMARY KEY (worker_id, nonce)
+        );
+      `);
+    }
+  }
 
   authenticate(request: WorkerAuthenticationRequest): WorkerAuthenticationResult {
     const { workerId, credential, nonce, timestamp } = request;
 
+    // 1. Presence + format of all required fields.
+    if (!workerId || typeof workerId !== "string") {
+      return { authenticated: false, reason: "missing_worker_id" };
+    }
+    if (!credential || typeof credential !== "string") {
+      return { authenticated: false, reason: "missing_credential" };
+    }
+    if (timestamp === undefined || !Number.isFinite(timestamp)) {
+      return { authenticated: false, reason: "missing_timestamp" };
+    }
+    if (!nonce || typeof nonce !== "string") {
+      return { authenticated: false, reason: "missing_nonce" };
+    }
+    if (!NONCE_FORMAT.test(nonce)) {
+      return { authenticated: false, reason: "invalid_nonce" };
+    }
+
+    // 2. Timestamp freshness — bidirectional clock-skew window.
+    const now = Date.now();
+    const skew = Math.abs(now - timestamp);
+    if (skew > this.authWindowMs) {
+      return {
+        authenticated: false,
+        reason: timestamp < now ? "expired_timestamp" : "future_timestamp",
+      };
+    }
+
+    // 3. Revocation.
     if (this.authStore.isRevoked(workerId)) {
       return { authenticated: false, reason: "worker_revoked" };
     }
 
-    const expected = this.authStore.getCredential(workerId);
-    if (!expected) {
-      return { authenticated: false, reason: "worker_not_found" };
+    // 4. Credential verification — no fallback. A store that cannot
+    //    verify securely refuses authentication entirely.
+    if (typeof this.authStore.verifyCredential !== "function") {
+      return { authenticated: false, reason: "insecure_auth_store" };
+    }
+    const verification = this.authStore.verifyCredential(workerId, credential);
+    if (!verification.valid) {
+      const stored = this.authStore.getCredential(workerId);
+      return {
+        authenticated: false,
+        reason: stored ? "invalid_credential" : "worker_not_found",
+      };
     }
 
-    const providedHash = sha256Hex(credential);
-    if (!timingSafeEqualStr(providedHash, expected)) {
-      return { authenticated: false, reason: "invalid_credential" };
+    // 5. Nonce replay protection — mandatory and durable.
+    if (!this.db) {
+      return { authenticated: false, reason: "nonce_store_unavailable" };
+    }
+    const nonceNow = Date.now();
+    this.db.prepare("DELETE FROM worker_auth_nonces WHERE expires_at <= ?").run(nonceNow);
+    try {
+      this.db.prepare(
+        "INSERT INTO worker_auth_nonces (worker_id, nonce, seen_at, expires_at) VALUES (?, ?, ?, ?)"
+      ).run(workerId, nonce, nonceNow, nonceNow + this.authWindowMs);
+    } catch {
+      return { authenticated: false, reason: "replayed_nonce" };
     }
 
-    if (nonce) {
-      if (nonce.length < 8 || nonce.length > 128) {
-        return { authenticated: false, reason: "invalid_nonce" };
-      }
+    // 6. Session token — cryptographic only.
+    let sessionToken: string;
+    try {
+      sessionToken = secureRandomToken();
+    } catch {
+      return { authenticated: false, reason: "secure_random_unavailable" };
     }
-    if (timestamp) {
-      const now = Date.now();
-      if (Math.abs(now - timestamp) > this.nonceTtlMs) {
-        return { authenticated: false, reason: "expired_timestamp" };
-      }
-    }
-
-    const sessionToken = randomToken();
     return { authenticated: true, sessionToken };
   }
 }

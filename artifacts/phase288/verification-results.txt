@@ -1,0 +1,71 @@
+=== Phase 288 — Captured Verification Results ===
+Note: This file records the console output from the verification commands as
+they were run. It is a summary of the transcript, not a bit-exact capture.
+The authoritative exit codes are in verification-summary.md.
+
+=== Baseline (pre-change) ===
+
+$ npx tsx .\scripts\test-phase286-worker-gateway-real-handler.ts
+PHASE286_REAL_HANDLER: 22 PASS, 0 FAIL
+exit: 0
+
+$ npm run test:phase286
+Phase 286 worker gateway validation: PASS
+Assertions: 42; passed: 42; failures: 0
+exit: 0
+
+$ npx tsx .\scripts\run-worker-gateway-agent-e2e.ts
+WORKER_GATEWAY_AGENT_E2E: 19 PASS, 0 FAIL
+exit: 0
+
+$ npm run typecheck
+exit: 0
+
+=== Post-change regression gate ===
+
+$ npx tsx .\scripts\test-phase286-worker-gateway-real-handler.ts
+PHASE286_REAL_HANDLER: 22 PASS, 0 FAIL
+exit: 0
+
+$ npm run test:phase286
+Phase 286 worker gateway validation: PASS
+Assertions: 42; passed: 42; failures: 0
+exit: 0
+
+$ npx tsx .\scripts\run-worker-gateway-agent-e2e.ts
+WORKER_GATEWAY_AGENT_E2E: 19 PASS, 0 FAIL
+exit: 0
+
+$ npx tsx .\scripts\run-durable-gateway-tests.ts
+Durable gateway tests: 14 PASS, 0 FAIL
+exit: 0
+
+$ npx tsx .\scripts\run-worker-gateway-integration.ts
+Worker gateway integration: 5 PASS, 0 FAIL
+exit: 0
+
+$ npx tsx .\scripts\run-worker-gateway-remote-adapter-e2e.ts
+Remote Adapter E2E: 29 PASS, 0 FAIL
+exit: 0
+
+$ npm run typecheck
+exit: 0
+
+$ npx tsx .\scripts\test-phase288-worker-gateway-adversarial.ts
+Phase 288 worker gateway adversarial: FAIL
+Assertions: 68; passed: 66; failures: 2
+Failed assertions:
+  - C9 non-AUTH message with stale timestamp must be rejected (documented gap: currently accepted)
+  - C10 failed operation must not advance lastSequence (documented gap: currently advances)
+exit: 1
+
+$ git diff --check
+(warnings only: CRLF will be replaced by LF)
+exit: 0
+
+=== Aggregate ===
+
+Baseline assertions: 83 (all PASS)
+Regression gate assertions: 131 (all PASS) + 68 adversarial = 199 total
+Adversarial suite: 66 PASS, 2 FAIL (both documented design gaps)
+Overall: regression gate PASS, Phase 288 scope PASS with documented gaps

@@ -349,7 +349,7 @@ const memberships = new ProjectMembershipStore(rawDb);
 
           const remoteWorkerStore = new RemoteWorkerStore(rawDb);
           const authStore = new SqliteWorkerAuthStore(rawDb);
-          const workerAuthentication = new WorkerAuthentication(authStore);
+          const workerAuthentication = new WorkerAuthentication(authStore, undefined, rawDb);
           const remoteWorkerRegistry = new RemoteWorkerRegistry(remoteWorkerStore, workerAuthentication);
 
           const adapterRegistry = new ExecutionAdapterRegistry();
@@ -370,7 +370,7 @@ const memberships = new ProjectMembershipStore(rawDb);
             const { WorkerGatewayRemoteExecutionAdapter: AdapterCtor } = await import(/* @vite-ignore */ adapterSpec);
             const { WorkerSessionStore } = await import(/* @vite-ignore */ sessionStoreSpec);
             const sessionStore = new WorkerSessionStore(engine);
-            const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore);
+            const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore, rawDb);
             workerGateway = gw;
             remoteAdapter = new AdapterCtor(gw);
           } else {

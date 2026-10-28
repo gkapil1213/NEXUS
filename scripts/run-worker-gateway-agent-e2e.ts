@@ -161,7 +161,7 @@ async function main(): Promise<void> {
   `);
 
   const authStore = new SqliteWorkerAuthStore(engine);
-  const auth = new WorkerAuthentication(authStore);
+  const auth = new WorkerAuthentication(authStore, undefined, engine);
   const sessionStore = new WorkerSessionStore(engine);
   const workerStore = new RemoteWorkerStore(engine);
 const executionStore = new ExecutionStore(engine);
@@ -184,13 +184,7 @@ const executionStore = new ExecutionStore(engine);
 
   authStore.setCredential(workerId, credential);
 
-  const gateway = new WorkerGateway(
-    0,
-    sessionStore,
-    workerStore,
-    auth,
-    executionStore
-  );
+  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine);
 
   gateway.start();
 

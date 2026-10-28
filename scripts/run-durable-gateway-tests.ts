@@ -69,7 +69,7 @@ async function main() {
   `);
 
   const authStore = new SqliteWorkerAuthStore(engine);
-  const auth = new WorkerAuthentication(authStore);
+  const auth = new WorkerAuthentication(authStore, undefined, engine);
   const sessionStore = new WorkerSessionStore(engine);
   const workerStore = new RemoteWorkerStore(engine);
   const executionStore = new ExecutionStore(engine);
@@ -99,7 +99,7 @@ async function main() {
   `).run("lease-durable-1", "job-durable-1", "worker-durable", leaseNow, leaseNow + 60000, "ACTIVE");
   executionStore.upsertRemoteDispatch(dispatch);
 
-  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore);
+  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine);
   await gateway.start();
   const port = (gateway as any).server.address().port;
 
@@ -109,7 +109,7 @@ async function main() {
   assert(ok, "Authentication successful");
 
   await gateway.stop();
-  const gateway2 = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore);
+  const gateway2 = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine);
   await gateway2.start();
   const port2 = (gateway2 as any).server.address().port;
   const client2 = new WorkerGatewayClient(`http://127.0.0.1:${port2}`, "worker-durable", "secret");
