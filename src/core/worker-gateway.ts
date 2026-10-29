@@ -202,13 +202,60 @@ export class WorkerGateway {
         }
       }
     }
-    session.lastSequence = sequence;
-    session.lastSeenAt = Date.now();
-    this.sessionStore.updateSession(session);
+    // Phase 290: transactional acceptance (Design B, Strict B1).
+    //
+    // Sequence advance and messageId acceptance are committed ATOMICALLY
+    // BEFORE the handler runs. On CAS failure or duplicate messageId, the
+    // transaction ROLLS BACK — the sequence is NOT consumed for a request
+    // that was rejected. On success, the commit happens, then the handler
+    // runs. Handler failure does NOT undo acceptance (the handler may have
+    // performed irreversible side effects).
+    //
+    // Non-SQL engines (memory/indexeddb) cannot honor this — their
+    // transaction() throws SQL_UNSUPPORTED. We detect engine kind and fall
+    // back to Phase 289 behavior for those backends (documented limitation).
+    {
+      const engineForTx = (this.sessionStore as any).db as
+        { kind?: string; transaction?: <T>(fn: () => T) => T } | undefined;
+      const isSqlEngine = engineForTx?.kind === 'sqlite';
 
-    // Phase 289: acceptMessage after handler success. Wrapped in an IIFE so
-    // case-internal `return` does not bypass acceptMessage. Failure to reach
-    // the accept call means the messageId is NOT burned — retries succeed.
+      if (isSqlEngine && typeof engineForTx?.transaction === 'function') {
+        let advanceFailed = false;
+        let duplicateFailed = false;
+        const runAccept = (): void => {
+          const advanced = this.sessionStore.tryAdvanceSequence(sessionId, sequence);
+          if (!advanced) {
+            advanceFailed = true;
+            throw new Error("__rollback:sequence");
+          }
+          const accepted = this.security.acceptMessageDurable(messageId, sessionId, sequence);
+          if (!accepted) {
+            duplicateFailed = true;
+            throw new Error("__rollback:duplicate");
+          }
+        };
+        try {
+          const maybeTx: any = engineForTx.transaction(runAccept);
+          if (typeof maybeTx === "function") maybeTx();
+        } catch (e: any) {
+          if (advanceFailed) throw new Error("invalid_sequence");
+          if (duplicateFailed) throw new Error("duplicate_message");
+          throw e;
+        }
+        // Belt-and-suspenders in case an engine swallows the throw.
+        if (advanceFailed) throw new Error("invalid_sequence");
+        if (duplicateFailed) throw new Error("duplicate_message");
+      } else {
+        // Non-SQL engine: preserve Phase 289 behavior.
+        if (sequence <= session.lastSequence) throw new Error("invalid_sequence");
+        session.lastSequence = sequence;
+        session.lastSeenAt = Date.now();
+        this.sessionStore.updateSession(session);
+      }
+    }
+
+    // Handler runs AFTER durable acceptance has committed. Failure here does
+    // NOT roll back acceptance (Strict B1: client retries with new identifiers).
     const response = await (async () => {
     switch (type) {
       case "HEARTBEAT": {
@@ -332,7 +379,6 @@ export class WorkerGateway {
     }
     })();
 
-    this.security.acceptMessage(messageId, sessionId, sequence);
     return response;
   }
 

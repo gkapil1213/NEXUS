@@ -33,6 +33,24 @@ export class WorkerTransportSecurity {
     return { valid: true };
   }
 
+  /**
+   * Phase 290: returns true iff this call inserted a fresh messageId.
+   * Used inside the gateway's acceptance transaction (Design B, Strict B1).
+   */
+  acceptMessageDurable(messageId: string, sessionId: string, sequence?: number): boolean {
+    if (!this.db) {
+      if (this.seenMessageIds.has(messageId)) return false;
+      this.seenMessageIds.add(messageId);
+      if (sequence !== undefined) this.seenSequences.set(sessionId, sequence);
+      return true;
+    }
+    const result = this.db.prepare(
+      "INSERT OR IGNORE INTO worker_message_ids (message_id, session_id, seen_at) VALUES (?, ?, ?)"
+    ).run(messageId, sessionId, Date.now());
+    if (sequence !== undefined) this.seenSequences.set(sessionId, sequence);
+    return result.changes === 1;
+  }
+
   acceptMessage(messageId: string, sessionId: string, sequence?: number): void {
     if (this.db) {
       this.db.prepare(

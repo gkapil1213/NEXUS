@@ -57,8 +57,24 @@ export class WorkerSessionStore {
     );
   }
 
-  getSession(sessionId: string): WorkerSession | undefined {
-    const row = this.db.prepare("SELECT * FROM worker_sessions WHERE session_id = ?").get(sessionId);
+  /**
+   * Phase 290: atomic compare-and-swap on last_sequence.
+   * Returns true iff this call performed the advance (conditional UPDATE
+   * returned changes=1). Concurrent callers with the same target sequence
+   * produce exactly one true.
+   */
+  tryAdvanceSequence(sessionId: string, newSequence: number): boolean {
+    const result = this.db.prepare(`
+      UPDATE worker_sessions
+         SET last_sequence = ?,
+             last_seen_at  = ?
+       WHERE session_id    = ?
+         AND last_sequence < ?
+    `).run(newSequence, Date.now(), sessionId, newSequence);
+    return result.changes === 1;
+  }
+
+  getSession(sessionId: string): WorkerSession | undefined {    const row = this.db.prepare("SELECT * FROM worker_sessions WHERE session_id = ?").get(sessionId);
     return row ? this.mapSession(row) : undefined;
   }
 

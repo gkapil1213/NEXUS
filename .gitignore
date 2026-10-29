@@ -109,3 +109,10 @@ database-backups/
 docs/phase-289/*.log
 docs/phase-289/*.txt
 
+
+# Phase 290 local artifacts
+.phase290-baseline-*/
+.phase290-close-*/
+docs/phase-290/*.log
+docs/phase-290/*.txt
+
