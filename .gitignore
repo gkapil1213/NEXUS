@@ -103,3 +103,9 @@ database-backups/
 
 # Broader phase-tagged backup/recovery pattern (covers *.phaseNNN-anything.txt)
 *.phase[0-9]*-*.txt
+
+# Phase 289 local artifacts (report .md IS tracked)
+.phase289-close-*
+docs/phase-289/*.log
+docs/phase-289/*.txt
+

@@ -155,16 +155,15 @@ export class WorkerGateway {
     const freshness = this.security.validateFreshMessage(messageId, sessionId, sequence);
     if (!freshness.valid) throw new Error(freshness.reason || "invalid_message");
 
-    // Phase 288: enforce non-AUTH timestamp freshness when a timestamp is supplied.
-    // Missing timestamps remain compatible with existing Phase 286 fixtures.
-    if (msg.timestamp !== undefined) {
-      if (typeof msg.timestamp !== "number" || !Number.isFinite(msg.timestamp)) {
-        throw new Error("invalid_timestamp");
-      }
+    // Phase 289: mandatory timestamp for every non-AUTH_REQUEST message.
+    if (msg.timestamp === undefined) throw new Error("missing_timestamp");
+    if (typeof msg.timestamp !== "number" || !Number.isFinite(msg.timestamp)) {
+      throw new Error("invalid_timestamp");
+    }
+    {
       const timestampNow = Date.now();
-      if (Math.abs(timestampNow - msg.timestamp) > 5 * 60 * 1000) {
-        throw new Error(msg.timestamp < timestampNow ? "expired_timestamp" : "future_timestamp");
-      }
+      if (timestampNow - msg.timestamp > 5 * 60 * 1000) throw new Error("expired_timestamp");
+      if (msg.timestamp - timestampNow > 5 * 60 * 1000) throw new Error("future_timestamp");
     }
     // Phase 288: preflight JOB_RESULT integrity before durable sequence mutation.
     if (type === "JOB_RESULT") {
@@ -203,11 +202,14 @@ export class WorkerGateway {
         }
       }
     }
-session.lastSequence = sequence;
+    session.lastSequence = sequence;
     session.lastSeenAt = Date.now();
     this.sessionStore.updateSession(session);
-    this.security.acceptMessage(messageId, sessionId, sequence);
 
+    // Phase 289: acceptMessage after handler success. Wrapped in an IIFE so
+    // case-internal `return` does not bypass acceptMessage. Failure to reach
+    // the accept call means the messageId is NOT burned — retries succeed.
+    const response = await (async () => {
     switch (type) {
       case "HEARTBEAT": {
         const worker = this.workerStore.getWorker(workerId);
@@ -251,28 +253,10 @@ session.lastSequence = sequence;
           throw new Error("conflicting_duplicate_result");
         }
 
-        // Phase 287: verify integrity before persisting.
-        if (typeof result.stdoutSha256 !== "string" || result.stdoutSha256.length !== 64) {
-          throw new Error("invalid_result_integrity");
-        }
-        if (typeof result.stderrSha256 !== "string" || result.stderrSha256.length !== 64) {
-          throw new Error("invalid_result_integrity");
-        }
-        if (typeof result.resultSha256 !== "string" || result.resultSha256.length !== 64) {
-          throw new Error("invalid_result_integrity");
-        }
-        if (sha256Hex(result.stdout ?? "") !== result.stdoutSha256) {
-          throw new Error("invalid_result_integrity");
-        }
-        if (sha256Hex(result.stderr ?? "") !== result.stderrSha256) {
-          throw new Error("invalid_result_integrity");
-        }
-        {
-          const { resultSha256: claimedSha256, ...digestInput } = result;
-          if (computeResultDigest(digestInput) !== claimedSha256) {
-            throw new Error("invalid_result_integrity");
-          }
-        }
+        // Phase 289: integrity verification is performed once in the
+        // preflight above (Phase 288). The duplicate checks that lived here
+        // have been removed to eliminate drift risk; if you need to change
+        // the integrity contract, change it in the preflight.
 
         const durableResult: RemoteExecutionResult = {
           resultId: `result_${result.dispatchId}`,
@@ -346,6 +330,10 @@ session.lastSequence = sequence;
       }      default:
         throw new Error("unknown_message_type");
     }
+    })();
+
+    this.security.acceptMessage(messageId, sessionId, sequence);
+    return response;
   }
 
   // ------------------------------------------------------------------
