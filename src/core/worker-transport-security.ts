@@ -47,8 +47,9 @@ export class WorkerTransportSecurity {
     const result = this.db.prepare(
       "INSERT OR IGNORE INTO worker_message_ids (message_id, session_id, seen_at) VALUES (?, ?, ?)"
     ).run(messageId, sessionId, Date.now());
+    if (result.changes !== 1) return false;
     if (sequence !== undefined) this.seenSequences.set(sessionId, sequence);
-    return result.changes === 1;
+    return true;
   }
 
   acceptMessage(messageId: string, sessionId: string, sequence?: number): void {
