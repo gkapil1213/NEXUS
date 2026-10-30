@@ -123,3 +123,10 @@ docs/phase-290/*.txt
 docs/phase-290b/*.log
 docs/phase-290b/*.txt
 
+
+# Phase 291 local artifacts
+.phase291-baseline-*/
+.phase291-close-*/
+docs/phase-291/*.log
+docs/phase-291/*.txt
+

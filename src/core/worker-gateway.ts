@@ -12,6 +12,8 @@ import { RemoteWorker } from "./remote-worker-models";
 import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models";
 import { sha256Hex, computeResultDigest } from "./integrity";
 import { NexusEngine } from "./db";
+import { WorkerMessageHandlerTracker } from "./worker-message-handler-tracker";
+import { randomUUID } from "node:crypto";
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
 const SUPPORTED_PROTOCOL_VERSION = "1.0";
@@ -20,6 +22,8 @@ export class WorkerGateway {
   private server: ReturnType<typeof createServer>;
   private security: WorkerTransportSecurity;
   private dispatchService?: DispatchService;
+  private handlerTracker?: WorkerMessageHandlerTracker;
+  private readonly gatewayInstanceId = `gateway-${process.pid}-${randomUUID()}`;
   private listeningPromise?: Promise<void>;
 
   constructor(
@@ -31,6 +35,9 @@ export class WorkerGateway {
     private engine?: NexusEngine
   ) {
     this.security = new WorkerTransportSecurity(engine);
+    if (engine && this.security.hasHandlerTrackingSchema()) {
+      this.handlerTracker = new WorkerMessageHandlerTracker(engine);
+    }
     this.server = createServer((req, res) => this.handleRequest(req, res));
   }
 
@@ -45,14 +52,48 @@ export class WorkerGateway {
   }
   start(): Promise<void> {
     if (this.listeningPromise) return this.listeningPromise;
-    this.listeningPromise = new Promise((resolve, reject) => {
-      this.server.once("error", reject);
-      this.server.listen(this.port, () => {
-        this.server.off("error", reject);
-        resolve();
+    this.listeningPromise = (async () => {
+      await this.recoverIncompleteMessages();
+      await new Promise<void>((resolve, reject) => {
+        this.server.once("error", reject);
+        this.server.listen(this.port, () => {
+          this.server.off("error", reject);
+          resolve();
+        });
       });
-    });
+    })();
     return this.listeningPromise;
+  }
+
+  private async recoverIncompleteMessages(): Promise<void> {
+    if (!this.handlerTracker) {
+      console.log(JSON.stringify({
+        event: "phase291.recovery",
+        instance: this.gatewayInstanceId,
+        status: "UNAVAILABLE_SCHEMA",
+        detail: "handler_tracking_schema_not_installed",
+      }));
+      return;
+    }
+    const t0 = Date.now();
+    const incomplete = this.handlerTracker.listRecoverable();
+    let marked = 0, skipped = 0;
+    for (const m of incomplete) {
+      const ok = this.handlerTracker.markFailedInFlightByRecovery(
+        m.messageId,
+        "phase291_recovery: incomplete_handler_no_payload_available"
+      );
+      if (ok) marked++; else skipped++;
+    }
+    const durationMs = Date.now() - t0;
+    console.log(JSON.stringify({
+      event: "phase291.recovery",
+      instance: this.gatewayInstanceId,
+      discovered: incomplete.length,
+      marked_failed_in_flight: marked,
+      skipped: skipped,
+      duration_ms: durationMs,
+    }));
   }
 
   stop(): Promise<void> {
@@ -254,9 +295,16 @@ export class WorkerGateway {
       }
     }
 
-    // Handler runs AFTER durable acceptance has committed. Failure here does
-    // NOT roll back acceptance (Strict B1: client retries with new identifiers).
-    const response = await (async () => {
+    // Phase 291: claim the message for processing.
+    if (this.handlerTracker) {
+      const claimed = this.handlerTracker.claimForProcessing(messageId, this.gatewayInstanceId);
+      if (!claimed) throw new Error("message_already_processing");
+    }
+
+    // Handler runs AFTER durable acceptance has committed.
+    let response: any;
+    try {
+      response = await (async () => {
     switch (type) {
       case "HEARTBEAT": {
         const worker = this.workerStore.getWorker(workerId);
@@ -377,9 +425,19 @@ export class WorkerGateway {
       }      default:
         throw new Error("unknown_message_type");
     }
-    })();
-
-    return response;
+      })();
+      if (this.handlerTracker) {
+        this.handlerTracker.markCompleted(messageId, this.gatewayInstanceId);
+      }
+      return response;
+    } catch (e: any) {
+      if (this.handlerTracker) {
+        this.handlerTracker.markFailedInFlightByOwner(
+          messageId, this.gatewayInstanceId, String(e?.message ?? e).slice(0, 2000)
+        );
+      }
+      throw e;
+    }
   }
 
   // ------------------------------------------------------------------

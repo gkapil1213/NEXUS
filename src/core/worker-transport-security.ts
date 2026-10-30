@@ -16,6 +16,26 @@ export class WorkerTransportSecurity {
     }
   }
 
+  /**
+   * Phase 291: true only when the complete handler lifecycle schema exists.
+   * Legacy/test databases created through SQLiteEngine.fromDatabase may not
+   * have run migrations; those databases retain Phase 290 durable acceptance.
+   */
+  hasHandlerTrackingSchema(): boolean {
+    if (!this.db || this.db.kind !== "sqlite") return false;
+    const columns = this.db.prepare("PRAGMA table_info(worker_message_ids)").all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    return [
+      "handler_status",
+      "handler_owner_id",
+      "handler_claim_expires_at",
+      "handler_started_at",
+      "handler_completed_at",
+      "handler_attempt_count",
+      "handler_last_error",
+      "handler_recovery_reason",
+    ].every((name) => names.has(name));
+  }
   validateFreshMessage(messageId: string, sessionId: string, sequence?: number): { valid: boolean; reason?: string } {
     if (this.db) {
       const row = this.db.prepare("SELECT 1 FROM worker_message_ids WHERE message_id = ?").get(messageId);
@@ -44,9 +64,13 @@ export class WorkerTransportSecurity {
       if (sequence !== undefined) this.seenSequences.set(sessionId, sequence);
       return true;
     }
-    const result = this.db.prepare(
-      "INSERT OR IGNORE INTO worker_message_ids (message_id, session_id, seen_at) VALUES (?, ?, ?)"
-    ).run(messageId, sessionId, Date.now());
+    const result = this.hasHandlerTrackingSchema()
+      ? this.db.prepare(
+          "INSERT OR IGNORE INTO worker_message_ids (message_id, session_id, seen_at, handler_status) VALUES (?, ?, ?, 'PENDING')"
+        ).run(messageId, sessionId, Date.now())
+      : this.db.prepare(
+          "INSERT OR IGNORE INTO worker_message_ids (message_id, session_id, seen_at) VALUES (?, ?, ?)"
+        ).run(messageId, sessionId, Date.now());
     if (result.changes !== 1) return false;
     if (sequence !== undefined) this.seenSequences.set(sessionId, sequence);
     return true;
