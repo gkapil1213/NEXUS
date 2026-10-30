@@ -116,3 +116,10 @@ docs/phase-289/*.txt
 docs/phase-290/*.log
 docs/phase-290/*.txt
 
+
+# Phase 290b local artifacts
+.phase290b-baseline-*/
+.phase290b-close-*/
+docs/phase-290b/*.log
+docs/phase-290b/*.txt
+
