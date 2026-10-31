@@ -48,8 +48,7 @@ function eq<T>(id: string, actual: T, expected: T, msg: string): void {
 function newDb(): Database.Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON;");
-  const mig = (n: string) => readFileSync(join(process.cwd(), "src", "db", "migrations", n), "utf8");
-  db.exec(mig("020_phase13_execution.sql"));
+  const mig = (n: string) => readFileSync(join(process.cwd(), "src", "db", "migrations", n), "utf8");  db.exec(mig("020_phase13_execution.sql"));
   db.exec(mig("021_phase15_remote_control_plane.sql"));
   db.exec(mig("022_phase16_remote_execution.sql"));
   db.exec(mig("025_phase17_artifact_result_integrity.sql"));
@@ -57,6 +56,10 @@ function newDb(): Database.Database {
   db.exec(mig("143_remote_dispatch_persistence.sql"));
   db.exec(mig("144_durable_dispatch_intent.sql"));
   db.exec(mig("149_phase126_execution_ownership_obligations.sql"));
+  db.exec(mig("154_phase144_durable_execution_recovery_operations.sql"));
+  db.exec(mig("164_phase188_artifact_attempt_binding.sql"));
+  db.exec(mig("173_phase242_recovery_retry_metadata.sql"));
+  db.exec(mig("176_phase268_remote_execution_results_integrity.sql"));
   return db;
 }
 
