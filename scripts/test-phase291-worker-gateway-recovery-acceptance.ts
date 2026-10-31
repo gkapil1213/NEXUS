@@ -1,4 +1,4 @@
-﻿// Phase 291 - WorkerGateway recovery & handler lifecycle (ACCEPTANCE tests).
+// Phase 291 - WorkerGateway recovery & handler lifecycle (ACCEPTANCE tests).
 // Option C': durable tracking + startup detection + marking (no auto re-run).
 // Real file-backed SQLite, real gateway, real tracker.
 
@@ -148,9 +148,9 @@ async function main(): Promise<void> {
     const msgId = "m-t2-" + randomUUID();
     db.prepare(`INSERT INTO worker_message_ids (message_id, session_id, seen_at, handler_status)
       VALUES (?, ?, ?, 'PENDING')`).run(msgId, ctx.sessionId, Date.now());
-    const claimed = ctx.tracker.claimForProcessing(msgId, "owner-A");
-    check("T2 claim succeeds", claimed === true);
-    const completed = ctx.tracker.markCompleted(msgId, "owner-A");
+    const fencingToken = ctx.tracker.claimForProcessingWithToken(msgId, "owner-A");
+    check("T2 claim succeeds", fencingToken !== null);
+    const completed = fencingToken !== null && ctx.tracker.markCompleted(msgId, "owner-A", fencingToken);
     check("T2 markCompleted succeeds", completed === true);
     const row = db.prepare("SELECT handler_status, handler_completed_at FROM worker_message_ids WHERE message_id = ?")
       .get(msgId) as any;
@@ -166,9 +166,9 @@ async function main(): Promise<void> {
     const msgId = "m-t3-" + randomUUID();
     db.prepare(`INSERT INTO worker_message_ids (message_id, session_id, seen_at, handler_status)
       VALUES (?, ?, ?, 'PENDING')`).run(msgId, ctx.sessionId, Date.now());
-    const claimed = ctx.tracker.claimForProcessing(msgId, "owner-A");
-    check("T3 claim succeeds", claimed === true);
-    const failed = ctx.tracker.markFailedInFlightByOwner(msgId, "owner-A", "simulated_handler_error");
+    const fencingToken = ctx.tracker.claimForProcessingWithToken(msgId, "owner-A");
+    check("T3 claim succeeds", fencingToken !== null);
+    const failed = fencingToken !== null && ctx.tracker.markFailedInFlightByOwner(msgId, "owner-A", "simulated_handler_error", fencingToken);
     check("T3 markFailedInFlightByOwner succeeds", failed === true);
     const row = db.prepare("SELECT handler_status, handler_last_error FROM worker_message_ids WHERE message_id = ?")
       .get(msgId) as any;

@@ -1,8 +1,11 @@
 import { NexusEngine } from "./db";
+import { WorkerEnvelopeStore, MessageEnvelope } from "./worker-envelope-store";
 
 export class WorkerTransportSecurity {
   private seenMessageIds = new Set<string>();
   private seenSequences = new Map<string, number>();
+
+  private envelopeStore?: WorkerEnvelopeStore;
 
   constructor(private db?: NexusEngine) {
     if (this.db) {
@@ -13,7 +16,23 @@ export class WorkerTransportSecurity {
           seen_at INTEGER NOT NULL
         );
       `);
+      if (this.hasEnvelopeSchema()) {
+        this.envelopeStore = new WorkerEnvelopeStore(this.db);
+      }
     }
+  }
+
+  /**
+   * Phase 292: true iff the envelope table exists (from migration 179).
+   */
+  hasEnvelopeSchema(): boolean {
+    if (!this.db || this.db.kind !== "sqlite") return false;
+    try {
+      const cols = this.db.prepare("PRAGMA table_info(worker_message_envelopes)").all() as Array<{ name: string }>;
+      if (!cols || cols.length === 0) return false;
+      const names = new Set(cols.map(c => c.name));
+      return names.has("message_id") && names.has("message_type") && names.has("payload_json") && names.has("payload_sha256");
+    } catch { return false; }
   }
 
   /**
@@ -57,7 +76,12 @@ export class WorkerTransportSecurity {
    * Phase 290: returns true iff this call inserted a fresh messageId.
    * Used inside the gateway's acceptance transaction (Design B, Strict B1).
    */
-  acceptMessageDurable(messageId: string, sessionId: string, sequence?: number): boolean {
+  acceptMessageDurable(
+    messageId: string,
+    sessionId: string,
+    sequence?: number,
+    envelope?: MessageEnvelope,
+  ): boolean {
     if (!this.db) {
       if (this.seenMessageIds.has(messageId)) return false;
       this.seenMessageIds.add(messageId);
@@ -72,6 +96,17 @@ export class WorkerTransportSecurity {
           "INSERT OR IGNORE INTO worker_message_ids (message_id, session_id, seen_at) VALUES (?, ?, ?)"
         ).run(messageId, sessionId, Date.now());
     if (result.changes !== 1) return false;
+    // Phase 292 decision 1: persist envelope in the same transaction.
+    // Caller must wrap this call in engine.transaction(...) — the transaction
+    // is established by the gateway's runAccept closure.
+    if (envelope && this.envelopeStore) {
+      const envResult = this.envelopeStore.persist(envelope);
+      if (!envResult.persisted) {
+        // Roll back the messageId insert by throwing; caller's transaction
+        // will ROLLBACK on the thrown error.
+        throw new Error("envelope_persist_failed:" + envResult.reason);
+      }
+    }
     if (sequence !== undefined) this.seenSequences.set(sessionId, sequence);
     return true;
   }

@@ -13,6 +13,8 @@ import { RemoteDispatchRecord, RemoteExecutionResult } from "./execution-models"
 import { sha256Hex, computeResultDigest } from "./integrity";
 import { NexusEngine } from "./db";
 import { WorkerMessageHandlerTracker } from "./worker-message-handler-tracker";
+import { HandlerRegistry, HandlerContext, buildDefaultHandlerRegistry } from "./handler-registry";
+import { WorkerEnvelopeStore, ENVELOPE_VERSION } from "./worker-envelope-store";
 import { randomUUID } from "node:crypto";
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
@@ -24,6 +26,8 @@ export class WorkerGateway {
   private dispatchService?: DispatchService;
   private handlerTracker?: WorkerMessageHandlerTracker;
   private readonly gatewayInstanceId = `gateway-${process.pid}-${randomUUID()}`;
+  private handlerRegistry: HandlerRegistry;
+  private envelopeStore?: WorkerEnvelopeStore;
   private listeningPromise?: Promise<void>;
 
   constructor(
@@ -38,6 +42,10 @@ export class WorkerGateway {
     if (engine && this.security.hasHandlerTrackingSchema()) {
       this.handlerTracker = new WorkerMessageHandlerTracker(engine);
     }
+    if (engine && this.security.hasEnvelopeSchema()) {
+      this.envelopeStore = new WorkerEnvelopeStore(engine);
+    }
+    this.handlerRegistry = buildDefaultHandlerRegistry();
     this.server = createServer((req, res) => this.handleRequest(req, res));
   }
 
@@ -81,7 +89,8 @@ export class WorkerGateway {
     for (const m of incomplete) {
       const ok = this.handlerTracker.markFailedInFlightByRecovery(
         m.messageId,
-        "phase291_recovery: incomplete_handler_no_payload_available"
+        "phase292_recovery: incomplete_handler_no_payload_available",
+        m.fencingToken
       );
       if (ok) marked++; else skipped++;
     }
@@ -247,12 +256,12 @@ export class WorkerGateway {
     //
     // Sequence advance and messageId acceptance are committed ATOMICALLY
     // BEFORE the handler runs. On CAS failure or duplicate messageId, the
-    // transaction ROLLS BACK — the sequence is NOT consumed for a request
+    // transaction ROLLS BACK Ã¢â‚¬â€ the sequence is NOT consumed for a request
     // that was rejected. On success, the commit happens, then the handler
     // runs. Handler failure does NOT undo acceptance (the handler may have
     // performed irreversible side effects).
     //
-    // Non-SQL engines (memory/indexeddb) cannot honor this — their
+    // Non-SQL engines (memory/indexeddb) cannot honor this Ã¢â‚¬â€ their
     // transaction() throws SQL_UNSUPPORTED. We detect engine kind and fall
     // back to Phase 289 behavior for those backends (documented limitation).
     {
@@ -269,7 +278,18 @@ export class WorkerGateway {
             advanceFailed = true;
             throw new Error("__rollback:sequence");
           }
-          const accepted = this.security.acceptMessageDurable(messageId, sessionId, sequence);
+          const envelope = this.envelopeStore
+            ? {
+                messageId,
+                messageType: type,
+                workerId,
+                sessionId,
+                payload,
+                envelopeVersion: ENVELOPE_VERSION,
+                acceptedAt: Date.now(),
+              }
+            : undefined;
+          const accepted = this.security.acceptMessageDurable(messageId, sessionId, sequence, envelope);
           if (!accepted) {
             duplicateFailed = true;
             throw new Error("__rollback:duplicate");
@@ -296,15 +316,29 @@ export class WorkerGateway {
     }
 
     // Phase 291: claim the message for processing.
+    // Phase 292: capture the fencing token at claim time (design decision 4).
+    let fencingTokenAtClaim: number | undefined;
     if (this.handlerTracker) {
-      const claimed = this.handlerTracker.claimForProcessing(messageId, this.gatewayInstanceId);
-      if (!claimed) throw new Error("message_already_processing");
+      const claimedToken = this.handlerTracker.claimForProcessingWithToken(messageId, this.gatewayInstanceId);
+      if (claimedToken === null) throw new Error("message_already_processing");
+      fencingTokenAtClaim = claimedToken;
     }
 
     // Handler runs AFTER durable acceptance has committed.
     let response: any;
     try {
-      response = await (async () => {
+      const reg = this.handlerRegistry.get(type);
+      if (!reg) throw new Error("unknown_message_type");
+      const ctx: HandlerContext = {
+        workerId,
+        payload,
+        workerStore: this.workerStore,
+        executionStore: this.executionStore,
+        dispatchService: this.dispatchService,
+      };
+      response = await reg.handler(ctx);
+      // (registry dispatch replaces the previous inline switch)
+      /*
     switch (type) {
       case "HEARTBEAT": {
         const worker = this.workerStore.getWorker(workerId);
@@ -425,16 +459,24 @@ export class WorkerGateway {
       }      default:
         throw new Error("unknown_message_type");
     }
-      })();
+      */
       if (this.handlerTracker) {
-        this.handlerTracker.markCompleted(messageId, this.gatewayInstanceId);
+        if (fencingTokenAtClaim === undefined) {
+          throw new Error("handler_completion_fence_missing");
+        }
+        if (fencingTokenAtClaim === undefined ||
+            !this.handlerTracker.markCompleted(messageId, this.gatewayInstanceId, fencingTokenAtClaim)) {
+          throw new Error("handler_completion_fence_rejected");
+        }
       }
       return response;
     } catch (e: any) {
-      if (this.handlerTracker) {
+      if (this.handlerTracker && fencingTokenAtClaim !== undefined) {
+        if (fencingTokenAtClaim !== undefined) {
         this.handlerTracker.markFailedInFlightByOwner(
-          messageId, this.gatewayInstanceId, String(e?.message ?? e).slice(0, 2000)
+          messageId, this.gatewayInstanceId, String(e?.message ?? e).slice(0, 2000), fencingTokenAtClaim
         );
+        }
       }
       throw e;
     }
@@ -670,3 +712,4 @@ export class WorkerGatewayClient implements WorkerTransport {
 
   async disconnect(): Promise<void> { this.connected = false; this.sessionId = undefined; }
 }
+
