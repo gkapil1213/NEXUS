@@ -258,7 +258,11 @@ async function main(): Promise<void> {
       .run(msgId, ctx.sessionId, Date.now(), oldExpiry);
     const recoverable = ctx.tracker.listRecoverable();
     check("T8 stale PROCESSING is recoverable", recoverable.some(r => r.messageId === msgId));
-    const ok = ctx.tracker.markFailedInFlightByRecovery(msgId, "recovery_after_crash");
+    const recoveryRecord = recoverable.find(r => r.messageId === msgId);
+  check("T8 recovery record exposes fencing token", Number.isSafeInteger(recoveryRecord?.fencingToken));
+  const ok = recoveryRecord
+    ? ctx.tracker.markFailedInFlightByRecovery(msgId, "recovery_after_crash", recoveryRecord.fencingToken)
+    : false;
     check("T8 recovery marks FAILED_IN_FLIGHT", ok === true);
     const row = db.prepare("SELECT handler_status FROM worker_message_ids WHERE message_id = ?")
       .get(msgId) as any;

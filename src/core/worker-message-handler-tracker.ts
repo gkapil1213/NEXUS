@@ -110,6 +110,10 @@ export class WorkerMessageHandlerTracker {
   }
 
   markFailedInFlightByRecovery(messageId: string, reason: string, expectedFencingToken: number): boolean {
+    if (!Number.isSafeInteger(expectedFencingToken) || expectedFencingToken < 1) {
+      return false;
+    }
+
     const now = Date.now();
     const result = this.db.prepare(`
       UPDATE worker_message_ids
@@ -121,11 +125,13 @@ export class WorkerMessageHandlerTracker {
        WHERE message_id = ?
          AND handler_status IN ('PENDING', 'PROCESSING')
          AND (handler_claim_expires_at IS NULL OR handler_claim_expires_at <= ?)
+         AND fencing_token = ?
     `).run(
       String(reason).slice(0, 2000),
       String(reason).slice(0, 200),
       messageId,
       now,
+      expectedFencingToken,
     );
     return result.changes === 1;
   }
