@@ -54,6 +54,8 @@ function newDb(): Database.Database {
   db.exec(mig("144_durable_dispatch_intent.sql"));
   db.exec(mig("149_phase126_execution_ownership_obligations.sql"));
   db.exec(mig("154_phase144_durable_execution_recovery_operations.sql"));
+  db.exec(mig("156_phase165_execution_outcome_provenance.sql"));
+  db.exec(mig("157_phase166_provenance_audit_index.sql"));
   db.exec(mig("164_phase188_artifact_attempt_binding.sql"));
   db.exec(mig("173_phase242_recovery_retry_metadata.sql"));
   db.exec(mig("176_phase268_remote_execution_results_integrity.sql"));
@@ -174,7 +176,7 @@ async function testStaleWorkerCannotFinalize(): Promise<void> {
     WHERE lease_id = ?
   `).run(Date.now() - 1, leaseA!.leaseId);
 
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
 
   const leaseAStatus = r.db.prepare(
     "SELECT status FROM execution_leases WHERE lease_id = ?"
@@ -479,11 +481,11 @@ async function testRecoveryIdempotency(): Promise<void> {
 
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, claimed!.lease.leaseId);
 
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const after1 = jobRow(r.db, job.id);
   const obl1 = countObligations(r.db, job.id);
 
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const after2 = jobRow(r.db, job.id);
   const obl2 = countObligations(r.db, job.id);
 
@@ -507,7 +509,7 @@ async function testBlockedTerminal(): Promise<void> {
   ).run(staleLeaseId, job.id, "worker-A", 0, 0);
   r.db.prepare("UPDATE execution_jobs SET current_lease_id = ? WHERE id = ?").run(staleLeaseId, job.id);
 
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   eq("136-7.1", jobRow(r.db, job.id)?.status, "BLOCKED", "BLOCKED is not resurrected by recovery");
   r.db.close();
 }

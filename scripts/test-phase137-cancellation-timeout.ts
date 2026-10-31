@@ -57,6 +57,8 @@ function newDb(): Database.Database {
   db.exec(mig("144_durable_dispatch_intent.sql"));
   db.exec(mig("149_phase126_execution_ownership_obligations.sql"));
   db.exec(mig("154_phase144_durable_execution_recovery_operations.sql"));
+  db.exec(mig("156_phase165_execution_outcome_provenance.sql"));
+  db.exec(mig("157_phase166_provenance_audit_index.sql"));
   db.exec(mig("164_phase188_artifact_attempt_binding.sql"));
   db.exec(mig("173_phase242_recovery_retry_metadata.sql"));
   db.exec(mig("176_phase268_remote_execution_results_integrity.sql"));
@@ -367,7 +369,7 @@ async function t137_9(): Promise<void> {
 
   // Expire A's lease and let B take over.
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
 
   // Worker A's delayed completion now tries to mutate.
   r.dispatchPort.resolve({ success: true, exitCode: 0 });
@@ -391,11 +393,16 @@ async function t137_10(): Promise<void> {
   const exec = r.engine.executeJob("worker-A", job.id, leaseA);
   await r.dispatchPort.waitForPending(1);
 
+  // Force the job into RUNNING so the timeout detection path fires.
+  // Without this, the job may still be in CLAIMED when recovery runs, and
+  // the timeout branch is skipped (orphan recovery requeues instead).
+  r.db.prepare("UPDATE execution_jobs SET status = 'RUNNING' WHERE id = ?").run(job.id);
+
   // Backdate the attempt and expire the lease.
   r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
 
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const row = jobRow(r.db, job.id);
   ok("137-10.1", row?.status === "FAILED" || row?.status === "RETRY_SCHEDULED" || row?.status === "DEAD_LETTER",
      "durable timeout routed through FAILED/retry: " + row?.status);
@@ -421,6 +428,8 @@ async function t137_11(): Promise<void> {
   port.setAuto(false);
   const exec = eng.executeJob("worker-A", job.id, claimed!.lease.leaseId);
   await port.waitForPending(1);
+  // Force RUNNING to ensure timeout detection fires (see 137-10 note).
+  db.prepare("UPDATE execution_jobs SET status = 'RUNNING' WHERE id = ?").run(job.id);
   db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
   db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, claimed!.lease.leaseId);
 
@@ -430,7 +439,7 @@ async function t137_11(): Promise<void> {
   const reg2 = new WorkerRegistry(store2, lm2);
   registerWorker(reg2, "worker-A");
   const eng2 = new ExecutionEngine(store2, reg2, lm2, new RetryEngine(), { dispatchPort: makeControllableDispatch().port });
-  eng2.recoverStaleJobs(Date.now());
+  await eng2.recoverStaleJobs(Date.now());
 
   const row = jobRow(db, job.id);
   ok("137-11.1", ["FAILED","RETRY_SCHEDULED","DEAD_LETTER"].includes(String(row?.status)), "timeout recognised by fresh process: " + row?.status);
@@ -449,12 +458,14 @@ async function t137_12(): Promise<void> {
   r.dispatchPort.setAuto(false);
   const exec = r.engine.executeJob("worker-A", job.id, leaseA);
   await r.dispatchPort.waitForPending(1);
+  // Force RUNNING so timeout detection fires (see 137-10 note).
+  r.db.prepare("UPDATE execution_jobs SET status = 'RUNNING' WHERE id = ?").run(job.id);
   r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const snap1 = jobRow(r.db, job.id);
   const obl1 = countObligations(r.db, job.id);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const snap2 = jobRow(r.db, job.id);
   const obl2 = countObligations(r.db, job.id);
   eq("137-12.1", snap2?.status, snap1?.status, "second recovery pass is a no-op");
@@ -492,9 +503,11 @@ async function t137_14(): Promise<void> {
   r.dispatchPort.setAuto(false);
   const exec = r.engine.executeJob("worker-A", job.id, leaseA);
   await r.dispatchPort.waitForPending(1);
+  // Force RUNNING so timeout detection fires (see 137-10 note).
+  r.db.prepare("UPDATE execution_jobs SET status = 'RUNNING' WHERE id = ?").run(job.id);
   r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const afterRecover = jobRow(r.db, job.id);
   r.dispatchPort.resolve({ success: true, exitCode: 0 });
   try { await exec; } catch { /* expected: stale worker rejected */ }
@@ -519,7 +532,7 @@ async function t137_15(): Promise<void> {
   r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
 
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const row = jobRow(r.db, job.id);
   eq("137-15.1", row?.status, "CANCELLED", "cancellation takes precedence over timeout");
 
@@ -541,7 +554,7 @@ async function t137_16(): Promise<void> {
 
   // Expire A's lease, let B take over, then simulate A waking up.
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
 
   // A's old lease is no longer valid; a fresh validate fails.
   eq("137-16.1", r.leaseMgr.validateLease(leaseA, "worker-A"), false, "old lease no longer validates");
@@ -614,13 +627,13 @@ async function t137_20(): Promise<void> {
   // Cancel and let recovery take over.
   r.engine.requestCancellation(job.id);
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const after = jobRow(r.db, job.id);
   eq("137-20.1", after?.status, "CANCELLED", "CANCELLED is authoritative");
 
   // Run recovery again — must not mutate.
   r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   eq("137-20.2", jobRow(r.db, job.id)?.status, "CANCELLED", "still CANCELLED after repeat recovery");
 
   r.dispatchPort.resolve({ success: true, exitCode: 0 });
@@ -706,7 +719,7 @@ async function t137_24(): Promise<void> {
   const reg2 = new WorkerRegistry(store2, lm2);
   registerWorker(reg2, "worker-A");
   const eng2 = new ExecutionEngine(store2, reg2, lm2, new RetryEngine(), { dispatchPort: makeControllableDispatch().port });
-  eng2.recoverStaleJobs(Date.now());
+  await eng2.recoverStaleJobs(Date.now());
 
   eq("137-24.1", jobRow(db, job.id)?.status, "CANCELLED", "recovery honoured the durable cancellation flag");
   port.resolve({ success: true, exitCode: 0 });
@@ -739,9 +752,9 @@ async function t137_25(): Promise<void> {
   const reg2 = new WorkerRegistry(store2, lm2);
   registerWorker(reg2, "worker-A");
   const eng2 = new ExecutionEngine(store2, reg2, lm2, new RetryEngine(), { dispatchPort: makeControllableDispatch().port });
-  eng2.recoverStaleJobs(Date.now());
+  await eng2.recoverStaleJobs(Date.now());
   const s1 = jobRow(db, job.id)?.status;
-  eng2.recoverStaleJobs(Date.now());
+  await eng2.recoverStaleJobs(Date.now());
   const s2 = jobRow(db, job.id)?.status;
   eq("137-25.1", s2, s1, "second recovery after crash is a no-op");
   ok("137-25.2", ["FAILED","RETRY_SCHEDULED","DEAD_LETTER"].includes(String(s1)), "timeout routed through terminal: " + s1);
@@ -778,13 +791,15 @@ async function t137_27(): Promise<void> {
   r.dispatchPort.setAuto(false);
   const exec = r.engine.executeJob("worker-A", job.id, leaseA);
   await r.dispatchPort.waitForPending(1);
+  // Force RUNNING so timeout detection fires (see 137-10 note).
+  r.db.prepare("UPDATE execution_jobs SET status = 'RUNNING' WHERE id = ?").run(job.id);
   r.db.prepare("UPDATE execution_attempts SET started_at = ? WHERE job_id = ?").run(Date.now() - 10_000, job.id);
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const status1 = jobRow(r.db, job.id)?.status;
   const obl1 = countObligations(r.db, job.id);
   const events1 = countEvents(r.db, job.id, "execution.transition.");
-  for (let i = 0; i < 5; i++) r.engine.recoverStaleJobs(Date.now());
+  for (let i = 0; i < 5; i++) await r.engine.recoverStaleJobs(Date.now());
   eq("137-27.1", jobRow(r.db, job.id)?.status, status1, "status unchanged after 5 more cycles");
   eq("137-27.2", countObligations(r.db, job.id), obl1, "obligations unchanged");
   eq("137-27.3", countEvents(r.db, job.id, "execution.transition."), events1, "transition events unchanged");
@@ -804,7 +819,7 @@ async function t137_28(): Promise<void> {
   await r.dispatchPort.waitForPending(1);
   r.engine.requestCancellation(job.id);
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
   const rows = r.db.prepare("SELECT payload FROM execution_events WHERE job_id = ?").all(job.id) as Array<{ payload: string | null }>;
   const blob = JSON.stringify(rows);
   const forbidden = [
@@ -833,7 +848,7 @@ async function t137_29(): Promise<void> {
   await r.dispatchPort.waitForPending(1);
 
   r.db.prepare("UPDATE execution_leases SET expires_at = ? WHERE lease_id = ?").run(Date.now() - 1, leaseA);
-  r.engine.recoverStaleJobs(Date.now());
+  await r.engine.recoverStaleJobs(Date.now());
 
   r.dispatchPort.resolve({ success: true, exitCode: 0 });
   let errA: unknown = null;
