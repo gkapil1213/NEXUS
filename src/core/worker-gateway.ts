@@ -108,6 +108,16 @@ export class WorkerGateway {
       return;
     }
     const t0 = Date.now();
+
+    // Slice 2b: run the read-only inspection before the recovery loop.
+    // This classifies each recoverable row as REPLAY_ELIGIBLE / QUARANTINE /
+    // BLOCKED and logs a phase292b.inspect line. This slice does NOT act on
+    // the classification: every recoverable row is still marked
+    // FAILED_IN_FLIGHT below, preserving Phase 291 behavior. Acting on the
+    // decisions is a later slice.
+    const inspection = this.recoveryInspection
+      ? this.recoveryInspection.inspectOnce()
+      : null;
     const incomplete = this.handlerTracker.listRecoverable();
     let marked = 0, skipped = 0;
     for (const m of incomplete) {
@@ -126,6 +136,14 @@ export class WorkerGateway {
       marked_failed_in_flight: marked,
       skipped: skipped,
       duration_ms: durationMs,
+      inspection: inspection
+        ? {
+            replayEligible: inspection.replayEligible,
+            quarantine: inspection.quarantine,
+            blocked: inspection.blocked,
+            byReason: inspection.byReason,
+          }
+        : null,
     }));
   }
 
