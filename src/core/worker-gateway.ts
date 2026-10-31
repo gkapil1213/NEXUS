@@ -15,6 +15,7 @@ import { NexusEngine } from "./db";
 import { WorkerMessageHandlerTracker } from "./worker-message-handler-tracker";
 import { HandlerRegistry, HandlerContext, buildDefaultHandlerRegistry } from "./handler-registry";
 import { WorkerEnvelopeStore, ENVELOPE_VERSION } from "./worker-envelope-store";
+import { WorkerRecoveryInspection } from "./worker-recovery-inspection";
 import { randomUUID } from "node:crypto";
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
@@ -28,6 +29,7 @@ export class WorkerGateway {
   private readonly gatewayInstanceId = `gateway-${process.pid}-${randomUUID()}`;
   private handlerRegistry: HandlerRegistry;
   private envelopeStore?: WorkerEnvelopeStore;
+  private recoveryInspection?: WorkerRecoveryInspection;
   private listeningPromise?: Promise<void>;
 
   constructor(
@@ -39,13 +41,35 @@ export class WorkerGateway {
     private engine?: NexusEngine
   ) {
     this.security = new WorkerTransportSecurity(engine);
+
+    // The registry is required by message handling regardless of optional schemas.
+    this.handlerRegistry = buildDefaultHandlerRegistry();
+
     if (engine && this.security.hasHandlerTrackingSchema()) {
       this.handlerTracker = new WorkerMessageHandlerTracker(engine);
     }
+
     if (engine && this.security.hasEnvelopeSchema()) {
       this.envelopeStore = new WorkerEnvelopeStore(engine);
     }
-    this.handlerRegistry = buildDefaultHandlerRegistry();
+
+    if (engine && this.handlerTracker && this.envelopeStore) {
+      try {
+        this.recoveryInspection = new WorkerRecoveryInspection(
+          engine,
+          this.handlerTracker,
+          this.envelopeStore,
+          this.handlerRegistry
+        );
+      } catch (e) {
+        console.log(JSON.stringify({
+          event: "phase292b.inspect",
+          status: "INSPECTION_INIT_FAILED",
+          instance: this.gatewayInstanceId,
+          error: String((e as any)?.message ?? e).slice(0, 200)
+        }));
+      }
+    }
     this.server = createServer((req, res) => this.handleRequest(req, res));
   }
 
