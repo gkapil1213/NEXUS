@@ -2078,7 +2078,7 @@ export class ExecutionEngine {
             }
 
             let timeoutExpired = false;
-            if (job.status === "RUNNING" || job.status === "VERIFYING") {
+            if (job.status === "RUNNING" || job.status === "VERIFYING" || job.status === "CLAIMED") {
                 const attempts = await this.listAttemptsForJobIO(job.id);
                 const lastAttempt = attempts.length > 0 ? attempts[attempts.length - 1] : undefined;
                 const startedAt = lastAttempt?.startedAt;
