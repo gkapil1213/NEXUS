@@ -1,5 +1,5 @@
 // Phase 292B AWS Secrets Manager HMAC provider tests.
-// All CLI calls are mocked via runAwsOverride — no AWS account required.
+// All CLI calls are mocked via runAwsOverride - no AWS account required.
 
 import { AwsSecretsManagerHmacKeyProvider } from "../src/core/aws-secrets-manager-hmac-key-provider";
 
@@ -50,7 +50,12 @@ async function main() {
   await expectThrowAsync("CLI not found -> aws_cli_not_found", () =>
     AwsSecretsManagerHmacKeyProvider.load({
       secretId: "s", region: "us-east-1",
-      runAwsOverride: mockErr(1, "Error: spawn aws ENOENT"),
+      runAwsOverride: async () => ({
+        exitCode: 127,
+        stdout: "",
+        stderr: "",
+        failure: "spawn_error",
+      }),
     }), "aws_cli_not_found");
   await expectThrowAsync("ResourceNotFound -> fetch_failed, NOT aws_cli_not_found", () =>
     AwsSecretsManagerHmacKeyProvider.load({

@@ -99,26 +99,26 @@ export class AwsSecretsManagerHmacKeyProvider
       "text",
     ]);
 
+    if (res.failure === "spawn_error") {
+      throw new Error("aws_cli_not_found: AWS CLI could not be started");
+    }
+    if (res.failure === "timeout") {
+      throw new Error("aws_secrets_manager_timeout: AWS CLI request timed out");
+    }
+    if (res.failure === "output_limit_exceeded") {
+      throw new Error("aws_secrets_manager_output_too_large: AWS CLI response exceeded the configured limit");
+    }
+    if (res.failure === "nonzero_exit") {
+      throw new Error("aws_secrets_manager_fetch_failed: AWS CLI exited with code " + res.exitCode);
+    }
     if (res.exitCode !== 0) {
-      // Distinguish "spawn failed" (ENOENT from child_process) from
-      // "CLI ran but rejected the request". The former means aws isn't on
-      // PATH; the latter means the CLI executed but the request failed
-      // (e.g., ResourceNotFoundException from a wrong ARN).
-      const isSpawnError = res.stdout === "" && /^Error: spawn aws/i.test(res.stderr.trim());
-      if (isSpawnError) {
-        throw new Error(
-          `aws_cli_not_found: aws must be on PATH to fetch ${opts.secretId}`,
-        );
-      }
-      throw new Error(
-        `aws_secrets_manager_fetch_failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`,
-      );
+      throw new Error("aws_secrets_manager_fetch_failed: AWS Secrets Manager request failed");
     }
 
     const secretString = res.stdout;
     if (!secretString || secretString.trim() === "") {
       throw new Error(
-        `invalid_aws_secret_payload: SecretString is empty for ${opts.secretId}`,
+        `invalid_aws_secret_payload: SecretString is empty for AWS Secrets Manager`,
       );
     }
 
@@ -127,13 +127,13 @@ export class AwsSecretsManagerHmacKeyProvider
       payload = JSON.parse(secretString);
     } catch {
       throw new Error(
-        `invalid_aws_secret_payload: SecretString is not valid JSON for ${opts.secretId}`,
+        `invalid_aws_secret_payload: SecretString is not valid JSON for AWS Secrets Manager`,
       );
     }
 
     if (!payload || typeof payload !== "object") {
       throw new Error(
-        `invalid_aws_secret_payload: SecretString must be a JSON object for ${opts.secretId}`,
+        `invalid_aws_secret_payload: SecretString must be a JSON object for AWS Secrets Manager`,
       );
     }
 
@@ -145,7 +145,7 @@ export class AwsSecretsManagerHmacKeyProvider
       typeof (p.current as { key_hex?: unknown }).key_hex !== "string"
     ) {
       throw new Error(
-        `invalid_aws_secret_payload: current must have string kid and key_hex for ${opts.secretId}`,
+        `invalid_aws_secret_payload: current must have string kid and key_hex for AWS Secrets Manager`,
       );
     }
 
@@ -163,7 +163,7 @@ export class AwsSecretsManagerHmacKeyProvider
     if (p.retired !== undefined) {
       if (!Array.isArray(p.retired)) {
         throw new Error(
-          `invalid_aws_secret_payload: retired must be an array for ${opts.secretId}`,
+          `invalid_aws_secret_payload: retired must be an array for AWS Secrets Manager`,
         );
       }
       for (let i = 0; i < p.retired.length; i++) {
@@ -175,7 +175,7 @@ export class AwsSecretsManagerHmacKeyProvider
           typeof (entry as { key_hex?: unknown }).key_hex !== "string"
         ) {
           throw new Error(
-            `invalid_aws_secret_payload: retired[${i}] must have string kid and key_hex for ${opts.secretId}`,
+            `invalid_aws_secret_payload: retired[${i}] must have string kid and key_hex for AWS Secrets Manager`,
           );
         }
         const kid = validateKid(
@@ -184,7 +184,7 @@ export class AwsSecretsManagerHmacKeyProvider
         );
         if (seenKids.has(kid)) {
           throw new Error(
-            `invalid_aws_secret_payload: retired[${i}].kid duplicates ${kid} for ${opts.secretId}`,
+            `invalid_aws_secret_payload: retired[${i}].kid duplicates ${kid} for AWS Secrets Manager`,
           );
         }
         seenKids.add(kid);
