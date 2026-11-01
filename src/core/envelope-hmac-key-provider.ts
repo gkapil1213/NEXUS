@@ -1,4 +1,4 @@
-﻿// Phase 292B Block A: envelope HMAC key provider contract.
+// Phase 292B Block A: envelope HMAC key provider contract.
 //
 // PURPOSE: supply the HMAC-SHA-256 signing key that authenticates the
 // complete envelope identity. The key MUST live outside SQLite; a hash
@@ -32,6 +32,17 @@ export interface EnvelopeHmacKeyProvider {
 
 const HMAC_KEY_BYTES = 32;
 const HEX_64 = /^[0-9a-fA-F]{64}$/;
+const VALID_KID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+function validateKid(kid: string, source: string): void {
+  if (typeof kid !== "string" || !VALID_KID.test(kid)) {
+    throw new Error(`invalid_envelope_hmac_kid: ${source} must be 1-128 safe ASCII characters`);
+  }
+}
+
+function copyKey(key: EnvelopeHmacKey): EnvelopeHmacKey {
+  return { kid: key.kid, key: Buffer.from(key.key) };
+}
 
 function decodeHexKey(hex: string, source: string): Buffer {
   if (typeof hex !== "string" || !HEX_64.test(hex)) {
@@ -57,6 +68,7 @@ export class EnvHmacKeyProvider implements EnvelopeHmacKeyProvider {
     if (!keyHex) {
       throw new Error("missing_envelope_hmac_key: NEXUS_ENVELOPE_HMAC_KEY_HEX must be set to enable envelope signing");
     }
+    validateKid(kid, "NEXUS_ENVELOPE_HMAC_KID");
     this.current = { kid, key: decodeHexKey(keyHex, "NEXUS_ENVELOPE_HMAC_KEY_HEX") };
 
     const keysJson = env.NEXUS_ENVELOPE_HMAC_KEYS_JSON;
@@ -70,26 +82,32 @@ export class EnvHmacKeyProvider implements EnvelopeHmacKeyProvider {
         throw new Error("invalid_envelope_hmac_keys_json: NEXUS_ENVELOPE_HMAC_KEYS_JSON must be a JSON array");
       }
       const extras: EnvelopeHmacKey[] = [];
+      const seenKids = new Set<string>([kid]);
       for (let i = 0; i < parsed.length; i++) {
         const entry = parsed[i];
         if (!entry || typeof entry !== "object" || typeof (entry as any).kid !== "string" || typeof (entry as any).key_hex !== "string") {
           throw new Error(`invalid_envelope_hmac_keys_json: entry ${i} must have string kid and key_hex`);
         }
         const kidE = (entry as any).kid as string;
-        if (kidE === kid) {
-          throw new Error(`invalid_envelope_hmac_keys_json: entry ${i} duplicates the current kid`);
+        validateKid(kidE, `KEYS_JSON[${i}].kid`);
+        if (seenKids.has(kidE)) {
+          throw new Error(`invalid_envelope_hmac_keys_json: entry ${i} duplicates kid ${kidE}`);
         }
+        seenKids.add(kidE);
         extras.push({ kid: kidE, key: decodeHexKey((entry as any).key_hex, `KEYS_JSON[${i}]`) });
       }
       this.extra = extras;
     }
   }
 
-  currentKey(): EnvelopeHmacKey { return this.current; }
-  verifiableKeys(): ReadonlyArray<EnvelopeHmacKey> { return [this.current, ...this.extra]; }
+  currentKey(): EnvelopeHmacKey { return copyKey(this.current); }
+  verifiableKeys(): ReadonlyArray<EnvelopeHmacKey> {
+    return [this.current, ...this.extra].map(copyKey);
+  }
   keyForKid(kid: string): EnvelopeHmacKey | undefined {
-    if (kid === this.current.kid) return this.current;
-    return this.extra.find((k) => k.kid === kid);
+    if (kid === this.current.kid) return copyKey(this.current);
+    const found = this.extra.find((k) => k.kid === kid);
+    return found ? copyKey(found) : undefined;
   }
 }
 
@@ -126,9 +144,14 @@ export function computeEnvelopeHmac(key: EnvelopeHmacKey, envelope: {
   return createHmac("sha256", key.key).update(canonicalEnvelopeInput(envelope)).digest("hex");
 }
 
-/** Constant-time hex comparison. */
+/**
+ * Constant-time hex comparison. Expects two 64-character hex strings
+ * (SHA-256 output). Returns false for any input that is not exactly
+ * 64 hex characters, including shorter/longer hashes.
+ */
 export function hmacEquals(a: string, b: string): boolean {
   if (typeof a !== "string" || typeof b !== "string") return false;
+  if (!HEX_64.test(a) || !HEX_64.test(b)) return false;
   if (a.length !== b.length) return false;
   try {
     const bufA = Buffer.from(a, 'hex');
