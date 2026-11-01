@@ -1,4 +1,4 @@
-// EnvelopeHmacKeyProvider backed by AWS Secrets Manager.
+﻿// EnvelopeHmacKeyProvider backed by AWS Secrets Manager.
 //
 // The HMAC signing key is stored in a single Secrets Manager secret as JSON:
 //   {
@@ -109,7 +109,7 @@ export class AwsSecretsManagerHmacKeyProvider
       throw new Error("aws_secrets_manager_output_too_large: AWS CLI response exceeded the configured limit");
     }
     if (res.failure === "nonzero_exit") {
-      throw new Error("aws_secrets_manager_fetch_failed: AWS CLI exited with code " + res.exitCode);
+      throw new Error("aws_secrets_manager_fetch_failed: AWS Secrets Manager request failed");
     }
     if (res.exitCode !== 0) {
       throw new Error("aws_secrets_manager_fetch_failed: AWS Secrets Manager request failed");
@@ -215,3 +215,4 @@ export class AwsSecretsManagerHmacKeyProvider
     return found ? copyKey(found) : undefined;
   }
 }
+

@@ -1,4 +1,4 @@
-// AWS CLI invoker for startup-time secret retrieval.
+﻿// AWS CLI invoker for startup-time secret retrieval.
 // Successful stdout is retained for SecretString parsing.
 // stderr and process error text are deliberately never exposed.
 
@@ -93,7 +93,7 @@ export const runAws: RunAwsFn = (args, timeoutMs = 30_000) =>
         exitCode: 127,
         stdout: "",
         stderr: "",
-        failure: error.code === "ENOENT" ? "spawn_error" : "spawn_error",
+        failure: "spawn_error",
       });
     });
 
@@ -115,3 +115,4 @@ export const runAws: RunAwsFn = (args, timeoutMs = 30_000) =>
       });
     });
   });
+
