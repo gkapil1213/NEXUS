@@ -1,4 +1,8 @@
-﻿import Database from "better-sqlite3";
+﻿// Phase 292B: gateway now fails closed without HMAC key material.
+// Test-only defaults; do not reuse outside the test suite.
+process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
+process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
+import Database from "better-sqlite3";
 import crypto from "crypto";
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { WorkerGateway } from "../src/core/worker-gateway";
@@ -277,3 +281,4 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
+

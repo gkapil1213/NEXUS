@@ -5,15 +5,23 @@
 // or is blocked by a missing envelope. It does NOT mutate state, does NOT
 // invoke handlers, and does NOT call any tracker method that writes.
 //
+// Phase 292B Block 0c: metadata integrity.
+//   Migration 180 added envelope_sha256, a full-row hash covering identity
+//   fields and payload_sha256. New rows have it populated; legacy rows
+//   (pre-180) have NULL. This layer distinguishes:
+//     - "integrity_fail"     : either payload hash or metadata hash fails
+//                              (tampered or corrupted — hostile)
+//     - "unverified_legacy"  : row was persisted before migration 180, its
+//                              identity cannot be cryptographically verified
+//                              (requires operator reconciliation)
+//
 // TRUST MODEL (documented limitation):
-//   - envelope.payload_sha256 covers ONLY payload_json (see
-//     worker-envelope-store.ts verifyIntegrity). It does not cover message_type,
-//     worker_id, session_id, or accepted_at.
-//   - This slice therefore trusts message_type and worker_id from the envelope
-//     (they have no authoritative counterpart in worker_message_ids).
-//   - This slice cross-checks session_id against worker_message_ids.session_id,
-//     because both were written in the same acceptance transaction.
-//   - A future migration (180) can add full-row integrity if required.
+//   - message_type and worker_id have no authoritative counterpart in
+//     worker_message_ids; they are trusted from the envelope.
+//   - session_id is cross-checked against worker_message_ids.session_id.
+//   - accepted_at is trusted from the envelope; migration 180's metadata
+//     hash binds it, so tampering is detectable but not disprovable for
+//     legacy rows.
 
 import { NexusEngine } from "./db";
 import { WorkerMessageHandlerTracker, RecoverableMessage } from "./worker-message-handler-tracker";
@@ -22,6 +30,7 @@ import { HandlerRegistry } from "./handler-registry";
 
 export type QuarantineReason =
   | "integrity_fail"
+  | "unverified_legacy"
   | "unknown_handler"
   | "not_replay_eligible"
   | "session_mismatch";
@@ -137,7 +146,33 @@ export class WorkerRecoveryInspection {
       };
     }
 
-    if (!this.envelopes.verifyIntegrity(envelope)) {
+    // Payload integrity first: if the payload bytes don't match their stored
+    // digest, the envelope is tampered. Report as integrity_fail.
+    if (!this.envelopes.verifyPayloadIntegrity(envelope)) {
+      return {
+        kind: "QUARANTINE",
+        messageId: row.messageId,
+        messageType: null,
+        reason: "integrity_fail",
+        fencingToken: row.fencingToken,
+      };
+    }
+
+    // Legacy row: payload is intact but envelope_sha256 is NULL because the
+    // row predates migration 180. We cannot verify identity fields. Report
+    // as unverified_legacy (distinct from tampered).
+    if (envelope.envelopeSha256 === null || envelope.envelopeSha256 === undefined) {
+      return {
+        kind: "QUARANTINE",
+        messageId: row.messageId,
+        messageType: envelope.messageType,
+        reason: "unverified_legacy",
+        fencingToken: row.fencingToken,
+      };
+    }
+
+    // Full metadata integrity: envelope_sha256 must match.
+    if (!this.envelopes.verifyMetadataIntegrity(envelope)) {
       return {
         kind: "QUARANTINE",
         messageId: row.messageId,

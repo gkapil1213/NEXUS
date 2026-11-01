@@ -1,3 +1,7 @@
+﻿// Phase 292B: gateway now fails closed without HMAC key material.
+// Test-only defaults; do not reuse outside the test suite.
+process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
+process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
 // Phase 291 - WorkerGateway recovery & handler lifecycle (ACCEPTANCE tests).
 // Option C': durable tracking + startup detection + marking (no auto re-run).
 // Real file-backed SQLite, real gateway, real tracker.
@@ -371,3 +375,4 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => { console.error("FATAL:", e); process.exit(2); });
+

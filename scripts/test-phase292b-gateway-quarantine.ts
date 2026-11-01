@@ -1,3 +1,7 @@
+// Phase 292B: gateway now fails closed without HMAC key material.
+// Test-only defaults; do not reuse outside the test suite.
+process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
+process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
 // Phase 292B Slice 3: real WorkerGateway startup recovery integration test.
 // Uses migration-backed SQLite and the real gateway, stores and tracker.
 
@@ -14,6 +18,7 @@ import { ExecutionStore } from "../src/core/execution-store";
 import { WorkerGateway } from "../src/core/worker-gateway";
 import { WorkerMessageHandlerTracker } from "../src/core/worker-message-handler-tracker";
 import { WorkerEnvelopeStore, ENVELOPE_VERSION } from "../src/core/worker-envelope-store";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 
 let assertions = 0;
 let failures = 0;
@@ -47,7 +52,8 @@ async function main(): Promise<void> {
     const auth = new WorkerAuthentication(workerStore);
     const executionStore = new ExecutionStore(engine);
     const tracker = new WorkerMessageHandlerTracker(engine);
-    const envelopes = new WorkerEnvelopeStore(engine);
+    const hmacProvider = new EnvHmacKeyProvider(process.env);
+    const envelopes = new WorkerEnvelopeStore(engine, hmacProvider);
 
     const workerId = "w-p292b-" + randomUUID();
     const sessionId = "s-p292b-" + randomUUID();
@@ -110,7 +116,7 @@ async function main(): Promise<void> {
     }
 
     gateway = new WorkerGateway(
-      0, sessionStore, workerStore, auth, executionStore, engine
+      0, sessionStore, workerStore, auth, executionStore, engine, hmacProvider
     );
 
     section("G1 startup recovery quarantines explicit QUARANTINE decision");
@@ -173,3 +179,4 @@ main().catch((error) => {
   console.error("Gateway quarantine integration: ERROR", error);
   process.exit(1);
 });
+

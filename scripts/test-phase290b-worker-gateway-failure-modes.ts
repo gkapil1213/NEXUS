@@ -1,5 +1,9 @@
+﻿// Phase 292B: gateway now fails closed without HMAC key material.
+// Test-only defaults; do not reuse outside the test suite.
+process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
+process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
 // Phase 290b - WorkerGateway failure-path verification.
-// Closes charter §5 items 5, 6, 13, 14 from Phase 290.
+// Closes charter Â§5 items 5, 6, 13, 14 from Phase 290.
 //
 // T5 and T6 use REAL code paths (no injection).
 // T13 and T14 use SQLite triggers (RAISE(ROLLBACK)) to inject persistence

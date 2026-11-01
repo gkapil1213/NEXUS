@@ -1,3 +1,4 @@
+import type { EnvelopeHmacKeyProvider } from "./envelope-hmac-key-provider";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { WorkerTransport } from "./worker-transport";
 import { WorkerSessionStore } from "./worker-session-store";
@@ -17,7 +18,6 @@ import { HandlerRegistry, HandlerContext, buildDefaultHandlerRegistry } from "./
 import { WorkerEnvelopeStore, ENVELOPE_VERSION } from "./worker-envelope-store";
 import { WorkerRecoveryInspection } from "./worker-recovery-inspection";
 import { randomUUID } from "node:crypto";
-
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
 const SUPPORTED_PROTOCOL_VERSION = "1.0";
 
@@ -37,10 +37,11 @@ export class WorkerGateway {
     private sessionStore: WorkerSessionStore,
     private workerStore: RemoteWorkerStore,
     private auth: WorkerAuthentication,
-    private executionStore?: ExecutionStore,
-    private engine?: NexusEngine
+    private executionStore: ExecutionStore,
+    private engine: NexusEngine,
+    hmacProvider: EnvelopeHmacKeyProvider
   ) {
-    this.security = new WorkerTransportSecurity(engine);
+    this.security = new WorkerTransportSecurity(engine, hmacProvider);
 
     // The registry is required by message handling regardless of optional schemas.
     this.handlerRegistry = buildDefaultHandlerRegistry();
@@ -50,7 +51,7 @@ export class WorkerGateway {
     }
 
     if (engine && this.security.hasEnvelopeSchema()) {
-      this.envelopeStore = new WorkerEnvelopeStore(engine);
+      this.envelopeStore = new WorkerEnvelopeStore(engine, hmacProvider);
     }
 
     if (engine && this.handlerTracker && this.envelopeStore) {
@@ -322,12 +323,12 @@ export class WorkerGateway {
     //
     // Sequence advance and messageId acceptance are committed ATOMICALLY
     // BEFORE the handler runs. On CAS failure or duplicate messageId, the
-    // transaction ROLLS BACK ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the sequence is NOT consumed for a request
+    // transaction ROLLS BACK on any failed step.
     // that was rejected. On success, the commit happens, then the handler
     // runs. Handler failure does NOT undo acceptance (the handler may have
     // performed irreversible side effects).
     //
-    // Non-SQL engines (memory/indexeddb) cannot honor this ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â their
+    // Non-SQL engines (memory/indexeddb) cannot honor this ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â their
     // transaction() throws SQL_UNSUPPORTED. We detect engine kind and fall
     // back to Phase 289 behavior for those backends (documented limitation).
     {
@@ -338,6 +339,7 @@ export class WorkerGateway {
       if (isSqlEngine && typeof engineForTx?.transaction === 'function') {
         let advanceFailed = false;
         let duplicateFailed = false;
+        let envelopePersistFailed = false;
         const runAccept = (): void => {
           const advanced = this.sessionStore.tryAdvanceSequence(sessionId, sequence);
           if (!advanced) {
@@ -355,7 +357,15 @@ export class WorkerGateway {
                 acceptedAt: Date.now(),
               }
             : undefined;
-          const accepted = this.security.acceptMessageDurable(messageId, sessionId, sequence, envelope);
+          let accepted: boolean;
+          try {
+            accepted = this.security.acceptMessageDurable(messageId, sessionId, sequence, envelope);
+          } catch (e: any) {
+            if (/^envelope_persist_failed:/.test(String(e?.message ?? e))) {
+              envelopePersistFailed = true;
+            }
+            throw e;
+          }
           if (!accepted) {
             duplicateFailed = true;
             throw new Error("__rollback:duplicate");
@@ -367,6 +377,7 @@ export class WorkerGateway {
         } catch (e: any) {
           if (advanceFailed) throw new Error("invalid_sequence");
           if (duplicateFailed) throw new Error("duplicate_message");
+        if (envelopePersistFailed) throw new Error("envelope_persist_failed");
           throw e;
         }
         // Belt-and-suspenders in case an engine swallows the throw.
@@ -778,4 +789,10 @@ export class WorkerGatewayClient implements WorkerTransport {
 
   async disconnect(): Promise<void> { this.connected = false; this.sessionId = undefined; }
 }
+
+
+
+
+
+
 

@@ -130,3 +130,9 @@ docs/phase-290b/*.txt
 docs/phase-291/*.log
 docs/phase-291/*.txt
 
+
+# Phase 292B working-tree artifacts
+.backups/
+.phase292-*/
+scripts/diag-*.ts
+scripts/diag-*.txt

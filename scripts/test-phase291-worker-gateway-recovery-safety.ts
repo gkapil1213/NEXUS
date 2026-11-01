@@ -1,3 +1,7 @@
+﻿// Phase 292B: gateway now fails closed without HMAC key material.
+// Test-only defaults; do not reuse outside the test suite.
+process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
+process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
 // Phase 291 - WorkerGateway recovery & handler lifecycle (SAFETY tests).
 // Verifies lease-based fencing, idempotency, and failure modes.
 
@@ -246,7 +250,7 @@ async function main(): Promise<void> {
     cleanupCtx(ctx);
   }
 
-  // S7: second restart re-enumerates (idempotent — FAILED_IN_FLIGHT not re-marked)
+  // S7: second restart re-enumerates (idempotent â€” FAILED_IN_FLIGHT not re-marked)
   section("S7 second restart re-enumerates (idempotent)");
   {
     const ctx = await makeCtx();
@@ -258,7 +262,7 @@ async function main(): Promise<void> {
     const row1 = db.prepare("SELECT handler_status FROM worker_message_ids WHERE message_id = ?")
       .get(msgId) as any;
     check("S7 first recovery marks FAILED_IN_FLIGHT", row1?.handler_status === "FAILED_IN_FLIGHT");
-    // Second recovery — FAILED_IN_FLIGHT not re-enumerated
+    // Second recovery â€” FAILED_IN_FLIGHT not re-enumerated
     const recoverable2 = ctx.tracker.listRecoverable();
     check("S7 FAILED_IN_FLIGHT not re-enumerated", !recoverable2.some(r => r.messageId === msgId),
       "count=" + recoverable2.length);

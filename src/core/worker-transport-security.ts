@@ -1,13 +1,13 @@
+﻿import { EnvelopeHmacKeyProvider } from "./envelope-hmac-key-provider";
 import { NexusEngine } from "./db";
 import { WorkerEnvelopeStore, MessageEnvelope } from "./worker-envelope-store";
-
 export class WorkerTransportSecurity {
   private seenMessageIds = new Set<string>();
   private seenSequences = new Map<string, number>();
 
   private envelopeStore?: WorkerEnvelopeStore;
 
-  constructor(private db?: NexusEngine) {
+  constructor(private db?: NexusEngine, private keyProvider?: EnvelopeHmacKeyProvider) {
     if (this.db) {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS worker_message_ids (
@@ -17,7 +17,7 @@ export class WorkerTransportSecurity {
         );
       `);
       if (this.hasEnvelopeSchema()) {
-        this.envelopeStore = new WorkerEnvelopeStore(this.db);
+        this.envelopeStore = new WorkerEnvelopeStore(this.db, this.keyProvider!);
       }
     }
   }
@@ -97,7 +97,7 @@ export class WorkerTransportSecurity {
         ).run(messageId, sessionId, Date.now());
     if (result.changes !== 1) return false;
     // Phase 292 decision 1: persist envelope in the same transaction.
-    // Caller must wrap this call in engine.transaction(...) — the transaction
+    // Caller must wrap this call in engine.transaction(...) â€” the transaction
     // is established by the gateway's runAccept closure.
     if (envelope && this.envelopeStore) {
       const envResult = this.envelopeStore.persist(envelope);
@@ -124,3 +124,6 @@ export class WorkerTransportSecurity {
     }
   }
 }
+
+
+

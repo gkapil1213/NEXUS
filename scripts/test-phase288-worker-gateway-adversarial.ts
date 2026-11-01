@@ -1,6 +1,10 @@
+﻿// Phase 292B: gateway now fails closed without HMAC key material.
+// Test-only defaults; do not reuse outside the test suite.
+process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
+process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
 // scripts/test-phase288-worker-gateway-adversarial.ts
 //
-// Phase 288 — Worker Gateway Adversarial Validation.
+// Phase 288 â€” Worker Gateway Adversarial Validation.
 //
 // Exercises the real WorkerGateway handler through live HTTP transport,
 // against real SQLite-backed auth, session, worker, and execution stores.
@@ -220,9 +224,9 @@ async function main(): Promise<void> {
 
   try {
     // =====================================================================
-    // Section A — Authentication
+    // Section A â€” Authentication
     // =====================================================================
-    section("A — Authentication");
+    section("A â€” Authentication");
 
     // A1: valid credential
     {
@@ -366,9 +370,9 @@ async function main(): Promise<void> {
     }
 
     // =====================================================================
-    // Section B — Session lifecycle
+    // Section B â€” Session lifecycle
     // =====================================================================
-    section("B — Session lifecycle");
+    section("B â€” Session lifecycle");
 
     // B1: missing session
     {
@@ -463,9 +467,9 @@ async function main(): Promise<void> {
     }
 
     // =====================================================================
-    // Section C — Message replay
+    // Section C â€” Message replay
     // =====================================================================
-    section("C — Message replay");
+    section("C â€” Message replay");
 
     // C1: duplicate messageId within same session
     {
@@ -633,9 +637,9 @@ async function main(): Promise<void> {
     }
 
     // =====================================================================
-    // Section D — Malformed envelopes
+    // Section D â€” Malformed envelopes
     // =====================================================================
-    section("D — Malformed envelopes");
+    section("D â€” Malformed envelopes");
 
     {
       const r = await postRaw(JSON.stringify({ type: "HEARTBEAT" }));
@@ -699,9 +703,9 @@ async function main(): Promise<void> {
         "D7 error response has stable {error: string} shape");
     }
     // =====================================================================
-    // Section E — Message-type authorization
+    // Section E â€” Message-type authorization
     // =====================================================================
-    section("E — Message-type authorization");
+    section("E â€” Message-type authorization");
 
     // E1: JOB_OFFER with no dispatch (fresh worker, no seeded dispatches)
     {
@@ -770,7 +774,7 @@ async function main(): Promise<void> {
         "E2 JOB_OFFER with dispatch returns job details");
     }
 
-    // E3–E7: JOB_RESULT paths
+    // E3â€“E7: JOB_RESULT paths
     {
       const auth1 = await authenticate();
       const jobId = "phase288-e3-job";
@@ -876,7 +880,7 @@ async function main(): Promise<void> {
         "E8 JOB_RESULT wrong worker rejected with dispatch_ownership_violation");
     }
 
-    // E9–E11: JOB_CANCEL paths
+    // E9â€“E11: JOB_CANCEL paths
     {
       const auth1 = await authenticate();
       const r9 = await post(makeMessage("JOB_CANCEL", auth1.sessionId!, 1, {}));
@@ -907,9 +911,9 @@ async function main(): Promise<void> {
     }
 
     // =====================================================================
-    // Section F — Durability across restart
+    // Section F â€” Durability across restart
     // =====================================================================
-    section("F — Durability across restart");
+    section("F â€” Durability across restart");
 
     // F1: session persists (re-checked after A14 and C8 restarts)
     {
@@ -949,9 +953,9 @@ async function main(): Promise<void> {
     }
 
     // =====================================================================
-    // Section G — Concurrency
+    // Section G â€” Concurrency
     // =====================================================================
-    section("G — Concurrency");
+    section("G â€” Concurrency");
 
     // G1: concurrent same-sequence
     {
@@ -1025,3 +1029,4 @@ main().catch((e) => {
   console.error((e as Error).stack);
   process.exitCode = 1;
 });
+

@@ -1,4 +1,8 @@
-﻿import { createServer } from "node:http";
+﻿// Phase 292B: gateway now fails closed without HMAC key material.
+// Test-only defaults; do not reuse outside the test suite.
+process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
+process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
+import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { AuditService } from "../src/core/audit";
 import type { NexusEngine } from "../src/core/db";
@@ -120,3 +124,4 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
+
