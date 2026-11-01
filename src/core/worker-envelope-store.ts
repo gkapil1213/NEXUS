@@ -172,9 +172,10 @@ export class WorkerEnvelopeStore {
     } catch (e: any) {
       if (/UNIQUE constraint failed/i.test(String(e?.message ?? e)))
         return { persisted: false, reason: "duplicate_message_id" };
-      // Keep the cause on stderr: a bare "persistence_error" is not diagnosable.
+      // Database diagnostics may contain filesystem paths, SQL, or sensitive values.
+      // Keep operational logs stable and never serialize the raw driver exception.
       // eslint-disable-next-line no-console
-      console.error("worker_envelope_persist_failed", e);
+      console.error("worker_envelope_persist_failed", { reason: "persistence_error" });
       return { persisted: false, reason: "persistence_error" };
     }
   }
