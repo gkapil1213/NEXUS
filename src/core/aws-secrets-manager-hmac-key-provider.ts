@@ -1,4 +1,4 @@
-﻿// EnvelopeHmacKeyProvider backed by AWS Secrets Manager.
+// EnvelopeHmacKeyProvider backed by AWS Secrets Manager.
 //
 // The HMAC signing key is stored in a single Secrets Manager secret as JSON:
 //   {
@@ -100,7 +100,12 @@ export class AwsSecretsManagerHmacKeyProvider
     ]);
 
     if (res.exitCode !== 0) {
-      if (/ENOENT|not found/i.test(res.stderr) && res.stdout === "") {
+      // Distinguish "spawn failed" (ENOENT from child_process) from
+      // "CLI ran but rejected the request". The former means aws isn't on
+      // PATH; the latter means the CLI executed but the request failed
+      // (e.g., ResourceNotFoundException from a wrong ARN).
+      const isSpawnError = res.stdout === "" && /^Error: spawn aws/i.test(res.stderr.trim());
+      if (isSpawnError) {
         throw new Error(
           `aws_cli_not_found: aws must be on PATH to fetch ${opts.secretId}`,
         );
