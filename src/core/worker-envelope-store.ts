@@ -1,4 +1,4 @@
-﻿// Phase 292B: envelope persistence + keyed integrity.
+// Phase 292B: envelope persistence + keyed integrity.
 //
 // envelope_sha256 (migration 180) is an unkeyed prefilter: cheap, catches
 // corruption, but provides ZERO defense against an attacker who can rewrite
@@ -60,7 +60,7 @@ export type EnvelopeVerifyResult =
   | { ok: false; reason: "metadata_mismatch" }
   | { ok: false; reason: "hmac_mismatch" };
 
-const MAX_PAYLOAD_BYTES = 1024 * 1024;
+export const MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 export class WorkerEnvelopeStore {
   constructor(
