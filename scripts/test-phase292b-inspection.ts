@@ -6,6 +6,7 @@ import { readFileSync, readdirSync } from "fs";
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { WorkerMessageHandlerTracker } from "../src/core/worker-message-handler-tracker";
 import { WorkerEnvelopeStore, MessageEnvelope, ENVELOPE_VERSION } from "../src/core/worker-envelope-store";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 import { buildDefaultHandlerRegistry } from "../src/core/handler-registry";
 import { WorkerRecoveryInspection } from "../src/core/worker-recovery-inspection";
 
@@ -34,7 +35,7 @@ function makeCtx() {
   const raw = openFreshDb();
   const engine = SQLiteEngine.fromDatabase(raw);
   const tracker = new WorkerMessageHandlerTracker(engine);
-  const envelopes = new WorkerEnvelopeStore(engine);
+  const envelopes = new WorkerEnvelopeStore(engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
   const registry = buildDefaultHandlerRegistry();
   const inspector = new WorkerRecoveryInspection(engine, tracker, envelopes, registry);
 
@@ -221,3 +222,4 @@ console.log("Phase 292B Slice 1 inspection tests\n");
 console.log("\n" + (failed === 0 ? "Phase 292B Slice 1: PASS" : "Phase 292B Slice 1: FAIL"));
 console.log("Assertions: " + (passed + failed) + "; passed: " + passed + "; failures: " + failed);
 process.exit(failed === 0 ? 0 : 1);
+
