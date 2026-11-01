@@ -121,7 +121,8 @@
                     "test:phase292b:key-provider":  "tsx scripts/test-phase292b-key-provider.ts",
                     "test:phase292b:quarantine":  "tsx scripts/test-phase292b-gateway-quarantine.ts",
                     "test:phase292b:inspection":  "tsx scripts/test-phase292b-inspection.ts",
-                    "test:phase292b:replay":  "tsx scripts/test-phase292b-replay.ts"
+                    "test:phase292b:replay":  "tsx scripts/test-phase292b-replay.ts",
+                    "test:phase292b:aws-provider":  "tsx scripts/test-phase292b-aws-provider.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",

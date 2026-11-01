@@ -1,4 +1,4 @@
-﻿/**
+/**
  * NEXUS Phase 1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â NexusKernel.
  *
  * The platform foundation: initializes persistence, events, audit, agents,
@@ -371,16 +371,42 @@ const memberships = new ProjectMembershipStore(rawDb);
             const { WorkerGatewayRemoteExecutionAdapter: AdapterCtor } = await import(/* @vite-ignore */ adapterSpec);
             const { WorkerSessionStore } = await import(/* @vite-ignore */ sessionStoreSpec);
             const sessionStore = new WorkerSessionStore(engine);
-            // Phase 292B: environment keys are permitted only when explicitly
-            // selected for this deployment. External secret-manager adapters
-            // must be injected here; there is no implicit environment fallback.
+            // Phase 292B: HMAC provider selection is explicit. There is no
+            // implicit environment fallback — a deployment must declare which
+            // provider it uses via NEXUS_ENVELOPE_HMAC_PROVIDER:
+            //   "env"                 -> NEXUS_ENVELOPE_HMAC_KID / _KEY_HEX
+            //   "aws-secrets-manager" -> NEXUS_ENVELOPE_HMAC_AWS_SECRET_ID
+            //                            + region from AWS_REGION or
+            //                            NEXUS_ENVELOPE_HMAC_AWS_REGION
+            // Any other value fails closed at startup.
             const hmacProviderMode = process.env.NEXUS_ENVELOPE_HMAC_PROVIDER;
-            if (hmacProviderMode !== "env") {
+            let hmacProvider: EnvelopeHmacKeyProvider;
+            if (hmacProviderMode === "env") {
+              hmacProvider = new EnvHmacKeyProvider(process.env);
+            } else if (hmacProviderMode === "aws-secrets-manager") {
+              const secretId = process.env.NEXUS_ENVELOPE_HMAC_AWS_SECRET_ID;
+              const region =
+                process.env.NEXUS_ENVELOPE_HMAC_AWS_REGION ??
+                process.env.AWS_REGION;
+              if (!secretId) {
+                throw new Error(
+                  "missing_envelope_hmac_aws_secret_id: NEXUS_ENVELOPE_HMAC_AWS_SECRET_ID must be set when NEXUS_ENVELOPE_HMAC_PROVIDER=aws-secrets-manager"
+                );
+              }
+              if (!region) {
+                throw new Error(
+                  "missing_envelope_hmac_aws_region: NEXUS_ENVELOPE_HMAC_AWS_REGION or AWS_REGION must be set when NEXUS_ENVELOPE_HMAC_PROVIDER=aws-secrets-manager"
+                );
+              }
+              hmacProvider = await AwsSecretsManagerHmacKeyProvider.load({
+                secretId,
+                region,
+              });
+            } else {
               throw new Error(
-                "envelope_hmac_provider_not_configured: explicitly select env keys or configure an external secret-manager provider"
+                "envelope_hmac_provider_not_configured: NEXUS_ENVELOPE_HMAC_PROVIDER must be 'env' or 'aws-secrets-manager'"
               );
             }
-            const hmacProvider = new EnvHmacKeyProvider(process.env);
             const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore, rawDb, hmacProvider);
             workerGateway = gw;
             remoteAdapter = new AdapterCtor(gw);
