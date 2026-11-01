@@ -67,7 +67,7 @@ export class WorkerGateway {
           event: "phase292b.inspect",
           status: "INSPECTION_INIT_FAILED",
           instance: this.gatewayInstanceId,
-          error: String((e as any)?.message ?? e).slice(0, 200)
+          reason: "recovery_inspection_unavailable"
         }));
       }
     }
