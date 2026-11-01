@@ -36,6 +36,7 @@ import { RemoteWorkerStore } from "../src/core/remote-worker-store";
 import { WorkerAuthentication } from "../src/core/worker-authentication";
 import { ExecutionStore } from "../src/core/execution-store";
 import { WorkerGateway } from "../src/core/worker-gateway";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 
 let assertions = 0, failures = 0;
 function check(label: string, cond: boolean, detail?: string): void {
@@ -95,7 +96,7 @@ async function makeCtx(): Promise<Ctx> {
     const workerStore = new RemoteWorkerStore(engine);
     const auth = new WorkerAuthentication(workerStore);
     const execStore = new ExecutionStore(engine);
-    const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, execStore, engine);
+    const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, execStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
 
     return { engine, sessionStore, workerStore, auth, execStore, gateway, sessionId, workerId, tempDir, dbPath };
 }
@@ -242,7 +243,7 @@ async function main(): Promise<void> {
         const ws2 = new RemoteWorkerStore(engine2);
         const auth2 = new WorkerAuthentication(ws2);
         const exec2 = new ExecutionStore(engine2);
-        const gw2 = new WorkerGateway(0, ss2, ws2, auth2, exec2, engine2);
+        const gw2 = new WorkerGateway(0, ss2, ws2, auth2, exec2, engine2, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
         try {
             await (gw2 as any).handleMessage({
                 messageId: msgId, type: "HEARTBEAT", sessionId: ctx.sessionId,

@@ -3,6 +3,7 @@
 process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
 process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
 import { sha256Hex, computeResultDigest } from "../src/core/integrity";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 import Database from "better-sqlite3";
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { WorkerGateway, WorkerGatewayClient } from "../src/core/worker-gateway";
@@ -103,7 +104,7 @@ async function main() {
   `).run("lease-durable-1", "job-durable-1", "worker-durable", leaseNow, leaseNow + 60000, "ACTIVE");
   executionStore.upsertRemoteDispatch(dispatch);
 
-  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine);
+  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
   await gateway.start();
   const port = (gateway as any).server.address().port;
 
@@ -113,7 +114,7 @@ async function main() {
   assert(ok, "Authentication successful");
 
   await gateway.stop();
-  const gateway2 = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine);
+  const gateway2 = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
   await gateway2.start();
   const port2 = (gateway2 as any).server.address().port;
   const client2 = new WorkerGatewayClient(`http://127.0.0.1:${port2}`, "worker-durable", "secret");
@@ -199,4 +200,3 @@ async function main() {
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
-

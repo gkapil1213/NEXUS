@@ -8,6 +8,7 @@ import { AuditService } from "../src/core/audit";
 import type { NexusEngine } from "../src/core/db";
 import type { AuditRecord } from "../src/core/types";
 import { WorkerGateway } from "../src/core/worker-gateway";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 
 let passed = 0;
 let failed = 0;
@@ -124,4 +125,3 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-

@@ -20,6 +20,7 @@ import Database from "better-sqlite3";
 import crypto from "crypto";
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { WorkerGateway } from "../src/core/worker-gateway";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 import { SqliteWorkerAuthStore } from "../src/core/sqlite-worker-auth-store";
 import { WorkerAuthentication } from "../src/core/worker-authentication";
 import { WorkerSessionStore } from "../src/core/worker-session-store";
@@ -161,7 +162,7 @@ async function main(): Promise<void> {
     registeredAt: Date.now(),
   });
 
-  let gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine);
+  let gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
   await gateway.start();
   let port = (gateway as any).server.address().port;
   let url = "http://127.0.0.1:" + port;
@@ -559,7 +560,7 @@ async function main(): Promise<void> {
       });
 
       await gateway.stop();
-      gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine);
+      gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
       await gateway.start();
       port = (gateway as any).server.address().port;
       url = "http://127.0.0.1:" + port;
@@ -579,7 +580,7 @@ async function main(): Promise<void> {
       await post(makeMessage("HEARTBEAT", sessionId, 10));
 
       await gateway.stop();
-      gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine);
+      gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
       await gateway.start();
       port = (gateway as any).server.address().port;
       url = "http://127.0.0.1:" + port;
@@ -920,7 +921,7 @@ async function main(): Promise<void> {
       const r = await authenticate();
       const sid = r.sessionId!;
       await gateway.stop();
-      gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine);
+      gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
       await gateway.start();
       port = (gateway as any).server.address().port;
       url = "http://127.0.0.1:" + port;
@@ -942,7 +943,7 @@ async function main(): Promise<void> {
       const fixedNonce = freshNonce();
       const first = await authenticate({ nonce: fixedNonce });
       await gateway.stop();
-      gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine);
+      gateway = new WorkerGateway(0, sessions, workers, auth, executionStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
       await gateway.start();
       port = (gateway as any).server.address().port;
       url = "http://127.0.0.1:" + port;
@@ -1029,4 +1030,3 @@ main().catch((e) => {
   console.error((e as Error).stack);
   process.exitCode = 1;
 });
-

@@ -3,6 +3,7 @@
 process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
 process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
 import { sha256Hex, computeResultDigest } from "../src/core/integrity";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 import { createServer } from "http";
 import { AddressInfo } from "net";
 import Database from "better-sqlite3";
@@ -137,7 +138,7 @@ async function main() {
 
   // Start gateway on ephemeral port
   const executionStore = new ExecutionStore(engine);
-  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine);
+  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
   gateway.start();
   await new Promise(resolve => setTimeout(resolve, 50));
   const port = (gateway as any).server.address().port;
@@ -220,4 +221,3 @@ async function main() {
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
-

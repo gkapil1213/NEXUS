@@ -3,6 +3,7 @@
 process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
 process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
 import Database from "better-sqlite3";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { WorkerGateway, WorkerGatewayClient } from "../src/core/worker-gateway";
 import { SqliteWorkerAuthStore } from "../src/core/sqlite-worker-auth-store";
@@ -188,7 +189,7 @@ const executionStore = new ExecutionStore(engine);
 
   authStore.setCredential(workerId, credential);
 
-  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine);
+  const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, executionStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
 
   gateway.start();
 
@@ -432,4 +433,3 @@ main().catch(err => {
   console.error("Worker gateway agent E2E harness error:", err);
   process.exit(1);
 });
-

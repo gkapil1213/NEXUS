@@ -1,4 +1,4 @@
-﻿// Phase 292B: gateway now fails closed without HMAC key material.
+// Phase 292B: gateway now fails closed without HMAC key material.
 // Test-only defaults; do not reuse outside the test suite.
 process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
 process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import crypto from "crypto";
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { WorkerGateway } from "../src/core/worker-gateway";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 import { SqliteWorkerAuthStore } from "../src/core/sqlite-worker-auth-store";
 import { WorkerAuthentication } from "../src/core/worker-authentication";
 import { WorkerSessionStore } from "../src/core/worker-session-store";
@@ -45,7 +46,34 @@ async function main(): Promise<void> {
       metadata TEXT
     );
 
-    CREATE TABLE remote_workers (
+    CREATE TABLE IF NOT EXISTS worker_message_ids (
+      message_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      seen_at INTEGER NOT NULL,
+      handler_status TEXT NOT NULL DEFAULT 'PENDING',
+      handler_owner_id TEXT,
+      handler_claim_expires_at INTEGER,
+      handler_attempt_count INTEGER NOT NULL DEFAULT 0,
+      handler_recovery_reason TEXT,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      next_retry_at INTEGER,
+      quarantine_reason TEXT,
+      fencing_token INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS worker_message_envelopes (
+      message_id TEXT PRIMARY KEY,
+      message_type TEXT NOT NULL,
+      worker_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      payload_sha256 TEXT NOT NULL,
+      envelope_version INTEGER NOT NULL DEFAULT 1,
+      accepted_at INTEGER NOT NULL,
+      envelope_sha256 TEXT,
+      kid TEXT,
+      envelope_hmac TEXT,
+      FOREIGN KEY (message_id) REFERENCES worker_message_ids(message_id)
+    );    CREATE TABLE remote_workers (
       worker_id TEXT PRIMARY KEY,
       hostname TEXT NOT NULL,
       platform TEXT,
@@ -80,7 +108,7 @@ async function main(): Promise<void> {
     registeredAt: Date.now(),
   });
 
-  const gateway = new WorkerGateway(0, sessions, workers, auth, undefined, engine);
+  const gateway = new WorkerGateway(0, sessions, workers, auth, undefined, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
 
   try {
     await gateway.start();
@@ -201,6 +229,7 @@ async function main(): Promise<void> {
       sessionId,
       workerId,
       sequence: 1,
+      timestamp: Date.now(),
       payload: {},
     });
     check(heartbeat.status === 200, "valid heartbeat reaches real handler");
@@ -281,4 +310,3 @@ main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
-

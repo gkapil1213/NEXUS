@@ -371,10 +371,15 @@ const memberships = new ProjectMembershipStore(rawDb);
             const { WorkerGatewayRemoteExecutionAdapter: AdapterCtor } = await import(/* @vite-ignore */ adapterSpec);
             const { WorkerSessionStore } = await import(/* @vite-ignore */ sessionStoreSpec);
             const sessionStore = new WorkerSessionStore(engine);
-            // Phase 292B: compose the HMAC provider once at the root so missing key
-            // material fails the kernel at startup, not a deferred gateway
-            // construction inside a lazy dynamic import. Tests pass their
-            // own provider via the 7th WorkerGateway arg; production uses env.
+            // Phase 292B: environment keys are permitted only when explicitly
+            // selected for this deployment. External secret-manager adapters
+            // must be injected here; there is no implicit environment fallback.
+            const hmacProviderMode = process.env.NEXUS_ENVELOPE_HMAC_PROVIDER;
+            if (hmacProviderMode !== "env") {
+              throw new Error(
+                "envelope_hmac_provider_not_configured: explicitly select env keys or configure an external secret-manager provider"
+              );
+            }
             const hmacProvider = new EnvHmacKeyProvider(process.env);
             const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore, rawDb, hmacProvider);
             workerGateway = gw;

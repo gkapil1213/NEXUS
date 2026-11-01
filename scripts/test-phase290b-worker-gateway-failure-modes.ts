@@ -20,6 +20,7 @@ import { RemoteWorkerStore } from "../src/core/remote-worker-store";
 import { WorkerAuthentication } from "../src/core/worker-authentication";
 import { ExecutionStore } from "../src/core/execution-store";
 import { WorkerGateway } from "../src/core/worker-gateway";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 import { sha256Hex, computeResultDigest } from "../src/core/integrity";
 
 let assertions = 0, failures = 0;
@@ -97,7 +98,7 @@ async function makeCtx(): Promise<Ctx> {
     const workerStore = new RemoteWorkerStore(engine);
     const auth = new WorkerAuthentication(workerStore);
     const execStore = new ExecutionStore(engine);
-    const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, execStore, engine);
+    const gateway = new WorkerGateway(0, sessionStore, workerStore, auth, execStore, engine, new EnvHmacKeyProvider({ NEXUS_ENVELOPE_HMAC_KID: "test-k1", NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32) } as any));
 
     const workerId = "w-p290b-" + randomUUID().slice(0, 8);
     const sessionId = "s-p290b-" + randomUUID().slice(0, 8);
