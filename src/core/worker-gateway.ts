@@ -109,18 +109,39 @@ export class WorkerGateway {
     }
     const t0 = Date.now();
 
-    // Slice 2b: run the read-only inspection before the recovery loop.
-    // This classifies each recoverable row as REPLAY_ELIGIBLE / QUARANTINE /
-    // BLOCKED and logs a phase292b.inspect line. This slice does NOT act on
-    // the classification: every recoverable row is still marked
-    // FAILED_IN_FLIGHT below, preserving Phase 291 behavior. Acting on the
-    // decisions is a later slice.
+    // Phase 292B Slice 3: apply only explicit QUARANTINE decisions.
+    // REPLAY_ELIGIBLE is deliberately not replayed in this slice.
+    // BLOCKED and legacy-schema rows retain Phase 291 fallback behavior.
     const inspection = this.recoveryInspection
       ? this.recoveryInspection.inspectOnce()
       : null;
     const incomplete = this.handlerTracker.listRecoverable();
-    let marked = 0, skipped = 0;
+
+    const decisionsById = new Map(
+      (inspection?.decisions ?? []).map((decision) => [decision.messageId, decision])
+    );
+
+    let marked = 0;
+    let skipped = 0;
+    let quarantined = 0;
+    let quarantineSkipped = 0;
+
     for (const m of incomplete) {
+      const decision = decisionsById.get(m.messageId);
+
+      if (decision?.kind === "QUARANTINE") {
+        const ok = this.handlerTracker.markQuarantined(
+          decision.messageId,
+          null,
+          decision.reason,
+          decision.fencingToken
+        );
+        if (ok) quarantined++; else quarantineSkipped++;
+        continue;
+      }
+
+      // Preserve the established Phase 291 fallback for BLOCKED,
+      // REPLAY_ELIGIBLE, missing decisions, and unavailable inspection.
       const ok = this.handlerTracker.markFailedInFlightByRecovery(
         m.messageId,
         "phase292_recovery: incomplete_handler_no_payload_available",
@@ -128,6 +149,7 @@ export class WorkerGateway {
       );
       if (ok) marked++; else skipped++;
     }
+
     const durationMs = Date.now() - t0;
     console.log(JSON.stringify({
       event: "phase291.recovery",
@@ -135,6 +157,8 @@ export class WorkerGateway {
       discovered: incomplete.length,
       marked_failed_in_flight: marked,
       skipped: skipped,
+      marked_quarantined: quarantined,
+      quarantine_skipped: quarantineSkipped,
       duration_ms: durationMs,
       inspection: inspection
         ? {
@@ -298,12 +322,12 @@ export class WorkerGateway {
     //
     // Sequence advance and messageId acceptance are committed ATOMICALLY
     // BEFORE the handler runs. On CAS failure or duplicate messageId, the
-    // transaction ROLLS BACK Ã¢â‚¬â€ the sequence is NOT consumed for a request
+    // transaction ROLLS BACK ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the sequence is NOT consumed for a request
     // that was rejected. On success, the commit happens, then the handler
     // runs. Handler failure does NOT undo acceptance (the handler may have
     // performed irreversible side effects).
     //
-    // Non-SQL engines (memory/indexeddb) cannot honor this Ã¢â‚¬â€ their
+    // Non-SQL engines (memory/indexeddb) cannot honor this ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â their
     // transaction() throws SQL_UNSUPPORTED. We detect engine kind and fall
     // back to Phase 289 behavior for those backends (documented limitation).
     {
