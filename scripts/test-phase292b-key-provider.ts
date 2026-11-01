@@ -1,4 +1,4 @@
-﻿// Phase 292B keyed integrity smoke test.
+// Phase 292B keyed integrity smoke test.
 //
 // Uses SQLiteEngine.open() (which runs migrations 179/180/181 and turns on
 // foreign_keys=ON). Because migration 179 declares
@@ -11,7 +11,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SQLiteEngine } from "../src/core/sqlite-engine";
-import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
+import { EnvHmacKeyProvider, hmacEquals } from "../src/core/envelope-hmac-key-provider";
 import { WorkerEnvelopeStore } from "../src/core/worker-envelope-store";
 
 const dir = mkdtempSync(join(tmpdir(), "nexus-phase292b-"));
@@ -39,7 +39,68 @@ engine.exec(`
     seen_at INTEGER NOT NULL
   );
 `);
-const provider = new EnvHmacKeyProvider(process.env);
+const testKeyHex = "ab".repeat(32);
+const providerEnv = {
+  NEXUS_ENVELOPE_HMAC_KID: "test-k1",
+  NEXUS_ENVELOPE_HMAC_KEY_HEX: testKeyHex,
+};
+const provider = new EnvHmacKeyProvider(providerEnv);
+
+function expectThrow(label: string, action: () => unknown): void {
+  let threw = false;
+  try { action(); } catch { threw = true; }
+  if (!threw) throw new Error(`${label}: expected constructor/function to reject input`);
+}
+
+// --- 0. Provider hardening: deterministic validation and defensive copies. ---
+expectThrow("empty current KID", () => new EnvHmacKeyProvider({
+  NEXUS_ENVELOPE_HMAC_KID: "",
+  NEXUS_ENVELOPE_HMAC_KEY_HEX: testKeyHex,
+}));
+expectThrow("unsafe current KID", () => new EnvHmacKeyProvider({
+  NEXUS_ENVELOPE_HMAC_KID: "bad/kid",
+  NEXUS_ENVELOPE_HMAC_KEY_HEX: testKeyHex,
+}));
+expectThrow("overlong current KID", () => new EnvHmacKeyProvider({
+  NEXUS_ENVELOPE_HMAC_KID: "k".repeat(129),
+  NEXUS_ENVELOPE_HMAC_KEY_HEX: testKeyHex,
+}));
+expectThrow("unsafe historical KID", () => new EnvHmacKeyProvider({
+  ...providerEnv,
+  NEXUS_ENVELOPE_HMAC_KEYS_JSON: JSON.stringify([
+    { kid: "bad/kid", key_hex: "cd".repeat(32) },
+  ]),
+}));
+expectThrow("duplicate historical KIDs", () => new EnvHmacKeyProvider({
+  ...providerEnv,
+  NEXUS_ENVELOPE_HMAC_KEYS_JSON: JSON.stringify([
+    { kid: "old-k1", key_hex: "cd".repeat(32) },
+    { kid: "old-k1", key_hex: "ef".repeat(32) },
+  ]),
+}));
+expectThrow("historical KID duplicates current KID", () => new EnvHmacKeyProvider({
+  ...providerEnv,
+  NEXUS_ENVELOPE_HMAC_KEYS_JSON: JSON.stringify([
+    { kid: "test-k1", key_hex: "cd".repeat(32) },
+  ]),
+}));
+
+if (hmacEquals("a".repeat(64), "a".repeat(64)) !== true)
+  throw new Error("valid equal HMAC hex strings should compare equal");
+for (const malformed of ["", "abc", "g".repeat(64), "a".repeat(65)]) {
+  if (hmacEquals(malformed, "a".repeat(64)) !== false)
+    throw new Error(`hmacEquals accepted malformed input: ${JSON.stringify(malformed)}`);
+}
+console.log("hardening: KID validation, duplicate rejection, strict HMAC hex PASS");
+
+// Mutating returned buffers must never mutate the provider's stored key.
+provider.currentKey().key.fill(0);
+provider.keyForKid("test-k1")!.key.fill(0);
+provider.verifiableKeys()[0].key.fill(0);
+if (provider.currentKey().key.toString("hex") !== testKeyHex)
+  throw new Error("provider key was mutated through a returned key buffer");
+console.log("hardening: defensive key-buffer copies PASS");
+
 const store = new WorkerEnvelopeStore(engine as any, provider);
 
 function seedMessageId(messageId: string, sessionId: string): void {
@@ -78,10 +139,9 @@ console.log("tamper detected:", (v2 as any).reason);
 
 // --- 3. Unknown kid: row signed by a key the current provider doesn't know. ---
 const retired = new EnvHmacKeyProvider({
-  ...process.env,
   NEXUS_ENVELOPE_HMAC_KID: "k0",
   NEXUS_ENVELOPE_HMAC_KEY_HEX: "cd".repeat(32),
-} as any);
+});
 const storeRetired = new WorkerEnvelopeStore(engine as any, retired);
 seedMessageId("m-2", "s-1");
 const r2 = storeRetired.persist({ messageId: "m-2", ...baseEnv } as any);
