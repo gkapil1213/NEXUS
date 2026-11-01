@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { WorkerEnvelopeStore, ENVELOPE_VERSION, MAX_PAYLOAD_BYTES } from "../src/core/worker-envelope-store";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 import { WorkerMessageHandlerTracker } from "../src/core/worker-message-handler-tracker";
 
 let assertions = 0, failures = 0;
@@ -30,7 +31,11 @@ async function makeCtx(): Promise<Ctx> {
   const tempDir = mkdtempSync(join(tmpdir(), "nexus-p292-"));
   const dbPath = join(tempDir, "test.sqlite");
   const engine = await SQLiteEngine.open(dbPath);
-  return { engine, store: new WorkerEnvelopeStore(engine), tracker: new WorkerMessageHandlerTracker(engine), tempDir, dbPath };
+  const keyProvider = new EnvHmacKeyProvider({
+    NEXUS_ENVELOPE_HMAC_KID: "phase292-persistence-test",
+    NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32),
+  });
+  return { engine, store: new WorkerEnvelopeStore(engine, keyProvider), tracker: new WorkerMessageHandlerTracker(engine), tempDir, dbPath };
 }
 
 function cleanup(ctx: Ctx): void {
@@ -96,9 +101,12 @@ async function main(): Promise<void> {
       payload: { v: 1 }, envelopeVersion: ENVELOPE_VERSION, acceptedAt: Date.now(),
     });
     const loaded = ctx.store.load(msgId)!;
-    check("T4 intact payload verifies", ctx.store.verifyIntegrity(loaded) === true);
+    const intactVerification = ctx.store.verifyIntegrity(loaded);
+    check("T4 intact payload verifies", intactVerification.ok === true);
     const tampered = { ...loaded, payload: { v: 2 } };
-    check("T4 tampered payload fails", ctx.store.verifyIntegrity(tampered) === false);
+    const tamperedVerification = ctx.store.verifyIntegrity(tampered);
+    check("T4 tampered payload fails", tamperedVerification.ok === false);
+    check("T4 tamper rejected as payload mismatch", !tamperedVerification.ok && tamperedVerification.reason === "payload_mismatch");
     cleanup(ctx);
   }
 

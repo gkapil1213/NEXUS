@@ -124,7 +124,8 @@
                     "test:phase292b:replay":  "tsx scripts/test-phase292b-replay.ts",
                     "test:phase292b:aws-provider":  "tsx scripts/test-phase292b-aws-provider.ts",
                     "test:phase292b:aws-cli":  "tsx scripts/test-phase292b-aws-cli.ts",
-                    "test:phase293":  "tsx scripts/test-phase293-log-sanitization.ts"
+                    "test:phase293":  "tsx scripts/test-phase293-log-sanitization.ts",
+                    "test:phase292:persistence":  "tsx scripts/test-phase292-envelope-persistence.ts"
                 },
     "dependencies":  {
                          "@dnd-kit/core":  "^6.1.0",
