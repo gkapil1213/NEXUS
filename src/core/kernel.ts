@@ -54,6 +54,8 @@ import { RemoteWorkerStore } from "./remote-worker-store";
 import { RemoteWorkerRegistry } from "./remote-worker-registry";
 import { WorkerAuthentication } from "./worker-authentication";
 import { EnvHmacKeyProvider } from "./envelope-hmac-key-provider";
+import type { EnvelopeHmacKeyProvider } from "./envelope-hmac-key-provider";
+import { AwsSecretsManagerHmacKeyProvider } from "./aws-secrets-manager-hmac-key-provider";
 import type { WorkerGateway } from "./worker-gateway";
 import type { RemoteExecutionAdapter } from "./remote-execution-adapter";
 import { SqliteWorkerAuthStore } from "./sqlite-worker-auth-store";
