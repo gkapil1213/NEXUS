@@ -1,19 +1,34 @@
 import { NexusEngine } from "./db";
 
 /**
- * Phase 293c: sanitize error text before persisting to handler_last_error
+ * Phase 293b-final: sanitize error codes before persisting to handler_last_error
  * or handler_recovery_reason. Raw exception messages may contain filesystem
- * paths, SQL text, credential fragments, or driver internals. Only stable
- * snake_case codes (e.g., "unknown_message_type", "handler_completion_fence_rejected")
- * pass through; everything else collapses to "handler_error".
+ * paths, SQL text, credential fragments, or driver internals. Only codes
+ * explicitly listed in SAFE_HANDLER_ERROR_CODES pass through unchanged;
+ * every other value collapses to "handler_error".
  *
- * Values already stored under a stable code remain stable; the sanitizer is
- * idempotent so callers can safely pass either raw or pre-sanitized input.
+ * The sanitizer is idempotent, so callers can safely pass either raw or
+ * already-sanitized input.
  */
+const SAFE_HANDLER_ERROR_CODES = new Set([
+  "handler_error",
+  "handler_execution_failed",
+  "recovery_after_crash",
+  "unknown_message_type",
+  "handler_completion_fence_missing",
+  "handler_completion_fence_rejected",
+  "phase292_recovery_incomplete_handler_no_payload_available",
+  "integrity_fail",
+  "unverified_legacy",
+  "unknown_handler",
+  "not_replay_eligible",
+  "session_mismatch",
+]);
+
 export function sanitizeHandlerError(message: unknown): string {
-  const raw = typeof message === "string" ? message : String(message ?? "");
-  if (/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(raw)) return raw;
-  return "handler_error";
+  return typeof message === "string" && SAFE_HANDLER_ERROR_CODES.has(message)
+    ? message
+    : "handler_error";
 }
 
 export type HandlerStatus =

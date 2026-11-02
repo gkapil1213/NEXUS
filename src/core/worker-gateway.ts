@@ -145,7 +145,7 @@ export class WorkerGateway {
       // REPLAY_ELIGIBLE, missing decisions, and unavailable inspection.
       const ok = this.handlerTracker.markFailedInFlightByRecovery(
         m.messageId,
-        "phase292_recovery: incomplete_handler_no_payload_available",
+        "phase292_recovery_incomplete_handler_no_payload_available",
         m.fencingToken
       );
       if (ok) marked++; else skipped++;
@@ -205,13 +205,8 @@ export class WorkerGateway {
       const result = await this.handleMessage(msg);
       this.send(res, 200, result);
     } catch (e: any) {
-      // Phase 285: never echo raw exception messages to the client.
-      // Unclassified exceptions may contain credentials, paths, or
-      // internal state. Stable error codes (snake_case) pass through;
-      // everything else collapses to a generic "gateway_error".
-      const raw = typeof e?.message === "string" ? e.message : "";
-      const isStableCode = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(raw);
-      this.send(res, 400, { error: isStableCode ? raw : "gateway_error" });
+      // Never expose exception-derived text to API clients.
+      this.send(res, 400, { error: "gateway_error" });
     }
   }
 
@@ -550,15 +545,12 @@ export class WorkerGateway {
       return response;
     } catch (e: any) {
       if (this.handlerTracker && fencingTokenAtClaim !== undefined) {
-        // Stable snake_case codes pass through (e.g., "unknown_message_type",
-        // "handler_completion_fence_rejected"). Everything else collapses to
-        // "handler_error": raw exception messages may contain paths, SQL,
-        // credential fragments, or driver internals that must not persist to
-        // handler_last_error (surfaced via recovery inspection + audit).
-        const raw = String(e?.message ?? "");
-        const reason = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(raw) ? raw : "handler_error";
+        // Persist only a fixed category. Exception messages may contain secrets.
         this.handlerTracker.markFailedInFlightByOwner(
-          messageId, this.gatewayInstanceId, reason, fencingTokenAtClaim
+          messageId,
+          this.gatewayInstanceId,
+          "handler_execution_failed",
+          fencingTokenAtClaim
         );
       }
       throw e;

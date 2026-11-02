@@ -143,6 +143,100 @@ async function main(): Promise<void> {
 
   raw3.close();
 
+  // F4: adversarial snake_case strings must never pass the allowlist.
+  const adversarialCodes = [
+    "password_leaked_value",
+    "token_ABC123",
+    "private_key_material",
+    "aws_secret_access_key",
+  ];
+
+  for (let i = 0; i < adversarialCodes.length; i++) {
+    const raw = openFreshDb();
+    const engine = SQLiteEngine.fromDatabase(raw);
+    const tracker = new WorkerMessageHandlerTracker(engine);
+    const messageId = `m-f4-${i}`;
+    const reason = adversarialCodes[i];
+
+    raw.prepare(
+      "INSERT INTO worker_message_ids (message_id, session_id, seen_at, handler_status) VALUES (?, 's', ?, 'PROCESSING')"
+    ).run(messageId, Date.now());
+
+    const now = Date.now();
+    const token = 1;
+    raw.prepare(
+      "UPDATE worker_message_ids SET handler_owner_id = 'test-owner', handler_claim_expires_at = ?, fencing_token = ? WHERE message_id = ?"
+    ).run(now + 60000, token, messageId);
+
+    const ok = tracker.markFailedInFlightByOwner(
+      messageId, "test-owner", reason, token
+    );
+    const row = raw.prepare(
+      "SELECT handler_last_error FROM worker_message_ids WHERE message_id = ?"
+    ).get(messageId) as any;
+
+    check(`F4.${i + 1}: ${reason} is rejected by sanitizer`,
+      ok === true && row?.handler_last_error === "handler_error" &&
+      !String(row?.handler_last_error ?? "").includes(reason));
+
+    raw.close();
+  }
+
+  // F5: recovery reason and last error are both sanitized at the DB boundary.
+  {
+    const raw = openFreshDb();
+    const tracker = new WorkerMessageHandlerTracker(SQLiteEngine.fromDatabase(raw));
+    const messageId = "m-f5";
+    raw.prepare(
+      "INSERT INTO worker_message_ids (message_id, session_id, seen_at, handler_status, fencing_token) VALUES (?, 's', ?, 'PENDING', 1)"
+    ).run(messageId, Date.now());
+
+    const ok = tracker.markFailedInFlightByRecovery(
+      messageId, "aws_secret_access_key", 1
+    );
+    const row = raw.prepare(
+      "SELECT handler_last_error, handler_recovery_reason FROM worker_message_ids WHERE message_id = ?"
+    ).get(messageId) as any;
+
+    check("F5: recovery transition succeeds", ok === true);
+    check("F5: recovery last error is sanitized",
+      row?.handler_last_error === "handler_error");
+    check("F5: recovery reason is sanitized",
+      row?.handler_recovery_reason === "handler_error");
+    check("F5: recovery fields exclude raw secret-like value",
+      !JSON.stringify(row ?? {}).includes("aws_secret_access_key"));
+
+    raw.close();
+  }
+
+  // F6: quarantine reason and last error are sanitized at the DB boundary.
+  {
+    const raw = openFreshDb();
+    const tracker = new WorkerMessageHandlerTracker(SQLiteEngine.fromDatabase(raw));
+    const messageId = "m-f6";
+    const now = Date.now();
+    raw.prepare(
+      "INSERT INTO worker_message_ids (message_id, session_id, seen_at, handler_status, handler_owner_id, handler_claim_expires_at, fencing_token) VALUES (?, 's', ?, 'PROCESSING', 'test-owner', ?, 1)"
+    ).run(messageId, now, now + 60000);
+
+    const ok = tracker.markQuarantined(
+      messageId, "test-owner", "private_key_material", 1
+    );
+    const row = raw.prepare(
+      "SELECT quarantine_reason, handler_last_error FROM worker_message_ids WHERE message_id = ?"
+    ).get(messageId) as any;
+
+    check("F6: quarantine transition succeeds", ok === true);
+    check("F6: quarantine reason is sanitized",
+      row?.quarantine_reason === "handler_error");
+    check("F6: quarantine last error is sanitized",
+      row?.handler_last_error === "handler_error");
+    check("F6: quarantine fields exclude raw secret-like value",
+      !JSON.stringify(row ?? {}).includes("private_key_material"));
+
+    raw.close();
+  }
+
   console.log(`\nResult: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exitCode = 1;
 }

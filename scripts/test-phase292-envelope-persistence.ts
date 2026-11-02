@@ -213,7 +213,7 @@ async function main(): Promise<void> {
       `INSERT INTO worker_message_ids (message_id, session_id, seen_at, handler_status) VALUES (?, ?, ?, 'PENDING')`
     ).run(msgId, "sess-t11", Date.now());
     const tokBefore = ctx.tracker.getFencingToken(msgId)!;
-    check("T11 quarantine succeeds", ctx.tracker.markQuarantined(msgId, null, "test_quarantine", tokBefore) === true);
+    check("T11 quarantine succeeds", ctx.tracker.markQuarantined(msgId, null, "integrity_fail", tokBefore) === true);
     const tokAfter = ctx.tracker.getFencingToken(msgId)!;
     check("T11 fencing_token bumped +1", tokAfter === tokBefore + 1, `${tokBefore} -> ${tokAfter}`);
 
@@ -221,7 +221,7 @@ async function main(): Promise<void> {
       "SELECT handler_status, quarantine_reason FROM worker_message_ids WHERE message_id = ?"
     ).get(msgId) as any;
     check("T11 status = QUARANTINED", row?.handler_status === "QUARANTINED");
-    check("T11 quarantine_reason recorded", row?.quarantine_reason === "test_quarantine");
+    check("T11 quarantine_reason recorded", row?.quarantine_reason === "integrity_fail");
     cleanup(ctx);
   }
 

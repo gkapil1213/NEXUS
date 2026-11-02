@@ -115,7 +115,7 @@ console.log("Phase 292B Slice 3 quarantine transition tests\n");
   if (m) {
     const ok = c.tracker.markFailedInFlightByRecovery(
       m.messageId,
-      "phase292_recovery: incomplete_handler_no_payload_available",
+      "phase292_recovery_incomplete_handler_no_payload_available",
       m.fencingToken,
     );
     check("Q2 markFailedInFlightByRecovery returns true", ok === true);
@@ -145,7 +145,7 @@ console.log("Phase 292B Slice 3 quarantine transition tests\n");
   if (m) {
     const ok = c.tracker.markFailedInFlightByRecovery(
       m.messageId,
-      "phase292_recovery: incomplete_handler_no_payload_available",
+      "phase292_recovery_incomplete_handler_no_payload_available",
       m.fencingToken,
     );
     check("Q3 markFailedInFlightByRecovery returns true", ok === true);
