@@ -377,12 +377,13 @@ export class WorkerGateway {
         } catch (e: any) {
           if (advanceFailed) throw new Error("invalid_sequence");
           if (duplicateFailed) throw new Error("duplicate_message");
-        if (envelopePersistFailed) throw new Error("envelope_persist_failed");
+          if (envelopePersistFailed) throw new Error("envelope_persist_failed");
           throw e;
         }
         // Belt-and-suspenders in case an engine swallows the throw.
         if (advanceFailed) throw new Error("invalid_sequence");
         if (duplicateFailed) throw new Error("duplicate_message");
+        if (envelopePersistFailed) throw new Error("envelope_persist_failed");
       } else {
         // Non-SQL engine: preserve Phase 289 behavior.
         if (sequence <= session.lastSequence) throw new Error("invalid_sequence");
@@ -549,11 +550,16 @@ export class WorkerGateway {
       return response;
     } catch (e: any) {
       if (this.handlerTracker && fencingTokenAtClaim !== undefined) {
-        if (fencingTokenAtClaim !== undefined) {
+        // Stable snake_case codes pass through (e.g., "unknown_message_type",
+        // "handler_completion_fence_rejected"). Everything else collapses to
+        // "handler_error": raw exception messages may contain paths, SQL,
+        // credential fragments, or driver internals that must not persist to
+        // handler_last_error (surfaced via recovery inspection + audit).
+        const raw = String(e?.message ?? "");
+        const reason = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(raw) ? raw : "handler_error";
         this.handlerTracker.markFailedInFlightByOwner(
-          messageId, this.gatewayInstanceId, String(e?.message ?? e).slice(0, 2000), fencingTokenAtClaim
+          messageId, this.gatewayInstanceId, reason, fencingTokenAtClaim
         );
-        }
       }
       throw e;
     }

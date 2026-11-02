@@ -1,5 +1,21 @@
 import { NexusEngine } from "./db";
 
+/**
+ * Phase 293c: sanitize error text before persisting to handler_last_error
+ * or handler_recovery_reason. Raw exception messages may contain filesystem
+ * paths, SQL text, credential fragments, or driver internals. Only stable
+ * snake_case codes (e.g., "unknown_message_type", "handler_completion_fence_rejected")
+ * pass through; everything else collapses to "handler_error".
+ *
+ * Values already stored under a stable code remain stable; the sanitizer is
+ * idempotent so callers can safely pass either raw or pre-sanitized input.
+ */
+export function sanitizeHandlerError(message: unknown): string {
+  const raw = typeof message === "string" ? message : String(message ?? "");
+  if (/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(raw)) return raw;
+  return "handler_error";
+}
+
 export type HandlerStatus =
   | "LEGACY_UNVERIFIED"
   | "PENDING"
@@ -105,7 +121,7 @@ export class WorkerMessageHandlerTracker {
          AND handler_claim_expires_at IS NOT NULL
          AND handler_claim_expires_at > ?
          AND fencing_token = ?
-    `).run(String(reason).slice(0, 2000), messageId, ownerId, now, expectedFencingToken);
+    `).run(sanitizeHandlerError(reason), messageId, ownerId, now, expectedFencingToken);
     return result.changes === 1;
   }
 
@@ -127,8 +143,8 @@ export class WorkerMessageHandlerTracker {
          AND (handler_claim_expires_at IS NULL OR handler_claim_expires_at <= ?)
          AND fencing_token = ?
     `).run(
-      String(reason).slice(0, 2000),
-      String(reason).slice(0, 200),
+      sanitizeHandlerError(reason),
+      sanitizeHandlerError(reason),
       messageId,
       now,
       expectedFencingToken,
@@ -168,7 +184,7 @@ export class WorkerMessageHandlerTracker {
          AND handler_claim_expires_at > ?
          AND fencing_token = ?
     `).run(
-      String(reason).slice(0, 2000),
+      sanitizeHandlerError(reason),
       nextRetryAt,
       messageId,
       ownerId,
@@ -186,8 +202,8 @@ export class WorkerMessageHandlerTracker {
   ): boolean {
     if (!Number.isSafeInteger(expectedFencingToken) || expectedFencingToken < 1) return false;
     const now = Date.now();
-    const boundedReason = String(reason).slice(0, 200);
-    const boundedError = String(reason).slice(0, 2000);
+    const boundedReason = sanitizeHandlerError(reason);
+    const boundedError = sanitizeHandlerError(reason);
 
     const result = ownerId !== null
       ? this.db.prepare(`
