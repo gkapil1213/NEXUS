@@ -127,6 +127,7 @@
                     "test:phase293":  "tsx scripts/test-phase293-log-sanitization.ts",
                     "test:phase293:provider-gate":  "tsx scripts/test-phase293-provider-gate.ts",
                     "test:phase293:rotation":  "tsx scripts/test-phase293-rotation.ts",
+                    "test:phase293:failure-modes":  "tsx scripts/test-phase293-failure-modes.ts",
                     "test:phase292:persistence":  "tsx scripts/test-phase292-envelope-persistence.ts"
                 },
     "dependencies":  {

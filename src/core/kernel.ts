@@ -53,9 +53,7 @@ import { JobDispatcher } from "./job-dispatcher";
 import { RemoteWorkerStore } from "./remote-worker-store";
 import { RemoteWorkerRegistry } from "./remote-worker-registry";
 import { WorkerAuthentication } from "./worker-authentication";
-import { EnvHmacKeyProvider } from "./envelope-hmac-key-provider";
-import type { EnvelopeHmacKeyProvider } from "./envelope-hmac-key-provider";
-import { AwsSecretsManagerHmacKeyProvider } from "./aws-secrets-manager-hmac-key-provider";
+import { resolveHmacProvider } from "./hmac-provider-resolver";
 import type { WorkerGateway } from "./worker-gateway";
 import type { RemoteExecutionAdapter } from "./remote-execution-adapter";
 import { SqliteWorkerAuthStore } from "./sqlite-worker-auth-store";
@@ -373,42 +371,10 @@ const memberships = new ProjectMembershipStore(rawDb);
             const { WorkerGatewayRemoteExecutionAdapter: AdapterCtor } = await import(/* @vite-ignore */ adapterSpec);
             const { WorkerSessionStore } = await import(/* @vite-ignore */ sessionStoreSpec);
             const sessionStore = new WorkerSessionStore(engine);
-            // Phase 292B: HMAC provider selection is explicit. There is no
-            // implicit environment fallback — a deployment must declare which
-            // provider it uses via NEXUS_ENVELOPE_HMAC_PROVIDER:
-            //   "env"                 -> NEXUS_ENVELOPE_HMAC_KID / _KEY_HEX
-            //   "aws-secrets-manager" -> NEXUS_ENVELOPE_HMAC_AWS_SECRET_ID
-            //                            + region from AWS_REGION or
-            //                            NEXUS_ENVELOPE_HMAC_AWS_REGION
-            // Any other value fails closed at startup.
-            const hmacProviderMode = process.env.NEXUS_ENVELOPE_HMAC_PROVIDER;
-            let hmacProvider: EnvelopeHmacKeyProvider;
-            if (hmacProviderMode === "env") {
-              hmacProvider = new EnvHmacKeyProvider(process.env);
-            } else if (hmacProviderMode === "aws-secrets-manager") {
-              const secretId = process.env.NEXUS_ENVELOPE_HMAC_AWS_SECRET_ID;
-              const region =
-                process.env.NEXUS_ENVELOPE_HMAC_AWS_REGION ??
-                process.env.AWS_REGION;
-              if (!secretId) {
-                throw new Error(
-                  "missing_envelope_hmac_aws_secret_id: NEXUS_ENVELOPE_HMAC_AWS_SECRET_ID must be set when NEXUS_ENVELOPE_HMAC_PROVIDER=aws-secrets-manager"
-                );
-              }
-              if (!region) {
-                throw new Error(
-                  "missing_envelope_hmac_aws_region: NEXUS_ENVELOPE_HMAC_AWS_REGION or AWS_REGION must be set when NEXUS_ENVELOPE_HMAC_PROVIDER=aws-secrets-manager"
-                );
-              }
-              hmacProvider = await AwsSecretsManagerHmacKeyProvider.load({
-                secretId,
-                region,
-              });
-            } else {
-              throw new Error(
-                "envelope_hmac_provider_not_configured: NEXUS_ENVELOPE_HMAC_PROVIDER must be 'env' or 'aws-secrets-manager'"
-              );
-            }
+            // Phase 293: HMAC provider selection gate extracted to a testable
+            // pure function. See src/core/hmac-provider-resolver.ts for the
+            // fail-closed semantics (no default, no fallback, unknown modes throw).
+            const hmacProvider = await resolveHmacProvider(process.env);
             const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore, rawDb, hmacProvider);
             workerGateway = gw;
             remoteAdapter = new AdapterCtor(gw);
