@@ -87,7 +87,7 @@ scripts-archive/
 *.bak
 *.pre-*.bak
 phase2*-*.txt
-phase2*-*.json
+/phase2*-*.json
 # Session-local backups and recovery artefacts
 *.bak-*
 *.phase[0-9]*-backup*
