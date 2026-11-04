@@ -1,6 +1,7 @@
 import { ObservabilityService } from "./observability-service";
 import { nid } from "./db";
 import http from "http";
+import { sanitizeHandlerError } from "./error-sanitizer";
 
 export interface SubsystemHealth {
   name: string;
@@ -13,6 +14,20 @@ export interface HealthSnapshot {
   timestamp: string;
   overall: "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNKNOWN";
   subsystems: SubsystemHealth[];
+}
+
+function sanitizeHealthFailure(message: unknown): string {
+  if (message === "timeout") return "health_check_timeout";
+  return sanitizeHandlerError(message);
+}
+
+// Persist only the origin. Never store URL paths, query parameters or credentials.
+function sanitizeHealthTarget(target: string): string {
+  try {
+    return new URL(target).origin;
+  } catch {
+    return "health_check_target";
+  }
 }
 
 export class HealthAgent {
@@ -29,33 +44,59 @@ export class HealthAgent {
   }
 
   async checkHttpHealth(target: string, timeoutMs = 2000): Promise<void> {
-    return new Promise((resolve) => {
-      const req = http.get(target, { timeout: timeoutMs, agent: false }, (res) => {
-        const status = res.statusCode && res.statusCode < 500 ? "HEALTHY" : "UNHEALTHY";
-        const check = {
-          id: nid("health"),
-          target,
-          timestamp: new Date().toISOString(),
-          status,
-          status_code: res.statusCode,
-          response_time_ms: 0,
-        };
-        res.resume();
-        res.on("end", () => {
-          this.observability.recordHealthCheck(check as any);
-          resolve();
-        });
+    const safeTarget = sanitizeHealthTarget(target);
+
+    return new Promise<void>((resolve, reject) => {
+      const req = http.get(
+        target,
+        { timeout: timeoutMs, agent: false },
+        (res) => {
+          const status =
+            res.statusCode && res.statusCode < 500
+              ? "HEALTHY"
+              : "UNHEALTHY";
+
+          const check = {
+            id: nid("health"),
+            target: safeTarget,
+            timestamp: new Date().toISOString(),
+            status,
+            status_code: res.statusCode,
+            response_time_ms: 0,
+          };
+
+          res.on("end", async () => {
+            try {
+              await this.observability.recordHealthCheck(check as any);
+              resolve();
+            } catch (persistenceError) {
+              reject(persistenceError);
+            }
+          });
+
+          res.resume();
+        },
+      );
+
+      req.on("timeout", () => {
+        req.destroy(new Error("timeout"));
       });
-      req.on("timeout", () => req.destroy(new Error("timeout")));
-      req.on("error", (e) => {
-        this.observability.recordHealthCheck({
-          id: nid("health"),
-          target,
-          timestamp: new Date().toISOString(),
-          status: "BLOCKED",
-          failure_reason: e.message,
-        } as any);
-        resolve();
+
+      req.on("error", async (e) => {
+        try {
+          await this.observability.recordHealthCheck({
+            id: nid("health"),
+            target: safeTarget,
+            timestamp: new Date().toISOString(),
+            status: "BLOCKED",
+            // Persist only an approved failure classification.
+            failure_reason: sanitizeHealthFailure(e.message),
+          } as any);
+
+          resolve();
+        } catch (persistenceError) {
+          reject(persistenceError);
+        }
       });
     });
   }
@@ -87,16 +128,16 @@ export class HealthAgent {
       overall,
       subsystems,
     };
+
     await this.observability.recordHealthCheck(snapshot as any);
     return snapshot;
   }
 
   liveness(): boolean {
-    return true; // process is alive
+    return true;
   }
 
   async readiness(): Promise<boolean> {
-    // Check essential dependencies: for now, we consider memory engine ready
     return true;
   }
 }

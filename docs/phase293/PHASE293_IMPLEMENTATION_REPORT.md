@@ -46,13 +46,37 @@ All 12 test suites pass, typecheck silent. See PHASE293_TEST_EVIDENCE.md.
 
 ## Artifact file
 
-`artifacts/phase293/phase293-verification.json` exists on disk but is **not committed to git** — this is consistent with prior phase practice where `phase2XX-*.json` artifacts under `artifacts/phaseXXX/` are gitignored (`.gitignore:90: phase2*-*.json`).
+`artifacts/phase293/phase293-verification.json` was expected but was NOT FOUND during the November 4, 2026 verification. Its existence and contents are NOT VERIFIED. Historical phase artifacts under `artifacts/phaseXXX/` are gitignored (`.gitignore:90: phase2*-*.json`).
 
-The artifact contents are:
+Historical documentation previously described the expected artifact as containing:
 - Phase identifier: 293
 - Tests executed: 12 suites
 - Test count: 230+ assertions
 - Typecheck: PASS
 - Deferred items: aws-provider.ts, health-agent.ts, cicd-reconciliation.service.ts
 
-For consistency with earlier phases, this file is not tracked. If future phases decide to track evidence artifacts, a `.gitignore` change plus a bulk-add migration will be needed (separate scope).
+These values are historical report text only. The JSON artifact was NOT FOUND during the November 4, 2026 verification; its actual contents are NOT VERIFIED. No claims above are presented as independently verified artifact contents.
+
+
+---
+
+## 7. Post-closure confirmation
+
+The Phase 132 durable CI reconciliation suite was re-run against the final
+Phase 293c worktree as a closure confirmation: **34/34 passing, exit 0**,
+T09-T16 preserving their approved `ARTIFACT_VALIDATION_FAILED:<CODE>`
+classifications. Recorded in `PHASE293_TEST_EVIDENCE.md` under
+"Addendum - Phase 132 re-run against final Phase 293c worktree". No source
+changes were made for this run; the worktree was preserved intact.
+---
+
+## Phase 293c - Persistent Sanitization
+
+- Added shared source module: `src/core/error-sanitizer.ts`.
+- Applied shared handler-error sanitization to health-agent and worker-handler paths.
+- Applied CI reconciliation reason sanitization to the reconciliation service.
+- Preserved approved CI artifact validation classifications.
+- Persistent sanitization regression suite: 834/834 PASS (final real-persistence verification, November 4, 2026).
+- Phase 132 CI reconciliation regression suite: 34/34 PASS.
+
+Production deployment and live external integrations remain NOT VERIFIED.

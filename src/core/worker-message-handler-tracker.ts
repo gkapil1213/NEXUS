@@ -1,35 +1,7 @@
 import { NexusEngine } from "./db";
 
-/**
- * Phase 293b-final: sanitize error codes before persisting to handler_last_error
- * or handler_recovery_reason. Raw exception messages may contain filesystem
- * paths, SQL text, credential fragments, or driver internals. Only codes
- * explicitly listed in SAFE_HANDLER_ERROR_CODES pass through unchanged;
- * every other value collapses to "handler_error".
- *
- * The sanitizer is idempotent, so callers can safely pass either raw or
- * already-sanitized input.
- */
-const SAFE_HANDLER_ERROR_CODES = new Set([
-  "handler_error",
-  "handler_execution_failed",
-  "recovery_after_crash",
-  "unknown_message_type",
-  "handler_completion_fence_missing",
-  "handler_completion_fence_rejected",
-  "phase292_recovery_incomplete_handler_no_payload_available",
-  "integrity_fail",
-  "unverified_legacy",
-  "unknown_handler",
-  "not_replay_eligible",
-  "session_mismatch",
-]);
-
-export function sanitizeHandlerError(message: unknown): string {
-  return typeof message === "string" && SAFE_HANDLER_ERROR_CODES.has(message)
-    ? message
-    : "handler_error";
-}
+import { sanitizeHandlerError } from "./error-sanitizer";
+export { sanitizeHandlerError } from "./error-sanitizer";
 
 export type HandlerStatus =
   | "LEGACY_UNVERIFIED"
