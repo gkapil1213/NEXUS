@@ -250,16 +250,6 @@ async function main() {
     currentFindings,
     risk,
   );
-
-  await api.recordPolicyEvaluation({
-    policy_version: policyDecision.policy_version,
-    execution_id: executionId,
-    artifact_digest: artifactA,
-    decision: policyDecision.verdict,
-    reasons: policyDecision.reasons,
-    rules_evaluated: policyDecision.reasons,
-  } as any);
-
   const policyHistory = await api.getPolicyHistory(executionId);
   recordTest(
     "Policy history",

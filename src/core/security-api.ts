@@ -132,6 +132,19 @@ export class SecurityApi {
   ): Promise<SecurityDecision> {
     const decision = this.policyEngine.evaluate(execution, evidenceList, findings, risk);
     await this.decisionService.recordDecision(decision);
+    await this.policyHistoryService.recordEvaluation({
+      policy_version: decision.policy_version,
+      execution_id: decision.execution_id,
+      release_id: decision.release_id,
+      artifact_digest: decision.artifact_digest,
+      decision: decision.verdict,
+      reasons: decision.reasons,
+      rules_evaluated: {
+        trace_completeness: "TRIGGERED_REASONS_ONLY",
+        canonical_decision: decision.canonical_decision,
+        triggered_reasons: decision.reasons,
+      },
+    });
     return decision;
   }
 
