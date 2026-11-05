@@ -88,6 +88,10 @@ export class SecurityApi {
     return this.executionService.complete(executionId, verdict, status);
   }
 
+  async getExecution(executionId: string): Promise<SecurityExecution | undefined> {
+    return this.executionService.getByExecutionId(executionId);
+  }
+
   async ingestEvidence(evidence: Omit<SecurityEvidence, "id" | "created_at">): Promise<SecurityEvidence> {
     return this.evidenceService.persistEvidence(evidence);
   }
