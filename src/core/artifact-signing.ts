@@ -438,6 +438,8 @@ class CosignService {
       "--key",
       "/workspace/cosign.key",
 
+      "--tlog-upload=false",
+
       "--allow-insecure-registry",
       "--allow-http-registry",
 
@@ -574,6 +576,8 @@ class CosignService {
 
       "--key",
       "/workspace/cosign.pub",
+
+      "--insecure-ignore-tlog",
 
       "--allow-insecure-registry",
       "--allow-http-registry",
