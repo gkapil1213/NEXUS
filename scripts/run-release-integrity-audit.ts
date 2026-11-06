@@ -46,21 +46,67 @@ function runCmd(command: string, args: string[], timeoutMs = 3000000): Promise<{
   });
 }
 
+// Scan only source — never node_modules, .backups, _phase135_audit, dist, etc.
+const SCAN_ROOT = process.env.NEXUS_SCAN_ROOT ?? "src";
+
+// Sum of per-scanner budgets (semgrep 180 + gitleaks 180 + checkov 300 + sca ~120)
+// plus a generous buffer, so the outer race never fires before the inner caps do.
+const OUTER_SCAN_TIMEOUT_MS = Number(process.env.NEXUS_SCAN_TIMEOUT_MS ?? 840_000);
+
 async function runSecurityScanInProcess(): Promise<void> {
   const bridge: HostBridge = {
     platform() { return process.platform; },
     async exec(command, args, opts) {
-      return runCmd(command, args, opts?.timeout_ms ?? 300000);
+      const t0 = Date.now();
+      const r = await runCmd(command, args, opts?.timeout_ms ?? 120_000);
+      const dt = Date.now() - t0;
+      if (r.exit_code === 124) {
+        console.warn(`[scan] TIMEOUT after ${dt}ms: ${command} ${args.join(" ")}`);
+      } else if (dt > 30_000) {
+        console.warn(`[scan] slow ${dt}ms: ${command} ${args.join(" ")}`);
+      }
+      return r;
     },
   };
   const exec = new HostProcessExecutor(bridge);
   const scanner = new RealSecurityScanner(exec);
+
   const result = await Promise.race([
-    scanner.runAll("."),
-    new Promise((_, reject) => setTimeout(() => reject(new Error("Security scan timed out")), 300000)),
+    scanner.runAll(SCAN_ROOT),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Security scan exceeded outer cap (${OUTER_SCAN_TIMEOUT_MS / 1000}s) on root=${SCAN_ROOT}`,
+            ),
+          ),
+        OUTER_SCAN_TIMEOUT_MS,
+      ),
+    ),
   ]);
-  const hasFailed = (result as any).results.some((r: any) => r.status === "FAILED");
-  if (hasFailed) throw new Error("Security scan found failures");
+
+  const results: any[] = (result as any).results ?? [];
+  const passed  = results.filter((r) => r.status === "PASSED");
+  const failed  = results.filter((r) => r.status === "FAILED");
+  const blocked = results.filter((r) => r.status === "BLOCKED");
+
+  console.log(
+    `[scan] root=${SCAN_ROOT} passed=${passed.length} blocked=${blocked.length} failed=${failed.length}`,
+  );
+  for (const b of blocked) console.warn(`[scan] BLOCKED ${b.scanner}: ${b.blocked_reason}`);
+  for (const f of failed)  console.warn(`[scan] FAILED  ${f.scanner}: ${f.findings?.length ?? 0} finding(s)`);
+
+  if (failed.length > 0) {
+    throw new Error(
+      `Security scan found ${failed.length} failure(s): ${failed.map((f) => f.scanner).join(", ")}`,
+    );
+  }
+  if (passed.length === 0) {
+    throw new Error(
+      `Security scan produced no PASS results; all blocked: ${blocked.map((b) => `${b.scanner}=${b.blocked_reason}`).join(", ")}`,
+    );
+  }
   console.log("Security scan passed");
 }
 

@@ -438,7 +438,8 @@ class CosignService {
       "--key",
       "/workspace/cosign.key",
 
-      "--tlog-upload=false",
+      "--signing-config",
+      "/workspace/nexus-cosign-signing-config.json",
 
       "--allow-insecure-registry",
       "--allow-http-registry",

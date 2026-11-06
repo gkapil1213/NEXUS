@@ -136,3 +136,6 @@ docs/phase-291/*.txt
 .phase292-*/
 scripts/diag-*.ts
 scripts/diag-*.txt
+cosign.key.legacy-*
+cosign.pub.legacy-*
+empty-signing-config.json
