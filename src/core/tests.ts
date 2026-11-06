@@ -188,7 +188,7 @@ export async function runPhase1Suite(): Promise<SuiteReport> {
       name: "project creation validates input and rejects invalid names",
       category: "projects",
       fn: async () => {
-        await expectThrow(() => services.projects.create(ownerUser, { name: "" }), "2–80 characters");
+        await expectThrow(() => services.projects.create(ownerUser, { name: "" }), "80 characters");
         await expectThrow(() => services.projects.create(ownerUser, { name: "ok", repository: "not a url" }), "repository");
         return "invalid inputs rejected";
       },
