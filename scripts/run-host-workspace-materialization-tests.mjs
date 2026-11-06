@@ -370,6 +370,70 @@ try {
     assertEq(e.status, 403);
     assert(!fs.existsSync(cwd), "session dir still present after cleanup");
   });
+
+  await test("Windows npm executes through its Node CLI entry point", async () => {
+    const t = newToken();
+    const m = await post("/v1/workspace/materialize", {
+      token: t,
+      files: [{ path: "marker.txt", content: "ok" }],
+    }, token);
+    assertEq(m.status, 200);
+    sessions.add(t);
+
+    const r = await post("/v1/exec", {
+      tool: "npm",
+      args: ["--version"],
+      workspace_token: t,
+    }, token);
+
+    assertEq(r.status, 200);
+    const b = await r.json();
+    assertEq(b.exit_code, 0, `npm failed: ${b.stderr}`);
+    assert(/^\d+\.\d+\.\d+/.test(b.stdout.trim()),
+      `npm did not return a version: ${b.stdout}`);
+  });
+
+  await test("Windows npx executes through its Node CLI entry point", async () => {
+    const t = newToken();
+    const m = await post("/v1/workspace/materialize", {
+      token: t,
+      files: [{ path: "marker.txt", content: "ok" }],
+    }, token);
+    assertEq(m.status, 200);
+    sessions.add(t);
+
+    const r = await post("/v1/exec", {
+      tool: "npx",
+      args: ["--version"],
+      workspace_token: t,
+    }, token);
+
+    assertEq(r.status, 200);
+    const b = await r.json();
+    assertEq(b.exit_code, 0, `npx failed: ${b.stderr}`);
+    assert(/^\d+\.\d+\.\d+/.test(b.stdout.trim()),
+      `npx did not return a version: ${b.stdout}`);
+  });
+  await test("exec rejects Windows %PATH% expansion before process launch", async () => {
+    const t = newToken();
+    const m = await post("/v1/workspace/materialize", {
+      token: t,
+      files: [{ path: "marker.txt", content: "ok" }],
+    }, token);
+    assertEq(m.status, 200);
+    sessions.add(t);
+
+    const r = await post("/v1/exec", {
+      tool: "npm",
+      args: ["--version", "%PATH%"],
+      workspace_token: t,
+    }, token);
+
+    assertEq(r.status, 400, `expected 400 for %PATH%, got ${r.status}`);
+    const b = await r.json();
+    assert(/shell metacharacters/i.test(String(b.error)),
+      `unexpected rejection reason: ${b.error}`);
+  });
 } finally {
   for (const t of sessions) await post("/v1/workspace/cleanup", { token: t }, token).catch(() => undefined);
   bridge.kill("SIGTERM");
