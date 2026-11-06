@@ -55,6 +55,15 @@ const WORKSPACE = path.resolve(__dirname, "..");
 const DIST = path.join(WORKSPACE, "dist");
 const IS_WIN = process.platform === "win32";
 
+// Node-native CLI entry points — used instead of spawning the .cmd shims
+// (npm.cmd / npx.cmd) which require cmd.exe and are subject to %VAR% expansion.
+// See Phase 298 §1: eliminates the cmd.exe /c invocation for npm/npx.
+const NODE_DIR = path.dirname(process.execPath);
+const CLI_JS = {
+  npm: path.join(NODE_DIR, "node_modules", "npm", "bin", "npm-cli.js"),
+  npx: path.join(NODE_DIR, "node_modules", "npm", "bin", "npx-cli.js"),
+};
+
 const HOST = "127.0.0.1"; // HARD requirement -> never configurable to 0.0.0.0
 const PORT = Number(process.env.NEXUS_BRIDGE_PORT || 3000);
 const ALLOWED_ORIGIN = `http://localhost:${PORT}`;
@@ -89,7 +98,8 @@ const TOOL_OPS = {
   node: ["--version", "-e"],
   npm: ["--version", "ls"],
   npx: ["--version", "playwright"],
-  playwright: ["--version"],
+  // playwright: removed in Phase 298 §2. Use { tool: "npx", operation: "playwright" }
+  // instead — playwright.cmd is not on the system PATH, only project-local.
 };
 
 const EXECUTABLES = {
@@ -99,7 +109,7 @@ const EXECUTABLES = {
   node: IS_WIN ? "node.exe" : "node",
   npm: IS_WIN ? "npm.cmd" : "npm",
   npx: IS_WIN ? "npx.cmd" : "npx",
-  playwright: IS_WIN ? "playwright.cmd" : "playwright",
+  // playwright: removed in Phase 298 §2 (see TOOL_OPS comment above)
 };
 
 /* Shell metacharacters are rejected outright -> matches sanitizeArgs() in the UI. */
@@ -218,9 +228,18 @@ function validateArg(a) {
 
 /* ------------------------------ command runner ------------------------------ */
 
-function spawnTool(exe, argv, opts) {
-  // .cmd/.bat shims (npm/npx/playwright on Windows) require cmd.exe as the
-  // launcher; argv stays a structured array -> no string interpolation.
+function spawnTool(tool, exe, argv, opts) {
+  // Phase 298 §1: For npm/npx on Windows, invoke `node.exe cli.js` directly
+  // instead of `cmd.exe /c npm.cmd`. This eliminates:
+  //   - cmd.exe shell metacharacter interpretation
+  //   - %VAR% environment-variable expansion (a real injection vector)
+  //   - reliance on the .cmd wrapper being on PATH
+  // argv remains a structured array; no string concatenation ever occurs.
+  if (IS_WIN && CLI_JS[tool]) {
+    return spawn(process.execPath, [CLI_JS[tool], ...argv], opts);
+  }
+  // Other .cmd/.bat shims (playwright has been removed; this is a safety net
+  // for any future tool) still require cmd.exe on Windows.
   if (IS_WIN && /\.(cmd|bat)$/i.test(exe)) {
     return spawn("cmd.exe", ["/c", exe, ...argv], opts);
   }
@@ -235,7 +254,7 @@ function runCommand(tool, argv, timeoutMs, cwd) {
     let timedOut = false;
     let done = false;
 
-    const child = spawnTool(EXECUTABLES[tool], argv, {
+    const child = spawnTool(tool, EXECUTABLES[tool], argv, {
       shell: false,
       cwd,
       env: sanitizedEnv(),
