@@ -207,6 +207,11 @@ function validateArg(a) {
   if (a.length > MAX_ARG_LEN) throw new Error(`argument exceeds ${MAX_ARG_LEN} characters`);
   if (SHELL_META.test(a)) throw new Error("argument contains shell metacharacters and was rejected");
   if (a.includes("..")) throw new Error("path traversal ('..') is not allowed in arguments");
+  if (/[\x00-\x1f\x7f]/.test(a)) throw new Error("argument contains control characters");
+  if (a.includes("\\")) throw new Error("backslashes are not allowed in arguments");
+  if (/\s/.test(a) && /^(rm|curl|wget|sh|bash|zsh|dash|sudo|chmod|dd|mkfs|killall)\b/.test(a.trim())) {
+    throw new Error("argument contains shell metacharacters or unsafe command");
+  }
   return a;
 }
 
@@ -691,12 +696,13 @@ const server = http.createServer(async (req, res) => {
       const html = content.toString("utf8");
       content = html.replace("</head>", shimHtml() + "\n</head>");
     }
+    const bodyBuf = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
     res.writeHead(200, {
       "Content-Type": MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream",
       "Cache-Control": file.endsWith("index.html") ? "no-store" : "public, max-age=300",
-      "Content-Length": content.length,
+      "Content-Length": bodyBuf.length,
     });
-    res.end(req.method === "HEAD" ? undefined : content);
+    res.end(req.method === "HEAD" ? undefined : bodyBuf);
   } catch (e) {
     return json(res, 500, { error: "internal bridge error" });
   }
