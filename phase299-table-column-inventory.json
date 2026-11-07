@@ -1,0 +1,3447 @@
+{
+  "phase": "299",
+  "timestamp": "2026-11-07T07:01:54.780Z",
+  "parser_limitations": [
+    "Table names extracted by regex only",
+    "Columns not extracted from source ? comparison uses bootstrap comments not source DDL",
+    "Constraint definitions not parsed from source"
+  ],
+  "tables": {
+    "declaredInBootstrap": [
+      "active_health_checkpoints",
+      "architecture_specifications",
+      "engineering_plans",
+      "engineering_requests",
+      "engineering_run_event_outbox",
+      "engineering_run_events",
+      "engineering_run_stages",
+      "engineering_runs",
+      "execution_artifacts",
+      "execution_attempts",
+      "execution_events",
+      "execution_jobs",
+      "execution_leases",
+      "execution_outcome_provenance",
+      "execution_ownership_obligations",
+      "execution_recovery_operations",
+      "execution_stage_dependencies",
+      "execution_workers",
+      "nexus_idempotency_keys",
+      "production_execution_authorizations",
+      "release_attestations",
+      "release_deployment_intents",
+      "remote_dispatches",
+      "security_decisions",
+      "security_evidence",
+      "security_executions",
+      "security_finding_observations",
+      "security_findings",
+      "security_incident_timeline",
+      "security_incidents",
+      "security_risk_assessments",
+      "supervisor_leases"
+    ],
+    "actualInDatabase": [
+      "active_health_checkpoints",
+      "architecture_specifications",
+      "engineering_plans",
+      "engineering_requests",
+      "engineering_run_event_outbox",
+      "engineering_run_events",
+      "engineering_run_stages",
+      "engineering_runs",
+      "execution_artifacts",
+      "execution_attempts",
+      "execution_events",
+      "execution_jobs",
+      "execution_leases",
+      "execution_outcome_provenance",
+      "execution_ownership_obligations",
+      "execution_recovery_operations",
+      "execution_stage_dependencies",
+      "execution_workers",
+      "implementation_specifications",
+      "nexus_idempotency_keys",
+      "nexus_sequences",
+      "production_execution_authorizations",
+      "release_attestations",
+      "release_deployment_intents",
+      "remote_dispatches",
+      "remote_execution_results",
+      "security_decisions",
+      "security_evidence",
+      "security_executions",
+      "security_finding_observations",
+      "security_findings",
+      "security_incident_timeline",
+      "security_incidents",
+      "security_risk_assessments",
+      "supervisor_leases"
+    ],
+    "declaredButMissing": [],
+    "inDbButNotDeclared": [
+      "implementation_specifications",
+      "nexus_sequences",
+      "remote_execution_results"
+    ],
+    "count": {
+      "declared": 32,
+      "actual": 35
+    }
+  },
+  "columns": {
+    "active_health_checkpoints": [
+      {
+        "column": "scope_key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "cursor",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "generation",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "identity": "NO"
+      }
+    ],
+    "architecture_specifications": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "run_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "plan_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "version",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "system_overview",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "components_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "interfaces_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "data_model_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "runtime_model_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "security_model_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "deployment_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "observability_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "failure_handling",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "technology_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "constraints_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verification_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "content_hash",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_by",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "engineering_plans": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "run_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "request_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "version",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "objective",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "scope",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "requirements_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "constraints_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "assumptions_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "acceptance_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "planned_stages_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "dependencies_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "risks_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verification_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "content_hash",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_by",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "engineering_requests": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "run_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "request_text",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "request_hash",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_by",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "metadata",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "engineering_run_event_outbox": [
+      {
+        "column": "outbox_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "idempotency_key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "event_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "run_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "stage_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "event_type",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "payload",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "attempts",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "0",
+        "identity": "NO"
+      },
+      {
+        "column": "next_attempt_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "claimed_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "claimed_by",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "claim_expires_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "delivered_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "last_error",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "permanently_failed_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "engineering_run_events": [
+      {
+        "column": "event_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "run_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "stage_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "event_type",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "payload",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "engineering_run_stages": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "run_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "stage_type",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "ordinal",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "capability_status",
+        "type": "text",
+        "nullable": "NO",
+        "default": "'UNKNOWN'::text",
+        "identity": "NO"
+      },
+      {
+        "column": "capability_reason",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "blocked_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "started_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "completed_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_ref",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "engineering_runs": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "idempotency_key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "objective",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "normalized_objective",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "repository",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "source_revision",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "current_stage",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "revision",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "1",
+        "identity": "NO"
+      },
+      {
+        "column": "correlation_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "requested_by",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_context",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_artifacts": [
+      {
+        "column": "artifact_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "attempt_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "name",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "type",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "size_bytes",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "checksum",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "storage_ref",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "metadata",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "integrity_verified_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "integrity_status",
+        "type": "text",
+        "nullable": "YES",
+        "default": "'PENDING'::text",
+        "identity": "NO"
+      },
+      {
+        "column": "immutable",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "0",
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_attempts": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "attempt_number",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "worker_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "lease_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "started_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "completed_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "error",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "evidence",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "heartbeat_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "last_progress_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_events": [
+      {
+        "column": "event_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "deployment_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "event_type",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "payload",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_jobs": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "idempotency_key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_type",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "payload",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "retry_policy",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "timeout_ms",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "last_attempt_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "next_attempt_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "current_lease_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "cancellation_requested",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "0",
+        "identity": "NO"
+      },
+      {
+        "column": "cancellation_acknowledged",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "0",
+        "identity": "NO"
+      },
+      {
+        "column": "priority",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "2",
+        "identity": "NO"
+      },
+      {
+        "column": "admitted_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "admission_owner",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "admission_epoch",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": "0",
+        "identity": "NO"
+      },
+      {
+        "column": "supervision_state",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "failure_class",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "supervision_updated_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_leases": [
+      {
+        "column": "lease_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "worker_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "acquired_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "expires_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "renewed_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "released_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_outcome_provenance": [
+      {
+        "column": "provenance_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "attempt_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "attempt_number",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "outcome",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "previous_state",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "worker_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "lease_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "recovery_operation_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "predecessor_attempt_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "reason",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "evidence_json",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "evidence_hash",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "terminalized_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_ownership_obligations": [
+      {
+        "column": "obligation_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "lease_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "worker_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "reason",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "state",
+        "type": "text",
+        "nullable": "NO",
+        "default": "'OPEN'::text",
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "resolved_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "resolution",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_recovery_operations": [
+      {
+        "column": "operation_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "lease_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "worker_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "operation_type",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "state",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "idempotency_key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "attempt_count",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "0",
+        "identity": "NO"
+      },
+      {
+        "column": "last_error",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "claim_owner",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "claim_expires_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "completed_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "next_attempt_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "last_failure_class",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_stage_dependencies": [
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "stage_name",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "depends_on_stage",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "execution_workers": [
+      {
+        "column": "worker_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "hostname",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "capabilities",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "last_heartbeat_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "current_job_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "registered_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "implementation_specifications": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "run_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "workspace_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "plan_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "architecture_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "provider_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "model",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "request_hash",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "content_hash",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "operations_json",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_by",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "nexus_idempotency_keys": [
+      {
+        "column": "idempotency_key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "principal_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "method",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "path",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "request_hash",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "response_status",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "response_body",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "nexus_sequences": [
+      {
+        "column": "store",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "next",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "production_execution_authorizations": [
+      {
+        "column": "authorization_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_digest",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "commit_sha",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "environment",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "security_decision_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "approval_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "project_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "image_repository",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "image_tag",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "image_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "container_name",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "container_port",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "issued_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "expires_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "consumed_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "consumed_by_attempt_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "revoked_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "release_attestations": [
+      {
+        "column": "attestation_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verification_run_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "commit_sha",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_digest",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verification_status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "result_digest",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "evidence_digest",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "decision",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "reasons_json",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "policy_version",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "decided_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "release_deployment_intents": [
+      {
+        "column": "intent_key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_digest",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "commit_sha",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "environment",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "image_repository",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "image_tag",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "image_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "image_digest",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "container_name",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "container_port",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "deployment_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "failure_reason",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "recovery_reason",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "leased_by",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "lease_expires_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "project_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "intent_kind",
+        "type": "text",
+        "nullable": "YES",
+        "default": "'DEPLOY'::text",
+        "identity": "NO"
+      },
+      {
+        "column": "rollback_target_release_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "rollback_job_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "attempt_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "provider",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "provider_status",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "provider_deployment_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "started_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "completed_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "timeout_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "cancel_requested_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "cancel_acknowledged_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verification_state",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "reconciled_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "recovery_attempts",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "0",
+        "identity": "NO"
+      },
+      {
+        "column": "next_retry_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "last_failure_class",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "reconciliation_evidence",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "last_recovery_decision",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "last_recovery_decision_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "remote_dispatches": [
+      {
+        "column": "dispatch_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "worker_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "attempt_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "lease_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "dispatched_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "completed_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "error",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "idempotency_key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "external_provider_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "request",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "result",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "remote_execution_results": [
+      {
+        "column": "result_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "job_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "attempt_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "worker_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "dispatch_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "lease_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "success",
+        "type": "boolean",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "exit_code",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "stdout_ref",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "stderr_ref",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "evidence",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "stdout_sha256",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "stderr_sha256",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "result_sha256",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verification_status",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verified_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "security_decisions": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "project_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_digest",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "policy_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "policy_version",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verdict",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "reasons",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "canonical_decision",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "security_evidence": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "project_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "commit_sha",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_digest",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "environment",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "scanner",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "category",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "started_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "completed_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "duration_ms",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "raw_reference",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "normalized_reference",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "sha256",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "expires_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "security_executions": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "project_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "commit_sha",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_digest",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "started_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "completed_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verdict",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "security_finding_observations": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "finding_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "observed_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "severity",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "raw_data",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "security_findings": [
+      {
+        "column": "finding_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "evidence_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "project_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_digest",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "scanner",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "category",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "severity",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "title",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "description",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "fingerprint",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "file",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "line",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "column_number",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "package",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "dependency",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "version",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "fixed_version",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "cve",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "cwe",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "resource",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "expires_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "approved_by",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "approved_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "scope",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "false_positive_evidence",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "security_incident_timeline": [
+      {
+        "column": "incident_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "seq",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "event_type",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "event_hash",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "payload",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "security_incidents": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "tenant_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "environment",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "service",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "severity",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "title",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "description",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "status",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "deployment_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_digest",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "drift_classification",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "incident_fingerprint",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "recovery_intent_key",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "recovery_attempt",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "0",
+        "identity": "NO"
+      },
+      {
+        "column": "lease_owner",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "lease_expires_at",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "last_observation_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "verification_state",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "resolution_evidence",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "resolved_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "closed_at",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "trigger_alert_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "security_risk_assessments": [
+      {
+        "column": "id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "project_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "execution_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "release_id",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "artifact_digest",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "severity_counts",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "correlated_findings",
+        "type": "bigint",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "risk_score",
+        "type": "double precision",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "explanation",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "created_at",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ],
+    "supervisor_leases": [
+      {
+        "column": "scope_key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "owner_id",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "generation",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "identity": "NO"
+      },
+      {
+        "column": "lease_until",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      },
+      {
+        "column": "updated_at",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "identity": "NO"
+      }
+    ]
+  }
+}

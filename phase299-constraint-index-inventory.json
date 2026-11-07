@@ -1,0 +1,2069 @@
+{
+  "phase": "299",
+  "timestamp": "2026-11-07T07:02:12.688Z",
+  "constraints": {
+    "total": 45,
+    "byType": {
+      "PRIMARY KEY": 35,
+      "UNIQUE": 7,
+      "CHECK": 1,
+      "FOREIGN KEY": 2
+    },
+    "byTable": {
+      "active_health_checkpoints": [
+        {
+          "name": "active_health_checkpoints_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (scope_key)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "architecture_specifications": [
+        {
+          "name": "architecture_specifications_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "architecture_specifications_run_id_version_key",
+          "type": "UNIQUE",
+          "definition": "UNIQUE (run_id, version)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "engineering_plans": [
+        {
+          "name": "engineering_plans_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "engineering_plans_run_id_version_key",
+          "type": "UNIQUE",
+          "definition": "UNIQUE (run_id, version)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "engineering_requests": [
+        {
+          "name": "engineering_requests_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "engineering_run_event_outbox": [
+        {
+          "name": "engineering_run_event_outbox_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (outbox_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "engineering_run_events": [
+        {
+          "name": "engineering_run_events_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (event_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "engineering_runs": [
+        {
+          "name": "engineering_runs_idempotency_key_key",
+          "type": "UNIQUE",
+          "definition": "UNIQUE (idempotency_key)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "engineering_runs_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "engineering_run_stages": [
+        {
+          "name": "engineering_run_stages_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "engineering_run_stages_run_id_stage_type_ordinal_key",
+          "type": "UNIQUE",
+          "definition": "UNIQUE (run_id, stage_type, ordinal)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_artifacts": [
+        {
+          "name": "execution_artifacts_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (artifact_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_attempts": [
+        {
+          "name": "execution_attempts_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_events": [
+        {
+          "name": "execution_events_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (event_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_jobs": [
+        {
+          "name": "execution_jobs_idempotency_key_key",
+          "type": "UNIQUE",
+          "definition": "UNIQUE (idempotency_key)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "execution_jobs_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_leases": [
+        {
+          "name": "execution_leases_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (lease_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_outcome_provenance": [
+        {
+          "name": "execution_outcome_provenance_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (provenance_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_ownership_obligations": [
+        {
+          "name": "execution_ownership_obligations_job_id_lease_id_key",
+          "type": "UNIQUE",
+          "definition": "UNIQUE (job_id, lease_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "execution_ownership_obligations_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (obligation_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_recovery_operations": [
+        {
+          "name": "execution_recovery_operations_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (operation_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_stage_dependencies": [
+        {
+          "name": "execution_stage_dependencies_check",
+          "type": "CHECK",
+          "definition": "CHECK ((stage_name <> depends_on_stage))",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "execution_stage_dependencies_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (execution_id, stage_name, depends_on_stage)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "execution_workers": [
+        {
+          "name": "execution_workers_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (worker_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "implementation_specifications": [
+        {
+          "name": "implementation_specifications_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "nexus_idempotency_keys": [
+        {
+          "name": "nexus_idempotency_keys_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (idempotency_key)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "nexus_sequences": [
+        {
+          "name": "nexus_sequences_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (store)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "production_execution_authorizations": [
+        {
+          "name": "production_execution_authorizations_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (authorization_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "release_attestations": [
+        {
+          "name": "release_attestations_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (attestation_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "release_deployment_intents": [
+        {
+          "name": "release_deployment_intents_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (intent_key)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "remote_dispatches": [
+        {
+          "name": "remote_dispatches_idempotency_key_key",
+          "type": "UNIQUE",
+          "definition": "UNIQUE (idempotency_key)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "remote_dispatches_job_id_fkey",
+          "type": "FOREIGN KEY",
+          "definition": "FOREIGN KEY (job_id) REFERENCES execution_jobs(id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "remote_dispatches_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (dispatch_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "remote_execution_results": [
+        {
+          "name": "remote_execution_results_dispatch_id_fkey",
+          "type": "FOREIGN KEY",
+          "definition": "FOREIGN KEY (dispatch_id) REFERENCES remote_dispatches(dispatch_id) ON DELETE CASCADE",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        },
+        {
+          "name": "remote_execution_results_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (result_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "security_decisions": [
+        {
+          "name": "security_decisions_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "security_evidence": [
+        {
+          "name": "security_evidence_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "security_executions": [
+        {
+          "name": "security_executions_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "security_finding_observations": [
+        {
+          "name": "security_finding_observations_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "security_findings": [
+        {
+          "name": "security_findings_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (finding_id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "security_incidents": [
+        {
+          "name": "security_incidents_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "security_incident_timeline": [
+        {
+          "name": "security_incident_timeline_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (incident_id, seq)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "security_risk_assessments": [
+        {
+          "name": "security_risk_assessments_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (id)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ],
+      "supervisor_leases": [
+        {
+          "name": "supervisor_leases_pkey",
+          "type": "PRIMARY KEY",
+          "definition": "PRIMARY KEY (scope_key)",
+          "validated": true,
+          "deferrable": false,
+          "initially_deferred": false
+        }
+      ]
+    }
+  },
+  "indexes": {
+    "total": 121,
+    "invalid": [],
+    "unready": [],
+    "byTable": {
+      "active_health_checkpoints": [
+        {
+          "name": "active_health_checkpoints_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX active_health_checkpoints_pkey ON public.active_health_checkpoints USING btree (scope_key)",
+          "size": "64 kB"
+        }
+      ],
+      "architecture_specifications": [
+        {
+          "name": "architecture_specifications_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX architecture_specifications_pkey ON public.architecture_specifications USING btree (id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "architecture_specifications_run_id_version_key",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX architecture_specifications_run_id_version_key ON public.architecture_specifications USING btree (run_id, version)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_architecture_specs_plan",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_architecture_specs_plan ON public.architecture_specifications USING btree (plan_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_architecture_specs_run",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_architecture_specs_run ON public.architecture_specifications USING btree (run_id, version DESC)",
+          "size": "16 kB"
+        }
+      ],
+      "engineering_plans": [
+        {
+          "name": "engineering_plans_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX engineering_plans_pkey ON public.engineering_plans USING btree (id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "engineering_plans_run_id_version_key",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX engineering_plans_run_id_version_key ON public.engineering_plans USING btree (run_id, version)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_engineering_plans_run",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_engineering_plans_run ON public.engineering_plans USING btree (run_id, version DESC)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_engineering_plans_status",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_engineering_plans_status ON public.engineering_plans USING btree (run_id, status)",
+          "size": "16 kB"
+        }
+      ],
+      "engineering_requests": [
+        {
+          "name": "engineering_requests_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX engineering_requests_pkey ON public.engineering_requests USING btree (id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_engineering_requests_hash",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX idx_engineering_requests_hash ON public.engineering_requests USING btree (run_id, request_hash)",
+          "size": "32 kB"
+        },
+        {
+          "name": "idx_engineering_requests_run",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_engineering_requests_run ON public.engineering_requests USING btree (run_id, created_at)",
+          "size": "16 kB"
+        }
+      ],
+      "engineering_run_event_outbox": [
+        {
+          "name": "engineering_run_event_outbox_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX engineering_run_event_outbox_pkey ON public.engineering_run_event_outbox USING btree (outbox_id)",
+          "size": "32 kB"
+        },
+        {
+          "name": "idx_outbox_due",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_outbox_due ON public.engineering_run_event_outbox USING btree (next_attempt_at) WHERE ((delivered_at IS NULL) AND (permanently_failed_at IS NULL))",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_outbox_expired_claims",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_outbox_expired_claims ON public.engineering_run_event_outbox USING btree (claim_expires_at) WHERE ((delivered_at IS NULL) AND (claimed_at IS NOT NULL))",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_outbox_failed",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_outbox_failed ON public.engineering_run_event_outbox USING btree (permanently_failed_at) WHERE (permanently_failed_at IS NOT NULL)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_outbox_idempotency_key",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX idx_outbox_idempotency_key ON public.engineering_run_event_outbox USING btree (idempotency_key)",
+          "size": "32 kB"
+        }
+      ],
+      "engineering_run_events": [
+        {
+          "name": "engineering_run_events_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX engineering_run_events_pkey ON public.engineering_run_events USING btree (event_id)",
+          "size": "2424 kB"
+        },
+        {
+          "name": "idx_engineering_run_events_run",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_engineering_run_events_run ON public.engineering_run_events USING btree (run_id, created_at)",
+          "size": "2488 kB"
+        },
+        {
+          "name": "idx_engineering_run_events_type",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_engineering_run_events_type ON public.engineering_run_events USING btree (event_type)",
+          "size": "224 kB"
+        }
+      ],
+      "engineering_runs": [
+        {
+          "name": "engineering_runs_idempotency_key_key",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX engineering_runs_idempotency_key_key ON public.engineering_runs USING btree (idempotency_key)",
+          "size": "432 kB"
+        },
+        {
+          "name": "engineering_runs_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX engineering_runs_pkey ON public.engineering_runs USING btree (id)",
+          "size": "120 kB"
+        },
+        {
+          "name": "idx_engineering_runs_created",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_engineering_runs_created ON public.engineering_runs USING btree (created_at DESC)",
+          "size": "96 kB"
+        },
+        {
+          "name": "idx_engineering_runs_current_stage",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_engineering_runs_current_stage ON public.engineering_runs USING btree (current_stage)",
+          "size": "32 kB"
+        }
+      ],
+      "engineering_run_stages": [
+        {
+          "name": "engineering_run_stages_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX engineering_run_stages_pkey ON public.engineering_run_stages USING btree (id)",
+          "size": "1176 kB"
+        },
+        {
+          "name": "engineering_run_stages_run_id_stage_type_ordinal_key",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX engineering_run_stages_run_id_stage_type_ordinal_key ON public.engineering_run_stages USING btree (run_id, stage_type, ordinal)",
+          "size": "1296 kB"
+        },
+        {
+          "name": "idx_engineering_run_stages_capability",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_engineering_run_stages_capability ON public.engineering_run_stages USING btree (run_id, capability_status)",
+          "size": "272 kB"
+        },
+        {
+          "name": "idx_engineering_run_stages_run",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_engineering_run_stages_run ON public.engineering_run_stages USING btree (run_id, ordinal)",
+          "size": "1056 kB"
+        }
+      ],
+      "execution_artifacts": [
+        {
+          "name": "execution_artifacts_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_artifacts_pkey ON public.execution_artifacts USING btree (artifact_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_artifacts_attempt",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_artifacts_attempt ON public.execution_artifacts USING btree (attempt_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_artifacts_job",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_artifacts_job ON public.execution_artifacts USING btree (job_id)",
+          "size": "16 kB"
+        }
+      ],
+      "execution_attempts": [
+        {
+          "name": "execution_attempts_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_attempts_pkey ON public.execution_attempts USING btree (id)",
+          "size": "56 kB"
+        },
+        {
+          "name": "idx_attempts_job",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_attempts_job ON public.execution_attempts USING btree (job_id, attempt_number)",
+          "size": "56 kB"
+        },
+        {
+          "name": "idx_attempts_progress_running",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_attempts_progress_running ON public.execution_attempts USING btree (status, last_progress_at) WHERE (status = 'RUNNING'::text)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_attempts_stale_running",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_attempts_stale_running ON public.execution_attempts USING btree (status, heartbeat_at) WHERE (status = 'RUNNING'::text)",
+          "size": "16 kB"
+        }
+      ],
+      "execution_events": [
+        {
+          "name": "execution_events_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_events_pkey ON public.execution_events USING btree (event_id)",
+          "size": "2024 kB"
+        }
+      ],
+      "execution_jobs": [
+        {
+          "name": "execution_jobs_idempotency_key_key",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_jobs_idempotency_key_key ON public.execution_jobs USING btree (idempotency_key)",
+          "size": "2776 kB"
+        },
+        {
+          "name": "execution_jobs_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_jobs_pkey ON public.execution_jobs USING btree (id)",
+          "size": "2048 kB"
+        },
+        {
+          "name": "idx_exec_jobs_active_capacity",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_exec_jobs_active_capacity ON public.execution_jobs USING btree (status) WHERE (status = ANY (ARRAY['ADMITTED'::text, 'CLAIMED'::text, 'RUNNING'::text, 'VERIFYING'::text]))",
+          "size": "88 kB"
+        },
+        {
+          "name": "idx_exec_jobs_admissible",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_exec_jobs_admissible ON public.execution_jobs USING btree (priority, created_at) WHERE (status = 'QUEUED'::text)",
+          "size": "312 kB"
+        },
+        {
+          "name": "idx_exec_jobs_retry",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_exec_jobs_retry ON public.execution_jobs USING btree (status, next_attempt_at)",
+          "size": "272 kB"
+        },
+        {
+          "name": "idx_exec_jobs_status",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_exec_jobs_status ON public.execution_jobs USING btree (status)",
+          "size": "264 kB"
+        },
+        {
+          "name": "idx_exec_jobs_supervision",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_exec_jobs_supervision ON public.execution_jobs USING btree (supervision_state, supervision_updated_at) WHERE (supervision_state IS NOT NULL)",
+          "size": "40 kB"
+        }
+      ],
+      "execution_leases": [
+        {
+          "name": "execution_leases_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_leases_pkey ON public.execution_leases USING btree (lease_id)",
+          "size": "88 kB"
+        },
+        {
+          "name": "idx_leases_job",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_leases_job ON public.execution_leases USING btree (job_id)",
+          "size": "56 kB"
+        },
+        {
+          "name": "idx_leases_one_active_per_job",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX idx_leases_one_active_per_job ON public.execution_leases USING btree (job_id) WHERE (status = 'ACTIVE'::text)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_leases_status",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_leases_status ON public.execution_leases USING btree (status)",
+          "size": "16 kB"
+        }
+      ],
+      "execution_outcome_provenance": [
+        {
+          "name": "execution_outcome_provenance_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_outcome_provenance_pkey ON public.execution_outcome_provenance USING btree (provenance_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_provenance_job",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_provenance_job ON public.execution_outcome_provenance USING btree (job_id, attempt_number)",
+          "size": "16 kB"
+        }
+      ],
+      "execution_ownership_obligations": [
+        {
+          "name": "execution_ownership_obligations_job_id_lease_id_key",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_ownership_obligations_job_id_lease_id_key ON public.execution_ownership_obligations USING btree (job_id, lease_id)",
+          "size": "56 kB"
+        },
+        {
+          "name": "execution_ownership_obligations_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_ownership_obligations_pkey ON public.execution_ownership_obligations USING btree (obligation_id)",
+          "size": "64 kB"
+        },
+        {
+          "name": "idx_eoo_open",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_eoo_open ON public.execution_ownership_obligations USING btree (job_id) WHERE (state = 'OPEN'::text)",
+          "size": "40 kB"
+        }
+      ],
+      "execution_recovery_operations": [
+        {
+          "name": "execution_recovery_operations_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_recovery_operations_pkey ON public.execution_recovery_operations USING btree (operation_id)",
+          "size": "192 kB"
+        },
+        {
+          "name": "idx_ero_claim_expires",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_ero_claim_expires ON public.execution_recovery_operations USING btree (state, claim_expires_at)",
+          "size": "56 kB"
+        },
+        {
+          "name": "idx_ero_idempotency_key",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX idx_ero_idempotency_key ON public.execution_recovery_operations USING btree (idempotency_key)",
+          "size": "288 kB"
+        },
+        {
+          "name": "idx_ero_job_type",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_ero_job_type ON public.execution_recovery_operations USING btree (job_id, operation_type)",
+          "size": "224 kB"
+        },
+        {
+          "name": "idx_ero_next_attempt",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_ero_next_attempt ON public.execution_recovery_operations USING btree (state, next_attempt_at)",
+          "size": "88 kB"
+        },
+        {
+          "name": "idx_ero_state_updated",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_ero_state_updated ON public.execution_recovery_operations USING btree (state, updated_at)",
+          "size": "80 kB"
+        }
+      ],
+      "execution_stage_dependencies": [
+        {
+          "name": "execution_stage_dependencies_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_stage_dependencies_pkey ON public.execution_stage_dependencies USING btree (execution_id, stage_name, depends_on_stage)",
+          "size": "1240 kB"
+        },
+        {
+          "name": "idx_stage_deps_exec_dep",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_stage_deps_exec_dep ON public.execution_stage_dependencies USING btree (execution_id, depends_on_stage)",
+          "size": "1032 kB"
+        },
+        {
+          "name": "idx_stage_deps_exec_stage",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_stage_deps_exec_stage ON public.execution_stage_dependencies USING btree (execution_id, stage_name)",
+          "size": "1088 kB"
+        }
+      ],
+      "execution_workers": [
+        {
+          "name": "execution_workers_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX execution_workers_pkey ON public.execution_workers USING btree (worker_id)",
+          "size": "40 kB"
+        },
+        {
+          "name": "idx_workers_status",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_workers_status ON public.execution_workers USING btree (status)",
+          "size": "16 kB"
+        }
+      ],
+      "implementation_specifications": [
+        {
+          "name": "idx_impl_specs_hash",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_impl_specs_hash ON public.implementation_specifications USING btree (run_id, request_hash)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_impl_specs_plan",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_impl_specs_plan ON public.implementation_specifications USING btree (plan_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_impl_specs_run",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_impl_specs_run ON public.implementation_specifications USING btree (run_id, created_at DESC)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_impl_specs_run_hash",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX idx_impl_specs_run_hash ON public.implementation_specifications USING btree (run_id, request_hash)",
+          "size": "16 kB"
+        },
+        {
+          "name": "implementation_specifications_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX implementation_specifications_pkey ON public.implementation_specifications USING btree (id)",
+          "size": "16 kB"
+        }
+      ],
+      "nexus_idempotency_keys": [
+        {
+          "name": "idx_nexus_idem_created",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_nexus_idem_created ON public.nexus_idempotency_keys USING btree (created_at)",
+          "size": "16 kB"
+        },
+        {
+          "name": "nexus_idempotency_keys_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX nexus_idempotency_keys_pkey ON public.nexus_idempotency_keys USING btree (idempotency_key)",
+          "size": "16 kB"
+        }
+      ],
+      "nexus_sequences": [
+        {
+          "name": "nexus_sequences_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX nexus_sequences_pkey ON public.nexus_sequences USING btree (store)",
+          "size": "8192 bytes"
+        }
+      ],
+      "production_execution_authorizations": [
+        {
+          "name": "idx_prod_auth_consumed_by",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_prod_auth_consumed_by ON public.production_execution_authorizations USING btree (consumed_by_attempt_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_prod_auth_expires",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_prod_auth_expires ON public.production_execution_authorizations USING btree (expires_at)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_prod_auth_release_env",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_prod_auth_release_env ON public.production_execution_authorizations USING btree (release_id, environment)",
+          "size": "16 kB"
+        },
+        {
+          "name": "production_execution_authorizations_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX production_execution_authorizations_pkey ON public.production_execution_authorizations USING btree (authorization_id)",
+          "size": "16 kB"
+        }
+      ],
+      "release_attestations": [
+        {
+          "name": "idx_release_attestations_commit",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_attestations_commit ON public.release_attestations USING btree (commit_sha)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "idx_release_attestations_release",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_attestations_release ON public.release_attestations USING btree (release_id)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "idx_release_attestations_unique",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX idx_release_attestations_unique ON public.release_attestations USING btree (release_id, verification_run_id, commit_sha)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "release_attestations_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX release_attestations_pkey ON public.release_attestations USING btree (attestation_id)",
+          "size": "8192 bytes"
+        }
+      ],
+      "release_deployment_intents": [
+        {
+          "name": "idx_release_intents_kind",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_intents_kind ON public.release_deployment_intents USING btree (intent_kind)",
+          "size": "88 kB"
+        },
+        {
+          "name": "idx_release_intents_next_retry",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_intents_next_retry ON public.release_deployment_intents USING btree (next_retry_at)",
+          "size": "168 kB"
+        },
+        {
+          "name": "idx_release_intents_provider_deployment",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_intents_provider_deployment ON public.release_deployment_intents USING btree (provider_deployment_id)",
+          "size": "520 kB"
+        },
+        {
+          "name": "idx_release_intents_reconcile",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_intents_reconcile ON public.release_deployment_intents USING btree (status, reconciled_at)",
+          "size": "424 kB"
+        },
+        {
+          "name": "idx_release_intents_reconciled",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_intents_reconciled ON public.release_deployment_intents USING btree (reconciled_at)",
+          "size": "288 kB"
+        },
+        {
+          "name": "idx_release_intents_release_environment",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_intents_release_environment ON public.release_deployment_intents USING btree (release_id, environment)",
+          "size": "840 kB"
+        },
+        {
+          "name": "idx_release_intents_rollback_job",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_intents_rollback_job ON public.release_deployment_intents USING btree (rollback_job_id)",
+          "size": "88 kB"
+        },
+        {
+          "name": "idx_release_intents_rollback_target",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_intents_rollback_target ON public.release_deployment_intents USING btree (rollback_target_release_id)",
+          "size": "88 kB"
+        },
+        {
+          "name": "idx_release_intents_status",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_release_intents_status ON public.release_deployment_intents USING btree (status)",
+          "size": "120 kB"
+        },
+        {
+          "name": "release_deployment_intents_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX release_deployment_intents_pkey ON public.release_deployment_intents USING btree (intent_key)",
+          "size": "4648 kB"
+        }
+      ],
+      "remote_dispatches": [
+        {
+          "name": "idx_remote_dispatches_job",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_remote_dispatches_job ON public.remote_dispatches USING btree (job_id)",
+          "size": "32 kB"
+        },
+        {
+          "name": "idx_remote_dispatches_status",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_remote_dispatches_status ON public.remote_dispatches USING btree (status)",
+          "size": "16 kB"
+        },
+        {
+          "name": "remote_dispatches_idempotency_key_key",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX remote_dispatches_idempotency_key_key ON public.remote_dispatches USING btree (idempotency_key)",
+          "size": "40 kB"
+        },
+        {
+          "name": "remote_dispatches_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX remote_dispatches_pkey ON public.remote_dispatches USING btree (dispatch_id)",
+          "size": "40 kB"
+        }
+      ],
+      "remote_execution_results": [
+        {
+          "name": "idx_remote_results_dispatch",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX idx_remote_results_dispatch ON public.remote_execution_results USING btree (dispatch_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_remote_results_job",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_remote_results_job ON public.remote_execution_results USING btree (job_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_remote_results_worker",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_remote_results_worker ON public.remote_execution_results USING btree (worker_id, created_at DESC)",
+          "size": "16 kB"
+        },
+        {
+          "name": "remote_execution_results_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX remote_execution_results_pkey ON public.remote_execution_results USING btree (result_id)",
+          "size": "16 kB"
+        }
+      ],
+      "security_decisions": [
+        {
+          "name": "idx_security_decisions_execution",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_decisions_execution ON public.security_decisions USING btree (execution_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "security_decisions_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX security_decisions_pkey ON public.security_decisions USING btree (id)",
+          "size": "16 kB"
+        }
+      ],
+      "security_evidence": [
+        {
+          "name": "idx_security_evidence_category",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_evidence_category ON public.security_evidence USING btree (execution_id, category)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "idx_security_evidence_execution",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_evidence_execution ON public.security_evidence USING btree (execution_id)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "security_evidence_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX security_evidence_pkey ON public.security_evidence USING btree (id)",
+          "size": "8192 bytes"
+        }
+      ],
+      "security_executions": [
+        {
+          "name": "idx_security_executions_execution",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_executions_execution ON public.security_executions USING btree (execution_id)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "idx_security_executions_project",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_executions_project ON public.security_executions USING btree (project_id, started_at DESC)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "security_executions_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX security_executions_pkey ON public.security_executions USING btree (id)",
+          "size": "8192 bytes"
+        }
+      ],
+      "security_finding_observations": [
+        {
+          "name": "idx_security_finding_obs_finding",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_finding_obs_finding ON public.security_finding_observations USING btree (finding_id)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "security_finding_observations_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX security_finding_observations_pkey ON public.security_finding_observations USING btree (id)",
+          "size": "8192 bytes"
+        }
+      ],
+      "security_findings": [
+        {
+          "name": "idx_security_findings_execution",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_findings_execution ON public.security_findings USING btree (execution_id)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "idx_security_findings_fingerprint",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_findings_fingerprint ON public.security_findings USING btree (fingerprint)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "security_findings_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX security_findings_pkey ON public.security_findings USING btree (finding_id)",
+          "size": "8192 bytes"
+        }
+      ],
+      "security_incidents": [
+        {
+          "name": "idx_security_incidents_deployment",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_incidents_deployment ON public.security_incidents USING btree (deployment_id)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_security_incidents_fingerprint",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX idx_security_incidents_fingerprint ON public.security_incidents USING btree (incident_fingerprint)",
+          "size": "16 kB"
+        },
+        {
+          "name": "idx_security_incidents_status",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_incidents_status ON public.security_incidents USING btree (status)",
+          "size": "16 kB"
+        },
+        {
+          "name": "security_incidents_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX security_incidents_pkey ON public.security_incidents USING btree (id)",
+          "size": "16 kB"
+        }
+      ],
+      "security_incident_timeline": [
+        {
+          "name": "idx_security_incident_timeline_hash",
+          "primary": false,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX idx_security_incident_timeline_hash ON public.security_incident_timeline USING btree (incident_id, event_hash)",
+          "size": "48 kB"
+        },
+        {
+          "name": "idx_security_incident_timeline_incident",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_incident_timeline_incident ON public.security_incident_timeline USING btree (incident_id, seq)",
+          "size": "16 kB"
+        },
+        {
+          "name": "security_incident_timeline_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX security_incident_timeline_pkey ON public.security_incident_timeline USING btree (incident_id, seq)",
+          "size": "16 kB"
+        }
+      ],
+      "security_risk_assessments": [
+        {
+          "name": "idx_security_risk_execution",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_security_risk_execution ON public.security_risk_assessments USING btree (execution_id)",
+          "size": "8192 bytes"
+        },
+        {
+          "name": "security_risk_assessments_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX security_risk_assessments_pkey ON public.security_risk_assessments USING btree (id)",
+          "size": "8192 bytes"
+        }
+      ],
+      "supervisor_leases": [
+        {
+          "name": "idx_supervisor_leases_until",
+          "primary": false,
+          "unique": false,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE INDEX idx_supervisor_leases_until ON public.supervisor_leases USING btree (lease_until)",
+          "size": "32 kB"
+        },
+        {
+          "name": "supervisor_leases_pkey",
+          "primary": true,
+          "unique": true,
+          "valid": true,
+          "ready": true,
+          "method": "btree",
+          "definition": "CREATE UNIQUE INDEX supervisor_leases_pkey ON public.supervisor_leases USING btree (scope_key)",
+          "size": "64 kB"
+        }
+      ]
+    }
+  },
+  "notNullColumns": {
+    "total": 262,
+    "byTable": {
+      "active_health_checkpoints": [
+        "scope_key",
+        "updated_at",
+        "generation"
+      ],
+      "architecture_specifications": [
+        "id",
+        "run_id",
+        "plan_id",
+        "version",
+        "system_overview",
+        "components_json",
+        "interfaces_json",
+        "data_model_json",
+        "runtime_model_json",
+        "security_model_json",
+        "deployment_json",
+        "observability_json",
+        "technology_json",
+        "constraints_json",
+        "verification_json",
+        "status",
+        "content_hash",
+        "created_at",
+        "updated_at"
+      ],
+      "engineering_plans": [
+        "id",
+        "run_id",
+        "request_id",
+        "version",
+        "objective",
+        "requirements_json",
+        "constraints_json",
+        "assumptions_json",
+        "acceptance_json",
+        "planned_stages_json",
+        "dependencies_json",
+        "risks_json",
+        "verification_json",
+        "status",
+        "content_hash",
+        "created_at",
+        "updated_at"
+      ],
+      "engineering_requests": [
+        "id",
+        "run_id",
+        "request_text",
+        "request_hash",
+        "created_at"
+      ],
+      "engineering_run_event_outbox": [
+        "outbox_id",
+        "idempotency_key",
+        "event_id",
+        "job_id",
+        "run_id",
+        "event_type",
+        "created_at",
+        "attempts"
+      ],
+      "engineering_run_events": [
+        "event_id",
+        "run_id",
+        "event_type",
+        "created_at"
+      ],
+      "engineering_run_stages": [
+        "id",
+        "run_id",
+        "stage_type",
+        "ordinal",
+        "capability_status",
+        "created_at",
+        "updated_at"
+      ],
+      "engineering_runs": [
+        "id",
+        "idempotency_key",
+        "objective",
+        "normalized_objective",
+        "repository",
+        "revision",
+        "correlation_id",
+        "created_at",
+        "updated_at"
+      ],
+      "execution_artifacts": [
+        "artifact_id",
+        "name",
+        "type",
+        "checksum",
+        "created_at"
+      ],
+      "execution_attempts": [
+        "id",
+        "job_id",
+        "attempt_number",
+        "status",
+        "created_at"
+      ],
+      "execution_events": [
+        "event_id",
+        "event_type",
+        "created_at"
+      ],
+      "execution_jobs": [
+        "id",
+        "idempotency_key",
+        "job_type",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "execution_leases": [
+        "lease_id",
+        "job_id",
+        "worker_id",
+        "acquired_at",
+        "expires_at",
+        "status"
+      ],
+      "execution_outcome_provenance": [
+        "provenance_id",
+        "job_id",
+        "attempt_id",
+        "attempt_number",
+        "outcome",
+        "previous_state",
+        "worker_id",
+        "lease_id",
+        "evidence_hash",
+        "terminalized_at",
+        "created_at"
+      ],
+      "execution_ownership_obligations": [
+        "obligation_id",
+        "job_id",
+        "lease_id",
+        "worker_id",
+        "reason",
+        "state",
+        "created_at"
+      ],
+      "execution_recovery_operations": [
+        "operation_id",
+        "job_id",
+        "operation_type",
+        "state",
+        "idempotency_key",
+        "attempt_count",
+        "created_at",
+        "updated_at"
+      ],
+      "execution_stage_dependencies": [
+        "execution_id",
+        "stage_name",
+        "depends_on_stage",
+        "created_at"
+      ],
+      "execution_workers": [
+        "worker_id",
+        "status",
+        "registered_at"
+      ],
+      "implementation_specifications": [
+        "id",
+        "run_id",
+        "workspace_id",
+        "plan_id",
+        "architecture_id",
+        "provider_id",
+        "model",
+        "request_hash",
+        "content_hash",
+        "operations_json",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "nexus_idempotency_keys": [
+        "idempotency_key",
+        "principal_id",
+        "method",
+        "path",
+        "request_hash",
+        "response_status",
+        "response_body",
+        "created_at"
+      ],
+      "nexus_sequences": [
+        "store",
+        "next"
+      ],
+      "production_execution_authorizations": [
+        "authorization_id",
+        "release_id",
+        "artifact_id",
+        "artifact_digest",
+        "commit_sha",
+        "environment",
+        "security_decision_id",
+        "approval_id",
+        "issued_at",
+        "expires_at",
+        "created_at",
+        "updated_at"
+      ],
+      "release_attestations": [
+        "attestation_id",
+        "release_id",
+        "execution_id",
+        "verification_run_id",
+        "commit_sha",
+        "verification_status",
+        "result_digest",
+        "evidence_digest",
+        "decision",
+        "policy_version",
+        "decided_at",
+        "created_at"
+      ],
+      "release_deployment_intents": [
+        "intent_key",
+        "release_id",
+        "execution_id",
+        "artifact_id",
+        "artifact_digest",
+        "commit_sha",
+        "environment",
+        "image_repository",
+        "image_tag",
+        "image_digest",
+        "container_name",
+        "container_port",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "remote_dispatches": [
+        "dispatch_id",
+        "job_id",
+        "worker_id",
+        "status",
+        "created_at",
+        "idempotency_key"
+      ],
+      "remote_execution_results": [
+        "result_id",
+        "job_id",
+        "worker_id",
+        "dispatch_id",
+        "success",
+        "created_at"
+      ],
+      "security_decisions": [
+        "id",
+        "project_id",
+        "execution_id",
+        "policy_id",
+        "policy_version",
+        "verdict",
+        "created_at"
+      ],
+      "security_evidence": [
+        "id",
+        "project_id",
+        "execution_id",
+        "scanner",
+        "category",
+        "status",
+        "created_at"
+      ],
+      "security_executions": [
+        "id",
+        "project_id",
+        "execution_id",
+        "status",
+        "started_at"
+      ],
+      "security_finding_observations": [
+        "id",
+        "finding_id",
+        "execution_id",
+        "observed_at",
+        "severity"
+      ],
+      "security_findings": [
+        "finding_id",
+        "project_id",
+        "execution_id",
+        "scanner",
+        "category",
+        "severity",
+        "title",
+        "fingerprint",
+        "status",
+        "created_at"
+      ],
+      "security_incident_timeline": [
+        "incident_id",
+        "seq",
+        "event_type",
+        "event_hash",
+        "created_at"
+      ],
+      "security_incidents": [
+        "id",
+        "tenant_id",
+        "environment",
+        "service",
+        "severity",
+        "title",
+        "status",
+        "incident_fingerprint",
+        "created_at",
+        "updated_at"
+      ],
+      "security_risk_assessments": [
+        "id",
+        "project_id",
+        "execution_id",
+        "created_at"
+      ],
+      "supervisor_leases": [
+        "scope_key",
+        "owner_id",
+        "generation",
+        "lease_until",
+        "updated_at"
+      ]
+    }
+  }
+}
