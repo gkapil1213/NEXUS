@@ -199,7 +199,7 @@ export function sanitizeArgs(args: string[]): string[] {
     if (typeof a !== "string" || a.length === 0) throw Err.validation("EMPTY_ARG", "empty argument is not allowed");
     if (a.length > MAX_ARG_LEN) throw Err.validation("ARG_TOO_LONG", `argument exceeds ${MAX_ARG_LEN} characters`);
     if (SHELL_META.test(a)) throw Err.security("ARG_REJECTED", `argument contains shell metacharacters and was rejected`);
-    if (WINDOWS_ENV_EXPANSION.test(a)) throw Err.security("ARG_REJECTED", "Windows environment-variable expansion is not allowed");
+    if (WINDOWS_ENV_EXPANSION.test(a)) throw Err.security("ARG_REJECTED", "argument contains shell metacharacters (Windows environment-variable expansion) and was rejected");
     if (a.includes("..")) throw Err.security("TRAVERSAL_REJECTED", "path traversal ('..') is not allowed in arguments");
     if (/[\x00-\x1f\x7f]/.test(a)) throw Err.security("CONTROL_CHAR_REJECTED", "argument contains control characters");
     if (a.includes("\\")) throw Err.security("BACKSLASH_REJECTED", "backslashes are not allowed in arguments");

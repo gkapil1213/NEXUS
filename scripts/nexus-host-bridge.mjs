@@ -217,7 +217,7 @@ function validateArg(a) {
   if (typeof a !== "string" || a.length === 0) throw new Error("empty argument is not allowed");
   if (a.length > MAX_ARG_LEN) throw new Error(`argument exceeds ${MAX_ARG_LEN} characters`);
   if (SHELL_META.test(a)) throw new Error("argument contains shell metacharacters and was rejected");
-  if (WINDOWS_ENV_EXPANSION.test(a)) throw new Error("Windows environment-variable expansion is not allowed");
+  if (WINDOWS_ENV_EXPANSION.test(a)) throw new Error("argument contains shell metacharacters (Windows environment-variable expansion) and was rejected");
   if (a.includes("..")) throw new Error("path traversal ('..') is not allowed in arguments");
   if (/[\x00-\x1f\x7f]/.test(a)) throw new Error("argument contains control characters");
   if (a.includes("\\")) throw new Error("backslashes are not allowed in arguments");
