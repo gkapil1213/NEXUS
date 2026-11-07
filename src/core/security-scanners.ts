@@ -1,6 +1,6 @@
 import { NpmAuditAdapter } from "./sca-scanner";
 import { nid, digestOf } from "./db";
-import type { ProcessExecutor } from "./runtime";
+import type { ProcessExecutor, ExecResult } from "./runtime";
 
 export type ScannerKind = "SAST" | "SECRET" | "IAC" | "CONTAINER" | "SCA";
 
@@ -9,7 +9,7 @@ export interface SecurityFinding {
   fingerprint: string;
   scanner: string;
   category: "SAST" | "SCA" | "SECRET" | "IAC" | "CONTAINER";
-  severity: "critical" | "high" | "medium" | "low";
+  severity: "critical" | "high" | "medium" | "low" | "unknown";
   title: string;
   description: string;
   file: string | null;
@@ -36,19 +36,25 @@ export interface ScannerScanResult {
   duration_ms: number;
 }
 
+export function normalizeScannerSeverity(raw: string | null | undefined): "critical" | "high" | "medium" | "low" | "unknown" {
+  const s = String(raw ?? "").toLowerCase().trim();
+  if (s === "critical") return "critical";
+  if (s === "high") return "high";
+  if (s === "medium" || s === "moderate" || s === "warning") return "medium";
+  if (s === "low" || s === "info") return "low";
+  if (s === "error") return "critical";
+  return "unknown";
+}
+
 function detectViaExecutor(exec: ProcessExecutor, tool: "semgrep" | "gitleaks" | "checkov", versionArgs: string[]): Promise<ScannerCapability> {
   return exec
     .run({ tool, operation: versionArgs[0], args: versionArgs.slice(1), timeout_ms: 30000 })
     .then((res) => ({
       available: res.exit_code === 0,
       mode: (res.exit_code === 0 ? "local" : null) as "local" | null,
-      reason: res.exit_code === 0 ? null : `${tool} not available (${res.stderr.slice(0, 120)})`,
+      reason: res.exit_code === 0 ? null : `${tool}_unavailable`,
     }))
-    .catch((e): ScannerCapability => ({
-      available: false,
-      mode: null,
-      reason: `${tool} not available (${(e as Error).message})`,
-    }));
+    .catch((): ScannerCapability => ({ available: false, mode: null, reason: `${tool}_invocation_rejected` }));
 }
 
 /* ------------------------------ SAST ------------------------------ */
@@ -69,53 +75,69 @@ export class SemgrepAdapter {
     if (!cap.available)
       return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
 
-    const res = await this.exec.run({
-      tool: "semgrep",
-      operation: "scan",
-      args: ["--json", "--quiet", workspacePath],
-      timeout_ms: 180000,
-    });
-
-    if (res.exit_code !== 0 && res.stdout.trim() === "") {
-      return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: res.stderr.slice(0, 300), duration_ms: res.duration_ms };
+    let res: ExecResult;
+    try {
+      res = await this.exec.run({ tool: "semgrep", operation: "scan", args: ["--json", "--quiet", workspacePath], timeout_ms: 180000 });
+    } catch {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_invocation_rejected", duration_ms: 0 };
     }
 
-    const findings: SecurityFinding[] = [];
+    if (res.timed_out) {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_timeout", duration_ms: res.duration_ms };
+    }
+
+    if (res.exit_code !== 0 && res.stdout.trim() === "") {
+      return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: "scanner_exit_failure", duration_ms: res.duration_ms };
+    }
+
+    if (res.stdout.trim() === "") {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_output_empty", duration_ms: res.duration_ms };
+    }
+
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(res.stdout);
-      for (const r of parsed.results ?? []) {
-        const meta = r.extra?.metadata ?? {};
-        const sev = (meta.severity || "medium").toLowerCase();
-        const file = r.path ?? null;
-        const line = r.start?.line ?? null;
-        const title = r.check_id ?? "semgrep finding";
-        const description = meta.message || r.extra?.message || "";
-        const evidence = r.extra?.lines ?? null;
-        const remediation = meta.remediation ?? null;
-        const fingerprint = await digestOf(`${this.scanner}:${r.check_id}:${file}:${line}:${r.extra?.message || ""}`);
-        findings.push({
-          id: nid("sec"),
-          fingerprint,
-          scanner: this.scanner,
-          category: "SAST",
-          severity: sev === "error" ? "critical" : sev === "warning" ? "high" : sev === "info" ? "low" : "medium",
-          title,
-          description,
-          file,
-          line,
-          resource: null,
-          evidence: evidence ? String(evidence).slice(0, 200) : null,
-          remediation,
-          status: "OPEN",
-          created_at: Date.now(),
-        });
-      }
-    } catch {}
+      parsed = JSON.parse(res.stdout);
+    } catch {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_output_invalid_json", duration_ms: res.duration_ms };
+    }
+
+    const p = parsed as Record<string, unknown>;
+    const resultsArr = Array.isArray(p.results) ? p.results : [];
+    const findings: SecurityFinding[] = [];
+    for (const r of resultsArr) {
+      const rr = r as Record<string, unknown>;
+      const extra = (rr.extra ?? {}) as Record<string, unknown>;
+      const meta = (extra.metadata ?? {}) as Record<string, unknown>;
+      const severity = normalizeScannerSeverity(String(meta.severity ?? ""));
+      const file = typeof rr.path === "string" ? rr.path : null;
+      const start = rr.start as Record<string, unknown> | undefined;
+      const line = start && typeof start.line === "number" ? start.line : null;
+      const title = String(rr.check_id ?? "semgrep finding");
+      const description = String(meta.message ?? extra.message ?? "");
+      const evidence = extra.lines ? String(extra.lines).slice(0, 200) : null;
+      const remediation = typeof meta.remediation === "string" ? meta.remediation : null;
+      findings.push({
+        id: nid("sec"),
+        fingerprint: await digestOf(`${this.scanner}:${title}:${file}:${line}:${extra.message ?? ""}`),
+        scanner: this.scanner,
+        category: "SAST",
+        severity,
+        title,
+        description,
+        file,
+        line,
+        resource: null,
+        evidence,
+        remediation,
+        status: "OPEN",
+        created_at: Date.now(),
+      });
+    }
 
     return {
       kind: this.kind,
       scanner: this.scanner,
-      status: findings.some((f) => f.severity === "critical") ? "FAILED" : "PASSED",
+      status: findings.some((f) => f.severity === "critical" || f.severity === "high") ? "FAILED" : "PASSED",
       findings,
       blocked_reason: null,
       duration_ms: res.duration_ms,
@@ -141,46 +163,62 @@ export class GitleaksAdapter {
     if (!cap.available)
       return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
 
-    const res = await this.exec.run({
-      tool: "gitleaks",
-      operation: "detect",
-      args: ["--source", workspacePath, "--report-format", "json", "--report-path", "-", "--config", ".gitleaks.toml"],
-      timeout_ms: 180000,
-    });
-
-    if (res.exit_code !== 0 && res.stdout.trim() === "") {
-      return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: res.stderr.slice(0, 300), duration_ms: res.duration_ms };
+    let res: ExecResult;
+    try {
+      res = await this.exec.run({
+        tool: "gitleaks",
+        operation: "detect",
+        args: ["--source", workspacePath, "--report-format", "json", "--report-path", "-", "--config", ".gitleaks.toml"],
+        timeout_ms: 180000,
+      });
+    } catch {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_invocation_rejected", duration_ms: 0 };
     }
 
-    const findings: SecurityFinding[] = [];
+    if (res.timed_out) {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_timeout", duration_ms: res.duration_ms };
+    }
+
+    if (res.exit_code !== 0 && res.stdout.trim() === "") {
+      return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: "scanner_exit_failure", duration_ms: res.duration_ms };
+    }
+
+    if (res.stdout.trim() === "") {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_output_empty", duration_ms: res.duration_ms };
+    }
+
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(res.stdout);
-      const items = Array.isArray(parsed) ? parsed : parsed?.findings ?? [];
-      for (const item of items) {
-        const file = item.File || item.filename || item.file || null;
-        const line = item.StartLine || item.start_line || item.line || null;
-        const rule = item.RuleId || item.rule_id || item.rule || "secret";
-        const description = item.Description || item.description || "Secret detected";
-        const evidence = item.Match || item.match ? "[REDACTED]" : "[REDACTED]";
-        const fingerprint = await digestOf(`${this.scanner}:${rule}:${file}:${line}:${item.RuleId || item.rule_id || ""}`);
-        findings.push({
-          id: nid("sec"),
-          fingerprint,
-          scanner: this.scanner,
-          category: "SECRET",
-          severity: "critical",
-          title: rule,
-          description,
-          file,
-          line,
-          resource: null,
-          evidence,
-          remediation: "Remove the secret and rotate the credential.",
-          status: "OPEN",
-          created_at: Date.now(),
-        });
-      }
-    } catch {}
+      parsed = JSON.parse(res.stdout);
+    } catch {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_output_invalid_json", duration_ms: res.duration_ms };
+    }
+
+    const items: unknown[] = Array.isArray(parsed) ? parsed : ((parsed as Record<string, unknown>).findings as unknown[]) ?? [];
+    const findings: SecurityFinding[] = [];
+    for (const item of items) {
+      const i = item as Record<string, unknown>;
+      const file = typeof i.File === "string" ? i.File : typeof i.filename === "string" ? i.filename : typeof i.file === "string" ? i.file : null;
+      const line = typeof i.StartLine === "number" ? i.StartLine : typeof i.start_line === "number" ? i.start_line : typeof i.line === "number" ? i.line : null;
+      const rule = String(i.RuleId ?? i.rule_id ?? i.rule ?? "secret");
+      const description = String(i.Description ?? i.description ?? "Secret detected");
+      findings.push({
+        id: nid("sec"),
+        fingerprint: await digestOf(`${this.scanner}:${rule}:${file}:${line}`),
+        scanner: this.scanner,
+        category: "SECRET",
+        severity: "critical",
+        title: rule,
+        description,
+        file,
+        line,
+        resource: null,
+        evidence: "[REDACTED]",
+        remediation: "Remove the secret and rotate the credential.",
+        status: "OPEN",
+        created_at: Date.now(),
+      });
+    }
 
     return {
       kind: this.kind,
@@ -203,12 +241,9 @@ export class CheckovAdapter {
   async detect(): Promise<ScannerCapability> {
     const cap = this.exec.capability();
     if (!cap.available) return { available: false, mode: null, reason: cap.reason };
-
-    // Only local Checkov; no Docker fallback to avoid hangs.
     const local = await detectViaExecutor(this.exec, "checkov", ["--version"]);
     if (local.available) return local;
-
-    return { available: false, mode: null, reason: "checkov not available locally" };
+    return { available: false, mode: null, reason: "checkov_unavailable" };
   }
 
   async scan(workspacePath: string): Promise<ScannerScanResult> {
@@ -216,44 +251,63 @@ export class CheckovAdapter {
     if (!cap.available)
       return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: cap.reason, duration_ms: 0 };
 
-    // Local only
-    const res = await this.exec.run({
-      tool: "checkov",
-      operation: "--directory",
-      args: [workspacePath, "--output", "json", "--quiet"],
-      timeout_ms: 300000,
-    });
-
-    if (res.exit_code !== 0 && res.stdout.trim() === "") {
-      return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: res.stderr.slice(0, 300), duration_ms: res.duration_ms };
+    let res: ExecResult;
+    try {
+      res = await this.exec.run({ tool: "checkov", operation: "--directory", args: [workspacePath, "--output", "json", "--quiet"], timeout_ms: 300000 });
+    } catch {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_invocation_rejected", duration_ms: 0 };
     }
 
-    const findings: SecurityFinding[] = [];
+    if (res.timed_out) {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_timeout", duration_ms: res.duration_ms };
+    }
+
+    if (res.exit_code !== 0 && res.stdout.trim() === "") {
+      return { kind: this.kind, scanner: this.scanner, status: "FAILED", findings: [], blocked_reason: "scanner_exit_failure", duration_ms: res.duration_ms };
+    }
+
+    if (res.stdout.trim() === "") {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_output_empty", duration_ms: res.duration_ms };
+    }
+
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(res.stdout);
-      for (const c of parsed?.results?.failed_checks ?? []) {
-        const sev = (c.severity || "medium").toLowerCase();
-        const file = c.file_path || c.file || null;
-        const line = c.file_line_range?.[0] || null;
-        const fingerprint = await digestOf(`${this.scanner}:${c.check_id}:${file}:${line}`);
+      parsed = JSON.parse(res.stdout);
+    } catch {
+      return { kind: this.kind, scanner: this.scanner, status: "BLOCKED", findings: [], blocked_reason: "scanner_output_invalid_json", duration_ms: res.duration_ms };
+    }
+
+    const blocks: Record<string, unknown>[] = Array.isArray(parsed) ? (parsed as Record<string, unknown>[]) : [parsed as Record<string, unknown>];
+    const findings: SecurityFinding[] = [];
+    for (const block of blocks) {
+      const resultsBlock = (block.results ?? {}) as Record<string, unknown>;
+      const failed = Array.isArray(resultsBlock.failed_checks) ? resultsBlock.failed_checks : [];
+      for (const c of failed) {
+        const cc = c as Record<string, unknown>;
+        const severity = normalizeScannerSeverity(cc.severity as string | null | undefined);
+        const file = typeof cc.file_path === "string" ? cc.file_path : typeof cc.file === "string" ? cc.file : null;
+        const lineRange = cc.file_line_range as unknown;
+        const line = Array.isArray(lineRange) && typeof lineRange[0] === "number" ? lineRange[0] : null;
+        const checkId = String(cc.check_id ?? "checkov_check");
+        const checkName = String(cc.check_name ?? checkId);
         findings.push({
           id: nid("sec"),
-          fingerprint,
+          fingerprint: await digestOf(`${this.scanner}:${checkId}:${file}:${line}`),
           scanner: this.scanner,
           category: "IAC",
-          severity: sev === "critical" ? "critical" : sev === "high" ? "high" : sev === "medium" ? "medium" : "low",
-          title: c.check_name || c.check_id,
-          description: c.check_name || c.check_id,
+          severity,
+          title: checkName,
+          description: checkName,
           file,
           line,
-          resource: c.resource || null,
+          resource: typeof cc.resource === "string" ? cc.resource : null,
           evidence: null,
-          remediation: c.fixed_definition ? "Fix available" : null,
+          remediation: cc.fixed_definition ? "Fix available" : null,
           status: "OPEN",
           created_at: Date.now(),
         });
       }
-    } catch {}
+    }
 
     return {
       kind: this.kind,
@@ -280,7 +334,7 @@ export class ScaAdapter {
     const cap = this.exec.capability();
     return cap.available
       ? { available: true, mode: "local", reason: null }
-      : { available: false, mode: null, reason: cap.reason ?? "process execution unavailable" };
+      : { available: false, mode: null, reason: cap.reason ?? "process_execution_unavailable" };
   }
 
   async scan(workspacePath: string): Promise<ScannerScanResult> {
@@ -294,13 +348,16 @@ export class ScaAdapter {
         fingerprint: v.fingerprint,
         scanner: "npm-audit",
         category: "SCA",
-        severity: v.severity === "unknown" ? "medium" : v.severity,
+        severity: v.severity,
         title: v.title,
         description: v.description,
         file: null,
         line: null,
         resource: v.package_name,
-        evidence: null,
+        version: v.version,
+        fixed_version: v.fixed_version,
+        cwe: Array.isArray(v.cwe) ? v.cwe.join(", ") : (typeof v.cwe === "string" ? v.cwe : undefined),
+        evidence: v.advisory_url ?? null,
         remediation: v.fixed_version ? `Upgrade to ${v.fixed_version}` : null,
         status: "OPEN",
         created_at: Date.now(),
@@ -331,7 +388,7 @@ export class RealSecurityScanner {
       SECRET: await this.gitleaks.detect(),
       IAC: await this.checkov.detect(),
       SCA: await this.sca.detect(),
-      CONTAINER: { available: false, mode: null, reason: "Container scanner handled separately by Trivy adapter" },
+      CONTAINER: { available: false, mode: null, reason: "container_scanner_not_configured" },
     };
 
     const results: ScannerScanResult[] = [];

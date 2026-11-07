@@ -17,6 +17,22 @@ import { AuditService } from "./audit";
  * SecurityExecutionService
  * Manages the lifecycle of a security execution.
  */
+/**
+ * Phase 294 Step 10: typed integrity error for authoritative execution
+ * identity resolution. Distinguishes "no record" (undefined) from
+ * "records exist but identity is ambiguous or inconsistent" (this error).
+ */
+export class SecurityExecutionIntegrityError extends Error {
+  public readonly code:
+    | "AMBIGUOUS_EXECUTION_IDENTITY"
+    | "EXECUTION_ID_MISMATCH"
+    | "INVALID_EXECUTION_ID";
+  constructor(code: SecurityExecutionIntegrityError["code"], message: string) {
+    super(message);
+    this.name = "SecurityExecutionIntegrityError";
+    this.code = code;
+  }
+}
 export class SecurityExecutionService {
   private events: EventService;
   private audit: AuditService;
@@ -87,6 +103,63 @@ export class SecurityExecutionService {
       project_id: existing.project_id,
     } as any);
     return updated;
+  }
+
+  /**
+   * Phase 294 Step 10: authoritative lookup by external execution_id.
+   * - Rejects empty/whitespace IDs.
+   * - Returns undefined for zero matches.
+   * - Returns the record for exactly one valid match.
+   * - Throws SecurityExecutionIntegrityError on ambiguity, mismatch, or
+   *   invalid input.
+   * - Index/persistence errors propagate unchanged.
+   */
+  async getByExecutionId(executionId: string): Promise<SecurityExecution | undefined> {
+    if (typeof executionId !== "string" || executionId.trim().length === 0) {
+      throw new SecurityExecutionIntegrityError(
+        "INVALID_EXECUTION_ID",
+        "executionId must be a non-empty string",
+      );
+    }
+
+    const matches = await this.engine.byIndex<SecurityExecution>(
+      "security_executions",
+      "byExecution",
+      executionId,
+    );
+
+    if (matches.length === 0) return undefined;
+
+    const valid = matches.filter((r) => r && r.execution_id === executionId);
+
+    if (valid.length === 0) {
+      throw new SecurityExecutionIntegrityError(
+        "EXECUTION_ID_MISMATCH",
+        "index returned records that do not match requested execution_id",
+      );
+    }
+    if (matches.length > 1 || valid.length > 1) {
+      throw new SecurityExecutionIntegrityError(
+        "AMBIGUOUS_EXECUTION_IDENTITY",
+        "AMBIGUOUS_EXECUTION_IDENTITY: " +
+          executionId +
+          " matched " +
+          matches.length +
+          " records",
+      );
+    }
+
+    const record = valid[0];
+    if (record.execution_id !== executionId) {
+      throw new SecurityExecutionIntegrityError(
+        "EXECUTION_ID_MISMATCH",
+        "EXECUTION_ID_MISMATCH: requested " +
+          executionId +
+          " got " +
+          record.execution_id,
+      );
+    }
+    return record;
   }
 }
 
@@ -198,35 +271,54 @@ export class SecurityFindingService {
       const existing = await this.getByFingerprint(fingerprint);
 
       if (existing) {
-        if (existing.status === "RESOLVED") {
-          await this.transition(
-            existing.finding_id,
+        let current: SecurityFinding = existing;
+
+        if (current.status === "RESOLVED") {
+          current = await this.transition(
+            current.finding_id,
             "REOPENED",
             "system",
             "Fingerprint reappeared after resolution"
           );
-        } else {
-          const updated: SecurityFinding = {
-            ...existing,
-            last_seen: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            evidence_id: evidence.id,
-            execution_id: evidence.execution_id,
-            project_id: evidence.project_id,
-            severity: raw.severity || existing.severity,
-            description: raw.description ?? existing.description,
-            fixed_version: raw.fixed_version ?? existing.fixed_version,
-          };
-          await this.engine.put("security_findings", existing.finding_id, updated);
-          await this.events.emit({ type: "security.finding.updated", finding_id: existing.finding_id } as any);
-          result.push(updated);
-          await this.recordObservation(
-            existing.finding_id,
-            evidence,
-            raw.severity || existing.severity,
-            raw
-          );
         }
+
+        const now = new Date().toISOString();
+
+        const updated: SecurityFinding = {
+          ...current,
+          evidence_id: evidence.id,
+          execution_id: evidence.execution_id,
+          project_id: evidence.project_id,
+          release_id: evidence.release_id,
+          artifact_digest: evidence.artifact_digest,
+          severity: raw.severity ?? current.severity,
+          description: raw.description ?? current.description,
+          fixed_version: raw.fixed_version ?? current.fixed_version,
+          last_seen: now,
+          updated_at: now,
+        };
+
+        await this.engine.put(
+          "security_findings",
+          updated.finding_id,
+          updated
+        );
+
+        await this.events.emit({
+          type: "security.finding.updated",
+          finding_id: updated.finding_id,
+          fingerprint,
+        } as any);
+
+        result.push(updated);
+
+        await this.recordObservation(
+          updated.finding_id,
+          evidence,
+          updated.severity,
+          raw
+        );
+
         continue;
       }
 
@@ -340,12 +432,17 @@ export class SecurityFindingService {
 
     await this.audit.record({
       actor,
-      action: `finding.${newStatus.toLowerCase().replace(/_/g, "_")}`,
-      resource: "security_finding",
+      action: `finding.${newStatus.toLowerCase()}`,
+      resource_type: "security_finding",
       resource_id: findingId,
-      reason: reason || "No reason provided",
-      metadata: { from_status: existing.status, to_status: newStatus },
-    } as any);
+      result: "allow",
+      metadata: {
+        from_status: existing.status,
+        to_status: newStatus,
+        reason: reason || "No reason provided",
+        ...(metadata ?? {}),
+      },
+    });
 
     await this.events.emit({
       type: `security.finding.${newStatus.toLowerCase().replace(/_/g, "_")}`,

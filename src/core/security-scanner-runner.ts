@@ -22,10 +22,15 @@ import {
   ScannerAdapter,
 } from "./security-normalizer";
 import {
+  buildEvidenceList,
+  buildFindingList,
+} from "./security-scan-mapping";
+import {
   generateSigningKeyPair,
   signArtifactDigest,
   verifyArtifactSignature,
 } from "./signing";
+import type { ScannerMappingResult } from "./security-scan-mapping";
 
 export interface ScannerRunResult {
   scanner: string;
@@ -328,17 +333,6 @@ export class SecurityScannerRunner {
 
     for (const def of SCANNERS) {
       const started = Date.now();
-      const evidenceBase = {
-        project_id: projectId,
-        execution_id: executionId,
-        release_id: releaseId,
-        commit_sha: commitSha,
-        artifact_digest: artifactDigest,
-        environment: "local",
-        scanner: def.scanner,
-        category: def.category,
-        started_at: new Date(started).toISOString(),
-      };
 
       let status: SecurityEvidenceStatus = "UNKNOWN";
       let findings: Partial<SecurityFinding>[] = [];
@@ -383,19 +377,20 @@ export class SecurityScannerRunner {
           const raw = safeJsonParse(stdout) ?? stdout;
           const adapterStatus = def.adapter.normalize(raw, { scanner: def.scanner, category: def.category });
 
+          // Preserve findings even when scanner status is UNKNOWN.
+          if (def.adapter.extractFindings) {
+            const extracted = def.adapter.extractFindings(raw);
+            findings = Array.isArray(extracted) ? extracted : [];
+          }
+
           if (adapterStatus === "UNKNOWN") {
-            if (exitCode !== 0) {
-              status = "FAIL";
-              errorCode = "NON_ZERO_EXIT";
-              blockedReason = stderr?.trim() || `Process exited with code ${exitCode}`;
-            } else {
-              status = "PASS";
-            }
+            status = "BLOCKED";
+            errorCode = exitCode !== 0 ? "NON_ZERO_EXIT_UNCLASSIFIED" : "NORMALIZE_UNKNOWN";
+            blockedReason = exitCode !== 0
+              ? (stderr?.trim().slice(0, 200) || `Process exited with code ${exitCode}`)
+              : "Scanner produced unclassifiable output";
           } else {
             status = adapterStatus;
-            if (def.adapter.extractFindings) {
-              findings = def.adapter.extractFindings(raw);
-            }
           }
         }
       } catch (e: any) {
@@ -416,15 +411,45 @@ export class SecurityScannerRunner {
       const completedAt = new Date().toISOString();
       const durationMs = Date.now() - started;
 
+      const scannerStatus: "PASSED" | "FAILED" | "BLOCKED" =
+        status === "PASS" ? "PASSED" :
+        status === "FAIL" ? "FAILED" :
+        "BLOCKED";
+      const scannerResult: ScannerMappingResult = {
+        kind: def.category,
+        scanner: def.scanner,
+        status: scannerStatus,
+        findings,
+        blocked_reason: blockedReason ?? null,
+        duration_ms: durationMs,
+      };
+      const buildInput = {
+        projectId, executionId, commitSha,
+        artifactDigest, releaseId,
+        environment: "ci",
+      };
+      const mappedEvidence = buildEvidenceList([scannerResult], buildInput)[0];
       const evidence = await this.api.ingestEvidence({
-        ...evidenceBase,
-        status,
+        project_id: mappedEvidence.project_id,
+        execution_id: mappedEvidence.execution_id,
+        release_id: mappedEvidence.release_id,
+        commit_sha: mappedEvidence.commit_sha,
+        artifact_digest: mappedEvidence.artifact_digest,
+        environment: mappedEvidence.environment,
+        scanner: mappedEvidence.scanner,
+        category: mappedEvidence.category,
+        status: mappedEvidence.status,
+        started_at: mappedEvidence.started_at,
         completed_at: completedAt,
         duration_ms: durationMs,
       });
-
       if (findings.length > 0) {
-        await this.api.ingestFindings(evidence, findings);
+        const mappedFindings = buildFindingList(
+          [scannerResult],
+          [evidence],
+          buildInput,
+        );
+        await this.api.ingestFindings(evidence, mappedFindings);
       }
 
       results.push({
@@ -442,4 +467,3 @@ export class SecurityScannerRunner {
     return { execution_id: executionId, results };
   }
 }
-

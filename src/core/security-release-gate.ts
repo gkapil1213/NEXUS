@@ -150,13 +150,26 @@ export class SecurityReleaseGate {
 
     // Policy
     let executionObj = execution;
-    if (!executionObj && typeof (this.api as any).getExecution === "function") {
-      executionObj = await (this.api as any).getExecution(execution_id);
+    let identityError: string | null = null;
+    if (executionObj) {
+      if (executionObj.execution_id !== execution_id) {
+        identityError = "Caller-supplied execution identity mismatch";
+      }
+    } else {
+      try {
+        executionObj = await this.api.getExecution(execution_id);
+      } catch (e) {
+        const code = (e as any)?.code || "LOOKUP_ERROR";
+        identityError = "Execution lookup failed: " + code;
+      }
+      if (!identityError && !executionObj) {
+        identityError = "Execution object missing";
+      }
     }
-
-    if (!executionObj) {
-      checks.POLICY = { status: "BLOCKED", canonical_status: "BLOCK", reason: "Execution object missing" };
-      reasons.push("Execution object missing");
+    if (identityError) {
+      checks.POLICY = { status: "BLOCKED", canonical_status: "BLOCK", reason: identityError };
+      reasons.push(identityError);
+      executionObj = undefined;
     } else {
       try {
         const decision: SecurityDecision = await this.api.evaluatePolicy(
@@ -165,23 +178,60 @@ export class SecurityReleaseGate {
           findings,
           risk,
         );
-        // Phase 246: use canonical_decision when present; fall back to legacy
-        // verdict mapping for compatibility. BLOCKED/REVIEW never become PASS/ALLOW.
+        // Phase 294: validate policy decisions at runtime.
+        // Unknown or malformed values must never authorize a release.
+        const rawDecision = decision as unknown as {
+          canonical_decision?: unknown;
+          verdict?: unknown;
+          reasons?: unknown;
+        };
+
+        const policyReasons: string[] = Array.isArray(rawDecision.reasons)
+          ? rawDecision.reasons.filter(
+              (reason): reason is string => typeof reason === "string",
+            )
+          : [];
+
         let canonical: CanonicalSecurityDecision;
-        if (decision.canonical_decision) {
-          canonical = decision.canonical_decision;
-        } else if (decision.verdict === "FAIL" || decision.verdict === "BLOCKED") {
-          canonical = "BLOCK";
+
+        if (rawDecision.canonical_decision !== undefined) {
+          switch (rawDecision.canonical_decision) {
+            case "ALLOW":
+              canonical = "ALLOW";
+              break;
+            case "BLOCK":
+              canonical = "BLOCK";
+              break;
+            case "REQUIRE_REVIEW":
+              canonical = "REQUIRE_REVIEW";
+              break;
+            default:
+              canonical = "BLOCK";
+              policyReasons.push("Invalid canonical security decision");
+              break;
+          }
         } else {
-          canonical = "ALLOW";
+          switch (rawDecision.verdict) {
+            case "PASS":
+              canonical = "ALLOW";
+              break;
+            case "FAIL":
+            case "BLOCKED":
+              canonical = "BLOCK";
+              break;
+            default:
+              canonical = "BLOCK";
+              policyReasons.push("Unknown or missing legacy security verdict");
+              break;
+          }
         }
 
         if (canonical === "BLOCK") {
-          checks.POLICY = { status: "FAIL", canonical_status: "BLOCK", reason: decision.reasons.join(", ") };
-          reasons.push(...decision.reasons);
+          checks.POLICY = { status: "FAIL", canonical_status: "BLOCK", reason: policyReasons.join(", ") || "Security policy blocked release" };
+          reasons.push(...policyReasons);
         } else if (canonical === "REQUIRE_REVIEW") {
-          checks.POLICY = { status: "BLOCKED", canonical_status: "REQUIRE_REVIEW", reason: decision.reasons.join(", ") };
-          reasons.push(...decision.reasons);
+          checks.POLICY = { status: "BLOCKED", canonical_status: "REQUIRE_REVIEW", reason: policyReasons.join(", ") || "Security policy blocked release" };
+          reasons.push(...policyReasons);
         } else {
           checks.POLICY = { status: "PASS", canonical_status: "ALLOW" };
         }

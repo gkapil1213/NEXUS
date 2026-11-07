@@ -1,4 +1,4 @@
-import { sync as spawnSync } from "cross-spawn";
+﻿import { sync as spawnSync } from "cross-spawn";
 import { writeFileSync } from "fs";
 import { join } from "path";
 
@@ -93,7 +93,9 @@ if (!secPassed) {
 // Pass 7 verification (use success marker)
 console.log("Running Phase 4 Pass 7 verification...");
 const pass7 = runCmd("npx", ["tsx", "scripts/run-phase4-pass7-security-operations.ts"], 600000);
-const pass7Passed = pass7.output.includes("Total tests: 19, Passed: 19");
+const pass7Passed =
+  pass7.ok &&
+  /Total tests:\s*(\d+), Passed:\s*\1, Failed:\s*0, Blocked:\s*0/.test(pass7.output);
 results.pass7 = pass7Passed ? "PASS" : "FAIL";
 if (!pass7Passed) {
   results.real_failures.push(`pass7 verification failed; output tail: ${pass7.output.slice(-800)}`);
@@ -115,3 +117,4 @@ console.log(`Build: ${results.build}`);
 console.log(`Security Regression: ${results.security_regression}`);
 console.log(`Pass 7 Verification: ${results.pass7}`);
 console.log("========================================");
+

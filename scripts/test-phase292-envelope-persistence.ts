@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 
 import { SQLiteEngine } from "../src/core/sqlite-engine";
 import { WorkerEnvelopeStore, ENVELOPE_VERSION, MAX_PAYLOAD_BYTES } from "../src/core/worker-envelope-store";
+import { EnvHmacKeyProvider } from "../src/core/envelope-hmac-key-provider";
 import { WorkerMessageHandlerTracker } from "../src/core/worker-message-handler-tracker";
 
 let assertions = 0, failures = 0;
@@ -30,7 +31,11 @@ async function makeCtx(): Promise<Ctx> {
   const tempDir = mkdtempSync(join(tmpdir(), "nexus-p292-"));
   const dbPath = join(tempDir, "test.sqlite");
   const engine = await SQLiteEngine.open(dbPath);
-  return { engine, store: new WorkerEnvelopeStore(engine), tracker: new WorkerMessageHandlerTracker(engine), tempDir, dbPath };
+  const keyProvider = new EnvHmacKeyProvider({
+    NEXUS_ENVELOPE_HMAC_KID: "phase292-persistence-test",
+    NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32),
+  });
+  return { engine, store: new WorkerEnvelopeStore(engine, keyProvider), tracker: new WorkerMessageHandlerTracker(engine), tempDir, dbPath };
 }
 
 function cleanup(ctx: Ctx): void {
@@ -96,9 +101,12 @@ async function main(): Promise<void> {
       payload: { v: 1 }, envelopeVersion: ENVELOPE_VERSION, acceptedAt: Date.now(),
     });
     const loaded = ctx.store.load(msgId)!;
-    check("T4 intact payload verifies", ctx.store.verifyIntegrity(loaded) === true);
+    const intactVerification = ctx.store.verifyIntegrity(loaded);
+    check("T4 intact payload verifies", intactVerification.ok === true);
     const tampered = { ...loaded, payload: { v: 2 } };
-    check("T4 tampered payload fails", ctx.store.verifyIntegrity(tampered) === false);
+    const tamperedVerification = ctx.store.verifyIntegrity(tampered);
+    check("T4 tampered payload fails", tamperedVerification.ok === false);
+    check("T4 tamper rejected as payload mismatch", !tamperedVerification.ok && tamperedVerification.reason === "payload_mismatch");
     cleanup(ctx);
   }
 
@@ -205,7 +213,7 @@ async function main(): Promise<void> {
       `INSERT INTO worker_message_ids (message_id, session_id, seen_at, handler_status) VALUES (?, ?, ?, 'PENDING')`
     ).run(msgId, "sess-t11", Date.now());
     const tokBefore = ctx.tracker.getFencingToken(msgId)!;
-    check("T11 quarantine succeeds", ctx.tracker.markQuarantined(msgId, null, "test_quarantine", tokBefore) === true);
+    check("T11 quarantine succeeds", ctx.tracker.markQuarantined(msgId, null, "integrity_fail", tokBefore) === true);
     const tokAfter = ctx.tracker.getFencingToken(msgId)!;
     check("T11 fencing_token bumped +1", tokAfter === tokBefore + 1, `${tokBefore} -> ${tokAfter}`);
 
@@ -213,7 +221,7 @@ async function main(): Promise<void> {
       "SELECT handler_status, quarantine_reason FROM worker_message_ids WHERE message_id = ?"
     ).get(msgId) as any;
     check("T11 status = QUARANTINED", row?.handler_status === "QUARANTINED");
-    check("T11 quarantine_reason recorded", row?.quarantine_reason === "test_quarantine");
+    check("T11 quarantine_reason recorded", row?.quarantine_reason === "integrity_fail");
     cleanup(ctx);
   }
 

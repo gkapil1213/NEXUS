@@ -145,7 +145,7 @@ export class WorkerGateway {
       // REPLAY_ELIGIBLE, missing decisions, and unavailable inspection.
       const ok = this.handlerTracker.markFailedInFlightByRecovery(
         m.messageId,
-        "phase292_recovery: incomplete_handler_no_payload_available",
+        "phase292_recovery_incomplete_handler_no_payload_available",
         m.fencingToken
       );
       if (ok) marked++; else skipped++;
@@ -205,13 +205,8 @@ export class WorkerGateway {
       const result = await this.handleMessage(msg);
       this.send(res, 200, result);
     } catch (e: any) {
-      // Phase 285: never echo raw exception messages to the client.
-      // Unclassified exceptions may contain credentials, paths, or
-      // internal state. Stable error codes (snake_case) pass through;
-      // everything else collapses to a generic "gateway_error".
-      const raw = typeof e?.message === "string" ? e.message : "";
-      const isStableCode = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(raw);
-      this.send(res, 400, { error: isStableCode ? raw : "gateway_error" });
+      // Never expose exception-derived text to API clients.
+      this.send(res, 400, { error: "gateway_error" });
     }
   }
 
@@ -377,12 +372,13 @@ export class WorkerGateway {
         } catch (e: any) {
           if (advanceFailed) throw new Error("invalid_sequence");
           if (duplicateFailed) throw new Error("duplicate_message");
-        if (envelopePersistFailed) throw new Error("envelope_persist_failed");
+          if (envelopePersistFailed) throw new Error("envelope_persist_failed");
           throw e;
         }
         // Belt-and-suspenders in case an engine swallows the throw.
         if (advanceFailed) throw new Error("invalid_sequence");
         if (duplicateFailed) throw new Error("duplicate_message");
+        if (envelopePersistFailed) throw new Error("envelope_persist_failed");
       } else {
         // Non-SQL engine: preserve Phase 289 behavior.
         if (sequence <= session.lastSequence) throw new Error("invalid_sequence");
@@ -549,11 +545,13 @@ export class WorkerGateway {
       return response;
     } catch (e: any) {
       if (this.handlerTracker && fencingTokenAtClaim !== undefined) {
-        if (fencingTokenAtClaim !== undefined) {
+        // Persist only a fixed category. Exception messages may contain secrets.
         this.handlerTracker.markFailedInFlightByOwner(
-          messageId, this.gatewayInstanceId, String(e?.message ?? e).slice(0, 2000), fencingTokenAtClaim
+          messageId,
+          this.gatewayInstanceId,
+          "handler_execution_failed",
+          fencingTokenAtClaim
         );
-        }
       }
       throw e;
     }

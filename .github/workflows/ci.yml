@@ -2,9 +2,13 @@ name: NEXUS CI
 
 on:
   push:
-    branches: [ master ]
+    branches:
+      - master
+      - phase-293b-final
   pull_request:
-    branches: [ master ]
+    branches:
+      - master
+      - phase-293-log-sanitization
 
 jobs:
   build-test-security:
@@ -14,15 +18,47 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Phase 285/291/292B/293 regression tests
+        env:
+          NEXUS_ENVELOPE_HMAC_PROVIDER: env
+          NEXUS_ENVELOPE_HMAC_KID: ci-test-k1
+          NEXUS_ENVELOPE_HMAC_KEY_HEX: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        run: |
+          set -euo pipefail
+          tests=(
+            scripts/test-phase292b-key-provider.ts
+            scripts/test-phase292b-gateway-quarantine.ts
+            scripts/test-phase292b-inspection.ts
+            scripts/test-phase292b-replay.ts
+            scripts/test-phase292b-aws-provider.ts
+            scripts/test-phase292b-aws-cli.ts
+            scripts/test-phase292-envelope-persistence.ts
+            scripts/test-phase293-log-sanitization.ts
+            scripts/test-phase293-provider-gate.ts
+            scripts/test-phase293-rotation.ts
+            scripts/test-phase293-failure-modes.ts
+            scripts/test-phase285-audit-and-gateway-error-redaction.ts
+            scripts/test-phase285-runtime-redaction-callsite-audit.ts
+            scripts/test-phase291-worker-gateway-recovery-acceptance.ts
+          )
+          for test in "${tests[@]}"; do
+            echo "=== $test ==="
+            npx tsx "$test"
+          done
 
       - name: Typecheck
         run: npm run typecheck
 
       - name: Run core tests
+        env:
+          NEXUS_ENVELOPE_HMAC_PROVIDER: env
+          NEXUS_ENVELOPE_HMAC_KID: ci-test-k1
+          NEXUS_ENVELOPE_HMAC_KEY_HEX: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         run: npm run test:core
 
       - name: Build

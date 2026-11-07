@@ -55,6 +55,15 @@ const WORKSPACE = path.resolve(__dirname, "..");
 const DIST = path.join(WORKSPACE, "dist");
 const IS_WIN = process.platform === "win32";
 
+// Node-native CLI entry points — used instead of spawning the .cmd shims
+// (npm.cmd / npx.cmd) which require cmd.exe and are subject to %VAR% expansion.
+// See Phase 298 §1: eliminates the cmd.exe /c invocation for npm/npx.
+const NODE_DIR = path.dirname(process.execPath);
+const CLI_JS = {
+  npm: path.join(NODE_DIR, "node_modules", "npm", "bin", "npm-cli.js"),
+  npx: path.join(NODE_DIR, "node_modules", "npm", "bin", "npx-cli.js"),
+};
+
 const HOST = "127.0.0.1"; // HARD requirement -> never configurable to 0.0.0.0
 const PORT = Number(process.env.NEXUS_BRIDGE_PORT || 3000);
 const ALLOWED_ORIGIN = `http://localhost:${PORT}`;
@@ -89,7 +98,8 @@ const TOOL_OPS = {
   node: ["--version", "-e"],
   npm: ["--version", "ls"],
   npx: ["--version", "playwright"],
-  playwright: ["--version"],
+  // playwright: removed in Phase 298 §2. Use { tool: "npx", operation: "playwright" }
+  // instead — playwright.cmd is not on the system PATH, only project-local.
 };
 
 const EXECUTABLES = {
@@ -99,11 +109,12 @@ const EXECUTABLES = {
   node: IS_WIN ? "node.exe" : "node",
   npm: IS_WIN ? "npm.cmd" : "npm",
   npx: IS_WIN ? "npx.cmd" : "npx",
-  playwright: IS_WIN ? "playwright.cmd" : "playwright",
+  // playwright: removed in Phase 298 §2 (see TOOL_OPS comment above)
 };
 
 /* Shell metacharacters are rejected outright -> matches sanitizeArgs() in the UI. */
 const SHELL_META = /[;&|`$<>(){}[\]!#*?~^"'\\\n\r]/;
+const WINDOWS_ENV_EXPANSION = /%[A-Za-z_][A-Za-z0-9_]*%/;
 const LOCAL_URL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?(\/[^\s]*)?$/;
 
 /* --------------------- trusted scripts (canonical copy) -------------------- */
@@ -206,23 +217,43 @@ function validateArg(a) {
   if (typeof a !== "string" || a.length === 0) throw new Error("empty argument is not allowed");
   if (a.length > MAX_ARG_LEN) throw new Error(`argument exceeds ${MAX_ARG_LEN} characters`);
   if (SHELL_META.test(a)) throw new Error("argument contains shell metacharacters and was rejected");
+  if (WINDOWS_ENV_EXPANSION.test(a)) throw new Error("argument contains shell metacharacters (Windows environment-variable expansion) and was rejected");
   if (a.includes("..")) throw new Error("path traversal ('..') is not allowed in arguments");
+  if (/[\x00-\x1f\x7f]/.test(a)) throw new Error("argument contains control characters");
+  if (a.includes("\\")) throw new Error("backslashes are not allowed in arguments");
+  if (/\s/.test(a) && /^(rm|curl|wget|sh|bash|zsh|dash|sudo|chmod|dd|mkfs|killall)\b/.test(a.trim())) {
+    throw new Error("argument contains shell metacharacters or unsafe command");
+  }
   return a;
 }
 
 
 /* ------------------------------ command runner ------------------------------ */
 
-function spawnTool(exe, argv, opts) {
-  // .cmd/.bat shims (npm/npx/playwright on Windows) require cmd.exe as the
-  // launcher; argv stays a structured array -> no string interpolation.
-  if (IS_WIN && /\.(cmd|bat)$/i.test(exe)) {
-    return spawn("cmd.exe", ["/c", exe, ...argv], opts);
+function spawnTool(tool, exe, argv, opts) {
+  // Windows npm/npx use Node CLI entry points, never .cmd wrappers.
+  if (IS_WIN && CLI_JS[tool]) {
+    return spawn(process.execPath, [CLI_JS[tool], ...argv], opts);
   }
+
+  // Never invoke Windows command interpreters.
   return spawn(exe, argv, opts);
 }
 
 function runCommand(tool, argv, timeoutMs, cwd) {
+  if (
+    IS_WIN &&
+    !CLI_JS[tool] &&
+    /\.(cmd|bat)$/i.test(EXECUTABLES[tool] || "")
+  ) {
+    return Promise.resolve({
+      exit_code: 127,
+      stdout: "",
+      stderr: "BLOCKED: Windows .cmd/.bat launch targets are not permitted.",
+      duration_ms: 0,
+      timed_out: false,
+    });
+  }
   return new Promise((resolve) => {
     const t0 = Date.now();
     let stdout = "";
@@ -230,7 +261,7 @@ function runCommand(tool, argv, timeoutMs, cwd) {
     let timedOut = false;
     let done = false;
 
-    const child = spawnTool(EXECUTABLES[tool], argv, {
+    const child = spawnTool(tool, EXECUTABLES[tool], argv, {
       shell: false,
       cwd,
       env: sanitizedEnv(),
@@ -691,12 +722,13 @@ const server = http.createServer(async (req, res) => {
       const html = content.toString("utf8");
       content = html.replace("</head>", shimHtml() + "\n</head>");
     }
+    const bodyBuf = Buffer.isBuffer(content) ? content : Buffer.from(content, "utf8");
     res.writeHead(200, {
       "Content-Type": MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream",
       "Cache-Control": file.endsWith("index.html") ? "no-store" : "public, max-age=300",
-      "Content-Length": content.length,
+      "Content-Length": bodyBuf.length,
     });
-    res.end(req.method === "HEAD" ? undefined : content);
+    res.end(req.method === "HEAD" ? undefined : bodyBuf);
   } catch (e) {
     return json(res, 500, { error: "internal bridge error" });
   }

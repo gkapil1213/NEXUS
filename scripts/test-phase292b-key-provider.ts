@@ -100,6 +100,29 @@ provider.verifiableKeys()[0].key.fill(0);
 if (provider.currentKey().key.toString("hex") !== testKeyHex)
   throw new Error("provider key was mutated through a returned key buffer");
 console.log("hardening: defensive key-buffer copies PASS");
+// Retired-kid positive path: verify that keyForKid returns the correct
+// retired key when the kid matches a key in NEXUS_ENVELOPE_HMAC_KEYS_JSON
+// (not just the current key).
+{
+  const retiredProvider = new EnvHmacKeyProvider({
+    NEXUS_ENVELOPE_HMAC_KID: "current-k",
+    NEXUS_ENVELOPE_HMAC_KEY_HEX: "ab".repeat(32),
+    NEXUS_ENVELOPE_HMAC_KEYS_JSON: JSON.stringify([
+      { kid: "retired-k1", key_hex: "cd".repeat(32) },
+      { kid: "retired-k2", key_hex: "ef".repeat(32) },
+    ]),
+  });
+  const k1 = retiredProvider.keyForKid("retired-k1");
+  const k2 = retiredProvider.keyForKid("retired-k2");
+  const unknown = retiredProvider.keyForKid("nonexistent");
+  if (!k1 || k1.kid !== "retired-k1" || k1.key.toString("hex") !== "cd".repeat(32))
+    throw new Error("retired kid k1 not returned correctly");
+  if (!k2 || k2.kid !== "retired-k2" || k2.key.toString("hex") !== "ef".repeat(32))
+    throw new Error("retired kid k2 not returned correctly");
+  if (unknown !== undefined)
+    throw new Error("unknown kid should return undefined");
+  console.log("retired_key_verifies PASS (k1, k2, unknown)");
+}
 
 const store = new WorkerEnvelopeStore(engine as any, provider);
 

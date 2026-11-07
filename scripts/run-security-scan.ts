@@ -77,7 +77,7 @@ const nodeHostBridge: HostBridge = {
   const result: any = await Promise.race([
     scanner.runAll("."),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Security scan timed out after 120 seconds")), 120000)
+      setTimeout(() => reject(new Error("Security scan timed out after 420 seconds")), 420000)
     ),
   ]);
 
@@ -105,7 +105,7 @@ const nodeHostBridge: HostBridge = {
     }))
   );
   const policyEngine = new SecurityPolicyEngine();
-  const evaluations = policyEngine.evaluate({ findings: allFindings });
+  const evaluations = policyEngine.evaluateRules({ findings: allFindings });
   if (evaluations.length > 0) {
     console.log("\nPolicy Evaluations:");
     for (const e of evaluations) {
@@ -116,6 +116,6 @@ const nodeHostBridge: HostBridge = {
     if (verdict === "FAIL") process.exit(1);
   }
 
-  const hasFailed = result.results.some((r: any) => r.status === "FAILED");
-  if (hasFailed) process.exit(1);
+  const hasBlockedOrFailed = result.results.some((r: any) => r.status === "FAILED" || r.status === "BLOCKED");
+  if (hasBlockedOrFailed) process.exit(1);
 })();

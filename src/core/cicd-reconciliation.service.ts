@@ -13,6 +13,8 @@ import type { CiPipelineEngine, CiContext } from "./cicd";
 import type { Actor } from "./services";
 import type { CiArtifactReconciliationService, SqliteDb } from "./ci-artifact-reconciliation.service";
 import type { FencingContext, OwnershipFailureReason } from "./ci-reconciliation-ownership.service";
+import { sanitizeCiReconciliationReason } from "./error-sanitizer";
+
 
 /**
  * Phase 135: minimal structural contract this service needs from the Phase
@@ -405,7 +407,7 @@ export class CicdReconciliationService {
           runId: row.run_id,
           result: {
             state: "BLOCKED",
-            blockedReason: "RECONCILE_THREW:" + String((e as Error).message ?? e).slice(0, 200),
+            blockedReason: sanitizeCiReconciliationReason("RECONCILE_THREW:" + String((e as Error)?.message ?? e)),
             ciStatus: null,
             attempts: row.attempts + 1,
           },
@@ -418,13 +420,14 @@ export class CicdReconciliationService {
   private async block(runId: string, reason: string, attempts: number, githubArtifactId?: string): Promise<ReconcileOnceResult> {
     const row = this.byRunId(runId);
     const now = Date.now();
+    const safeReason = sanitizeCiReconciliationReason(reason); // Phase 293c
     const r = this.runFencedUpdate(
       "UPDATE ci_artifact_reconciliations SET " +
       "state = 'BLOCKED', blocked_reason = ?, last_error = ?, " +
       "github_artifact_id = COALESCE(?, github_artifact_id), " +
       "attempts = ?, updated_at = ?, completed_at = ? " +
       "WHERE run_id = ?",
-      [reason, reason, githubArtifactId ?? null, attempts, now, now, runId],
+      [safeReason, safeReason, githubArtifactId ?? null, attempts, now, now, runId],
     );
 
     // Phase 135 section 7: a fence failure is NOT a CI failure. Do not write
@@ -437,7 +440,7 @@ export class CicdReconciliationService {
         ciStatus: null,
         attempts: row?.attempts ?? attempts - 1,
         fenced: true,
-        fenceReason: "ownership-lost:BLOCK_WRITE:" + reason,
+        fenceReason: "ownership-lost:BLOCK_WRITE:" + safeReason,
       };
     }
 
@@ -446,18 +449,19 @@ export class CicdReconciliationService {
         type: "ci.reconciliation.blocked",
         source: SOURCE,
         execution_id: "",
-        payload: { run_id: runId, reason },
+        payload: { run_id: runId, reason: safeReason },
       });
     } catch { /* best-effort */ }
 
-    return { state: "BLOCKED", blockedReason: reason, ciStatus: null, attempts };
+    return { state: "BLOCKED", blockedReason: safeReason, ciStatus: null, attempts };
   }
 
   private async retry(runId: string, reason: string, attempts: number): Promise<ReconcileOnceResult> {
     const row = this.byRunId(runId);
+    const safeReason = sanitizeCiReconciliationReason(reason); // Phase 293c
     const r = this.runFencedUpdate(
       "UPDATE ci_artifact_reconciliations SET last_error = ?, attempts = ?, updated_at = ? WHERE run_id = ?",
-      [reason, attempts, Date.now(), runId],
+      [safeReason, attempts, Date.now(), runId],
     );
     if (r.fenced) {
       return {
@@ -466,7 +470,7 @@ export class CicdReconciliationService {
         ciStatus: null,
         attempts: row?.attempts ?? attempts - 1,
         fenced: true,
-        fenceReason: "ownership-lost:RETRY_WRITE:" + reason,
+        fenceReason: "ownership-lost:RETRY_WRITE:" + safeReason,
       };
     }
 
@@ -475,7 +479,7 @@ export class CicdReconciliationService {
         type: "ci.reconciliation.retry",
         source: SOURCE,
         execution_id: "",
-        payload: { run_id: runId, reason, attempts },
+        payload: { run_id: runId, reason: safeReason, attempts },
       });
     } catch { /* best-effort */ }
 

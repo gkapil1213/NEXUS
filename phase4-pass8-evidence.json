@@ -1,7 +1,7 @@
 {
   "phase": "4",
   "pass": "8",
-  "timestamp": "2026-09-01T12:44:51.072Z",
+  "timestamp": "2026-11-06T01:33:00.034Z",
   "capabilities": {
     "node": {
       "available": true,
@@ -52,16 +52,16 @@
       "status": "PASS"
     },
     "syft": {
-      "available": false,
-      "version": "'syft' is not recognized as an internal or external command,\r",
-      "reason": "'syft' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "status": "BLOCKED"
+      "available": true,
+      "version": "syft 1.51.1",
+      "reason": "",
+      "status": "PASS"
     },
     "grype": {
-      "available": false,
-      "version": "'grype' is not recognized as an internal or external command,\r",
-      "reason": "'grype' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "status": "BLOCKED"
+      "available": true,
+      "version": "grype 0.118.0",
+      "reason": "",
+      "status": "PASS"
     },
     "playwright": {
       "available": true,
@@ -78,28 +78,26 @@
     "cosign": {
       "available": false,
       "version": "unknown",
-      "reason": "npm error npx canceled due to missing packages and no YES option: [\"cosign@0.2.1\"]\nnpm error A complete log of this run can be found in: C:\\Users\\pc\\AppData\\Local\\npm-cache\\_logs\\2026-09-01T12_45_52_358Z-debug-0.log",
+      "reason": "npm error npx canceled due to missing packages and no YES option: [\"cosign@0.2.1\"]\nnpm error A complete log of this run can be found in: C:\\Users\\pc\\AppData\\Local\\npm-cache\\_logs\\2026-11-06T01_34_00_464Z-debug-0.log",
       "status": "BLOCKED"
     },
     "terraform": {
-      "available": false,
-      "version": "'terraform' is not recognized as an internal or external command,\r",
-      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "status": "BLOCKED"
+      "available": true,
+      "version": "Terraform v1.16.0",
+      "reason": "",
+      "status": "PASS"
     }
   },
   "typecheck": "PASS",
   "build": "PASS",
   "security_regression": "FAIL",
-  "pass7": "PASS",
+  "pass7": "FAIL",
   "real_failures": [
-    "security regression failed; output tail: e120837c189\",\n  \"sign\": \"sha256:cc9cbc2fc7240baf7766f82efac7bab5c3279065d6459ab9507b6e120837c189\",\n  \"verify\": \"sha256:cc9cbc2fc7240baf7766f82efac7bab5c3279065d6459ab9507b6e120837c189\",\n  \"deploy\": \"sha256:cc9cbc2fc7240baf7766f82efac7bab5c3279065d6459ab9507b6e120837c189\",\n  \"running\": \"sha256:cc9cbc2fc7240baf7766f82efac7bab5c3279065d6459ab9507b6e120837c189\"\n}\n\nAll digests match: true\n\nRelease manifest saved to release-manifest.json\n\n✅ Release Integrity Final Audit PASSED\n(node:13248) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.\n(Use `node --trace-deprecation ...` to show where the warning was created)\nℹ️ IaC misconfiguration check BLOCKED: Checkov not available"
+    "security regression failed; output tail: s\n\n#14 [build 4/6] RUN npm ci --ignore-scripts\n\n[timeout]\n    at DockerRollbackService.dockerBuild (C:\\Users\\pc\\NEXUS\\src\\core\\rollback-service.ts:95:36)\n    at async <anonymous> (C:\\Users\\pc\\NEXUS\\scripts\\run-release-integrity-audit.ts:95:5)\n❌ FAILED: npx tsx scripts/run-release-integrity-audit.ts\n❌ Release integrity enforcement failed: Error: failed to do request: Head \"https://localhost:5000/v2/nexus/nexus-app/blobs/sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\": dial tcp [::1]:5000: i/o timeout\n\n    at <anonymous> (C:\\Users\\pc\\NEXUS\\scripts\\run-release-integrity-enforcement.ts:97:37)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n❌ FAILED: npx tsx scripts/run-release-integrity-enforcement.ts\n\nSecurity regression suite FAILED",
+    "pass7 verification failed; output tail: \n[PASS] Observation persisted for reopen - observations=32\n[PASS] Latest observation carries new execution_id - expected=exec_fa54a6af-b265-4343-a8ae-cfcb0cd75290 got=exec_fa54a6af-b265-4343-a8ae-cfcb0cd75290\n[PASS] Risk assessment - score=20\n[PASS] Risk history\n[PASS] Scanner health - 3 scanners\n[PASS] Security posture - BLOCKED\n[PASS] Commit binding current - CURRENT\n[PASS] Commit mismatch - SECURITY_RESCAN_REQUIRED\n[PASS] Drift detection - drift event created\n[PASS] Policy history - verdict=BLOCKED history=1\n[PASS] Security heartbeat - HEALTHY\n[PASS] Fail‑safe: required scanner unavailable - BLOCKED\n[PASS] Evidence expiration recorded - expires_at=2026-11-06T01:55:13.980Z\n\nEvidence written to C:\\Users\\pc\\NEXUS\\phase4-pass7-evidence.json\nTotal tests: 28, Passed: 28, Failed: 0, Blocked: 0"
   ],
   "real_blockers": [
-    "syft: not found",
-    "grype: not found",
     "chromium: not found",
-    "cosign: not found",
-    "terraform: not found"
+    "cosign: not found"
   ]
 }

@@ -182,7 +182,7 @@ async function main(): Promise<void> {
     const row = db.prepare("SELECT handler_status, handler_last_error FROM worker_message_ids WHERE message_id = ?")
       .get(msgId) as any;
     check("T3 status=FAILED_IN_FLIGHT", row?.handler_status === "FAILED_IN_FLIGHT", "got=" + row?.handler_status);
-    check("T3 error recorded", row?.handler_last_error === "simulated_handler_error", "err=" + row?.handler_last_error);
+    check("T3 error recorded", row?.handler_last_error === "handler_error", "err=" + row?.handler_last_error);
     cleanupCtx(ctx);
   }
 
@@ -237,7 +237,7 @@ async function main(): Promise<void> {
     check("T6 status=FAILED_IN_FLIGHT",
       row?.handler_status === "FAILED_IN_FLIGHT", "got=" + row?.handler_status);
     check("T6 handler error recorded",
-      row?.handler_last_error === "dispatch_not_found", "got=" + row?.handler_last_error);
+      row?.handler_last_error === "handler_execution_failed", "got=" + row?.handler_last_error);
     cleanupCtx(ctx);
   }
 

@@ -81,6 +81,29 @@ async function main() {
   );
   recordTest("Evidence record with hash", "PASS", evidenceRecord.id);
 
+  // Phase 296: second execution + distinct artifact digest
+  const executionId2 = nid("exec");
+  const artifactB = "sha256:artifactB";
+  const startedExec2 = await api.startExecution(projectId, executionId2, commitA, artifactB);
+  await api.completeExecution(startedExec2.id, "PASS", "SUCCEEDED");
+  const evidenceContent2 = JSON.stringify({ scanner: "semgrep", result: "clean" });
+  const evidenceRecord2 = await integrity.recordEvidenceWithHash(
+    {
+      project_id: projectId,
+      execution_id: executionId2,
+      commit_sha: commitA,
+      artifact_digest: artifactB,
+      environment: "test",
+      scanner: "semgrep",
+      category: "SAST",
+      status: "PASS",
+      started_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+    },
+    evidenceContent2,
+    new Date(Date.now() + 86400000).toISOString(),
+  );
+
   // 3. Verify evidence integrity (valid)
   const valid = await integrity.verifyEvidence(evidenceRecord.id, evidenceContent);
   recordTest("Evidence integrity valid", valid.valid ? "PASS" : "FAIL", valid.reason);
@@ -108,21 +131,86 @@ async function main() {
   const dedupPass = findings2.length === 0 || (findings2.length === 1 && findings2[0].finding_id === firstFindingId);
   recordTest("Finding deduplication", dedupPass ? "PASS" : "FAIL");
 
-  // Resolve the finding
-    // Resolve the finding (must follow legal state machine: NEW -> CONFIRMED -> RESOLVED)
-  await api.transitionFinding(firstFindingId, "CONFIRMED", "Confirmed finding", {} as any);
-  await api.transitionFinding(firstFindingId, "RESOLVED", "Fixed and verified", {} as any);
-  const resolved = await api.findingService.getById(firstFindingId);
-  recordTest("Finding resolution", resolved?.status === "RESOLVED" ? "PASS" : "FAIL", resolved?.status);
+  // Resolve the finding.
+  // Ingestion may create the finding as CONFIRMED already.
+  const beforeResolution = await api.findingService.getById(firstFindingId);
 
-  // Reopen by ingesting same fingerprint again
-  const findings3 = await api.ingestFindings(evidenceRecord, [findingRaw]);
+  if (!beforeResolution) {
+    throw new Error("Finding missing before resolution");
+  }
+
+  if (beforeResolution.status === "NEW") {
+    await api.transitionFinding(
+      firstFindingId,
+      "CONFIRMED",
+      "Confirmed finding",
+      {}
+    );
+  } else if (beforeResolution.status !== "CONFIRMED") {
+    throw new Error(
+      `Unexpected finding status before resolution: ${beforeResolution.status}`
+    );
+  }
+
+  await api.transitionFinding(
+    firstFindingId,
+    "RESOLVED",
+    "Fixed and verified",
+    {}
+  );
+
+  const resolved = await api.findingService.getById(firstFindingId);
+
+  recordTest(
+    "Finding resolution",
+    resolved?.status === "RESOLVED" ? "PASS" : "FAIL",
+    resolved?.status
+  );
+
+  // Reopen by ingesting the same finding fingerprint against a DIFFERENT
+  // execution/evidence — proves evidence_id and execution_id refresh.
+  const findings3 = await api.ingestFindings(evidenceRecord2, [findingRaw]);
   const reopened = await api.findingService.getById(firstFindingId);
   recordTest("Finding reopen", reopened?.status === "REOPENED" ? "PASS" : "FAIL", reopened?.status);
 
+  recordTest("Reopened finding retains finding_id",
+    reopened?.finding_id === firstFindingId ? "PASS" : "FAIL",
+    `expected=${firstFindingId} got=${reopened?.finding_id}`);
+  recordTest("Reopened finding retains fingerprint",
+    reopened?.fingerprint === beforeResolution.fingerprint ? "PASS" : "FAIL",
+    `expected=${beforeResolution.fingerprint} got=${reopened?.fingerprint}`);
+  recordTest("Reopened finding preserves first_seen",
+    reopened?.first_seen === beforeResolution.first_seen ? "PASS" : "FAIL",
+    `expected=${beforeResolution.first_seen} got=${reopened?.first_seen}`);
+  recordTest("Reopened finding updates last_seen",
+    reopened?.last_seen !== beforeResolution.last_seen ? "PASS" : "FAIL",
+    `old=${beforeResolution.last_seen} new=${reopened?.last_seen}`);
+  recordTest("Reopened finding associates latest evidence",
+    reopened?.evidence_id === evidenceRecord2.id ? "PASS" : "FAIL",
+    `expected=${evidenceRecord2.id} got=${reopened?.evidence_id}`);
+  recordTest("Reopened finding associates latest execution",
+    reopened?.execution_id === executionId2 ? "PASS" : "FAIL",
+    `expected=${executionId2} got=${reopened?.execution_id}`);
+  recordTest("Reopened finding associates latest artifact digest",
+    reopened?.artifact_digest === artifactB ? "PASS" : "FAIL",
+    `expected=${artifactB} got=${reopened?.artifact_digest}`);
+
+  // Phase 296: observation must be persisted in the store
+  const allObs = await engine.all<any>("security_finding_observations");
+  const obsForFinding = allObs.filter((o) => o.finding_id === firstFindingId);
+  recordTest("Observation persisted for reopen",
+    obsForFinding.length >= 2 ? "PASS" : "FAIL",
+    `observations=${obsForFinding.length}`);
+  const latestObs = obsForFinding
+    .slice()
+    .sort((a, b) => String(b.observed_at).localeCompare(String(a.observed_at)))[0];
+  recordTest("Latest observation carries new execution_id",
+    latestObs?.execution_id === executionId2 ? "PASS" : "FAIL",
+    `expected=${executionId2} got=${latestObs?.execution_id}`);
+
   // 6. Risk assessment and history
   await api.transitionFinding(firstFindingId, "CONFIRMED", "Reopened", {});
-  const risk = await api.assessRisk(executionId);
+  const risk = await api.assessRisk(executionId2); // reopened finding now lives here
   recordTest("Risk assessment", risk.risk_score > 0 ? "PASS" : "FAIL", `score=${risk.risk_score}`);
   await api.snapshotRisk(projectId, executionId, risk);
   const riskHistory = await api.getRiskHistory(projectId);
@@ -151,17 +239,26 @@ async function main() {
   recordTest("Drift detection", drift ? "PASS" : "FAIL", "drift event created");
   if (drift) evidenceOut.drift.push(drift);
 
-  // 11. Policy history
-  await api.recordPolicyEvaluation({
-    policy_version: "v1",
-    execution_id: executionId,
-    artifact_digest: artifactA,
-    decision: "PASS",
-    reasons: ["no findings"],
-    rules_evaluated: ["rule1", "rule2"],
-  } as any);
+  // 11. Policy history — evaluate against ACTUAL current findings, then persist
+  // to the Phase 4 Pass 7 policy-evaluation store for getPolicyHistory.
+  const currentEvidence = await api.getEvidence(executionId);
+  const currentFindings = await api.getFindings(executionId);
+  const secExecObj = await (api as any).getExecution(executionId);
+  const policyDecision = await api.evaluatePolicy(
+    secExecObj ?? secExec,
+    currentEvidence,
+    currentFindings,
+    risk,
+  );
   const policyHistory = await api.getPolicyHistory(executionId);
-  recordTest("Policy history", policyHistory.length === 1 ? "PASS" : "FAIL");
+  recordTest(
+    "Policy history",
+    policyHistory.length >= 1 &&
+      policyHistory[0].decision === policyDecision.verdict
+      ? "PASS"
+      : "FAIL",
+    `verdict=${policyDecision.verdict} history=${policyHistory.length}`,
+  );
   evidenceOut.policy = policyHistory[0];
 
   // 12. Security heartbeat
@@ -191,12 +288,22 @@ async function main() {
     "scan-output",
     new Date(Date.now() - 1000).toISOString()
   );
-  // The posture service may not check per-evidence expiry yet; we can check manually
-  // For now, just record the test as PASS if we can retrieve it
-  recordTest("Evidence expiration recorded", "PASS", "expiry set in past");
+  // Real assertion instead of a hardcoded PASS
+  const staleRecord = await api.getEvidence(executionId);
+  const staleEntry = staleRecord.find((e: any) => e.id === staleEvidence.id);
+  const staleExpiry = staleEntry?.expires_at ? Date.parse(staleEntry.expires_at) : NaN;
+  recordTest("Evidence expiration recorded",
+    Number.isFinite(staleExpiry) && staleExpiry < Date.now() ? "PASS" : "FAIL",
+    `expires_at=${staleEntry?.expires_at ?? "(missing)"}`);
 
-  // 14. Write evidence file
+  // 14. Write evidence file — include stored finding + observation evidence
   evidenceOut.findings = await api.getFindings(executionId);
+  evidenceOut.findings_for_second_execution = await api.getFindings(executionId2);
+  evidenceOut.reopened_finding = await api.findingService.getById(firstFindingId);
+  evidenceOut.observations = (await engine.all<any>("security_finding_observations"))
+    .filter((o) => o.finding_id === firstFindingId)
+    .sort((a, b) => String(a.observed_at).localeCompare(String(b.observed_at)));
+  evidenceOut.executions = { primary: executionId, secondary: executionId2 };
   evidenceOut.failures = evidenceOut.tests.filter((t: any) => t.status === "FAIL");
   evidenceOut.blocked = evidenceOut.tests.filter((t: any) => t.status === "BLOCKED");
 
