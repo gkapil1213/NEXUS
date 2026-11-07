@@ -231,24 +231,29 @@ function validateArg(a) {
 /* ------------------------------ command runner ------------------------------ */
 
 function spawnTool(tool, exe, argv, opts) {
-  // Phase 298 §1: For npm/npx on Windows, invoke `node.exe cli.js` directly
-  // instead of `cmd.exe /c npm.cmd`. This eliminates:
-  //   - cmd.exe shell metacharacter interpretation
-  //   - %VAR% environment-variable expansion (a real injection vector)
-  //   - reliance on the .cmd wrapper being on PATH
-  // argv remains a structured array; no string concatenation ever occurs.
+  // Windows npm/npx use Node CLI entry points, never .cmd wrappers.
   if (IS_WIN && CLI_JS[tool]) {
     return spawn(process.execPath, [CLI_JS[tool], ...argv], opts);
   }
-  // Other .cmd/.bat shims (playwright has been removed; this is a safety net
-  // for any future tool) still require cmd.exe on Windows.
-  if (IS_WIN && /\.(cmd|bat)$/i.test(exe)) {
-    return spawn("cmd.exe", ["/c", exe, ...argv], opts);
-  }
+
+  // Never invoke Windows command interpreters.
   return spawn(exe, argv, opts);
 }
 
 function runCommand(tool, argv, timeoutMs, cwd) {
+  if (
+    IS_WIN &&
+    !CLI_JS[tool] &&
+    /\.(cmd|bat)$/i.test(EXECUTABLES[tool] || "")
+  ) {
+    return Promise.resolve({
+      exit_code: 127,
+      stdout: "",
+      stderr: "BLOCKED: Windows .cmd/.bat launch targets are not permitted.",
+      duration_ms: 0,
+      timed_out: false,
+    });
+  }
   return new Promise((resolve) => {
     const t0 = Date.now();
     let stdout = "";

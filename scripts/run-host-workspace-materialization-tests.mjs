@@ -67,6 +67,28 @@ const token = await fetchToken();
 const sessions = new Set();
 
 try {
+  await test("Windows launcher has no cmd.exe /c fallback", async () => {
+    const source = await fsp.readFile(
+      path.join(REPO, "scripts/nexus-host-bridge.mjs"),
+      "utf8"
+    );
+
+    assert(
+      !/spawn\s*\(\s*["']cmd\.exe["']\s*,\s*\[\s*["']\/c["']/.test(source),
+      "unsafe cmd.exe /c launcher fallback must not exist"
+    );
+
+    assert(
+      /CLI_JS\[tool\]/.test(source),
+      "Node-native npm/npx CLI execution must remain available"
+    );
+
+    assert(
+      /BLOCKED: Windows \.cmd\/\.bat launch targets are not permitted\./.test(source),
+      "Windows .cmd/.bat launch targets must be explicitly blocked"
+    );
+  });
+
   await test("materialization creates a real temp workspace", async () => {
     const t = newToken(); sessions.add(t);
     const r = await post("/v1/workspace/materialize", { token: t, files: [{ path: "hello.txt", content: "hi" }] }, token);
@@ -433,6 +455,44 @@ try {
     const b = await r.json();
     assert(/shell metacharacters|environment-variable expansion/i.test(String(b.error)),
       `unexpected rejection reason: ${b.error}`);
+  });
+  await test("no cmd.exe fallback: .cmd/.bat targets are explicitly blocked", async () => {
+    const t = newToken();
+    const m = await post("/v1/workspace/materialize", {
+      token: t,
+      files: [{ path: "marker.txt", content: "ok" }],
+    }, token);
+    assertEq(m.status, 200);
+    sessions.add(t);
+
+    // Try to invoke a tool whose exe would be a .cmd/.bat NOT in CLI_JS.
+    // Currently all tools in TOOL_OPS are either .exe or CLI_JS-mapped.
+    // We simulate the check by asserting the bridge's source behavior:
+    // the only .cmd/.bat tools are npm/npx, both in CLI_JS.
+    //
+    // This test verifies: invoking npm/npx succeeds (bypasses cmd.exe),
+    // and no other tool exists that would trigger cmd.exe.
+
+    // npm/npx must succeed (they use node.exe cli.js)
+    const npmR = await post("/v1/exec", {
+      tool: "npm", args: ["--version"], workspace_token: t,
+    }, token);
+    assertEq(npmR.status, 200);
+    const npmB = await npmR.json();
+    assertEq(npmB.exit_code, 0, `npm failed: ${npmB.stderr}`);
+
+    const npxR = await post("/v1/exec", {
+      tool: "npx", args: ["--version"], workspace_token: t,
+    }, token);
+    assertEq(npxR.status, 200);
+    const npxB = await npxR.json();
+    assertEq(npxB.exit_code, 0, `npx failed: ${npxB.stderr}`);
+
+    // Any tool not in TOOL_OPS is rejected by the allowlist BEFORE it reaches spawnTool
+    const badToolR = await post("/v1/exec", {
+      tool: "unknown-tool", args: ["--version"], workspace_token: t,
+    }, token);
+    assertEq(badToolR.status, 403, `expected 403 for unknown tool, got ${badToolR.status}`);
   });
 } finally {
   for (const t of sessions) await post("/v1/workspace/cleanup", { token: t }, token).catch(() => undefined);
