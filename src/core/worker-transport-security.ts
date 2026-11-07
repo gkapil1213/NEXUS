@@ -40,20 +40,41 @@ export class WorkerTransportSecurity {
    * Legacy/test databases created through SQLiteEngine.fromDatabase may not
    * have run migrations; those databases retain Phase 290 durable acceptance.
    */
+    /**
+   * Phase 291/292: true only when the complete handler tracking schema exists.
+   * Legacy/test databases without all required columns retain Phase 290
+   * durable acceptance and must not initialize the handler tracker.
+   */
   hasHandlerTrackingSchema(): boolean {
     if (!this.db || this.db.kind !== "sqlite") return false;
-    const columns = this.db.prepare("PRAGMA table_info(worker_message_ids)").all() as Array<{ name: string }>;
-    const names = new Set(columns.map((column) => column.name));
-    return [
-      "handler_status",
-      "handler_owner_id",
-      "handler_claim_expires_at",
-      "handler_started_at",
-      "handler_completed_at",
-      "handler_attempt_count",
-      "handler_last_error",
-      "handler_recovery_reason",
-    ].every((name) => names.has(name));
+
+    try {
+      const columns = this.db
+        .prepare("PRAGMA table_info(worker_message_ids)")
+        .all() as Array<{ name: string }>;
+
+      const names = new Set(columns.map((column) => column.name));
+
+      return [
+        // Phase 291 lifecycle fields
+        "handler_status",
+        "handler_owner_id",
+        "handler_claim_expires_at",
+        "handler_started_at",
+        "handler_completed_at",
+        "handler_attempt_count",
+        "handler_last_error",
+        "handler_recovery_reason",
+
+        // Phase 292 fencing, retry and quarantine fields
+        "fencing_token",
+        "retry_count",
+        "next_retry_at",
+        "quarantine_reason",
+      ].every((name) => names.has(name));
+    } catch {
+      return false;
+    }
   }
   validateFreshMessage(messageId: string, sessionId: string, sequence?: number): { valid: boolean; reason?: string } {
     if (this.db) {

@@ -1,4 +1,4 @@
-﻿# Test fixtures and backups
+# Test fixtures and backups
 test-fixture/
 **/*.backup
 **/*.before-contract-fix
@@ -21,3 +21,7 @@ src/core/types.ts
 src/core/workspace.ts
 index.html
 .github/workflows/ci.yml
+# Generated security scan reports - not application source
+semgrep*.json
+checkov-diagnostic.json
+npm-audit-diagnostic.json

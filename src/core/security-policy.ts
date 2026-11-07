@@ -122,6 +122,13 @@ export class SecurityPolicyEngine {
         condition: (ctx) => ctx.findings.some((f) => f.severity === "medium"),
         decision: "REVIEW",
       },
+      {
+        id: "UNKNOWN_SEVERITY_BLOCK",
+        name: "Unknown severity blocks",
+        description: "A finding with unknown severity cannot authorize a release",
+        condition: (ctx) => ctx.findings.some((f) => f.severity === "unknown"),
+        decision: "BLOCK",
+      },
     ];
   }
 
@@ -264,7 +271,7 @@ export class SecurityPolicyEngine {
   ): PolicyContext {
     const ctx: PolicyContext = { findings: [] };
 
-    ctx.findings = findings.map((f) => ({
+    ctx.findings = (findings ?? []).map((f) => ({
       severity: f.severity.toLowerCase(),
       category: f.category,
       scanner: f.scanner,
