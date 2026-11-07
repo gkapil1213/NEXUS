@@ -7,6 +7,7 @@ export class RemoteExecutionManager {
     private dispatches = new Map<string, { adapter: RemoteExecutionAdapter; status: string }>();
 
     private initialized = false;
+    private initPromise: Promise<void> | null = null;
 
     constructor(
         private adapter: RemoteExecutionAdapter,
@@ -27,11 +28,19 @@ export class RemoteExecutionManager {
      */
     public async initializeAsync(): Promise<void> {
         if (this.initialized) return;
-        this.initialized = true;
-        if (this.store) {
-            const records = await this.loadPersistedDispatches();
-            await this.reconcilePersistedDispatches(records);
-        }
+        if (this.initPromise) return this.initPromise;
+        this.initPromise = (async () => {
+            try {
+                if (this.store) {
+                    const records = await this.loadPersistedDispatches();
+                    await this.reconcilePersistedDispatches(records);
+                }
+                this.initialized = true;
+            } finally {
+                this.initPromise = null;
+            }
+        })();
+        return this.initPromise;
     }
 
     /**
@@ -67,26 +76,57 @@ export class RemoteExecutionManager {
                 this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: "UNKNOWN" });
             }
 
-            if (this.store) {
-                const fresh = this.store.getRemoteDispatch(record.dispatchId);
-                if (fresh) {
-                    // Phase 136: do not overwrite a terminal status written by
-                    // the authoritative worker while this control-plane sweep
-                    // awaited the provider.
-                    const isTerminal =
-                        fresh.status === "COMPLETED" ||
-                        fresh.status === "FAILED" ||
-                        fresh.status === "CANCELLED";
-                    if (!isTerminal) {
-                        const updated: RemoteDispatchRecord = {
-                            ...fresh,
-                            status: finalStatus,
-                            updatedAt: Date.now(),
-                        };
-                        this.store.upsertRemoteDispatch(updated);
-                    }
+            // Phase 300 / WP5: re-read authoritative state through the
+            // selected backend (async in shared mode, sync in SQLite-only
+            // mode), and write the reconciled status back through the same
+            // backend. Terminal states are preserved exactly as before:
+            // a terminal dispatch is never overwritten by a stale provider
+            // status that resolved while we awaited.
+            const fresh = await this.readDispatch(record.dispatchId);
+            if (fresh) {
+                const isTerminal =
+                    fresh.status === "COMPLETED" ||
+                    fresh.status === "FAILED" ||
+                    fresh.status === "CANCELLED";
+                if (!isTerminal) {
+                    await this.writeDispatch({
+                        ...fresh,
+                        status: finalStatus,
+                        updatedAt: Date.now(),
+                    });
                 }
             }
+        }
+    }
+
+    /**
+     * Phase 300 / WP5: backend-aware dispatch read. Shared mode uses the
+     * async siblings (PostgreSQL is authoritative). SQLite-only mode keeps
+     * the existing sync path unchanged. The provider-id fallback is preserved
+     * for post-restart callers (see existing cancel() contract).
+     */
+    private async readDispatch(idOrProviderId: string): Promise<RemoteDispatchRecord | undefined> {
+        if (!this.store) return undefined;
+        if (this.store.hasAsyncBackend()) {
+            return (await this.store.getRemoteDispatchAsync(idOrProviderId))
+                ?? (await this.store.getRemoteDispatchByExternalProviderIdAsync(idOrProviderId));
+        }
+        return this.store.getRemoteDispatch(idOrProviderId)
+            ?? this.store.listAllRemoteDispatches().find(
+                (r) => r.dispatchId === idOrProviderId || r.externalProviderId === idOrProviderId
+            );
+    }
+
+    /**
+     * Phase 300 / WP5: backend-aware dispatch write. Same rationale as
+     * readDispatch. Uses the atomic upsert in shared mode.
+     */
+    private async writeDispatch(record: RemoteDispatchRecord): Promise<void> {
+        if (!this.store) return;
+        if (this.store.hasAsyncBackend()) {
+            await this.store.upsertRemoteDispatchAsync(record);
+        } else {
+            this.store.upsertRemoteDispatch(record);
         }
     }
 
@@ -107,15 +147,7 @@ export class RemoteExecutionManager {
         // durable dispatch id (DispatchService) or the external provider
         // id (post-restart callers). Both must resolve.
         if (!entry && this.store) {
-            durableRecord =
-                this.store.getRemoteDispatch(dispatchIdOrProviderId) ??
-                this.store
-                    .listAllRemoteDispatches()
-                    .find(
-                        (r) =>
-                            r.dispatchId === dispatchIdOrProviderId ||
-                            r.externalProviderId === dispatchIdOrProviderId
-                    );
+            durableRecord = await this.readDispatch(dispatchIdOrProviderId);
         }
 
         // The adapter cancel() contract takes the provider identifier,
@@ -138,7 +170,7 @@ export class RemoteExecutionManager {
         const entry = this.dispatches.get(dispatchId);
         if (entry) return entry.adapter.getStatus(dispatchId);
         if (this.store) {
-            const record = this.store.getRemoteDispatch(dispatchId);
+            const record = await this.readDispatch(dispatchId);
             if (record) {
                 if (record.result) return { status: record.result.success ? "COMPLETED" : "FAILED", evidence: record.result.evidence };
                 if (record.status) return { status: record.status };
@@ -151,7 +183,7 @@ export class RemoteExecutionManager {
         // Durable terminal results are authoritative across process restarts.
         // Never prefer an in-memory adapter result over a persisted result.
         if (this.store) {
-            const record = this.store.getRemoteDispatch(dispatchId);
+            const record = await this.readDispatch(dispatchId);
             if (record) {
                 if (record.result) {
                     return record.result;

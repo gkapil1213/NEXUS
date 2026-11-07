@@ -4756,6 +4756,19 @@ export class ExecutionStore {
         return row ? this.mapRemoteDispatch(row) : undefined;
     }
 
+    // Phase 300 / WP5: async lookup by external provider id. Required because
+    // RemoteExecutionManager.cancel() may be called with either the durable
+    // dispatch_id or the provider-assigned id (post-restart callers). The sync
+    // fallback did listAllRemoteDispatches().find(...) which is O(n) and hits
+    // SQLite in shared mode.
+    async getRemoteDispatchByExternalProviderIdAsync(providerId: string): Promise<RemoteDispatchRecord | undefined> {
+        const engine = this.requireAsyncDb();
+        const row = await engine.prepareAsync(
+            "SELECT * FROM remote_dispatches WHERE external_provider_id = ? LIMIT 1"
+        ).get<any>(providerId);
+        return row ? this.mapRemoteDispatch(row) : undefined;
+    }
+
     async getRemoteDispatchByJobIdempotencyKeyAsync(key: string): Promise<RemoteDispatchRecord | undefined> {
         const engine = this.requireAsyncDb();
         const row = await engine.prepareAsync("SELECT * FROM remote_dispatches WHERE idempotency_key = ?").get<any>(key);
