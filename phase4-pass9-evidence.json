@@ -1,124 +1,124 @@
 {
-  "generated_at": "2026-09-01T16:19:00.518Z",
+  "generated_at": "2026-11-06T03:34:02.665Z",
   "capabilities": [
     {
       "name": "node",
       "available": true,
       "version": "v26.4.0",
       "reason": null,
-      "checked_at": "2026-09-01T16:18:50.894Z"
+      "checked_at": "2026-11-06T03:33:53.867Z"
     },
     {
       "name": "npm",
       "available": true,
       "version": "11.18.0",
       "reason": null,
-      "checked_at": "2026-09-01T16:18:54.144Z"
+      "checked_at": "2026-11-06T03:33:53.866Z"
     },
     {
-      "name": "docker",
+      "name": "docker_cli",
       "available": true,
       "version": "Docker version 29.7.2, build a7dcaa6",
       "reason": null,
-      "checked_at": "2026-09-01T16:18:51.463Z"
+      "checked_at": "2026-11-06T03:33:53.867Z"
     },
     {
-      "name": "docker",
+      "name": "docker_daemon",
       "available": true,
       "version": "Client:",
       "reason": null,
-      "checked_at": "2026-09-01T16:18:57.365Z"
+      "checked_at": "2026-11-06T03:34:00.571Z"
     },
     {
       "name": "cosign",
-      "available": false,
-      "version": null,
-      "reason": "'cosign' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-09-01T16:18:50.893Z"
+      "available": true,
+      "version": "______   ______        _______. __    _______ .__   __.",
+      "reason": null,
+      "checked_at": "2026-11-06T03:33:56.789Z"
     },
     {
       "name": "semgrep",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-09-01T16:19:00.397Z"
+      "checked_at": "2026-11-06T03:34:01.508Z"
     },
     {
       "name": "gitleaks",
       "available": true,
       "version": "8.30.1",
       "reason": null,
-      "checked_at": "2026-09-01T16:18:58.464Z"
+      "checked_at": "2026-11-06T03:33:55.640Z"
     },
     {
       "name": "trivy",
       "available": true,
       "version": "Version: 0.74.0",
       "reason": null,
-      "checked_at": "2026-09-01T16:18:57.216Z"
+      "checked_at": "2026-11-06T03:33:59.576Z"
     },
     {
       "name": "checkov",
       "available": false,
       "version": null,
       "reason": "Command timed out",
-      "checked_at": "2026-09-01T16:19:00.504Z"
+      "checked_at": "2026-11-06T03:34:02.656Z"
     },
     {
       "name": "syft",
-      "available": false,
-      "version": null,
-      "reason": "'syft' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-09-01T16:18:50.928Z"
+      "available": true,
+      "version": "Application:   syft",
+      "reason": null,
+      "checked_at": "2026-11-06T03:33:57.843Z"
     },
     {
       "name": "grype",
-      "available": false,
-      "version": null,
-      "reason": "'grype' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-09-01T16:18:51.220Z"
+      "available": true,
+      "version": "Application:         grype",
+      "reason": null,
+      "checked_at": "2026-11-06T03:33:58.430Z"
     },
     {
       "name": "playwright",
       "available": true,
       "version": "Version 1.62.1",
       "reason": null,
-      "checked_at": "2026-09-01T16:18:56.218Z"
+      "checked_at": "2026-11-06T03:33:57.510Z"
     },
     {
       "name": "chromium",
       "available": false,
       "version": null,
-      "reason": "'chromium' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-09-01T16:18:50.971Z"
+      "reason": "Error: spawn chromium ENOENT",
+      "checked_at": "2026-11-06T03:33:54.019Z"
     },
     {
       "name": "git",
       "available": true,
       "version": "git version 2.55.0.windows.4",
       "reason": null,
-      "checked_at": "2026-09-01T16:18:54.100Z"
+      "checked_at": "2026-11-06T03:33:54.264Z"
     },
     {
       "name": "curl",
       "available": true,
       "version": "curl 8.0.1 (Windows) libcurl/8.0.1 Schannel WinIDN\r",
       "reason": null,
-      "checked_at": "2026-09-01T16:18:51.685Z"
+      "checked_at": "2026-11-06T03:33:53.866Z"
     },
     {
       "name": "terraform",
-      "available": false,
-      "version": null,
-      "reason": "'terraform' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-09-01T16:18:51.624Z"
+      "available": true,
+      "version": "Terraform v1.16.0",
+      "reason": null,
+      "checked_at": "2026-11-06T03:33:55.819Z"
     },
     {
-      "name": "aws",
-      "available": false,
-      "version": null,
-      "reason": "'aws' is not recognized as an internal or external command,\r\noperable program or batch file.",
-      "checked_at": "2026-09-01T16:18:51.584Z"
+      "name": "aws_cli",
+      "available": true,
+      "version": "aws-cli/2.36.36 Python/3.14.6 Windows/11 exe/AMD64",
+      "reason": null,
+      "checked_at": "2026-11-06T03:34:00.580Z"
     }
   ],
   "configuration_checks": [
@@ -135,14 +135,6 @@
       "message": "not set (DAST will be BLOCKED)"
     }
   ],
-  "failure_injection": [
-    {
-      "test": "syft_unavailable",
-      "expected": "BLOCKED",
-      "actual": "BLOCKED",
-      "passed": true,
-      "reason": "'syft' is not recognized as an internal or external command,\r\noperable program or batch file."
-    }
-  ],
+  "failure_injection": [],
   "scanner_executions": []
 }

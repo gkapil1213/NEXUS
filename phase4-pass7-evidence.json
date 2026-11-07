@@ -1,172 +1,172 @@
 {
   "phase": "4",
   "pass": "7",
-  "execution_id": "verify_26e56cfb-ae4c-44ff-8be8-752c624f14e8",
-  "timestamp": "2026-11-05T16:42:53.275Z",
+  "execution_id": "verify_7378b26b-69ee-4e99-aa77-db6ba7f77d86",
+  "timestamp": "2026-11-06T02:02:17.172Z",
   "tests": [
     {
       "name": "Create security execution",
       "status": "PASS",
-      "detail": "secexec_a422d5a7-85be-4f6d-8faa-dd51ff6c2b4f",
-      "timestamp": "2026-11-05T16:42:53.597Z"
+      "detail": "secexec_a263df44-a905-4a4d-b26c-034a5e4a2fb9",
+      "timestamp": "2026-11-06T02:02:17.570Z"
     },
     {
       "name": "Evidence record with hash",
       "status": "PASS",
-      "detail": "secevid_92196ef5-2dc0-4bf3-a728-7b2f5457deba",
-      "timestamp": "2026-11-05T16:42:53.606Z"
+      "detail": "secevid_11d93fab-ce84-4f18-a480-9c22173a5060",
+      "timestamp": "2026-11-06T02:02:17.605Z"
     },
     {
       "name": "Evidence integrity valid",
       "status": "PASS",
-      "timestamp": "2026-11-05T16:42:53.614Z"
+      "timestamp": "2026-11-06T02:02:17.616Z"
     },
     {
       "name": "Evidence tamper detection",
       "status": "PASS",
-      "timestamp": "2026-11-05T16:42:53.617Z"
+      "timestamp": "2026-11-06T02:02:17.618Z"
     },
     {
       "name": "Finding ingestion",
       "status": "PASS",
       "detail": "secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
-      "timestamp": "2026-11-05T16:42:53.626Z"
+      "timestamp": "2026-11-06T02:02:17.622Z"
     },
     {
       "name": "Finding deduplication",
       "status": "PASS",
-      "timestamp": "2026-11-05T16:42:53.628Z"
+      "timestamp": "2026-11-06T02:02:17.624Z"
     },
     {
       "name": "Finding resolution",
       "status": "PASS",
       "detail": "RESOLVED",
-      "timestamp": "2026-11-05T16:42:53.634Z"
+      "timestamp": "2026-11-06T02:02:17.631Z"
     },
     {
       "name": "Finding reopen",
       "status": "PASS",
       "detail": "REOPENED",
-      "timestamp": "2026-11-05T16:42:53.639Z"
+      "timestamp": "2026-11-06T02:02:17.637Z"
     },
     {
       "name": "Reopened finding retains finding_id",
       "status": "PASS",
       "detail": "expected=secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf got=secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
-      "timestamp": "2026-11-05T16:42:53.639Z"
+      "timestamp": "2026-11-06T02:02:17.639Z"
     },
     {
       "name": "Reopened finding retains fingerprint",
       "status": "PASS",
       "detail": "expected=semgrep|SAST|hardcoded secret in config|src/config.ts|42||| got=semgrep|SAST|hardcoded secret in config|src/config.ts|42|||",
-      "timestamp": "2026-11-05T16:42:53.640Z"
+      "timestamp": "2026-11-06T02:02:17.640Z"
     },
     {
       "name": "Reopened finding preserves first_seen",
       "status": "PASS",
       "detail": "expected=2026-11-05T14:20:48.191Z got=2026-11-05T14:20:48.191Z",
-      "timestamp": "2026-11-05T16:42:53.640Z"
+      "timestamp": "2026-11-06T02:02:17.641Z"
     },
     {
       "name": "Reopened finding updates last_seen",
       "status": "PASS",
-      "detail": "old=2026-11-05T16:42:53.627Z new=2026-11-05T16:42:53.638Z",
-      "timestamp": "2026-11-05T16:42:53.640Z"
+      "detail": "old=2026-11-06T02:02:17.622Z new=2026-11-06T02:02:17.634Z",
+      "timestamp": "2026-11-06T02:02:17.645Z"
     },
     {
       "name": "Reopened finding associates latest evidence",
       "status": "PASS",
-      "detail": "expected=secevid_58be1da0-e0bc-4fc0-b407-71be09114c2e got=secevid_58be1da0-e0bc-4fc0-b407-71be09114c2e",
-      "timestamp": "2026-11-05T16:42:53.640Z"
+      "detail": "expected=secevid_5b297004-1ef5-4331-b91b-17b2b722a460 got=secevid_5b297004-1ef5-4331-b91b-17b2b722a460",
+      "timestamp": "2026-11-06T02:02:17.654Z"
     },
     {
       "name": "Reopened finding associates latest execution",
       "status": "PASS",
-      "detail": "expected=exec_e4914cfd-5bf7-4b11-a221-a6454ca5ec49 got=exec_e4914cfd-5bf7-4b11-a221-a6454ca5ec49",
-      "timestamp": "2026-11-05T16:42:53.640Z"
+      "detail": "expected=exec_749fd189-cdc8-4781-b25f-fd852708f1e6 got=exec_749fd189-cdc8-4781-b25f-fd852708f1e6",
+      "timestamp": "2026-11-06T02:02:17.655Z"
     },
     {
       "name": "Reopened finding associates latest artifact digest",
       "status": "PASS",
       "detail": "expected=sha256:artifactB got=sha256:artifactB",
-      "timestamp": "2026-11-05T16:42:53.641Z"
+      "timestamp": "2026-11-06T02:02:17.656Z"
     },
     {
       "name": "Observation persisted for reopen",
       "status": "PASS",
-      "detail": "observations=29",
-      "timestamp": "2026-11-05T16:42:53.641Z"
+      "detail": "observations=35",
+      "timestamp": "2026-11-06T02:02:17.660Z"
     },
     {
       "name": "Latest observation carries new execution_id",
       "status": "PASS",
-      "detail": "expected=exec_e4914cfd-5bf7-4b11-a221-a6454ca5ec49 got=exec_e4914cfd-5bf7-4b11-a221-a6454ca5ec49",
-      "timestamp": "2026-11-05T16:42:53.661Z"
+      "detail": "expected=exec_749fd189-cdc8-4781-b25f-fd852708f1e6 got=exec_749fd189-cdc8-4781-b25f-fd852708f1e6",
+      "timestamp": "2026-11-06T02:02:17.684Z"
     },
     {
       "name": "Risk assessment",
       "status": "PASS",
       "detail": "score=20",
-      "timestamp": "2026-11-05T16:42:53.664Z"
+      "timestamp": "2026-11-06T02:02:17.692Z"
     },
     {
       "name": "Risk history",
       "status": "PASS",
-      "timestamp": "2026-11-05T16:42:53.666Z"
+      "timestamp": "2026-11-06T02:02:17.696Z"
     },
     {
       "name": "Scanner health",
       "status": "PASS",
       "detail": "3 scanners",
-      "timestamp": "2026-11-05T16:42:53.672Z"
+      "timestamp": "2026-11-06T02:02:17.701Z"
     },
     {
       "name": "Security posture",
       "status": "PASS",
       "detail": "BLOCKED",
-      "timestamp": "2026-11-05T16:42:53.675Z"
+      "timestamp": "2026-11-06T02:02:17.706Z"
     },
     {
       "name": "Commit binding current",
       "status": "PASS",
       "detail": "CURRENT",
-      "timestamp": "2026-11-05T16:42:53.676Z"
+      "timestamp": "2026-11-06T02:02:17.710Z"
     },
     {
       "name": "Commit mismatch",
       "status": "PASS",
       "detail": "SECURITY_RESCAN_REQUIRED",
-      "timestamp": "2026-11-05T16:42:53.676Z"
+      "timestamp": "2026-11-06T02:02:17.715Z"
     },
     {
       "name": "Drift detection",
       "status": "PASS",
       "detail": "drift event created",
-      "timestamp": "2026-11-05T16:42:53.678Z"
+      "timestamp": "2026-11-06T02:02:17.720Z"
     },
     {
       "name": "Policy history",
       "status": "PASS",
       "detail": "verdict=BLOCKED history=1",
-      "timestamp": "2026-11-05T16:42:53.685Z"
+      "timestamp": "2026-11-06T02:02:17.727Z"
     },
     {
       "name": "Security heartbeat",
       "status": "PASS",
       "detail": "HEALTHY",
-      "timestamp": "2026-11-05T16:42:53.689Z"
+      "timestamp": "2026-11-06T02:02:17.731Z"
     },
     {
       "name": "Fail‑safe: required scanner unavailable",
       "status": "PASS",
       "detail": "BLOCKED",
-      "timestamp": "2026-11-05T16:42:53.692Z"
+      "timestamp": "2026-11-06T02:02:17.734Z"
     },
     {
       "name": "Evidence expiration recorded",
       "status": "PASS",
-      "detail": "expires_at=2026-11-05T16:42:52.692Z",
-      "timestamp": "2026-11-05T16:42:53.694Z"
+      "detail": "expires_at=2026-11-06T02:02:16.737Z",
+      "timestamp": "2026-11-06T02:02:17.740Z"
     }
   ],
   "scanner_health": [
@@ -179,7 +179,7 @@
       "failure_count": 0,
       "findings_count": 0,
       "health": "HEALTHY",
-      "updated_at": "2026-11-05T16:42:53.668Z"
+      "updated_at": "2026-11-06T02:02:17.697Z"
     },
     {
       "id": "scanhealth_204948e1-e167-4204-aab5-907c55df2bdd",
@@ -189,7 +189,7 @@
       "failure_count": 0,
       "findings_count": 0,
       "health": "UNAVAILABLE",
-      "updated_at": "2026-11-05T16:42:53.671Z"
+      "updated_at": "2026-11-06T02:02:17.699Z"
     },
     {
       "id": "scanhealth_a8dbda65-7ff4-49ab-9e5c-85970791b1e8",
@@ -199,12 +199,12 @@
       "failure_count": 0,
       "findings_count": 0,
       "health": "UNAVAILABLE",
-      "updated_at": "2026-11-05T16:40:14.202Z"
+      "updated_at": "2026-11-06T01:55:14.977Z"
     }
   ],
   "findings": [],
   "posture": {
-    "project_id": "proj_c3c9d3e1-2643-48d8-8b14-e91dc9872972",
+    "project_id": "proj_3b415683-726d-4df9-a755-1dfde997c174",
     "status": "BLOCKED",
     "risk_score": 20,
     "critical": 0,
@@ -214,14 +214,14 @@
     "unknown": 0,
     "open_findings": 1,
     "verified_artifacts": 2,
-    "last_scan": "2026-11-05T16:42:53.608Z",
+    "last_scan": "2026-11-06T02:02:17.609Z",
     "last_release": null,
     "last_verified_deployment": null
   },
   "evidence": [],
   "policy": {
     "policy_version": "1.0",
-    "execution_id": "exec_a0df6965-ddce-4e4d-b5aa-e4aa3a6d749d",
+    "execution_id": "exec_7b1fc632-54ec-46f6-aa10-5171a77be483",
     "artifact_digest": "sha256:artifactA",
     "decision": "BLOCKED",
     "reasons": [
@@ -252,18 +252,18 @@
         "Missing evidence for required category: SIGNATURE"
       ]
     },
-    "id": "poleval_783eb4fb-3035-4add-9a99-c4300619c426",
-    "timestamp": "2026-11-05T16:42:53.682Z"
+    "id": "poleval_c0d0c6ff-a7f1-4a05-929c-3ffd3b5257f6",
+    "timestamp": "2026-11-06T02:02:17.726Z"
   },
   "drift": [
     {
-      "id": "drift_99cecdd3-2c3b-4a2b-b825-d2c5a45f0d78",
-      "project_id": "proj_c3c9d3e1-2643-48d8-8b14-e91dc9872972",
+      "id": "drift_1bdc38ef-b60d-4c82-84ce-98ab4ce6ecdc",
+      "project_id": "proj_3b415683-726d-4df9-a755-1dfde997c174",
       "artifact_digest_expected": "sha256:expected",
       "artifact_digest_actual": "sha256:actual",
       "type": "artifact_changed",
       "details": "{\"expected\":\"sha256:expected\",\"actual\":\"sha256:actual\"}",
-      "detected_at": "2026-11-05T16:42:53.677Z"
+      "detected_at": "2026-11-06T02:02:17.716Z"
     }
   ],
   "failures": [],
@@ -271,9 +271,9 @@
   "findings_for_second_execution": [
     {
       "finding_id": "secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
-      "evidence_id": "secevid_58be1da0-e0bc-4fc0-b407-71be09114c2e",
-      "project_id": "proj_c3c9d3e1-2643-48d8-8b14-e91dc9872972",
-      "execution_id": "exec_e4914cfd-5bf7-4b11-a221-a6454ca5ec49",
+      "evidence_id": "secevid_5b297004-1ef5-4331-b91b-17b2b722a460",
+      "project_id": "proj_3b415683-726d-4df9-a755-1dfde997c174",
+      "execution_id": "exec_749fd189-cdc8-4781-b25f-fd852708f1e6",
       "artifact_digest": "sha256:artifactB",
       "scanner": "semgrep",
       "category": "SAST",
@@ -283,17 +283,17 @@
       "file": "src/config.ts",
       "line": 42,
       "first_seen": "2026-11-05T14:20:48.191Z",
-      "last_seen": "2026-11-05T16:42:53.638Z",
+      "last_seen": "2026-11-06T02:02:17.634Z",
       "status": "CONFIRMED",
       "created_at": "2026-11-05T14:20:48.191Z",
-      "updated_at": "2026-11-05T16:42:53.662Z"
+      "updated_at": "2026-11-06T02:02:17.685Z"
     }
   ],
   "reopened_finding": {
     "finding_id": "secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
-    "evidence_id": "secevid_58be1da0-e0bc-4fc0-b407-71be09114c2e",
-    "project_id": "proj_c3c9d3e1-2643-48d8-8b14-e91dc9872972",
-    "execution_id": "exec_e4914cfd-5bf7-4b11-a221-a6454ca5ec49",
+    "evidence_id": "secevid_5b297004-1ef5-4331-b91b-17b2b722a460",
+    "project_id": "proj_3b415683-726d-4df9-a755-1dfde997c174",
+    "execution_id": "exec_749fd189-cdc8-4781-b25f-fd852708f1e6",
     "artifact_digest": "sha256:artifactB",
     "scanner": "semgrep",
     "category": "SAST",
@@ -303,10 +303,10 @@
     "file": "src/config.ts",
     "line": 42,
     "first_seen": "2026-11-05T14:20:48.191Z",
-    "last_seen": "2026-11-05T16:42:53.638Z",
+    "last_seen": "2026-11-06T02:02:17.634Z",
     "status": "CONFIRMED",
     "created_at": "2026-11-05T14:20:48.191Z",
-    "updated_at": "2026-11-05T16:42:53.662Z"
+    "updated_at": "2026-11-06T02:02:17.685Z"
   },
   "observations": [
     {
@@ -540,10 +540,58 @@
       "observed_at": "2026-11-05T16:42:53.639Z",
       "severity": "HIGH",
       "raw_data": "{\"title\":\"Hardcoded secret in config\",\"severity\":\"HIGH\",\"file\":\"src/config.ts\",\"line\":42,\"scanner\":\"gitleaks\"}"
+    },
+    {
+      "id": "secobs_737b693e-5da4-4dca-86ff-9e816f5f05ed",
+      "finding_id": "secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
+      "execution_id": "exec_ba7f7d01-a15b-4b19-a9c1-8ba4adc7f097",
+      "observed_at": "2026-11-06T01:55:14.912Z",
+      "severity": "HIGH",
+      "raw_data": "{\"title\":\"Hardcoded secret in config\",\"severity\":\"HIGH\",\"file\":\"src/config.ts\",\"line\":42,\"scanner\":\"gitleaks\"}"
+    },
+    {
+      "id": "secobs_0107159f-275f-4d32-b727-9b00f675cfa4",
+      "finding_id": "secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
+      "execution_id": "exec_ba7f7d01-a15b-4b19-a9c1-8ba4adc7f097",
+      "observed_at": "2026-11-06T01:55:14.913Z",
+      "severity": "HIGH",
+      "raw_data": "{\"title\":\"Hardcoded secret in config\",\"severity\":\"HIGH\",\"file\":\"src/config.ts\",\"line\":42,\"scanner\":\"gitleaks\"}"
+    },
+    {
+      "id": "secobs_ab98ce7a-4848-4d38-b0c7-7ef9610137fb",
+      "finding_id": "secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
+      "execution_id": "exec_fa54a6af-b265-4343-a8ae-cfcb0cd75290",
+      "observed_at": "2026-11-06T01:55:14.921Z",
+      "severity": "HIGH",
+      "raw_data": "{\"title\":\"Hardcoded secret in config\",\"severity\":\"HIGH\",\"file\":\"src/config.ts\",\"line\":42,\"scanner\":\"gitleaks\"}"
+    },
+    {
+      "id": "secobs_c4fd56b1-8b1c-42c7-8da8-20b79df9f92f",
+      "finding_id": "secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
+      "execution_id": "exec_7b1fc632-54ec-46f6-aa10-5171a77be483",
+      "observed_at": "2026-11-06T02:02:17.621Z",
+      "severity": "HIGH",
+      "raw_data": "{\"title\":\"Hardcoded secret in config\",\"severity\":\"HIGH\",\"file\":\"src/config.ts\",\"line\":42,\"scanner\":\"gitleaks\"}"
+    },
+    {
+      "id": "secobs_d366e728-12ea-4746-b335-4e939bb5f893",
+      "finding_id": "secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
+      "execution_id": "exec_7b1fc632-54ec-46f6-aa10-5171a77be483",
+      "observed_at": "2026-11-06T02:02:17.623Z",
+      "severity": "HIGH",
+      "raw_data": "{\"title\":\"Hardcoded secret in config\",\"severity\":\"HIGH\",\"file\":\"src/config.ts\",\"line\":42,\"scanner\":\"gitleaks\"}"
+    },
+    {
+      "id": "secobs_1f6bb103-20c9-42b4-97d2-3eae0e72800f",
+      "finding_id": "secfind_ebdad6f4-9e17-44a1-9fcb-07cb948060bf",
+      "execution_id": "exec_749fd189-cdc8-4781-b25f-fd852708f1e6",
+      "observed_at": "2026-11-06T02:02:17.636Z",
+      "severity": "HIGH",
+      "raw_data": "{\"title\":\"Hardcoded secret in config\",\"severity\":\"HIGH\",\"file\":\"src/config.ts\",\"line\":42,\"scanner\":\"gitleaks\"}"
     }
   ],
   "executions": {
-    "primary": "exec_a0df6965-ddce-4e4d-b5aa-e4aa3a6d749d",
-    "secondary": "exec_e4914cfd-5bf7-4b11-a221-a6454ca5ec49"
+    "primary": "exec_7b1fc632-54ec-46f6-aa10-5171a77be483",
+    "secondary": "exec_749fd189-cdc8-4781-b25f-fd852708f1e6"
   }
 }
