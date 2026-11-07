@@ -6,13 +6,45 @@ import { RemoteDispatchRecord } from "./execution-models";
 export class RemoteExecutionManager {
     private dispatches = new Map<string, { adapter: RemoteExecutionAdapter; status: string }>();
 
+    private initialized = false;
+
     constructor(
         private adapter: RemoteExecutionAdapter,
         private store?: ExecutionStore
     ) {
-        if (store) {
-            this.reconcilePersistedDispatches(store.listAllRemoteDispatches());
+        // Phase 300 / WP5: constructor no longer triggers reconciliation.
+        // Callers MUST await initializeAsync() before dispatch/getStatus/
+        // collectResult to guarantee durable state has been reconciled.
+        // Unawaited reconciliation in the constructor was a race with
+        // adapter readiness and could observe stale durable state.
+    }
+
+    /**
+     * Phase 300 / WP5: explicit asynchronous initialization.
+     * Loads authoritative dispatch records from the configured backend and
+     * reconciles non-terminal dispatches. Must be awaited by the caller
+     * (kernel or test harness) before using the manager.
+     */
+    public async initializeAsync(): Promise<void> {
+        if (this.initialized) return;
+        this.initialized = true;
+        if (this.store) {
+            const records = await this.loadPersistedDispatches();
+            await this.reconcilePersistedDispatches(records);
         }
+    }
+
+    /**
+     * Phase 300 / WP5: prefer async backend if available, else sync fallback.
+     * ExecutionStore.hasAsyncBackend() gates the path; when absent this is
+     * exactly store.listAllRemoteDispatches() (SQLite-only mode preserved).
+     */
+    private async loadPersistedDispatches(): Promise<RemoteDispatchRecord[]> {
+        if (!this.store) return [];
+        if (this.store.hasAsyncBackend()) {
+            return await this.store.listAllRemoteDispatchesAsync();
+        }
+        return this.store.listAllRemoteDispatches();
     }
 
     public async reconcilePersistedDispatches(records: RemoteDispatchRecord[]): Promise<void> {

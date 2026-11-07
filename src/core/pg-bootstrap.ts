@@ -876,6 +876,55 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
         ON remote_dispatches (status)
     `);
 
+    // Phase 300 / WP8: remote_execution_results was missing from pg-bootstrap.
+    // The SQLite migration path (022 + 025) and the live Postgres DB both have
+    // this table, but a fresh PG instance bootstrapped by this file would
+    // have failed every result write. Mirrors:
+    //   src/db/migrations/022_phase16_remote_execution.sql (base table + job index)
+    //   src/db/migrations/025_phase17_artifact_result_integrity.sql (sha256 +
+    //     verification_status + verified_at columns)
+    //   src/db/migrations/176_phase268_remote_execution_results_integrity.sql
+    //     (unique dispatch index + worker index)
+    // success kept as INTEGER to mirror migration 022's SQLite DDL and to
+    // preserve compatibility with addRemoteExecutionResult()'s 0/1 binding.
+    // verified_at / created_at promoted to BIGINT for epoch-millis parity
+    // with remote_dispatches and to avoid the 2038 SQLite INTEGER overflow.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS remote_execution_results (
+        result_id              TEXT PRIMARY KEY,
+        job_id                 TEXT NOT NULL,
+        attempt_id             TEXT,
+        worker_id              TEXT,
+        dispatch_id            TEXT,
+        lease_id               TEXT,
+        success                INTEGER NOT NULL,
+        exit_code              INTEGER,
+        stdout_ref             TEXT,
+        stderr_ref             TEXT,
+        evidence               TEXT,
+        created_at             BIGINT NOT NULL,
+        stdout_sha256          TEXT,
+        stderr_sha256          TEXT,
+        result_sha256          TEXT,
+        verification_status    TEXT DEFAULT 'PENDING',
+        verified_at            BIGINT,
+        FOREIGN KEY (job_id) REFERENCES execution_jobs(id),
+        FOREIGN KEY (dispatch_id) REFERENCES remote_dispatches(dispatch_id) ON DELETE CASCADE
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_remote_results_job
+        ON remote_execution_results (job_id)
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_results_dispatch
+        ON remote_execution_results (dispatch_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_remote_results_worker
+        ON remote_execution_results (worker_id, created_at DESC)
+    `);
+
     // Phase 261: transactional outbox for engineering_run_events.
     // Records delivery intent atomically with the job transition that
     // produced it. Consumed by EngineeringRunEventDrainer. Destination

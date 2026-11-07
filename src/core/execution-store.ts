@@ -4917,6 +4917,17 @@ export class ExecutionStore {
         return rows.map((row: any) => this.mapRemoteDispatch(row));
     }
 
+    // Phase 300 / WP5: async sibling of listAllRemoteDispatches().
+    // Routes through the shared backend when configured. Callers must check
+    // hasAsyncBackend() first; this method refuses to fall back to SQLite.
+    async listAllRemoteDispatchesAsync(): Promise<RemoteDispatchRecord[]> {
+        const engine = this.requireAsyncDb();
+        const rows = await engine.prepareAsync(
+            "SELECT * FROM remote_dispatches"
+        ).all<any>();
+        return rows.map((row) => this.mapRemoteDispatch(row));
+    }
+
     private mapRemoteDispatch(row: any): RemoteDispatchRecord {
         return {
             dispatchId: row.dispatch_id,

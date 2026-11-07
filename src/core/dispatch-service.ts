@@ -241,7 +241,7 @@ export class DispatchService implements ExecutionDispatchPort {
             }
         }
 
-        const fresh = this.store.getRemoteDispatch(dispatchId);
+        const fresh = await this.readDispatchRecord(dispatchId);
         if (!fresh) return { cancelled: false, reason: "dispatch_vanished" };
         if (fresh.status === "CANCELLED") return { cancelled: true };
         if (fresh.status === "COMPLETED" || fresh.status === "FAILED") {
