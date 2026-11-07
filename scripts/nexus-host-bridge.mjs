@@ -114,6 +114,7 @@ const EXECUTABLES = {
 
 /* Shell metacharacters are rejected outright -> matches sanitizeArgs() in the UI. */
 const SHELL_META = /[;&|`$<>(){}[\]!#*?~^"'\\\n\r]/;
+const WINDOWS_ENV_EXPANSION = /%[A-Za-z_][A-Za-z0-9_]*%/;
 const LOCAL_URL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?(\/[^\s]*)?$/;
 
 /* --------------------- trusted scripts (canonical copy) -------------------- */
@@ -216,6 +217,7 @@ function validateArg(a) {
   if (typeof a !== "string" || a.length === 0) throw new Error("empty argument is not allowed");
   if (a.length > MAX_ARG_LEN) throw new Error(`argument exceeds ${MAX_ARG_LEN} characters`);
   if (SHELL_META.test(a)) throw new Error("argument contains shell metacharacters and was rejected");
+  if (WINDOWS_ENV_EXPANSION.test(a)) throw new Error("Windows environment-variable expansion is not allowed");
   if (a.includes("..")) throw new Error("path traversal ('..') is not allowed in arguments");
   if (/[\x00-\x1f\x7f]/.test(a)) throw new Error("argument contains control characters");
   if (a.includes("\\")) throw new Error("backslashes are not allowed in arguments");

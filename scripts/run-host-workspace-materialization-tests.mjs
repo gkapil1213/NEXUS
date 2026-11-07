@@ -431,7 +431,7 @@ try {
 
     assertEq(r.status, 400, `expected 400 for %PATH%, got ${r.status}`);
     const b = await r.json();
-    assert(/shell metacharacters/i.test(String(b.error)),
+    assert(/shell metacharacters|environment-variable expansion/i.test(String(b.error)),
       `unexpected rejection reason: ${b.error}`);
   });
 } finally {
