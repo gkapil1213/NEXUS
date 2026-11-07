@@ -490,14 +490,30 @@ export class WorkerGateway {
           updatedAt: Date.now(),
         };
 
-        // Atomic persist
-        const persist = this.executionStore.persistRemoteExecutionResultAndDispatchAsOwner(
-          durableResult,
-          updatedDispatch,
-          result.leaseId,
-          result.workerId || workerId,
-        );
-        if (!persist.persisted) { throw new Error("ownership_lost"); }
+        // Phase 300 / WP3+WP4: shared mode uses the async, transaction-wrapped
+        // persist so the result INSERT and dispatch UPDATE commit atomically
+        // against PostgreSQL. SQLite-only mode keeps the existing sync path.
+        let persist:
+          | { persisted: true }
+          | { persisted: false; deduplicated?: boolean; reason?: string };
+        if (this.executionStore.hasAsyncBackend()) {
+          persist = await this.executionStore.persistRemoteExecutionResultAndDispatchAsOwnerAsync(
+            durableResult,
+            updatedDispatch,
+            result.leaseId,
+            result.workerId || workerId,
+          );
+        } else {
+          persist = this.executionStore.persistRemoteExecutionResultAndDispatchAsOwner(
+            durableResult,
+            updatedDispatch,
+            result.leaseId,
+            result.workerId || workerId,
+          );
+        }
+        if (!persist.persisted && !("deduplicated" in persist && persist.deduplicated)) {
+          throw new Error("ownership_lost");
+        }
         return { type: "JOB_RESULT_ACK" };
       }
       case "JOB_CANCEL": {

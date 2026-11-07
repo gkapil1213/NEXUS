@@ -385,6 +385,11 @@ const memberships = new ProjectMembershipStore(rawDb);
             throw Err.startup("GATEWAY_UNAVAILABLE", "WorkerGateway requires Vite SSR runtime");
           }
           const remoteExecutionManager = new RemoteExecutionManager(remoteAdapter, executionStore);
+          // Phase 300 / WP5: await authoritative reconciliation before exposing
+          // the manager. If this throws, boot() re-throws (already clears
+          // bootPromise on failure) and the caller must retry boot() — the
+          // manager is never exposed half-initialized.
+          await remoteExecutionManager.initializeAsync();
           const jobDispatcher = new JobDispatcher(workerRegistry, remoteExecutionManager, executionStore, leaseManager);
           const dispatchService = new DispatchService(jobDispatcher, remoteExecutionManager, executionStore);
           this.dispatchService = dispatchService;

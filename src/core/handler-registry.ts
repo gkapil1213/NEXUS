@@ -131,13 +131,34 @@ async function jobResultHandler(ctx: HandlerContext): Promise<any> {
     updatedAt: Date.now(),
   };
 
-  const persist = ctx.executionStore.persistRemoteExecutionResultAndDispatchAsOwner(
-    durableResult,
-    updatedDispatch,
-    result.leaseId,
-    result.workerId || ctx.workerId,
-  );
-  if (!persist.persisted) throw new Error("ownership_lost");
+  // Phase 300 / WP3+WP4: shared mode routes the durable write through the
+  // async, transaction-wrapped sibling so the result INSERT and dispatch
+  // UPDATE commit atomically against PostgreSQL. SQLite-only mode keeps the
+  // existing sync path unchanged.
+  let persist:
+    | { persisted: true }
+    | { persisted: false; deduplicated?: boolean; reason?: string };
+  if (ctx.executionStore.hasAsyncBackend()) {
+    persist = await ctx.executionStore.persistRemoteExecutionResultAndDispatchAsOwnerAsync(
+      durableResult,
+      updatedDispatch,
+      result.leaseId,
+      result.workerId || ctx.workerId,
+    );
+  } else {
+    persist = ctx.executionStore.persistRemoteExecutionResultAndDispatchAsOwner(
+      durableResult,
+      updatedDispatch,
+      result.leaseId,
+      result.workerId || ctx.workerId,
+    );
+  }
+  // deduplicated:true means a concurrent writer landed the same result while
+  // this call was in flight. That is a valid ACK (spec: "Identical previously
+  // persisted result: ACK"), not an ownership loss.
+  if (!persist.persisted && !("deduplicated" in persist && persist.deduplicated)) {
+    throw new Error("ownership_lost");
+  }
   return { type: "JOB_RESULT_ACK" };
 }
 
