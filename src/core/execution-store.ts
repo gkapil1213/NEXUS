@@ -4834,13 +4834,45 @@ export class ExecutionStore {
         }
     }
 
+    // Phase 300 / WP1+WP5: atomic upsert via INSERT ... ON CONFLICT (dispatch_id).
+    // The previous SELECT-then-INSERT/UPDATE was non-atomic across processes:
+    // two concurrent upserts of a new dispatch_id both hit the addRemoteDispatchAsync
+    // branch and one failed on the primary key. The idempotency_key unique
+    // constraint remains handled by createRemoteDispatchIfAbsentAsync — this
+    // method intentionally only handles dispatch_id conflicts, because a
+    // cross-dispatch idempotency-key collision is a real integrity violation
+    // that must surface to the caller, not be silently absorbed.
+    // Immutable identity fields (job_id, attempt_id, worker_id, lease_id,
+    // idempotency_key, created_at) are deliberately excluded from DO UPDATE.
     async upsertRemoteDispatchAsync(record: RemoteDispatchRecord): Promise<void> {
-        const existing = await this.getRemoteDispatchAsync(record.dispatchId);
-        if (existing) {
-            await this.updateRemoteDispatchAsync(record);
-        } else {
-            await this.addRemoteDispatchAsync(record);
-        }
+        const engine = this.requireAsyncDb();
+        await engine.prepareAsync(
+            "INSERT INTO remote_dispatches (" +
+            "  dispatch_id, job_id, attempt_id, worker_id, lease_id," +
+            "  idempotency_key, status, external_provider_id, request," +
+            "  result, error, created_at, updated_at" +
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+            "ON CONFLICT (dispatch_id) DO UPDATE SET " +
+            "  status = EXCLUDED.status, " +
+            "  external_provider_id = EXCLUDED.external_provider_id, " +
+            "  result = EXCLUDED.result, " +
+            "  error = EXCLUDED.error, " +
+            "  updated_at = EXCLUDED.updated_at"
+        ).run(
+            record.dispatchId,
+            record.jobId,
+            record.attemptId,
+            record.workerId,
+            record.leaseId,
+            record.idempotencyKey,
+            record.status,
+            record.externalProviderId,
+            record.request ? JSON.stringify(record.request) : null,
+            record.result ? JSON.stringify(record.result) : null,
+            record.error,
+            record.createdAt,
+            record.updatedAt
+        );
     }
 
     createRemoteDispatchIfAbsent(record: RemoteDispatchRecord): { record: RemoteDispatchRecord; created: boolean } {
@@ -4906,6 +4938,31 @@ export class ExecutionStore {
         }
         return undefined;
     }
+
+    // Phase 300 / WP2: async sibling of claimNextDispatchForWorker.
+    // Atomic across processes via a single UPDATE...WHERE dispatch_id = (
+    //   SELECT ... FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING *.
+    // Only DISPATCHED -> DELIVERED is claimed, matching the sync method's
+    // transition and eligibility filter. Returns undefined when no
+    // DISPATCHED row exists for this worker.
+    async claimNextDispatchForWorkerAsync(
+        workerId: string
+    ): Promise<RemoteDispatchRecord | undefined> {
+        const engine = this.requireAsyncDb();
+        const now = Date.now();
+        const row = await engine.prepareAsync(
+            "UPDATE remote_dispatches SET status = 'DELIVERED', updated_at = ? " +
+            "WHERE dispatch_id = ( " +
+            "  SELECT dispatch_id FROM remote_dispatches " +
+            "  WHERE worker_id = ? AND status = 'DISPATCHED' " +
+            "  ORDER BY created_at ASC " +
+            "  FOR UPDATE SKIP LOCKED LIMIT 1 " +
+            ") " +
+            "RETURNING *"
+        ).get<any>(now, workerId);
+        return row ? this.mapRemoteDispatch(row) : undefined;
+    }
+
     upsertRemoteDispatch(record: RemoteDispatchRecord): void {
         const existing = this.getRemoteDispatch(record.dispatchId);
         if (existing) {
@@ -4997,6 +5054,16 @@ export class ExecutionStore {
 
     getRemoteExecutionResultByDispatchId(dispatchId: string): RemoteExecutionResult | undefined {
         const row = this.db.prepare("SELECT * FROM remote_execution_results WHERE dispatch_id = ?").get(dispatchId);
+        return row ? this.mapRemoteExecutionResult(row) : undefined;
+    }
+
+    // Phase 300 / WP4: async sibling so the gateway JOB_RESULT preflight can
+    // read the existing result from the authoritative backend in shared mode.
+    async getRemoteExecutionResultByDispatchIdAsync(dispatchId: string): Promise<RemoteExecutionResult | undefined> {
+        const engine = this.requireAsyncDb();
+        const row = await engine.prepareAsync(
+            "SELECT * FROM remote_execution_results WHERE dispatch_id = ?"
+        ).get<any>(dispatchId);
         return row ? this.mapRemoteExecutionResult(row) : undefined;
     }
 
