@@ -1,0 +1,32 @@
+Phase 300 WP4 - Worker Gateway Routing
+Date: 2026-11-08
+Branch: phase-300-implementation
+Committed baseline before WP4 evidence: ca1ed84
+Test script: scripts/test-phase300-wp4-gateway-routing.ts
+
+Execution configuration:
+- NEXUS_PERSISTENCE_MODE=shared
+- DATABASE_URL: set (value intentionally not recorded)
+- TypeScript: npx tsc --noEmit -p . completed with exit code 0
+- Integration test: npx tsx scripts/test-phase300-wp4-gateway-routing.ts
+
+Results:
+WP4-1 PASS - Successful JOB_RESULT through gateway; PostgreSQL row persisted; dispatch COMPLETED.
+WP4-2 PASS - Wrong worker rejected; no result write.
+WP4-3 PASS - Matching duplicate acknowledged; exactly one result row.
+WP4-4 PASS - Valid conflicting duplicate rejected; original result preserved.
+WP4-5 PASS - Missing dispatch rejected with dispatch_ownership_violation.
+WP4-6 PASS - Three distinct rejection paths mapped to distinct error strings.
+WP4-7 PASS - SQLite-only synchronous fallback acknowledged and persisted; dispatch COMPLETED.
+
+Summary:
+PASS: 7
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+
+Scope:
+This evidence verifies the seven WP4 test cases only. It does not establish
+completion of WP5, WP6, WP7, WP8, or overall Phase 300 acceptance.
+The test script and this evidence record were uncommitted at the time
+of this record.
