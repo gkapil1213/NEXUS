@@ -1,0 +1,43 @@
+﻿Date: 2026-11-08
+WP:   WP2 — Atomic worker claiming
+Base commit: 01519e7
+Test files:
+  scripts/test-phase300-wp2-atomic-claiming.ts (parent test)
+  scripts/wp2-claim-worker.ts (child worker spawned by WP2-5)
+Command: npx tsx .\scripts\test-phase300-wp2-atomic-claiming.ts
+Environment: NEXUS_PERSISTENCE_MODE=shared, DATABASE_URL set (from .env)
+Isolation: dedicated database nexus_p300wp2_<random>, created and dropped per run
+
+------------------------------------------------------------
+Output (verbatim):
+
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp2_0f1a0ad3f4a1
+[PASS] WP2-1 single worker claims a dispatch -- claimed wp2-1-2f2bd883-50a6-4624-9eb8-22ba0c9432e0
+[PASS] WP2-2 two in-process workers compete; exactly one wins -- one claim, one winner
+[PASS] WP2-3 empty queue returns undefined -- undefined on empty queue
+[PASS] WP2-4 multiple workers claim multiple dispatches, no duplicates -- 8 claims, 8 unique, no cross-worker overlap
+[PASS] WP2-5 two independent PROCESSES compete; every dispatch claimed exactly once -- N=20 A=11 B=9 unique=20
+[PASS] WP2-6 claim state durable across fresh store instances -- durable across instances; no re-claim
+  [cleanup] dropped isolated database nexus_p300wp2_0f1a0ad3f4a1
+
+===== Phase 300 WP2 summary =====
+PASS: 6
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+
+------------------------------------------------------------
+Notes:
+
+- Cross-process evidence: WP2-5 spawns two independent Node processes
+  (child_process.spawn) each with its own PgClient pool to the isolated DB.
+  Each calls claimNextDispatchForWorkerAsync in a tight loop until the queue
+  is empty. Parent asserts: (a) every seeded dispatch is in the union of the
+  two claim lists, (b) no dispatch appears twice, (c) the two lists have no
+  overlap. Result: A=11, B=9, unique=20, no overlap.
+- Cross-instance evidence: WP2-4 uses two ExecutionStore instances with
+  independent PgClient pools within one process.
+- Failure encountered and fixed: initial WP2-5 run failed with "___dirname
+  is not defined" in ESM context. Fixed by adding
+  fileURLToPath(import.meta.url) as the __dirname equivalent. Re-run passed.
