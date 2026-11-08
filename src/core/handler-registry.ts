@@ -89,11 +89,17 @@ async function jobOfferHandler(ctx: HandlerContext): Promise<any> {
 async function jobResultHandler(ctx: HandlerContext): Promise<any> {
   const { jobId, result } = ctx.payload;
   if (!ctx.executionStore) throw new Error("durable_store_unavailable");
-  const dispatch = ctx.executionStore.getRemoteDispatch(result.dispatchId);
+  // Phase 300 / WP4: same routing as the gateway preflight. Shared mode
+  // uses the async siblings; SQLite-only mode keeps the sync path.
+  const dispatch = ctx.executionStore.hasAsyncBackend()
+    ? await ctx.executionStore.getRemoteDispatchAsync(result.dispatchId)
+    : ctx.executionStore.getRemoteDispatch(result.dispatchId);
   if (!dispatch || dispatch.workerId !== ctx.workerId || dispatch.jobId !== jobId) {
     throw new Error("dispatch_ownership_violation");
   }
-  const existing = ctx.executionStore.getRemoteExecutionResultByDispatchId(result.dispatchId);
+  const existing = ctx.executionStore.hasAsyncBackend()
+    ? await ctx.executionStore.getRemoteExecutionResultByDispatchIdAsync(result.dispatchId)
+    : ctx.executionStore.getRemoteExecutionResultByDispatchId(result.dispatchId);
   if (existing) {
     if (existing.resultSha256 === result.resultSha256) {
       return { type: "JOB_RESULT_ACK" };

@@ -281,11 +281,20 @@ export class WorkerGateway {
     if (type === "JOB_RESULT") {
       const { jobId: resultJobId, result } = payload;
       if (!this.executionStore) throw new Error("durable_store_unavailable");
-      const dispatch = this.executionStore.getRemoteDispatch(result.dispatchId);
+      // Phase 300 / WP4: shared mode routes preflight reads through PostgreSQL.
+      // The SQLite-only path is unchanged. Before this change, the JOB_RESULT
+      // preflight read dispatch and existing-result state from SQLite even in
+      // shared-persistence mode, which is the exact "hidden synchronous SQLite
+      // fallback" the completion directive (§5) prohibits.
+      const dispatch = this.executionStore.hasAsyncBackend()
+        ? await this.executionStore.getRemoteDispatchAsync(result.dispatchId)
+        : this.executionStore.getRemoteDispatch(result.dispatchId);
       if (!dispatch || dispatch.workerId !== workerId || dispatch.jobId !== resultJobId) {
         throw new Error("dispatch_ownership_violation");
       }
-      const existing = this.executionStore.getRemoteExecutionResultByDispatchId(result.dispatchId);
+      const existing = this.executionStore.hasAsyncBackend()
+        ? await this.executionStore.getRemoteExecutionResultByDispatchIdAsync(result.dispatchId)
+        : this.executionStore.getRemoteExecutionResultByDispatchId(result.dispatchId);
       if (existing) {
         if (existing.resultSha256 !== result.resultSha256) {
           throw new Error("conflicting_duplicate_result");
