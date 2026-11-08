@@ -1,0 +1,44 @@
+﻿Date: 2026-11-08
+WP:   WP1 — Dispatch persistence
+Commit: 46f707a (base) + scripts/test-phase300-wp1-dispatch-persistence.ts (this commit)
+Command: npx tsx .\scripts\test-phase300-wp1-dispatch-persistence.ts
+Environment: NEXUS_PERSISTENCE_MODE=shared, DATABASE_URL set (from .env)
+Isolation: dedicated database nexus_p300wp1_<random>, created and dropped per run
+Test file: scripts/test-phase300-wp1-dispatch-persistence.ts (364 lines)
+
+------------------------------------------------------------
+Output (verbatim):
+
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp1_97109ebebf0b
+[PASS] WP1-1 createRemoteDispatchIfAbsentAsync creates a new dispatch -- row inserted
+[PASS] WP1-2 getRemoteDispatchAsync returns the exact row -- read back exact row
+[PASS] WP1-3 getRemoteDispatchByExternalProviderIdAsync returns the same dispatch -- resolved by provider id
+[PASS] WP1-4 getRemoteDispatchByJobIdempotencyKeyAsync returns the same dispatch -- resolved by idempotency key
+[PASS] WP1-5 duplicate creation returns created=false and the original record -- created=false, original preserved
+[PASS] WP1-6 concurrent creation for one idempotency key yields one row and one winner -- winners=1, rows=1
+[PASS] WP1-7 conflicting idempotency_key with different dispatch_id returns the original -- conflict rejected, original preserved
+[PASS] WP1-8 independent store instance sees a dispatch created by another instance -- cross-instance read confirmed
+  [cleanup] dropped isolated database nexus_p300wp1_97109ebebf0b
+
+===== Phase 300 WP1 summary =====
+PASS: 8
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+
+------------------------------------------------------------
+Notes:
+
+- Idempotency-key semantic: keep-global. remote_dispatches.idempotency_key is
+  globally UNIQUE (migration 172). WP1-7 asserts that a second dispatch with
+  a different dispatch_id but the same idempotency_key is rejected with
+  created=false and the original record is returned. This preserves the
+  existing behavior per section 2 of the completion directive.
+
+- Cross-instance evidence: WP1-1, WP1-6, WP1-8 use independent ExecutionStore
+  instances backed by independent PgClient pools. storeA and storeB do not
+  share in-process memory; their only shared state is the isolated database.
+
+- Not cross-process. Cross-process verification is required by section 10
+  and is scoped to WP2 + cross-instance-verification.md.
