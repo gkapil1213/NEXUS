@@ -61,7 +61,12 @@ export class RemoteExecutionManager {
             if (this.dispatches.has(record.dispatchId)) continue;
 
             // Terminal states are already durable; do not overwrite them.
-            if (record.status === "COMPLETED" || record.status === "FAILED" || record.status === "CANCELLED") {
+            if (
+                record.status === "COMPLETED" ||
+                record.status === "FAILED" ||
+                record.status === "CANCELLED" ||
+                record.status === "BLOCKED"
+            ) {
                 this.dispatches.set(record.dispatchId, { adapter: this.adapter, status: record.status });
                 continue;
             }
@@ -87,7 +92,8 @@ export class RemoteExecutionManager {
                 const isTerminal =
                     fresh.status === "COMPLETED" ||
                     fresh.status === "FAILED" ||
-                    fresh.status === "CANCELLED";
+                    fresh.status === "CANCELLED" ||
+                    fresh.status === "BLOCKED";
                 if (!isTerminal) {
                     await this.writeDispatch({
                         ...fresh,

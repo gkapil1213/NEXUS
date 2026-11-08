@@ -1,0 +1,50 @@
+﻿Date: 2026-11-08
+WP:   WP5 - RemoteExecutionManager reconciliation (Postgres + SQLite)
+Base commit: 1aa6ec2
+Test files:
+  scripts/test-phase300-wp5-reconciliation.ts       (Postgres, 10 PASS + 1 NOT EXECUTED)
+  scripts/test-phase300-wp5-sqlite-fallback.ts      (SQLite, 6 PASS)
+Environment: NEXUS_PERSISTENCE_MODE=shared for Postgres; hasAsyncBackend=false for SQLite
+
+Postgres output (verbatim):
+
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp5_885514b47482
+[PASS] WP5-1 first initializeAsync on empty DB succeeds -- init ok, no status calls
+[PASS] WP5-2 concurrent initializeAsync calls coalesce -- 3 concurrent init calls, dispatch queried 1 time(s)
+[PASS] WP5-3 provider status failure persists UNKNOWN without rejecting initialization -- adapter error caught; UNKNOWN persisted in PostgreSQL
+[PASS] WP5-4 initializeAsync is idempotent for repeat calls -- second initializeAsync is a no-op
+[PASS] WP5-5 reconcile updates non-terminal dispatch through adapter -- non-terminal dispatch updated to COMPLETED via adapter
+[PASS] WP5-6 COMPLETED FAILED and CANCELLED remain terminal -- COMPLETED, FAILED and CANCELLED preserved without adapter queries
+[N/E ] WP5-7 separate empty-database initialization -- WP5-1 already verifies initialization against a fresh empty isolated database; no duplicate database is created.
+[PASS] WP5-8 BLOCKED dispatch remains terminal and is not re-queried -- BLOCKED preserved; adapter was not queried
+[PASS] WP5-9 reconcile uses externalProviderId when present -- provider-id queried, dispatch reconciled to COMPLETED
+[PASS] WP5-10 concurrent BLOCKED state is not overwritten by stale provider response -- concurrent BLOCKED update survived stale provider COMPLETED response
+[PASS] WP5-11 initializeAsync retries after a transient persistence read failure -- first initialization rejected; second initialization recovered and persisted COMPLETED
+  [cleanup] dropped isolated database nexus_p300wp5_885514b47482
+
+===== Phase 300 WP5 summary =====
+PASS: 10
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 1
+
+SQLite fallback output (verbatim):
+
+backend=SQLite in-memory
+hasAsyncBackend=false
+[PASS] WP5-SQLITE-1 SQLite-only backend selected -- hasAsyncBackend=false
+[PASS] WP5-SQLITE-2 nonterminal dispatch reconciles and persists -- DISPATCHED reconciled to COMPLETED and persisted in SQLite
+[PASS] WP5-SQLITE-3 BLOCKED remains terminal -- BLOCKED preserved; adapter was not queried
+[PASS] WP5-SQLITE-4 all terminal states remain unchanged -- COMPLETED, FAILED, CANCELLED and BLOCKED preserved without provider calls
+[PASS] WP5-SQLITE-5 provider status failure persists UNKNOWN -- adapter failure handled; UNKNOWN persisted in SQLite
+[PASS] WP5-SQLITE-6 repeated initialization is idempotent -- second initializeAsync call performed no additional reconciliation
+
+===== Phase 300 WP5 SQLite fallback summary =====
+PASS: 6
+FAIL: 0
+TOTAL: 6
+
+Notes:
+- WP5-7 NOT EXECUTED is documented: WP5-1 already verifies initialization against a fresh empty isolated database; no separate database is provisioned for WP5-7.
+- Source change: remote-execution-manager.ts adds BLOCKED to both terminal-state checks in reconcilePersistedDispatches. Prior behaviour treated only COMPLETED|FAILED|CANCELLED as terminal, contradicting the rest of the codebase (dispatch-service.ts:102, execution-models.ts:187, execution-store.ts:363). Surfaced by WP5-8.
