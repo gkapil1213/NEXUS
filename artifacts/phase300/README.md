@@ -14,15 +14,16 @@ session.
 |-----|----------------------------------------|------------------------------------------------|
 | WP1 | Dispatch creation + retrieval          | PASS — 8/8 integration tests                  |
 | WP2 | Atomic worker claiming                 | PASS — 6/6 integration tests (cross-process)  |
-| WP3 | Result integrity + ownership           | PASS — 7/7 integration tests                  |
+| WP3 | Result integrity + ownership           | PASS — 7/7 single-process + 4/4 cross-process |
 | WP4 | Worker gateway routing                 | CODE COMPLETE — PARTIALLY EXERCISED           |
 | WP5 | RemoteExecutionManager reconciliation  | CODE COMPLETE — NOT TEST VERIFIED             |
 | WP6 | DispatchService cancellation + status  | CODE COMPLETE — NOT TEST VERIFIED             |
 | WP7 | Kernel initialization + readiness      | PARTIAL — startGateway boundary not inspected |
 | WP8 | Schema + migration integrity           | CODE COMPLETE — PARTIAL VERIFICATION          |
 
-Phase 300 overall: INCOMPLETE. WPs 1, 2, 3 are verified. WPs 4, 5, 6, 8 are
-code-complete but not test-verified. WP7 is partial. This is the honest
+Phase 300 overall: INCOMPLETE. WPs 1, 2, 3 are verified (WP3 with both
+single-process and cross-process evidence). WPs 4, 5, 6, 8 remain code-complete
+but not test-verified. WP7 is partial. This is the honest
 state per section 7 of the Phase 300 specification.
 
 ## Verified evidence

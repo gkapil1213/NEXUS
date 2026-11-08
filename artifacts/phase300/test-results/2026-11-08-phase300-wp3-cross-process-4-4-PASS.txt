@@ -1,0 +1,45 @@
+﻿Date: 2026-11-08 10:00:46
+WP:   WP3 - Result integrity, cross-PROCESS verification (additive to existing
+      single-process suite test-phase268-remote-result-integrity.ts)
+Base commit: 40dcffa
+Test files:
+  scripts/test-phase300-wp3-cross-process.ts (parent)
+  scripts/wp3-result-worker.ts (child worker)
+Command: npx tsx .\scripts\test-phase300-wp3-cross-process.ts
+Environment: NEXUS_PERSISTENCE_MODE=shared, DATABASE_URL set (from .env)
+Isolation: dedicated database nexus_p300wp3x_<random>, created and dropped per run
+Related: existing 7/7 suite at commit 977ed86 verified via
+         scripts/test-phase268-remote-result-integrity.ts - see
+         test-results/2026-11-08-phase268-ri-7-7-PASS.txt.
+
+------------------------------------------------------------
+Output (verbatim):
+
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp3x_0e5b94e6f630
+[PASS] WP3-X1 a result written by process A is visible to process B -- process A wrote, process B read, dispatch COMPLETED
+[PASS] WP3-X2 two processes submit identical result; one row; other sees duplicate -- winners=1 dupes=1 losers=0 rows=1
+[PASS] WP3-X3 two processes submit conflicting results; one row; other rejected -- 1 persisted, 1 rejected RESULT_CONFLICT, 1 row
+[PASS] WP3-X4 sequential identical submits across processes yield idempotent duplicate -- first persisted, second duplicate=true, 1 row
+  [cleanup] dropped isolated database nexus_p300wp3x_0e5b94e6f630
+
+===== Phase 300 WP3 cross-process summary =====
+PASS: 4
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+
+------------------------------------------------------------
+Notes:
+
+- This suite complements, does not replace, the existing 7/7 suite at
+  commit 977ed86.
+- Cross-process evidence:
+    WP3-X1: process A writes; process B (fresh PgClient) reads the result
+            and sees the dispatch reconciled to COMPLETED.
+    WP3-X2: two processes submit identical results concurrently; exactly
+            one row exists; the other sees an idempotent duplicate.
+    WP3-X3: two processes submit conflicting results concurrently; one
+            persisted, one rejected with RESULT_CONFLICT.
+    WP3-X4: sequential cross-process retry; second submission observes
+            { persisted: true, duplicate: true }.
