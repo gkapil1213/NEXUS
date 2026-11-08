@@ -4838,7 +4838,7 @@ export class ExecutionStore {
     // The previous SELECT-then-INSERT/UPDATE was non-atomic across processes:
     // two concurrent upserts of a new dispatch_id both hit the addRemoteDispatchAsync
     // branch and one failed on the primary key. The idempotency_key unique
-    // constraint remains handled by createRemoteDispatchIfAbsentAsync — this
+    // constraint remains handled by createRemoteDispatchIfAbsentAsync ï¿½ this
     // method intentionally only handles dispatch_id conflicts, because a
     // cross-dispatch idempotency-key collision is a real integrity violation
     // that must surface to the caller, not be silently absorbed.
@@ -5138,50 +5138,63 @@ export class ExecutionStore {
         workerId: string,
         now: number = Date.now(),
     ): Promise<
-        | { persisted: true }
-        | { persisted: false; deduplicated: true }
-        | { persisted: false; deduplicated: false; reason:
+        | { persisted: true; duplicate?: boolean }
+        | { persisted: false; reason:
             | "WORKER_OWNERSHIP_LOST"
-            | "JOB_ID_MISMATCH"
+            | "DISPATCH_IDENTITY_MISMATCH"
             | "LEASE_EXPIRED"
-            | "CONFLICTING_DUPLICATE_RESULT" }
+            | "RESULT_CONFLICT" }
     > {
+        // Phase 300 / WP3 v2: caller-identity invariants, pre-transaction.
+        // These run before any DB access, so no state is touched on a
+        // pure-comparison rejection. The three tests that require this are
+        // F (jobId), G (attemptId), and the duplicate-detection path in C.
+        if (dispatch.dispatchId !== result.dispatchId) {
+            return { persisted: false, reason: "DISPATCH_IDENTITY_MISMATCH" };
+        }
+        if (dispatch.jobId !== result.jobId) {
+            return { persisted: false, reason: "DISPATCH_IDENTITY_MISMATCH" };
+        }
+        if ((dispatch.attemptId ?? null) !== (result.attemptId ?? null)) {
+            return { persisted: false, reason: "DISPATCH_IDENTITY_MISMATCH" };
+        }
+
         const engine = this.requireAsyncDb();
         let outcome:
-            | { persisted: true }
-            | { persisted: false; deduplicated: true }
-            | { persisted: false; deduplicated: false; reason:
-                | "WORKER_OWNERSHIP_LOST" | "JOB_ID_MISMATCH" | "LEASE_EXPIRED" | "CONFLICTING_DUPLICATE_RESULT" }
-            = { persisted: false, deduplicated: false, reason: "WORKER_OWNERSHIP_LOST" };
+            | { persisted: true; duplicate?: boolean }
+            | { persisted: false; reason:
+                | "WORKER_OWNERSHIP_LOST" | "DISPATCH_IDENTITY_MISMATCH"
+                | "LEASE_EXPIRED" | "RESULT_CONFLICT" }
+            = { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
 
         class AbortTx extends Error {}
 
         try {
             await engine.transactionAsync(async (tx) => {
-                // 1. Lock the dispatch row for the duration of this transaction.
+                // 1. Lock the dispatch row.
                 const row = await tx.prepareAsync(
                     "SELECT * FROM remote_dispatches WHERE dispatch_id = ? FOR UPDATE"
                 ).get<any>(dispatch.dispatchId);
                 if (!row) {
-                    outcome = { persisted: false, deduplicated: false, reason: "WORKER_OWNERSHIP_LOST" };
+                    outcome = { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
                     throw new AbortTx();
                 }
 
-                // 2. result.jobId must match the stored dispatch.job_id.
+                // 2. Stored-side job_id guard (defence in depth).
                 if (row.job_id !== result.jobId) {
-                    outcome = { persisted: false, deduplicated: false, reason: "JOB_ID_MISMATCH" };
+                    outcome = { persisted: false, reason: "DISPATCH_IDENTITY_MISMATCH" };
                     throw new AbortTx();
                 }
 
                 // 3. Worker identity on the dispatch row.
                 if (row.worker_id !== workerId) {
-                    outcome = { persisted: false, deduplicated: false, reason: "WORKER_OWNERSHIP_LOST" };
+                    outcome = { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
                     throw new AbortTx();
                 }
 
                 // 4. Lease identity on the dispatch row.
                 if ((row.lease_id ?? null) !== (result.leaseId ?? null)) {
-                    outcome = { persisted: false, deduplicated: false, reason: "WORKER_OWNERSHIP_LOST" };
+                    outcome = { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
                     throw new AbortTx();
                 }
 
@@ -5193,31 +5206,54 @@ export class ExecutionStore {
                     leaseId, workerId, result.jobId
                 );
                 if (!lease || lease.status !== "ACTIVE") {
-                    outcome = { persisted: false, deduplicated: false, reason: "WORKER_OWNERSHIP_LOST" };
+                    outcome = { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
                     throw new AbortTx();
                 }
                 if (Number(lease.expires_at) <= now) {
-                    outcome = { persisted: false, deduplicated: false, reason: "LEASE_EXPIRED" };
+                    outcome = { persisted: false, reason: "LEASE_EXPIRED" };
                     throw new AbortTx();
                 }
 
-                // 6. Duplicate detection. Missing digests are NOT sameness.
+                // 6. Duplicate detection.
                 const existing = await tx.prepareAsync(
                     "SELECT result_sha256 FROM remote_execution_results WHERE dispatch_id = ?"
                 ).get<{ result_sha256: string | null }>(result.dispatchId);
+
                 if (existing) {
                     const incoming = result.resultSha256 ?? null;
                     const stored = existing.result_sha256 ?? null;
+
                     if (incoming && stored && incoming === stored) {
-                        outcome = { persisted: false, deduplicated: true };
-                        throw new AbortTx();
+                        // Matching duplicate: reconcile the dispatch row to the
+                        // caller's terminal status, but do NOT insert a second
+                        // result row. Test C's "matching replay must reconcile
+                        // dispatch to COMPLETED" is the governing assertion.
+                        const updDup = await tx.prepareAsync(
+                            "UPDATE remote_dispatches SET " +
+                            "  status = ?, external_provider_id = ?, result = ?, error = ?, updated_at = ? " +
+                            "WHERE dispatch_id = ?"
+                        ).run(
+                            dispatch.status,
+                            dispatch.externalProviderId,
+                            dispatch.result ? JSON.stringify(dispatch.result) : null,
+                            dispatch.error,
+                            dispatch.updatedAt,
+                            dispatch.dispatchId
+                        );
+                        if ((updDup.changes ?? 0) !== 1) {
+                            outcome = { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
+                            throw new AbortTx();
+                        }
+                        outcome = { persisted: true, duplicate: true };
+                        return;
                     }
-                    outcome = { persisted: false, deduplicated: false, reason: "CONFLICTING_DUPLICATE_RESULT" };
+
+                    outcome = { persisted: false, reason: "RESULT_CONFLICT" };
                     throw new AbortTx();
                 }
 
                 // 7. Insert the durable result row.
-                await tx.prepareAsync(
+                const ins = await tx.prepareAsync(
                     "INSERT INTO remote_execution_results (" +
                     "  result_id, job_id, attempt_id, worker_id, dispatch_id," +
                     "  lease_id, success, exit_code, stdout_ref, stderr_ref," +
@@ -5243,9 +5279,13 @@ export class ExecutionStore {
                     result.verificationStatus ?? "PENDING",
                     result.verifiedAt
                 );
+                if ((ins.changes ?? 0) !== 1) {
+                    outcome = { persisted: false, reason: "RESULT_CONFLICT" };
+                    throw new AbortTx();
+                }
 
-                // 8. Update the dispatch row to the caller-provided terminal status.
-                await tx.prepareAsync(
+                // 8. Update the dispatch row to terminal status.
+                const upd = await tx.prepareAsync(
                     "UPDATE remote_dispatches SET " +
                     "  status = ?, external_provider_id = ?, result = ?, error = ?, updated_at = ? " +
                     "WHERE dispatch_id = ?"
@@ -5257,8 +5297,12 @@ export class ExecutionStore {
                     dispatch.updatedAt,
                     dispatch.dispatchId
                 );
+                if ((upd.changes ?? 0) !== 1) {
+                    outcome = { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
+                    throw new AbortTx();
+                }
 
-                outcome = { persisted: true };
+                outcome = { persisted: true, duplicate: false };
             });
         } catch (e) {
             if (!(e instanceof AbortTx)) throw e;
@@ -5266,7 +5310,6 @@ export class ExecutionStore {
 
         return outcome;
     }
-
   // ---------- Phase 187: durable attempt heartbeat ----------
   // Atomic ownership-fenced heartbeat. Refuses to touch anything unless:
   //   - the lease exists AND is ACTIVE AND is not expired

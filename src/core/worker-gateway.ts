@@ -494,8 +494,10 @@ export class WorkerGateway {
         // persist so the result INSERT and dispatch UPDATE commit atomically
         // against PostgreSQL. SQLite-only mode keeps the existing sync path.
         let persist:
-          | { persisted: true }
-          | { persisted: false; deduplicated?: boolean; reason?: string };
+          | { persisted: true; duplicate?: boolean }
+          | { persisted: false; reason:
+              | "WORKER_OWNERSHIP_LOST" | "DISPATCH_IDENTITY_MISMATCH"
+              | "LEASE_EXPIRED" | "RESULT_CONFLICT" };
         if (this.executionStore.hasAsyncBackend()) {
           persist = await this.executionStore.persistRemoteExecutionResultAndDispatchAsOwnerAsync(
             durableResult,
@@ -511,8 +513,8 @@ export class WorkerGateway {
             result.workerId || workerId,
           );
         }
-        if (!persist.persisted && !("deduplicated" in persist && persist.deduplicated)) {
-          throw new Error("ownership_lost");
+        if (!persist.persisted) {
+          throw new Error(persist.reason === "RESULT_CONFLICT" ? "conflicting_duplicate_result" : "ownership_lost");
         }
         return { type: "JOB_RESULT_ACK" };
       }

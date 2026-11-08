@@ -135,9 +135,12 @@ async function jobResultHandler(ctx: HandlerContext): Promise<any> {
   // async, transaction-wrapped sibling so the result INSERT and dispatch
   // UPDATE commit atomically against PostgreSQL. SQLite-only mode keeps the
   // existing sync path unchanged.
-  let persist:
-    | { persisted: true }
-    | { persisted: false; deduplicated?: boolean; reason?: string };
+  let persist: {
+    persisted: boolean;
+    duplicate?: boolean;
+    deduplicated?: boolean;
+    reason?: string;
+  };
   if (ctx.executionStore.hasAsyncBackend()) {
     persist = await ctx.executionStore.persistRemoteExecutionResultAndDispatchAsOwnerAsync(
       durableResult,
@@ -156,8 +159,8 @@ async function jobResultHandler(ctx: HandlerContext): Promise<any> {
   // deduplicated:true means a concurrent writer landed the same result while
   // this call was in flight. That is a valid ACK (spec: "Identical previously
   // persisted result: ACK"), not an ownership loss.
-  if (!persist.persisted && !("deduplicated" in persist && persist.deduplicated)) {
-    throw new Error("ownership_lost");
+  if (!persist.persisted) {
+    throw new Error(persist.reason === "RESULT_CONFLICT" ? "conflicting_duplicate_result" : "ownership_lost");
   }
   return { type: "JOB_RESULT_ACK" };
 }
