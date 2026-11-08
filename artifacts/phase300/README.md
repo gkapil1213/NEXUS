@@ -1,21 +1,21 @@
 # Phase 300 — PostgreSQL-Authoritative Remote Worker Lifecycle
 
-Status as of 2026-11-08, commit `9153d5c` on branch `phase-300-implementation`.
+Documentation updated 2026-11-08 on branch `phase-300-implementation`. WP1–WP4 verification evidence is recorded in the repository.
 
 ## Summary
 
 Phase 300 makes PostgreSQL authoritative for the remote worker lifecycle in
 `NEXUS_PERSISTENCE_MODE=shared` mode, while preserving SQLite-only behaviour.
-The implementation is code-complete across 8 work packages, but only one
-work package (WP3) has been verified against a live integration test in this
-session.
+The implementation spans 8 work packages. WP1, WP2, WP3, and WP4 have
+verified integration-test evidence. WP5 and WP6 remain unverified; WP7 is
+partial; WP8 has partial verification.
 
 | WP  | Title                                  | Classification                                |
 |-----|----------------------------------------|------------------------------------------------|
 | WP1 | Dispatch creation + retrieval          | PASS — 8/8 integration tests                  |
 | WP2 | Atomic worker claiming                 | PASS — 6/6 integration tests (cross-process)  |
 | WP3 | Result integrity + ownership           | PASS — 7/7 single-process + 4/4 cross-process |
-| WP4 | Worker gateway routing | PASS - 7/7 integration tests (shared PostgreSQL + SQLite fallback) |
+| WP4 | Worker gateway routing             | PASS — 7/7 integration tests (shared PostgreSQL + SQLite fallback) |
 | WP5 | RemoteExecutionManager reconciliation  | CODE COMPLETE — NOT TEST VERIFIED             |
 | WP6 | DispatchService cancellation + status  | CODE COMPLETE — NOT TEST VERIFIED             |
 | WP7 | Kernel initialization + readiness      | PARTIAL — startGateway boundary not inspected |
