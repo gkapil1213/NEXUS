@@ -66,7 +66,7 @@ exit: 0
   ok   265-K limit=0 processed nothing
   ok   265-K limit=Infinity processed the candidate (state=RECOVERY_REQUIRED)
   ok   265-K limit=2 processed exactly two candidates (got 2)
-  [setup] created isolated database postgres_p265_64zekgbe
+  [setup] created isolated database nexus_p265_65a9kof9
 
 265-A-PG future retry deadline blocks reconciliation
   ok   265-A-PG still FAILED
@@ -79,7 +79,7 @@ exit: 0
 
 265-G-PG limit caps per-tick work
   ok   265-G-PG limit=1 processed exactly one (got 1)
-  [cleanup] dropped isolated database postgres_p265_64zekgbe
+  [cleanup] dropped isolated database nexus_p265_65a9kof9
 
 ============================================
 PASS: 41
@@ -116,7 +116,7 @@ exit: 0
   ok   266-5 both engines rejected limit=-Infinity
   ok   266-5 both engines rejected limit=2.5
   ok   266-5 rejected calls did not touch candidate (state=FAILED)
-  [setup] created isolated database postgres_p266_r9gphriw
+  [setup] created isolated database nexus_p266_jf50sr3v
 
 266-B-PG due retry deadline permits reconciliation
   ok   266-B-PG processed (state=RECOVERY_REQUIRED)
@@ -140,7 +140,7 @@ exit: 0
   ok   266-J-PG limit=-Infinity rejected with throw
   ok   266-J-PG limit=2.5 rejected with throw
   ok   266-K-PG limit=0 processed nothing
-  [cleanup] dropped isolated database postgres_p266_r9gphriw
+  [cleanup] dropped isolated database nexus_p266_jf50sr3v
 
 ============================================
 PASS: 27
@@ -181,7 +181,7 @@ PASS  Sc267-2b REAL CHILD-PROCESS RESTART: child was SIGKILLed (code=1)
 PASS  Sc267-2b REAL CHILD-PROCESS RESTART: op id captured before crash
 PASS  Sc267-2b REAL CHILD-PROCESS RESTART: op persisted after crash
 PASS  Sc267-2b REAL CHILD-PROCESS RESTART: state CLAIMED (got CLAIMED)
-PASS  Sc267-2b REAL CHILD-PROCESS RESTART: owner matches child (got child-5272)
+PASS  Sc267-2b REAL CHILD-PROCESS RESTART: owner matches child (got child-9188)
 
 --- Sc267-3 termination while in progress ---
 PASS  Sc267-3 REAL CHILD-PROCESS RESTART: child SIGKILLed (code=1)
@@ -218,148 +218,3 @@ FAIL: 0
 BLOCKED: 0
 NOT EXECUTED: 0
 ============================================
-
-===== phase267 shutdown regression =====
-cmd: npm run test:phase267:shutdown
-exit: 0
-
-> test:phase267:shutdown
-> tsx scripts/test-phase267-shutdown-reconciliation.ts
-
-=== Phase 267 - Shutdown / Reconciliation Integrity ===
-
-
---- Sc267-S1 shutdown flag ---
-PASS  Sc267-S1 initial: not shutting down
-PASS  Sc267-S1 flag set after markShuttingDown()
-PASS  Sc267-S1 idempotent re-mark
-
---- Sc267-S2 reconcile no-op after shutdown ---
-PASS  Sc267-S2 op remains PENDING after shutdown (got PENDING)
-PASS  Sc267-S2 no claim owner assigned after shutdown
-
---- Sc267-S3 durable claims survive shutdown ---
-PASS  Sc267-S3 claim_owner preserved
-PASS  Sc267-S3 state preserved (got CLAIMED)
-
---- Sc267-S4 no false completion on shutdown ---
-PASS  Sc267-S4 IN_PROGRESS not falsely COMPLETED (got IN_PROGRESS)
-
---- Sc267-S5 in-flight op reclaimable after TTL ---
-PASS  Sc267-S5 engineB reclaims after TTL
-PASS  Sc267-S5 owner is engineB
-
---- Sc267-S6 live claim not stolen by peer shutdown ---
-PASS  Sc267-S6 live claim preserved (owner=engineA)
-
-============================================
-PASS: 11
-FAIL: 0
-BLOCKED: 0
-NOT EXECUTED: 0
-============================================
-
-===== phase268 races =====
-cmd: npx tsx scripts/test-phase268-recovery-races.ts
-exit: 0
-=== Phase 268 - Recovery Races (retry eligibility + stale owner) ===
-
-
---- 268-A1 retry eligibility changes between inspection and claim ---
-PASS  268-A1 at T1=1000: op excluded from resumable list
-PASS  268-A1 stale worker (now=1000) refused claim: eligibility enforced at boundary
-PASS  268-A1 at T2=62000: op included in resumable list
-PASS  268-A1 fresh worker (now=62000) succeeds claim
-PASS  268-A1 persisted claim_owner is freshWorker (got freshWorker)
-
---- 268-A2 stale recovery racing newer attempt ---
-PASS  268-A2 new owner reclaims after TTL
-PASS  268-A2 persisted owner is newOwner
-PASS  268-A2 stale markCompleted refused
-PASS  268-A2 stale markFailed refused
-PASS  268-A2 stale markRecoveryRequired refused
-PASS  268-A2 final state CLAIMED owned by newOwner (state=CLAIMED, owner=newOwner)
-
-============================================
-PASS: 11
-FAIL: 0
-BLOCKED: 0
-NOT EXECUTED: 0
-============================================
-
-===== phase268 audit boundary =====
-cmd: npx tsx scripts/test-phase268-audit-boundary.ts
-exit: 0
-=== Phase 268 - Audit Boundary Escalation ===
-
-
---- 268-C1 job missing at reconcile: op escalates to RECOVERY_REQUIRED ---
-PASS  268-C1 op escalated to RECOVERY_REQUIRED (state=RECOVERY_REQUIRED)
-PASS  268-C1 lastError records JOB_NOT_FOUND (got JOB_NOT_FOUND_DURING_RECONCILE)
-PASS  268-C1 second reconcile does not auto-retry RECOVERY_REQUIRED
-
---- 268-C2 terminal job NOT re-opened by recovery ---
-PASS  268-C2 terminal job stays SUCCEEDED (got SUCCEEDED)
-
-============================================
-PASS: 4
-FAIL: 0
-BLOCKED: 0
-NOT EXECUTED: 0
-============================================
-
-===== phase268 shutdown parity =====
-cmd: npx tsx scripts/test-phase268-shutdown-parity.ts
-exit: 0
-=== Phase 268 - Postgres Shutdown Parity ===
-
-  [setup] created isolated database postgres_p268s_3td4fc1f
-
---- 268-S-PG1 shutdown flag ---
-PASS  268-S-PG1 initial: not shutting down
-PASS  268-S-PG1 flag set
-
---- 268-S-PG2 reconcile no-op after shutdown ---
-PASS  268-S-PG2 op remains PENDING after shutdown (got PENDING)
-PASS  268-S-PG2 no claim owner assigned after shutdown
-
---- 268-S-PG3 durable claims survive shutdown ---
-PASS  268-S-PG3 claim_owner preserved across shutdown
-PASS  268-S-PG3 state CLAIMED preserved
-
---- 268-S-PG4 no false completion on shutdown ---
-PASS  268-S-PG4 IN_PROGRESS not falsely COMPLETED (state=IN_PROGRESS)
-
---- 268-S-PG5 in-flight op reclaimable after TTL ---
-PASS  268-S-PG5 engineB reclaims after TTL
-PASS  268-S-PG5 owner is engineB
-
---- 268-S-PG6 live claim not stolen by peer shutdown ---
-PASS  268-S-PG6 live claim preserved (owner=engineA)
-  [cleanup] dropped isolated database postgres_p268s_3td4fc1f
-
-============================================
-PASS: 10
-FAIL: 0
-BLOCKED: 0
-NOT EXECUTED: 0
-============================================
-
-===== git diff --check HEAD =====
-cmd: git diff --check HEAD
-exit: 0
-warning: in the working copy of 'scripts/test-phase141-deployment-evidence.ts', CRLF will be replaced by LF the next time Git touches it
-warning: in the working copy of 'scripts/test-phase199-recovery-operation-reclaim.ts', CRLF will be replaced by LF the next time Git touches it
-warning: in the working copy of 'src/core/pg-client.ts', CRLF will be replaced by LF the next time Git touches it
-warning: in the working copy of 'artifacts/phase268/phase268-verification-report.txt', CRLF will be replaced by LF the next time Git touches it
-
-===== SUMMARY =====
-tsc exit=0
-phase265 exit=0
-phase266 exit=0
-phase267-crash exit=0
-phase267-shutdown exit=0
-phase268-races exit=0
-phase268-audit exit=0
-phase268-shutdown exit=0
-diffcheck exit=0

@@ -1,0 +1,53 @@
+﻿Date: 2026-11-08
+Commit: 977ed86 (phase-300-implementation); re-confirmed at 9153d5c
+Command: npx tsx .\scripts\test-phase268-remote-result-integrity.ts
+Environment: NEXUS_PERSISTENCE_MODE=shared, DATABASE_URL set (from .env)
+Test file: scripts/test-phase268-remote-result-integrity.ts
+
+------------------------------------------------------------
+Output (verbatim, run 1 at 977ed86):
+
+mode=shared databaseUrl=set
+[PASS] 268-ri-A stale ownership -- wrong worker rejected -- rejected without writing
+[PASS] 268-ri-B stale ownership -- wrong lease rejected -- rejected without writing
+[PASS] 268-ri-C matching duplicate -- idempotent replay -- one row; second submit returned duplicate=true
+[PASS] 268-ri-D conflicting duplicate -- original preserved -- conflict rejected; original digest intact
+[PASS] 268-ri-E concurrent submissions -- single winner, one row -- winners=1, dupes=1, losers=0, rows=1
+[PASS] 268-ri-F mismatched dispatch job identity rejected -- rejected; no result inserted; dispatch unchanged
+[PASS] 268-ri-G mismatched result attempt identity rejected -- rejected; no result inserted; dispatch unchanged
+
+===== Phase 268-ri summary =====
+PASS: 7
+FAIL: 0
+BLOCKED: 0
+
+------------------------------------------------------------
+Output (verbatim, run 2 at 9153d5c, after encoding fix):
+
+mode=shared databaseUrl=set
+[PASS] 268-ri-A stale ownership -- wrong worker rejected -- rejected without writing
+[PASS] 268-ri-B stale ownership -- wrong lease rejected -- rejected without writing
+[PASS] 268-ri-C matching duplicate -- idempotent replay -- one row; second submit returned duplicate=true
+[PASS] 268-ri-D conflicting duplicate -- original preserved -- conflict rejected; original digest intact
+[PASS] 268-ri-E concurrent submissions -- single winner, one row -- winners=1, dupes=1, losers=0, rows=1
+[PASS] 268-ri-F mismatched dispatch job identity rejected -- rejected; no result inserted; dispatch unchanged
+[PASS] 268-ri-G mismatched result attempt identity rejected -- rejected; no result inserted; dispatch unchanged
+
+===== Phase 268-ri summary =====
+PASS: 7
+FAIL: 0
+BLOCKED: 0
+
+------------------------------------------------------------
+Notes:
+
+- These are the only two runs in Phase 300 that report 7/7. Prior commits
+  (f47a32d) reported 3/7.
+- Test E: winners=1, dupes=1, losers=0, rows=1. Pre-v2 implementation
+  returned { persisted: false, deduplicated: true } on the concurrent peer
+  (losers=1, dupes=0). Contract v2 returns { persisted: true, duplicate: true }
+  on the concurrent peer, which the test file's filter x.persisted && x.duplicate
+  correctly counts as a duplicate.
+- The test's cleanup() deletes every row whose dispatch_id / job_id / lease_id
+  is prefixed with phase268-ri-<timestamp>-, so no persistent data remains
+  after each run.
