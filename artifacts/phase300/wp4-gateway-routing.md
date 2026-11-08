@@ -1,6 +1,6 @@
-﻿# WP4 — Worker gateway routing
+# WP4 — Worker gateway routing
 
-**Classification: CODE COMPLETE — PARTIALLY EXERCISED**
+**Classification: PASS - 7/7 integration tests (end-to-end gateway path)
 
 Both JOB_RESULT handlers route via hasAsyncBackend():
   - handler-registry.ts:jobResultHandler
