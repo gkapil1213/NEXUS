@@ -4838,7 +4838,7 @@ export class ExecutionStore {
     // The previous SELECT-then-INSERT/UPDATE was non-atomic across processes:
     // two concurrent upserts of a new dispatch_id both hit the addRemoteDispatchAsync
     // branch and one failed on the primary key. The idempotency_key unique
-    // constraint remains handled by createRemoteDispatchIfAbsentAsync � this
+    // constraint remains handled by createRemoteDispatchIfAbsentAsync; this
     // method intentionally only handles dispatch_id conflicts, because a
     // cross-dispatch idempotency-key collision is a real integrity violation
     // that must surface to the caller, not be silently absorbed.
