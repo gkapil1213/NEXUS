@@ -258,9 +258,19 @@ export class DispatchService implements ExecutionDispatchPort {
     }
     async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {
         const record = await this.readDispatchRecord(dispatchId);
-        if (record?.externalProviderId) {
-            return this.remoteManager.getStatus(record.externalProviderId);
+        if (!record) throw new Error("Dispatch " + dispatchId + " not found");
+        const TERMINAL: RemoteDispatchRecord["status"][] = ["COMPLETED", "FAILED", "BLOCKED", "CANCELLED"];
+        if (TERMINAL.includes(record.status)) {
+            return { status: record.status, evidence: record.result?.evidence };
         }
-        throw new Error(`Dispatch ${dispatchId} not found`);
+        if (!record.externalProviderId) {
+            return { status: record.status, evidence: record.result?.evidence };
+        }
+        const providerStatus = await this.remoteManager.getStatus(record.externalProviderId);
+        const fresh = await this.readDispatchRecord(dispatchId);
+        if (fresh && TERMINAL.includes(fresh.status)) {
+            return { status: fresh.status, evidence: fresh.result?.evidence };
+        }
+        return providerStatus;
     }
 }

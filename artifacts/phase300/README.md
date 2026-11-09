@@ -17,11 +17,11 @@ partial; WP8 has partial verification.
 | WP3 | Result integrity + ownership           | PASS — 7/7 single-process + 4/4 cross-process |
 | WP4 | Worker gateway routing             | PASS — 7/7 integration tests (shared PostgreSQL + SQLite fallback) |
 | WP5 | RemoteExecutionManager reconciliation | VERIFIED — PostgreSQL: 10 PASS, 0 FAIL, 1 NOT EXECUTED; SQLite: 6 PASS, 0 FAIL |
-| WP6 | DispatchService cancellation + status  | CODE COMPLETE — NOT TEST VERIFIED             |
+| WP6 | DispatchService cancellation + status  | PASS - 9/9 verified (Postgres); SQLite path not tested |
 | WP7 | Kernel initialization + readiness      | PARTIAL — startGateway boundary not inspected |
 | WP8 | Schema + migration integrity           | CODE COMPLETE — PARTIAL VERIFICATION          |
 
-Phase 300 overall: INCOMPLETE. WPs 1, 2, 3, 4, and 5 are verified.
+Phase 300 overall: INCOMPLETE. WPs 1, 2, 3, 4, 5, and 6 are verified.
 WP3 includes both single-process and cross-process evidence; WP4 includes
 shared PostgreSQL gateway routing and SQLite fallback tests. WP5 is
 verified on PostgreSQL and SQLite. WP6 remains code-complete but not

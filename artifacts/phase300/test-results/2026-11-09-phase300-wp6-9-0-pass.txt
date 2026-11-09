@@ -1,0 +1,36 @@
+﻿Date: 2026-11-09
+WP:   WP6 - DispatchService cancellation + status
+Base commit: 2e0216a
+Test file: scripts/test-phase300-wp6-cancellation-status.ts
+Command: npx tsx .\scripts\test-phase300-wp6-cancellation-status.ts
+Environment: NEXUS_PERSISTENCE_MODE=shared, DATABASE_URL set
+Isolation: dedicated database nexus_p300wp6_<random>
+
+Output (verbatim):
+
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp6_22a1f86da1b4
+[PASS] WP6-1 successful cancellation persists CANCELLED -- CANCELLED persisted
+[PASS] WP6-2 already-CANCELLED returns true without provider call -- returned true; no provider call
+[PASS] WP6-3 cancel racing COMPLETED returns raced_to_terminal -- raced_to_terminal; COMPLETED preserved
+[PASS] WP6-4 cancel racing FAILED returns raced_to_terminal -- raced_to_terminal; FAILED preserved
+[PASS] WP6-5 provider cancel failure leaves durable state unchanged -- provider_unavailable; DISPATCHED preserved
+[PASS] WP6-6 getStatus returns durable DISPATCHED without calling provider -- durable DISPATCHED; no provider call
+[PASS] WP6-7 getStatus on durable COMPLETED returns it without provider call -- COMPLETED; no provider call
+[PASS] WP6-8 two concurrent cancelDetailed calls are idempotent -- one CANCELLED write; idempotent
+[PASS] WP6-9 getStatus on missing dispatch throws not-found -- not-found throws
+  [cleanup] dropped isolated database nexus_p300wp6_22a1f86da1b4
+
+===== Phase 300 WP6 summary =====
+PASS: 9
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+
+Notes:
+- getStatus fix applied: src/core/dispatch-service.ts. Short-circuits on
+  durable terminal states, returns durable state without provider call
+  when externalProviderId is absent, and re-reads after the provider call.
+- cancelDetailed was already correct (40b0ef3) and is verified directly
+  by WP6-1 through WP6-5 and WP6-8.
+- SQLite-only path for cancelDetailed/getStatus NOT tested in this cycle.
