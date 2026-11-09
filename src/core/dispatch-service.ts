@@ -1,4 +1,4 @@
-import { ExecutionDispatchPort } from "./execution-dispatch-port";
+﻿import { ExecutionDispatchPort } from "./execution-dispatch-port";
 import { JobDispatcher } from "./job-dispatcher";
 import { RemoteExecutionManager } from "./remote-execution-manager";
 import { ExecutionStore } from "./execution-store";
@@ -50,6 +50,19 @@ export class DispatchService implements ExecutionDispatchPort {
         }
     }
 
+    /**
+     * Phase 300 / WP6 follow-up: atomic cancel transition. Returns the outcome
+     * of a conditional UPDATE that only writes CANCELLED when the row is still
+     * cancellable, so a concurrent terminal write cannot be clobbered.
+     */
+    private async tryCancelDispatchRecord(
+        dispatchId: string
+    ): Promise<{ cancelled: boolean; currentStatus: string | null }> {
+        if (this.store.hasAsyncBackend()) {
+            return await this.store.cancelRemoteDispatchIfNotTerminalAsync(dispatchId);
+        }
+        return this.store.cancelRemoteDispatchIfNotTerminal(dispatchId);
+    }
     attachEngineeringExecutor(executor: EngineeringStageExecutor): void {
         this.engineeringExecutor = executor;
     }
@@ -116,7 +129,7 @@ export class DispatchService implements ExecutionDispatchPort {
             throw new Error("Dispatch " + record.dispatchId + " is in unsupported state " + record.status);
         }
 
-        // ── Phase 218: in-process engineering-stage dispatch ──
+        // â”€â”€ Phase 218: in-process engineering-stage dispatch â”€â”€
         // Route engineering.stage through the wired EngineeringStageExecutor
         // BEFORE touching JobDispatcher / RemoteExecutionManager. Every
         // other job type falls through to the existing remote path unchanged.
@@ -241,20 +254,20 @@ export class DispatchService implements ExecutionDispatchPort {
             }
         }
 
-        const fresh = await this.readDispatchRecord(dispatchId);
-        if (!fresh) return { cancelled: false, reason: "dispatch_vanished" };
-        if (fresh.status === "CANCELLED") return { cancelled: true };
-        if (fresh.status === "COMPLETED" || fresh.status === "FAILED") {
-            return { cancelled: false, reason: "raced_to_terminal:" + fresh.status };
+        // Atomic transition: only write CANCELLED if the row is still
+        // cancellable. Closes the read-then-write race where a concurrent
+        // result persister could flip the row to COMPLETED between a re-read
+        // and a blind upsert.
+        const outcome = await this.tryCancelDispatchRecord(dispatchId);
+        if (outcome.cancelled) return { cancelled: true };
+        if (outcome.currentStatus === null) {
+            return { cancelled: false, reason: "dispatch_vanished" };
         }
-
-        const updated: RemoteDispatchRecord = {
-            ...fresh,
-            status: "CANCELLED",
-            updatedAt: Date.now(),
-        };
-        await this.writeDispatchRecord(updated);
-        return { cancelled: true };
+        if (outcome.currentStatus === "CANCELLED") {
+            // Lost the race to another canceller — still idempotently true.
+            return { cancelled: true };
+        }
+        return { cancelled: false, reason: "raced_to_terminal:" + outcome.currentStatus };
     }
     async getStatus(dispatchId: string): Promise<{ status: string; evidence?: any }> {
         const record = await this.readDispatchRecord(dispatchId);

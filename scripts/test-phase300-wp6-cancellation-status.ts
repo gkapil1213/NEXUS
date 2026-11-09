@@ -1,4 +1,4 @@
-// scripts/test-phase300-wp6-cancellation-status.ts
+﻿// scripts/test-phase300-wp6-cancellation-status.ts
 // Phase 300 / WP6 - DispatchService cancellation + status test.
 //
 // Covers cancelDetailed (honest cancellation, terminal preservation,
@@ -272,6 +272,28 @@ async function main(): Promise<void> {
       return "one CANCELLED write; idempotent";
     });
 
+    // --- WP6-10: canceller races a result-persister; terminal result wins
+    await test("WP6-10", "cancel racing terminal result does not clobber", async () => {
+      const d = "wp6-10-disp-" + randomUUID();
+      await seedDispatch(isolated!, { dispatchId: d, jobId: "wp6-10-job-" + randomUUID(), workerId: "wA", status: "DISPATCHED", externalProviderId: "ext-" + d });
+      const state: AdapterState = {
+        throwOnCancel: false, throwOnStatus: false, statusById: new Map(), defaultStatus: "RUNNING", cancelCalls: 0, statusCalls: [],
+        onCancelReturn: async (id) => {
+          // Terminal result lands after provider confirms cancel but before our atomic write.
+          await pgExec(isolated!, "UPDATE remote_dispatches SET status = 'COMPLETED' WHERE external_provider_id = $1", [id]);
+        },
+      };
+      const adapter = makeAdapter(state);
+      const store = await makeStore(isolated!);
+      const mgr = new RemoteExecutionManager(adapter, store);
+      const svc = makeDispatchService(store, mgr);
+      const res = await svc.cancelDetailed(d);
+      ok(res.cancelled === false, "expected cancelled=false, got " + JSON.stringify(res));
+      ok((res.reason ?? "").startsWith("raced_to_terminal:"), "expected raced_to_terminal, got " + res.reason);
+      const row = await pgExec(isolated!, "SELECT status FROM remote_dispatches WHERE dispatch_id = $1", [d]);
+      ok(row.rows[0]?.status === "COMPLETED", "expected COMPLETED preserved, got " + row.rows[0]?.status);
+      return "raced_to_terminal; COMPLETED preserved";
+    });
     // --- WP6-9: database error propagation
     await test("WP6-9", "getStatus on missing dispatch throws not-found", async () => {
       const state: AdapterState = { throwOnCancel: false, throwOnStatus: false, statusById: new Map(), defaultStatus: "RUNNING", cancelCalls: 0, statusCalls: [] };

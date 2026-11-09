@@ -1,4 +1,4 @@
-import { sha256 } from "./sha256";
+﻿import { sha256 } from "./sha256";
 import { NexusEngine, AsyncNexusEngine } from "./db";
 import { ExecutionRecoveryOperationStore, AsyncExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
 import { StageDependencyStore, AsyncStageDependencyStore } from "./stage-dependency-store";
@@ -207,7 +207,7 @@ export class ExecutionStore {
   readonly recoveryOpsAsync?: AsyncExecutionRecoveryOperationStore;
   readonly stageDeps: StageDependencyStore;
   readonly stageDepsAsync?: AsyncStageDependencyStore;
-  /** @internal Phase 142 — test-only injection hook. No-op in production. */
+  /** @internal Phase 142 â€” test-only injection hook. No-op in production. */
   public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
   /** @internal Phase 143 - test-only injection hook. No-op in production. */
   public __testPhase143Hook?: (stage: "afterJobUpdate" | "afterObligation") => void;
@@ -2273,7 +2273,7 @@ export class ExecutionStore {
       return { updated: true, applied: true, attempt: row ? this.mapAttempt(row) : undefined };
     }
 
-    // Diagnostic classification only — the authoritative mutation is the UPDATE above.
+    // Diagnostic classification only â€” the authoritative mutation is the UPDATE above.
     const row = this.db.prepare("SELECT * FROM execution_attempts WHERE id = ?").get(attempt.id) as any;
     if (!row || row.job_id !== attempt.jobId) {
       return { updated: false, reason: "ATTEMPT_NOT_FOUND" };
@@ -2917,7 +2917,7 @@ export class ExecutionStore {
 
   // ---------- Leases ----------
   /**
-   * Phase 142: atomic claim of a QUEUED job — single SQLite transaction.
+   * Phase 142: atomic claim of a QUEUED job â€” single SQLite transaction.
    *
    * Every durable step executes directly inside the transaction. This method
    * MUST NOT call transitionExecution(); doing so would create a nested
@@ -2984,7 +2984,7 @@ export class ExecutionStore {
         this.__testPhase142Hook("afterLeaseInsert");
       }
 
-      // 4. CAS job UPDATE — direct statement, no nested tx.
+      // 4. CAS job UPDATE â€” direct statement, no nested tx.
       const upd = this.db.prepare(
         "UPDATE execution_jobs SET status = 'CLAIMED', updated_at = ?, current_lease_id = ? " +
         "WHERE id = ? AND status = 'QUEUED' AND cancellation_requested = 0 AND current_lease_id IS NULL"
@@ -2995,7 +2995,7 @@ export class ExecutionStore {
         this.__testPhase142Hook("afterJobUpdate");
       }
 
-      // 5. Durable event INSERT — addEvent is a direct INSERT (no tx).
+      // 5. Durable event INSERT â€” addEvent is a direct INSERT (no tx).
       this.addEvent({
         eventId: "evt_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 10),
         jobId: input.jobId,
@@ -4816,6 +4816,45 @@ export class ExecutionStore {
         );
     }
 
+    // Phase 300 / WP6 follow-up: atomic cancel-only-if-not-terminal transition.
+    // Closes the read-then-write race in DispatchService.cancelDetailed where a
+    // concurrent result persister could flip the row to COMPLETED between the
+    // re-read and the blind upsert, and the cancel would then clobber it.
+    // Mirrors the conditional-UPDATE pattern already used by
+    // claimNextDispatchForWorker / requestCancellationAsync (changes > 0 means
+    // we won the transition).
+    async cancelRemoteDispatchIfNotTerminalAsync(
+        dispatchId: string,
+        now: number = Date.now()
+    ): Promise<{ cancelled: boolean; currentStatus: string | null }> {
+        const engine = this.requireAsyncDb();
+        const r = await engine.prepareAsync(
+            "UPDATE remote_dispatches SET status = 'CANCELLED', updated_at = ? " +
+            "WHERE dispatch_id = ? " +
+            "  AND status NOT IN ('COMPLETED','FAILED','BLOCKED','CANCELLED')"
+        ).run(now, dispatchId);
+        if ((r.changes ?? 0) > 0) return { cancelled: true, currentStatus: "CANCELLED" };
+        const row = await engine.prepareAsync(
+            "SELECT status FROM remote_dispatches WHERE dispatch_id = ?"
+        ).get<any>(dispatchId);
+        return { cancelled: false, currentStatus: row?.status ?? null };
+    }
+
+    cancelRemoteDispatchIfNotTerminal(
+        dispatchId: string,
+        now: number = Date.now()
+    ): { cancelled: boolean; currentStatus: string | null } {
+        const info = this.db.prepare(
+            "UPDATE remote_dispatches SET status = 'CANCELLED', updated_at = ? " +
+            "WHERE dispatch_id = ? " +
+            "  AND status NOT IN ('COMPLETED','FAILED','BLOCKED','CANCELLED')"
+        ).run(now, dispatchId);
+        if ((info.changes ?? 0) > 0) return { cancelled: true, currentStatus: "CANCELLED" };
+        const row: any = this.db.prepare(
+            "SELECT status FROM remote_dispatches WHERE dispatch_id = ?"
+        ).get(dispatchId);
+        return { cancelled: false, currentStatus: row?.status ?? null };
+    }
     async createRemoteDispatchIfAbsentAsync(record: RemoteDispatchRecord): Promise<{ record: RemoteDispatchRecord; created: boolean }> {
         try {
             await this.addRemoteDispatchAsync(record);
