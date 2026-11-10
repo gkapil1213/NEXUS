@@ -6,9 +6,11 @@ Documentation updated 2026-11-08 on branch `phase-300-implementation`. WP1–WP4
 
 Phase 300 makes PostgreSQL authoritative for the remote worker lifecycle in
 `NEXUS_PERSISTENCE_MODE=shared` mode, while preserving SQLite-only behaviour.
-The implementation spans 8 work packages. WP1, WP2, WP3, WP4, and WP5 have
-verified integration-test evidence. WP6 remains unverified; WP7 is
-partial; WP8 has partial verification.
+The implementation spans 8 work packages. WP1-WP7 have verified evidence
+(WP1-WP6 integration-tested; WP7 verified via code inspection + explicit
+boot-state guards and integration-tested at the boot/listener boundary).
+WP8 has partial verification (column-type parity with live DB not
+inspected).
 
 | WP  | Title                                  | Classification                                |
 |-----|----------------------------------------|------------------------------------------------|
@@ -18,16 +20,17 @@ partial; WP8 has partial verification.
 | WP4 | Worker gateway routing             | PASS — 7/7 integration tests (shared PostgreSQL + SQLite fallback) |
 | WP5 | RemoteExecutionManager reconciliation | VERIFIED — PostgreSQL: 10 PASS, 0 FAIL, 1 NOT EXECUTED; SQLite: 6 PASS, 0 FAIL |
 | WP6 | DispatchService cancellation + status  | PASS - 9/9 verified (Postgres); SQLite path not tested |
-| WP7 | Kernel initialization + readiness      | PARTIAL — startGateway boundary not inspected |
+| WP7 | Kernel initialization + readiness      | PASS — 7/7 claims verified (see wp7-readiness.md) |
 | WP8 | Schema + migration integrity           | CODE COMPLETE — PARTIAL VERIFICATION          |
 
 Phase 300 overall: INCOMPLETE. WPs 1, 2, 3, 4, 5, and 6 are verified.
 WP3 includes both single-process and cross-process evidence; WP4 includes
 shared PostgreSQL gateway routing and SQLite fallback tests. WP5 is
-verified on PostgreSQL and SQLite. WP6 remains code-complete but not
-test-verified. WP7 remains partial. WP8 remains
+verified on PostgreSQL and SQLite. WP6 is verified (9/9 on PostgreSQL;
+SQLite path untested but noted in wp6-cancellation.md). WP7 is verified
+across all seven readiness claims (see wp7-readiness.md). WP8 remains
 partially verified. Overall Phase 300 acceptance is not established until
-the remaining work packages and cross-package acceptance criteria are tested.
+WP8 verification and the §5.C cross-instance tests are complete.
 
 ## Verified evidence
 

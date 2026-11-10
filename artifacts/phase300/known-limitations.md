@@ -1,4 +1,4 @@
-﻿# Phase 300 — Known limitations
+# Phase 300 — Known limitations
 
 This file lists everything Phase 300 does NOT claim as verified. It is
 deliberately conservative: anything without direct test evidence is listed
@@ -17,8 +17,10 @@ here rather than glossed over.
 - WP6 (DispatchService cancellation + status): code-complete; no dedicated
   test against live PostgreSQL. getStatus re-read after provider call is
   drafted but not applied to the file.
-- WP7 (kernel init + readiness): PARTIAL. Persistence-side init is correct;
-  startGateway() listener boundary not inspected.
+- WP7 (kernel init + readiness): Verified. Claims 1 and 3 rely on code
+  inspection plus the `!services || status !== "ready"` guard in
+  startGateway() (commit 1a90a0f); direct failure-path test would require
+  a boot-failure injection seam not currently exposed.
 - WP8 (schema): PARTIAL. pg-bootstrap DDL for remote_execution_results
   added; matches live indexes. Column-type parity (success INTEGER vs live
   type; verified_at INTEGER vs BIGINT) not verified.
