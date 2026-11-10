@@ -526,7 +526,8 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
         ON production_execution_authorizations(consumed_by_attempt_id);
       CREATE INDEX IF NOT EXISTS idx_prod_auth_expires
         ON production_execution_authorizations(expires_at);
-    `);    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_status ON release_deployment_intents (status)`);
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_status ON release_deployment_intents (status)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_reconciled ON release_deployment_intents (reconciled_at)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_next_retry ON release_deployment_intents (next_retry_at)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_release_intents_reconcile ON release_deployment_intents (status, reconciled_at)`);
