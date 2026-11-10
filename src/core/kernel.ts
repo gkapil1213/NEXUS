@@ -994,7 +994,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         recoveryControl,
       };
 
-      this.status = "ready";
+
       await audit.record({
         actor: "system",
         action: "kernel.boot",
@@ -1003,6 +1003,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         result: "info",
         metadata: { version: CONFIG.version, env: CONFIG.env, engine: engine.kind },
       });
+      this.status = "ready";
       return this.services;
     } catch (e) {
       this.status = "failed";
