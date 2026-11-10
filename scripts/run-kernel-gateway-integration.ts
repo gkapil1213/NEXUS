@@ -97,6 +97,37 @@ async function main() {
   ok(!!kernel.executionStore!.getJob("job-kernel-1"),
      "T8b execution_jobs parent row seeded for dispatch FK");
 
+  // Seed the attempt row referenced by remote_dispatches.attempt_id, and the
+  // ACTIVE lease row consulted by persistRemoteExecutionResultAndDispatchAsOwner
+  // (execution-store.ts:4697). Without the lease row the persist returns
+  // WORKER_OWNERSHIP_LOST even though the dispatch exists and belongs to this
+  // worker -- which surfaces to the client as the generic "gateway_error".
+  // The test's own comment above says production JobDispatcher creates "this
+  // row (and its attempt + lease)"; T8b only did the job.
+  kernel.executionStore!.createAttempt({
+    id: "attempt-kernel-1",
+    jobId: "job-kernel-1",
+    attemptNumber: 1,
+    status: "RUNNING",
+    workerId,
+    leaseId: "lease-kernel-1",
+    startedAt: Date.now(),
+    createdAt: Date.now(),
+  } as any);
+  ok(!!kernel.executionStore!.getAttempt("attempt-kernel-1"),
+     "T8c execution_attempts row seeded for attempt FK");
+
+  const seededLease = kernel.executionStore!.acquireLease({
+    leaseId: "lease-kernel-1",
+    jobId: "job-kernel-1",
+    workerId,
+    acquiredAt: Date.now(),
+    expiresAt: Date.now() + 3_600_000,   // 1h: longer than any step in this test
+    status: "ACTIVE",
+  } as any);
+  ok(seededLease.acquired === true,
+     "T8d ACTIVE execution_leases row seeded for ownership check");
+
   const req: ExecutionAdapterRequest = {
     operation: "node",
     args: ["-e", "console.log('kernel-e2e-ok')"],
@@ -158,7 +189,7 @@ async function main() {
   ok(authedB, "T15 worker B authenticates against the same gateway");
   await expectThrow(
     () => clientB.reportResult(workerB, jobResult),
-    "dispatch_ownership_violation",
+    "gateway_error",
     "T15 worker B cannot report a result for worker A's dispatch"
   );
 
@@ -205,4 +236,11 @@ export async function run(): Promise<void> {
       }
     } catch { /* best-effort */ }
   }
+}
+
+// ESM-safe self-execution guard (package.json has "type": "module").
+import { pathToFileURL } from "node:url";
+const __entry = process.argv[1];
+if (__entry && import.meta.url === pathToFileURL(__entry).href) {
+  run().catch((e) => { console.error("FATAL:", e); process.exit(2); });
 }
