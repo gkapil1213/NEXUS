@@ -9,8 +9,7 @@ Phase 300 makes PostgreSQL authoritative for the remote worker lifecycle in
 The implementation spans 8 work packages. WP1-WP7 have verified evidence
 (WP1-WP6 integration-tested; WP7 verified via code inspection + explicit
 boot-state guards and integration-tested at the boot/listener boundary).
-WP8 has partial verification (column-type parity with live DB not
-inspected).
+WP8 has partial verification: live PostgreSQL schema parity is verified; fresh independent PostgreSQL bootstrap remains NOT EXECUTED.
 
 | WP  | Title                                  | Classification                                |
 |-----|----------------------------------------|------------------------------------------------|

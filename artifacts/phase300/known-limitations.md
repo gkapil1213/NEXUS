@@ -21,9 +21,7 @@ here rather than glossed over.
   inspection plus the `!services || status !== "ready"` guard in
   startGateway() (commit 1a90a0f); direct failure-path test would require
   a boot-failure injection seam not currently exposed.
-- WP8 (schema): PARTIAL. pg-bootstrap DDL for remote_execution_results
-  added; matches live indexes. Column-type parity (success INTEGER vs live
-  type; verified_at INTEGER vs BIGINT) not verified.
+- WP8 (schema): PARTIAL. Live PostgreSQL inspection on 2026-11-10 confirmed all 17 column definitions, both foreign keys, and all three expected indexes match pg-bootstrap. The actual async writer passed native BOOLEAN false-persistence regression (Phase 268: 8/8). Fresh independent PostgreSQL bootstrap remains NOT EXECUTED.
 
 ## Cross-instance behaviour
 
@@ -39,10 +37,13 @@ was run.
 
 ## Schema-drift risk
 
-pg-bootstrap.ts is not the source of truth for the live PG schema. The live
-DB has been built by a mix of migrations run manually and by bootstrap code.
-Column-type parity between the two is not verified. This is a pre-existing
-condition, not introduced by Phase 300, but Phase 300 does not resolve it.
+The live PostgreSQL `remote_execution_results` schema was inspected on
+2026-11-10. Its 17 column definitions, foreign keys, and three expected
+indexes match the current `pg-bootstrap.ts` definition.
+
+This inspection applies to the existing `nexus` database only. A fresh,
+independently initialized PostgreSQL database has not yet been tested.
+Therefore clean-room bootstrap parity remains NOT EXECUTED.
 
 ## Commit-message BOM
 
