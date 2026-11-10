@@ -898,7 +898,7 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
         worker_id              TEXT,
         dispatch_id            TEXT,
         lease_id               TEXT,
-        success                INTEGER NOT NULL,
+        success                BOOLEAN NOT NULL,
         exit_code              INTEGER,
         stdout_ref             TEXT,
         stderr_ref             TEXT,
