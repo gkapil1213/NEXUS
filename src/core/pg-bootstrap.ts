@@ -886,8 +886,8 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
     //     verification_status + verified_at columns)
     //   src/db/migrations/176_phase268_remote_execution_results_integrity.sql
     //     (unique dispatch index + worker index)
-    // success kept as INTEGER to mirror migration 022's SQLite DDL and to
-    // preserve compatibility with addRemoteExecutionResult()'s 0/1 binding.
+    // success uses PostgreSQL BOOLEAN; the async writer binds a native boolean.
+    // SQLite retains INTEGER and its separate synchronous 0/1 binding.
     // verified_at / created_at promoted to BIGINT for epoch-millis parity
     // with remote_dispatches and to avoid the 2038 SQLite INTEGER overflow.
     await client.query(`
