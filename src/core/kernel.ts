@@ -375,7 +375,7 @@ const memberships = new ProjectMembershipStore(rawDb);
             // pure function. See src/core/hmac-provider-resolver.ts for the
             // fail-closed semantics (no default, no fallback, unknown modes throw).
             const hmacProvider = await resolveHmacProvider(process.env);
-            const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore, rawDb, hmacProvider);
+            const gw = new GatewayCtor(CONFIG.gateway.port, sessionStore, remoteWorkerStore, workerAuthentication, executionStore, engine, hmacProvider);
             workerGateway = gw;
             remoteAdapter = new AdapterCtor(gw);
           } else {
