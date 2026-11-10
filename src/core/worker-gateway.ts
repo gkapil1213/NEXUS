@@ -206,6 +206,12 @@ export class WorkerGateway {
       this.send(res, 200, result);
     } catch (e: any) {
       // Never expose exception-derived text to API clients.
+      // Server-side: record the message for operator diagnosis.
+      console.error("[gateway] handleMessage threw", {
+        type: msg?.type,
+        messageId: msg?.messageId,
+        message: e?.message ?? String(e),
+      });
       this.send(res, 400, { error: "gateway_error" });
     }
   }
@@ -451,12 +457,16 @@ export class WorkerGateway {
       case "JOB_RESULT": {
         const { jobId, result } = payload;
         if (!this.executionStore) throw new Error("durable_store_unavailable");
-        const dispatch = this.executionStore.getRemoteDispatch(result.dispatchId);
+        const dispatch = this.executionStore.hasAsyncBackend()
+          ? await this.executionStore.getRemoteDispatchAsync(result.dispatchId)
+          : this.executionStore.getRemoteDispatch(result.dispatchId);
         if (!dispatch || dispatch.workerId !== workerId || dispatch.jobId !== jobId) {
           throw new Error("dispatch_ownership_violation");
         }
         // Idempotent duplicate detection
-        const existing = this.executionStore.getRemoteExecutionResultByDispatchId(result.dispatchId);
+        const existing = this.executionStore.hasAsyncBackend()
+          ? await this.executionStore.getRemoteExecutionResultByDispatchIdAsync(result.dispatchId)
+          : this.executionStore.getRemoteExecutionResultByDispatchId(result.dispatchId);
         if (existing) {
           if (existing.resultSha256 === result.resultSha256) {
             return { type: "JOB_RESULT_ACK" };
