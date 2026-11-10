@@ -5306,7 +5306,7 @@ export class ExecutionStore {
                     result.workerId,
                     result.dispatchId,
                     result.leaseId,
-                    result.success ? 1 : 0,
+                    result.success,
                     result.exitCode,
                     result.stdoutRef,
                     result.stderrRef,

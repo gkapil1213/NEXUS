@@ -318,6 +318,52 @@ async function main(): Promise<void> {
         "original dispatch status must remain DISPATCHED");
       return "rejected; no result inserted; dispatch unchanged";
     });
+    await test("268-ri-H", "native PostgreSQL BOOLEAN false persists correctly", async () => {
+      const d = PREFIX + "H-" + randomUUID();
+      const j = PREFIX + "H-job-" + randomUUID();
+      const l = PREFIX + "H-lease-" + randomUUID();
+
+      await seedLeaseAndDispatch({
+        dispatchId: d,
+        jobId: j,
+        workerId: "worker-A",
+        leaseId: l,
+      });
+
+      const r = makeResult({
+        dispatchId: d,
+        workerId: "worker-A",
+        leaseId: l,
+        jobId: j,
+        success: false,
+        exitCode: 1,
+      });
+
+      const out = await store.persistRemoteExecutionResultAndDispatchAsOwnerAsync(
+        r,
+        makeDispatch(d, "FAILED", {
+          jobId: j,
+          workerId: "worker-A",
+          leaseId: l,
+        }),
+        l,
+        "worker-A",
+      );
+
+      ok(out.persisted, "false result must persist: " + JSON.stringify(out));
+
+      const row = await pgExec(
+        "SELECT success, pg_typeof(success)::text AS success_type " +
+        "FROM remote_execution_results WHERE dispatch_id = $1",
+        [d],
+      );
+
+      ok(row.rows.length === 1, "exactly one result row must exist");
+      ok(row.rows[0].success === false, "stored success must be boolean false");
+      ok(row.rows[0].success_type === "boolean", "PostgreSQL column type must be boolean");
+
+      return "persisted success=false; PostgreSQL type=boolean";
+    });
   } finally {
     await cleanup();
     await client.close();
