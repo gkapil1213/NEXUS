@@ -204,13 +204,10 @@ export class WorkerGateway {
     try {
       const result = await this.handleMessage(msg);
       this.send(res, 200, result);
-    } catch (e: any) {
-      // Never expose exception-derived text to API clients.
-      // Server-side: record the message for operator diagnosis.
-      console.error("[gateway] handleMessage threw", {
-        type: msg?.type,
-        messageId: msg?.messageId,
-        message: e?.message ?? String(e),
+    } catch {
+      // Fixed diagnostic only. Never log exception text or request identifiers.
+      console.error("[gateway] handleMessage failed", {
+        code: "GATEWAY_MESSAGE_HANDLER_FAILED",
       });
       this.send(res, 400, { error: "gateway_error" });
     }
