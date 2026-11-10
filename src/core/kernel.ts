@@ -1029,6 +1029,9 @@ const memberships = new ProjectMembershipStore(rawDb);
    */
   async startGateway(): Promise<void> {
     if (!CONFIG.gateway.enabled) return;
+    if (!this.services || this.status !== "ready") {
+      throw Err.startup("NOT_BOOTED", "startGateway() requires a completed, successful boot()");
+    }
     if (!this.workerGateway) {
       throw Err.startup("GATEWAY_NOT_WIRED", "kernel did not construct a WorkerGateway (requires Vite SSR runtime and sqlite persistence)");
     }
