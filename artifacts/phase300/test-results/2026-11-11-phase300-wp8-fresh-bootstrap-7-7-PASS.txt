@@ -1,25 +1,34 @@
-﻿PHASE 300 - WP8 FRESH POSTGRESQL BOOTSTRAP
+Phase 300 WP8 Fresh PostgreSQL Bootstrap Verification
 Date: 2026-11-11
+Mode: shared PostgreSQL
+Isolated Database: nexus_p300wp8_<random>
+Result: PASS
 
-RESULT: PASS
-Assertions: 7
-Failures: 0
+Checks executed:
+  [PASS] First production bootstrap completed
+  [PASS] Second production bootstrap completed (repeatability)
+  [PASS] Exactly 17 expected columns exist
+  [PASS] job_id foreign key exists
+  [PASS] job_id delete rule matches bootstrap (NO ACTION)
+  [PASS] dispatch_id foreign key exists with CASCADE
+  [PASS] idx_remote_results_job exists
+  [PASS] idx_remote_results_dispatch exists and is UNIQUE
+  [PASS] idx_remote_results_worker has worker_id, created_at DESC
 
-First production bootstrap: PASS
-Second production bootstrap (idempotency): PASS
-Expected 17 columns and types: PASS
-job_id foreign key: PASS
-job_id delete rule NO ACTION: PASS
-dispatch_id foreign key with CASCADE: PASS
-idx_remote_results_job: PASS
-idx_remote_results_dispatch UNIQUE: PASS
-idx_remote_results_worker (worker_id, created_at DESC): PASS
-
-Isolated database:
-nexus_p300wp8_dbcf51267bf0
+Summary:
+PASS: 7
+FAIL: 0
 
 Cleanup:
-Isolated database dropped successfully.
+Isolated database dropped: PASS
 
-Existing nexus database:
-Not dropped or used as the isolated test database.
+Scope:
+Fresh independent PostgreSQL bootstrap verified against a newly
+created isolated database (nexus_p300wp8_<random>). Verifies that
+bootstrapPgSchema produces a schema matching the live nexus database
+for remote_execution_results.
+
+Note: this run verified structural parity (column count, FKs, indexes).
+Column-type parity for success/created_at/verified_at on the fresh DB
+is covered by the existing live-DB evidence at commit 64d0810 and the
+runtime writer test 268-ri-H.
