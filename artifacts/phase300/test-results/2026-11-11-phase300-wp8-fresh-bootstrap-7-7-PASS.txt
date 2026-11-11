@@ -1,0 +1,25 @@
+﻿PHASE 300 - WP8 FRESH POSTGRESQL BOOTSTRAP
+Date: 2026-11-11
+
+RESULT: PASS
+Assertions: 7
+Failures: 0
+
+First production bootstrap: PASS
+Second production bootstrap (idempotency): PASS
+Expected 17 columns and types: PASS
+job_id foreign key: PASS
+job_id delete rule NO ACTION: PASS
+dispatch_id foreign key with CASCADE: PASS
+idx_remote_results_job: PASS
+idx_remote_results_dispatch UNIQUE: PASS
+idx_remote_results_worker (worker_id, created_at DESC): PASS
+
+Isolated database:
+nexus_p300wp8_dbcf51267bf0
+
+Cleanup:
+Isolated database dropped successfully.
+
+Existing nexus database:
+Not dropped or used as the isolated test database.
