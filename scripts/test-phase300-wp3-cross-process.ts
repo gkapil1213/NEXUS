@@ -99,6 +99,39 @@ function runWorker(payload: {
   });
 }
 
+interface CancelOutcome {
+  outcome:
+    | { cancelled: true; currentStatus: string }
+    | { cancelled: false; currentStatus: string | null };
+}
+
+function runCancelWorker(payload: { dispatchId: string }, dbUrl: string): Promise<CancelOutcome> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", path.join(__dirname, "wp3-cancel-worker.ts")],
+      {
+        env: { ...process.env, DATABASE_URL: dbUrl, WP3_CANCEL_PAYLOAD: JSON.stringify(payload) },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let out = "", err = "";
+    child.stdout.on("data", (d) => { out += d.toString(); });
+    child.stderr.on("data", (d) => { err += d.toString(); });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code !== 0) { reject(new Error("cancel worker exited " + code + " stderr=" + err)); return; }
+      const lines = out.split(/\r?\n/).filter((l) => l.trim().length > 0);
+      const last = lines[lines.length - 1];
+      try {
+        const parsed = JSON.parse(last);
+        if (!parsed.outcome) { reject(new Error("malformed cancel worker output: " + last)); return; }
+        resolve(parsed as CancelOutcome);
+      } catch (e) { reject(new Error("cancel worker parse: " + String(e) + " raw=" + last)); }
+    });
+  });
+}
+
 async function test(id: string, name: string, fn: () => Promise<string>): Promise<void> {
   try { record(id, name, "PASS", await fn()); }
   catch (e) { record(id, name, "FAIL", e instanceof Error ? e.message : String(e)); }
@@ -236,6 +269,44 @@ async function main(): Promise<void> {
       const rows = await pgExec(isolated, "SELECT COUNT(*)::int AS n FROM remote_execution_results WHERE dispatch_id = $1", [d]);
       ok(rows.rows[0].n === 1, "expected 1 row, got " + rows.rows[0].n);
       return "first persisted, second duplicate=true, 1 row";
+    });
+
+    // --- WP3-X5: cancel-vs-result cross-process race -----------------
+    await test("WP3-X5", "cancel-vs-result cross-process race is deterministic", async () => {
+      const d = "wp3-x5-" + randomUUID();
+      const j = "wp3-x5-job-" + randomUUID();
+      const l = "wp3-x5-lease-" + randomUUID();
+      const w = "worker-A";
+      await seedAll(isolated, { dispatchId: d, jobId: j, workerId: w, leaseId: l, idempotencyKey: "idem-x5-" + randomUUID() });
+
+      const [resultWorker, cancelWorker] = await Promise.all([
+        runWorker({ dispatchId: d, jobId: j, workerId: w, leaseId: l, resultId: "res-x5-" + randomUUID(), resultSha256: "5".repeat(64), dispatchStatus: "COMPLETED" }, isolatedDbUrl),
+        runCancelWorker({ dispatchId: d }, isolatedDbUrl),
+      ]);
+
+      const disp = await pgExec(isolated, "SELECT status FROM remote_dispatches WHERE dispatch_id = $1", [d]);
+      const res = await pgExec(isolated, "SELECT COUNT(*)::int AS n FROM remote_execution_results WHERE dispatch_id = $1", [d]);
+      const finalStatus = disp.rows[0]?.status as string | undefined;
+      const resultCount = Number(res.rows[0]?.n ?? 0);
+
+      const resultWon =
+        finalStatus === "COMPLETED" &&
+        resultCount === 1 &&
+        resultWorker.outcome.persisted === true;
+
+      const cancelWon =
+        finalStatus === "CANCELLED" &&
+        resultCount === 0;
+
+      ok(
+        resultWon || cancelWon,
+        "non-deterministic race: status=" + finalStatus +
+        " resultCount=" + resultCount +
+        " resultOutcome=" + JSON.stringify(resultWorker.outcome) +
+        " cancelOutcome=" + JSON.stringify(cancelWorker.outcome),
+      );
+
+      return "race resolved: " + (resultWon ? "COMPLETED" : "CANCELLED") + " (deterministic)";
     });
 
     // (isolated.close() moved to finally for exception safety)
