@@ -28,8 +28,11 @@ shared PostgreSQL gateway routing and SQLite fallback tests. WP5 is
 verified on PostgreSQL and SQLite. WP6 is verified (9/9 on PostgreSQL;
 SQLite path untested but noted in wp6-cancellation.md). WP7 is verified
 across all seven readiness claims (see wp7-readiness.md). WP8 remains
-partially verified. Overall Phase 300 acceptance is not established until
-WP8 verification and the §5.C cross-instance tests are complete.
+partially verified; fresh-database bootstrap verification is the
+outstanding schema gap (see wp8-schema.md). §5.C cross-instance tests
+are verified across WP2-5 and WP3-X1 through WP3-X5 (see
+known-limitations.md). Overall Phase 300 acceptance is not established
+until WP8 fresh-database bootstrap verification is complete.
 
 ## Verified evidence
 

@@ -26,14 +26,27 @@ here rather than glossed over.
 ## Cross-instance behaviour
 
 Section 5.C of the specification requires cross-instance tests: two
-independent store instances against the same PostgreSQL, verifying that a
-dispatch cannot be claimed twice, that results committed by one instance
-are visible to another, and that cancellation and result races preserve
-consistent durable state. Only test-phase268-remote-result-integrity.ts
-test E (concurrent submissions) exercises a form of cross-instance behaviour
-(two concurrent calls to the same async method), and it does so within a
-single Node process (Promise.all). No true two-process cross-instance test
-was run.
+independent store instances against the same PostgreSQL. Verified on
+2026-11-11 against an isolated PostgreSQL 16 database with real child
+processes:
+
+- Claim exclusivity: `test-phase300-wp2-atomic-claiming.ts` WP2-5
+  (20 dispatches, two processes; every dispatch claimed exactly once,
+  no cross-process overlap).
+
+- Result visibility + duplicate + conflict across processes:
+  `test-phase300-wp3-cross-process.ts` WP3-X1 through WP3-X4
+  (process A writes, process B reads; concurrent identical submits
+  produce exactly one row; conflicting submits produce exactly one
+  RESULT_CONFLICT; sequential retries yield idempotent duplicate).
+
+- Cancel-vs-result race across processes:
+  `test-phase300-wp3-cross-process.ts` WP3-X5
+  (deterministic final state: either {dispatch=COMPLETED, result row=1}
+  or {dispatch=CANCELLED, result row=0}; no torn state).
+
+All three §5.C properties are covered by two-process tests with real
+child-process isolation.
 
 ## Schema-drift risk
 
