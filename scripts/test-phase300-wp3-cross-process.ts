@@ -1,4 +1,4 @@
-﻿// scripts/test-phase300-wp3-cross-process.ts
+// scripts/test-phase300-wp3-cross-process.ts
 // Phase 300 / WP3 - Cross-process verification of result persistence.
 //
 // The existing test-phase268-remote-result-integrity.ts verifies the
@@ -39,13 +39,21 @@ async function pgExec(client: PgClient, sql: string, params: unknown[] = []): Pr
   return await client.query(sql, params);
 }
 async function createDb(admin: PgClient, name: string): Promise<void> { await pgExec(admin, `CREATE DATABASE "${name}"`); }
-async function dropDb(admin: PgClient, name: string): Promise<void> { try { await pgExec(admin, `DROP DATABASE IF EXISTS "${name}"`); } catch {} }
+async function dropDb(admin: PgClient, name: string): Promise<boolean> {
+  try {
+    await pgExec(admin, `DROP DATABASE IF EXISTS "${name}"`);
+    return true;
+  } catch (e) {
+    console.error(`  [dropDb] DROP DATABASE "${name}" failed: ` + (e instanceof Error ? e.message : String(e)));
+    return false;
+  }
+}
 
 async function bootstrap(client: PgClient): Promise<void> {
   await pgExec(client, `CREATE TABLE execution_jobs (id TEXT PRIMARY KEY, idempotency_key TEXT UNIQUE, job_type TEXT NOT NULL, payload TEXT, status TEXT NOT NULL, retry_policy TEXT, timeout_ms INTEGER, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL, last_attempt_at BIGINT, next_attempt_at BIGINT, current_lease_id TEXT, cancellation_requested INTEGER NOT NULL DEFAULT 0, cancellation_acknowledged INTEGER NOT NULL DEFAULT 0, priority INTEGER NOT NULL DEFAULT 0)`);
   await pgExec(client, `CREATE TABLE execution_leases (lease_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, worker_id TEXT NOT NULL, acquired_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, renewed_at BIGINT, released_at BIGINT, status TEXT NOT NULL)`);
   await pgExec(client, `CREATE TABLE remote_dispatches (dispatch_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, attempt_id TEXT, worker_id TEXT NOT NULL, lease_id TEXT, idempotency_key TEXT UNIQUE NOT NULL, status TEXT NOT NULL, external_provider_id TEXT, request TEXT, result TEXT, error TEXT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL, FOREIGN KEY (job_id) REFERENCES execution_jobs(id))`);
-  await pgExec(client, `CREATE TABLE remote_execution_results (result_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, attempt_id TEXT, worker_id TEXT, dispatch_id TEXT UNIQUE, lease_id TEXT, success INTEGER NOT NULL, exit_code INTEGER, stdout_ref TEXT, stderr_ref TEXT, evidence TEXT, created_at BIGINT NOT NULL, stdout_sha256 TEXT, stderr_sha256 TEXT, result_sha256 TEXT, verification_status TEXT, verified_at BIGINT, FOREIGN KEY (dispatch_id) REFERENCES remote_dispatches(dispatch_id) ON DELETE CASCADE)`);
+  await pgExec(client, `CREATE TABLE remote_execution_results (result_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, attempt_id TEXT, worker_id TEXT, dispatch_id TEXT UNIQUE, lease_id TEXT, success BOOLEAN NOT NULL, exit_code INTEGER, stdout_ref TEXT, stderr_ref TEXT, evidence TEXT, created_at BIGINT NOT NULL, stdout_sha256 TEXT, stderr_sha256 TEXT, result_sha256 TEXT, verification_status TEXT, verified_at BIGINT, FOREIGN KEY (dispatch_id) REFERENCES remote_dispatches(dispatch_id) ON DELETE CASCADE)`);
 }
 
 async function seedAll(client: PgClient, o: { dispatchId: string; jobId: string; workerId: string; leaseId: string; idempotencyKey: string; }): Promise<void> {
@@ -111,7 +119,11 @@ async function main(): Promise<void> {
 
   const admin = new PgClient();
   const dbName = "nexus_p300wp3x_" + randomUUID().replace(/-/g, "").slice(0, 12);
+  if (!dbName.startsWith("nexus_p300wp3x_") || dbName === "nexus") {
+    throw new Error("safety guard: refusing to run — isolated DB name '" + dbName + "' does not match nexus_p300wp3x_<random>");
+  }
   let isolatedDbUrl = "";
+  let isolated: PgClient | null = null;
 
   try {
     await admin.connect(process.env.DATABASE_URL!);
@@ -121,7 +133,7 @@ async function main(): Promise<void> {
     url.pathname = "/" + dbName;
     isolatedDbUrl = url.toString();
 
-    const isolated = new PgClient();
+    isolated = new PgClient();
     await isolated.connect(isolatedDbUrl);
     await bootstrap(isolated);
 
@@ -145,7 +157,7 @@ async function main(): Promise<void> {
       ok(row.rows[0].job_id === j, "job_id mismatch");
       ok(row.rows[0].worker_id === w, "worker_id mismatch");
       ok(row.rows[0].result_sha256 === "1".repeat(64), "result_sha256 mismatch");
-      ok(Number(row.rows[0].success) === 1, "success mismatch");
+      ok(row.rows[0].success === true, "success mismatch (expected boolean true)");
       const disp = await pgExec(reader, "SELECT status FROM remote_dispatches WHERE dispatch_id = $1", [d]);
       ok(disp.rows[0]?.status === "COMPLETED", "dispatch status mismatch: " + disp.rows[0]?.status);
       await reader.close();
@@ -226,11 +238,37 @@ async function main(): Promise<void> {
       return "first persisted, second duplicate=true, 1 row";
     });
 
-    await isolated.close();
+    // (isolated.close() moved to finally for exception safety)
   } finally {
-    await dropDb(admin, dbName);
-    console.log("  [cleanup] dropped isolated database " + dbName);
-    try { await admin.close(); } catch {}
+    let cleanupFailed = false;
+
+    if (isolated) {
+      try {
+        await isolated.close();
+      } catch (e) {
+        cleanupFailed = true;
+        console.error("  [cleanup] failed to close isolated connection: " + (e instanceof Error ? e.message : String(e)));
+      }
+    }
+
+    const dropOk = await dropDb(admin, dbName);
+    if (dropOk) {
+      console.log("  [cleanup] dropped isolated database " + dbName);
+    } else {
+      cleanupFailed = true;
+      console.error("  [cleanup] FAILED to drop isolated database " + dbName + " — manual cleanup may be required");
+    }
+
+    try {
+      await admin.close();
+    } catch (e) {
+      cleanupFailed = true;
+      console.error("  [cleanup] failed to close admin connection: " + (e instanceof Error ? e.message : String(e)));
+    }
+
+    if (cleanupFailed) {
+      throw new Error("WP3 isolated database cleanup failed; inspect cleanup logs before retrying.");
+    }
   }
 }
 

@@ -1,0 +1,15 @@
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp2_8d7d4ceb93e3
+[PASS] WP2-1 single worker claims a dispatch -- claimed wp2-1-7c6404c2-b4ba-4368-9ff5-ee22626ff953
+[PASS] WP2-2 two in-process workers compete; exactly one wins -- one claim, one winner
+[PASS] WP2-3 empty queue returns undefined -- undefined on empty queue
+[PASS] WP2-4 multiple workers claim multiple dispatches, no duplicates -- 8 claims, 8 unique, no cross-worker overlap
+[PASS] WP2-5 two independent PROCESSES compete; every dispatch claimed exactly once -- N=20 A=10 B=10 unique=20
+[PASS] WP2-6 claim state durable across fresh store instances -- durable across instances; no re-claim
+  [cleanup] dropped isolated database nexus_p300wp2_8d7d4ceb93e3
+
+===== Phase 300 WP2 summary =====
+PASS: 6
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
