@@ -1,0 +1,30 @@
+﻿Phase 300 Section 6 — SQLite Synchronous Race Regression
+Date: 2026-11-11
+Mode: sqlite (real temp DB, real migrations)
+Result: PASS
+
+B1 (cancel-first): PASS
+  - cancelRemoteDispatchIfNotTerminal commits CANCELLED
+  - persistRemoteExecutionResultAndDispatchAsOwner rejects late result
+    with reason=DISPATCH_TERMINAL
+  - dispatch remains CANCELLED
+  - 0 result rows inserted
+
+B2 (result-first): PASS
+  - persistRemoteExecutionResultAndDispatchAsOwner commits result,
+    dispatch becomes COMPLETED
+  - cancelRemoteDispatchIfNotTerminal rejects (status NOT IN terminal)
+  - dispatch remains COMPLETED
+  - 1 result row intact
+
+Summary:
+PASS: 2
+FAIL: 0
+BLOCKED: 0
+
+TypeScript npx tsc --noEmit: PASS
+git diff --check: PASS
+
+Scope:
+Synchronous SQLite persistence and cancellation ordering. Mirror of
+the async PostgreSQL race scenarios (WP3 X5A/X5B) for the SQLite path.

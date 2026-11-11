@@ -4694,7 +4694,7 @@ export class ExecutionStore {
     leaseId: string,
     workerId: string,
     now: number = Date.now(),
-  ): { persisted: boolean; reason?: "WORKER_OWNERSHIP_LOST" } {
+  ): { persisted: boolean; reason?: "WORKER_OWNERSHIP_LOST" | "DISPATCH_TERMINAL" } {
     const owned = this.db.prepare(`
       SELECT 1 FROM execution_leases
       WHERE lease_id = ? AND worker_id = ? AND job_id = ?
@@ -4702,6 +4702,13 @@ export class ExecutionStore {
     `).get(leaseId, workerId, result.jobId, now);
     if (!owned) {
       return { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
+    }
+    // Phase 300 Section 6: cancelled-state guard, mirroring the async path.
+    const row = this.db.prepare(
+      "SELECT status FROM remote_dispatches WHERE dispatch_id = ?"
+    ).get(dispatch.dispatchId) as { status: string } | undefined;
+    if (row?.status === "CANCELLED") {
+      return { persisted: false, reason: "DISPATCH_TERMINAL" };
     }
     this.persistRemoteExecutionResultAndDispatch(result, dispatch);
     return { persisted: true };
