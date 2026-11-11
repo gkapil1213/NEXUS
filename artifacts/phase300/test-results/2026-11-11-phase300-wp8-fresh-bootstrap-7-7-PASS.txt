@@ -24,11 +24,8 @@ Isolated database dropped: PASS
 
 Scope:
 Fresh independent PostgreSQL bootstrap verified against a newly
-created isolated database (nexus_p300wp8_<random>). Verifies that
-bootstrapPgSchema produces a schema matching the live nexus database
-for remote_execution_results.
+created isolated database (nexus_p300wp8_<random>). Verifies the
+production bootstrap schema, repeatability, expected columns, foreign
+keys, delete rules, and indexes.
 
-Note: this run verified structural parity (column count, FKs, indexes).
-Column-type parity for success/created_at/verified_at on the fresh DB
-is covered by the existing live-DB evidence at commit 64d0810 and the
-runtime writer test 268-ri-H.
+No comparison with the existing nexus database was performed.
