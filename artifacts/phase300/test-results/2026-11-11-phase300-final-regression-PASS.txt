@@ -1,0 +1,22 @@
+﻿Phase 300 Final Regression — Section 8
+Date: 2026-11-11
+Mode: shared PostgreSQL (except SQLite-specific test)
+
+Suites:
+  268-ri         8/8 PASS  exit 0
+  WP2            6/6 PASS  exit 0
+  WP3 (X1-X5B)   6/6 PASS  exit 0
+  WP6           10/10 PASS exit 0
+  WP8 fresh     12/12 PASS exit 0
+  SQLite race    2/2 PASS  exit 0
+
+Static:
+  npx tsc --noEmit: exit 0
+  git diff --check: exit 0
+
+Total assertions: 44
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+
+Phase 300 Section 8 acceptance: PASS.
