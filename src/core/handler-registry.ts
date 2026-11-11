@@ -166,7 +166,9 @@ async function jobResultHandler(ctx: HandlerContext): Promise<any> {
   // this call was in flight. That is a valid ACK (spec: "Identical previously
   // persisted result: ACK"), not an ownership loss.
   if (!persist.persisted) {
-    throw new Error(persist.reason === "RESULT_CONFLICT" ? "conflicting_duplicate_result" : "ownership_lost");
+    if (persist.reason === "RESULT_CONFLICT") throw new Error("conflicting_duplicate_result");
+    if (persist.reason === "DISPATCH_TERMINAL") throw new Error("dispatch_terminal");
+    throw new Error("ownership_lost");
   }
   return { type: "JOB_RESULT_ACK" };
 }

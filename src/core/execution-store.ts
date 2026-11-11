@@ -1,4 +1,4 @@
-﻿import { sha256 } from "./sha256";
+import { sha256 } from "./sha256";
 import { NexusEngine, AsyncNexusEngine } from "./db";
 import { ExecutionRecoveryOperationStore, AsyncExecutionRecoveryOperationStore } from "./execution-recovery-operation-store";
 import { StageDependencyStore, AsyncStageDependencyStore } from "./stage-dependency-store";
@@ -207,7 +207,7 @@ export class ExecutionStore {
   readonly recoveryOpsAsync?: AsyncExecutionRecoveryOperationStore;
   readonly stageDeps: StageDependencyStore;
   readonly stageDepsAsync?: AsyncStageDependencyStore;
-  /** @internal Phase 142 â€” test-only injection hook. No-op in production. */
+  /** @internal Phase 142 — test-only injection hook. No-op in production. */
   public __testPhase142Hook?: (stage: "afterLeaseInsert" | "afterJobUpdate") => void;
   /** @internal Phase 143 - test-only injection hook. No-op in production. */
   public __testPhase143Hook?: (stage: "afterJobUpdate" | "afterObligation") => void;
@@ -2273,7 +2273,7 @@ export class ExecutionStore {
       return { updated: true, applied: true, attempt: row ? this.mapAttempt(row) : undefined };
     }
 
-    // Diagnostic classification only â€” the authoritative mutation is the UPDATE above.
+    // Diagnostic classification only — the authoritative mutation is the UPDATE above.
     const row = this.db.prepare("SELECT * FROM execution_attempts WHERE id = ?").get(attempt.id) as any;
     if (!row || row.job_id !== attempt.jobId) {
       return { updated: false, reason: "ATTEMPT_NOT_FOUND" };
@@ -2917,7 +2917,7 @@ export class ExecutionStore {
 
   // ---------- Leases ----------
   /**
-   * Phase 142: atomic claim of a QUEUED job â€” single SQLite transaction.
+   * Phase 142: atomic claim of a QUEUED job — single SQLite transaction.
    *
    * Every durable step executes directly inside the transaction. This method
    * MUST NOT call transitionExecution(); doing so would create a nested
@@ -2984,7 +2984,7 @@ export class ExecutionStore {
         this.__testPhase142Hook("afterLeaseInsert");
       }
 
-      // 4. CAS job UPDATE â€” direct statement, no nested tx.
+      // 4. CAS job UPDATE — direct statement, no nested tx.
       const upd = this.db.prepare(
         "UPDATE execution_jobs SET status = 'CLAIMED', updated_at = ?, current_lease_id = ? " +
         "WHERE id = ? AND status = 'QUEUED' AND cancellation_requested = 0 AND current_lease_id IS NULL"
@@ -2995,7 +2995,7 @@ export class ExecutionStore {
         this.__testPhase142Hook("afterJobUpdate");
       }
 
-      // 5. Durable event INSERT â€” addEvent is a direct INSERT (no tx).
+      // 5. Durable event INSERT — addEvent is a direct INSERT (no tx).
       this.addEvent({
         eventId: "evt_" + input.jobId + "_" + now + "_" + Math.random().toString(36).slice(2, 10),
         jobId: input.jobId,
@@ -5182,7 +5182,8 @@ export class ExecutionStore {
             | "WORKER_OWNERSHIP_LOST"
             | "DISPATCH_IDENTITY_MISMATCH"
             | "LEASE_EXPIRED"
-            | "RESULT_CONFLICT" }
+            | "RESULT_CONFLICT"
+            | "DISPATCH_TERMINAL" }
     > {
         // Phase 300 / WP3 v2: caller-identity invariants, pre-transaction.
         // These run before any DB access, so no state is touched on a
@@ -5203,7 +5204,7 @@ export class ExecutionStore {
             | { persisted: true; duplicate?: boolean }
             | { persisted: false; reason:
                 | "WORKER_OWNERSHIP_LOST" | "DISPATCH_IDENTITY_MISMATCH"
-                | "LEASE_EXPIRED" | "RESULT_CONFLICT" }
+                | "LEASE_EXPIRED" | "RESULT_CONFLICT" | "DISPATCH_TERMINAL" }
             = { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
 
         class AbortTx extends Error {}
@@ -5216,6 +5217,25 @@ export class ExecutionStore {
                 ).get<any>(dispatch.dispatchId);
                 if (!row) {
                     outcome = { persisted: false, reason: "WORKER_OWNERSHIP_LOST" };
+                    throw new AbortTx();
+                }
+
+                // 1b. Phase 300 / WP3: cancelled-state guard.
+                // A result submitted after the dispatch has been CANCELLED
+                // must be rejected. WP3-X5A (cancel-first scenario) proves
+                // this: without the guard, the late result would overwrite
+                // CANCELLED and flip the dispatch to COMPLETED.
+                //
+                // COMPLETED / FAILED / BLOCKED fall through to the duplicate
+                // detection below. Reason: if the dispatch is terminal but a
+                // result row already exists (the common case — the terminal
+                // status was set by a prior result write), the duplicate-
+                // detection logic correctly returns RESULT_CONFLICT (X3) or
+                // duplicate:true (X2, X4). Only CANCELLED is a genuine
+                // "result submitted after operator cancelled" case that
+                // requires the specific DISPATCH_TERMINAL rejection.
+                if (row.status === "CANCELLED") {
+                    outcome = { persisted: false, reason: "DISPATCH_TERMINAL" };
                     throw new AbortTx();
                 }
 
@@ -5306,7 +5326,7 @@ export class ExecutionStore {
                     result.workerId,
                     result.dispatchId,
                     result.leaseId,
-                    result.success,
+                    result.success ? 1 : 0,
                     result.exitCode,
                     result.stdoutRef,
                     result.stderrRef,

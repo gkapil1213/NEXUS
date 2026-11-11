@@ -335,7 +335,7 @@ export class WorkerGateway {
     // runs. Handler failure does NOT undo acceptance (the handler may have
     // performed irreversible side effects).
     //
-    // Non-SQL engines (memory/indexeddb) cannot honor this ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â their
+    // Non-SQL engines (memory/indexeddb) cannot honor this semantic.
     // transaction() throws SQL_UNSUPPORTED. We detect engine kind and fall
     // back to Phase 289 behavior for those backends (documented limitation).
     {
@@ -530,7 +530,9 @@ export class WorkerGateway {
           );
         }
         if (!persist.persisted) {
-          throw new Error(persist.reason === "RESULT_CONFLICT" ? "conflicting_duplicate_result" : "ownership_lost");
+          if (persist.reason === "RESULT_CONFLICT") throw new Error("conflicting_duplicate_result");
+          if (persist.reason === "DISPATCH_TERMINAL") throw new Error("dispatch_terminal");
+          throw new Error("ownership_lost");
         }
         return { type: "JOB_RESULT_ACK" };
       }

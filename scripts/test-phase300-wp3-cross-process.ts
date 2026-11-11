@@ -60,7 +60,7 @@ async function seedAll(client: PgClient, o: { dispatchId: string; jobId: string;
   const now = Date.now();
   await pgExec(client, "INSERT INTO execution_jobs (id, idempotency_key, job_type, payload, status, retry_policy, timeout_ms, created_at, updated_at, last_attempt_at, next_attempt_at, current_lease_id, cancellation_requested, cancellation_acknowledged, priority) VALUES ($1, $2, 'remote.exec', '{}', 'RUNNING', NULL, NULL, $3, $3, NULL, NULL, NULL, 0, 0, 0) ON CONFLICT (id) DO NOTHING", [o.jobId, "idem-job-" + o.jobId, now]);
   await pgExec(client, "INSERT INTO execution_leases (lease_id, job_id, worker_id, acquired_at, expires_at, renewed_at, released_at, status) VALUES ($1, $2, $3, $4, $5, NULL, NULL, 'ACTIVE') ON CONFLICT (lease_id) DO NOTHING", [o.leaseId, o.jobId, o.workerId, now, now + 3600_000]);
-  await pgExec(client, "INSERT INTO remote_dispatches (dispatch_id, job_id, worker_id, attempt_id, lease_id, status, created_at, updated_at, idempotency_key) VALUES ($1, $2, $3, NULL, $4, 'DISPATCHED', $5, $5, $6) ON CONFLICT (dispatch_id) DO NOTHING", [o.dispatchId, o.jobId, o.workerId, o.leaseId, now, o.idempotencyKey]);
+  await pgExec(client, "INSERT INTO remote_dispatches (dispatch_id, job_id, worker_id, attempt_id, lease_id, status, external_provider_id, created_at, updated_at, idempotency_key) VALUES ($1, $2, $3, NULL, $4, 'DISPATCHED', $5, $6, $6, $7) ON CONFLICT (dispatch_id) DO NOTHING", [o.dispatchId, o.jobId, o.workerId, o.leaseId, "provider-" + o.dispatchId, now, o.idempotencyKey]);
 }
 
 interface WorkerOutcome {
@@ -100,9 +100,8 @@ function runWorker(payload: {
 }
 
 interface CancelOutcome {
-  outcome:
-    | { cancelled: true; currentStatus: string }
-    | { cancelled: false; currentStatus: string | null };
+  outcome: { cancelled: boolean; reason?: string };
+  cancelCalls: number;
 }
 
 function runCancelWorker(payload: { dispatchId: string }, dbUrl: string): Promise<CancelOutcome> {
@@ -271,44 +270,102 @@ async function main(): Promise<void> {
       return "first persisted, second duplicate=true, 1 row";
     });
 
-    // --- WP3-X5: cancel-vs-result cross-process race -----------------
-    await test("WP3-X5", "cancel-vs-result cross-process race is deterministic", async () => {
-      const d = "wp3-x5-" + randomUUID();
-      const j = "wp3-x5-job-" + randomUUID();
-      const l = "wp3-x5-lease-" + randomUUID();
+    // --- WP3-X5A: cancellation completes before result persistence ----
+    await test("WP3-X5A", "late result cannot overwrite a completed cancellation", async () => {
+      const d = "wp3-x5a-" + randomUUID();
+      const j = "wp3-x5a-job-" + randomUUID();
+      const l = "wp3-x5a-lease-" + randomUUID();
       const w = "worker-A";
-      await seedAll(isolated, { dispatchId: d, jobId: j, workerId: w, leaseId: l, idempotencyKey: "idem-x5-" + randomUUID() });
 
-      const [resultWorker, cancelWorker] = await Promise.all([
-        runWorker({ dispatchId: d, jobId: j, workerId: w, leaseId: l, resultId: "res-x5-" + randomUUID(), resultSha256: "5".repeat(64), dispatchStatus: "COMPLETED" }, isolatedDbUrl),
-        runCancelWorker({ dispatchId: d }, isolatedDbUrl),
-      ]);
+      await seedAll(isolated, {
+        dispatchId: d,
+        jobId: j,
+        workerId: w,
+        leaseId: l,
+        idempotencyKey: "idem-x5a-" + randomUUID(),
+      });
+
+      const cancelWorker = await runCancelWorker({ dispatchId: d }, isolatedDbUrl);
+
+      ok(cancelWorker.outcome.cancelled === true,
+        "cancellation should succeed: " + JSON.stringify(cancelWorker.outcome));
+      ok(cancelWorker.cancelCalls === 1,
+        "provider adapter should be called exactly once, got " + cancelWorker.cancelCalls);
+
+      const resultWorker = await runWorker({
+        dispatchId: d,
+        jobId: j,
+        workerId: w,
+        leaseId: l,
+        resultId: "res-x5a-" + randomUUID(),
+        resultSha256: "5".repeat(64),
+        dispatchStatus: "COMPLETED",
+      }, isolatedDbUrl);
+
+      ok(
+        resultWorker.outcome.persisted === false &&
+        resultWorker.outcome.reason === "DISPATCH_TERMINAL",
+        "late result should be rejected as DISPATCH_TERMINAL: " + JSON.stringify(resultWorker.outcome),
+      );
 
       const disp = await pgExec(isolated, "SELECT status FROM remote_dispatches WHERE dispatch_id = $1", [d]);
       const res = await pgExec(isolated, "SELECT COUNT(*)::int AS n FROM remote_execution_results WHERE dispatch_id = $1", [d]);
-      const finalStatus = disp.rows[0]?.status as string | undefined;
-      const resultCount = Number(res.rows[0]?.n ?? 0);
 
-      const resultWon =
-        finalStatus === "COMPLETED" &&
-        resultCount === 1 &&
-        resultWorker.outcome.persisted === true;
+      ok(disp.rows[0]?.status === "CANCELLED",
+        "cancellation must remain durable, got " + disp.rows[0]?.status);
+      ok(Number(res.rows[0]?.n ?? 0) === 0,
+        "late result must not be inserted");
 
-      const cancelWon =
-        finalStatus === "CANCELLED" &&
-        resultCount === 0;
-
-      ok(
-        resultWon || cancelWon,
-        "non-deterministic race: status=" + finalStatus +
-        " resultCount=" + resultCount +
-        " resultOutcome=" + JSON.stringify(resultWorker.outcome) +
-        " cancelOutcome=" + JSON.stringify(cancelWorker.outcome),
-      );
-
-      return "race resolved: " + (resultWon ? "COMPLETED" : "CANCELLED") + " (deterministic)";
+      return "cancellation first; provider called once; late result rejected; CANCELLED remains durable";
     });
 
+    // --- WP3-X5B: result completes before cancellation ----------------
+    await test("WP3-X5B", "cancellation cannot overwrite an already persisted result", async () => {
+      const d = "wp3-x5b-" + randomUUID();
+      const j = "wp3-x5b-job-" + randomUUID();
+      const l = "wp3-x5b-lease-" + randomUUID();
+      const w = "worker-A";
+
+      await seedAll(isolated, {
+        dispatchId: d,
+        jobId: j,
+        workerId: w,
+        leaseId: l,
+        idempotencyKey: "idem-x5b-" + randomUUID(),
+      });
+
+      const resultWorker = await runWorker({
+        dispatchId: d,
+        jobId: j,
+        workerId: w,
+        leaseId: l,
+        resultId: "res-x5b-" + randomUUID(),
+        resultSha256: "b".repeat(64),
+        dispatchStatus: "COMPLETED",
+      }, isolatedDbUrl);
+
+      ok(resultWorker.outcome.persisted === true,
+        "result should persist first: " + JSON.stringify(resultWorker.outcome));
+
+      const cancelWorker = await runCancelWorker({ dispatchId: d }, isolatedDbUrl);
+
+      ok(cancelWorker.outcome.cancelled === false,
+        "cancellation should be rejected after completion: " + JSON.stringify(cancelWorker.outcome));
+      ok(cancelWorker.outcome.reason === "already_terminal:COMPLETED",
+        "unexpected cancellation reason: " + JSON.stringify(cancelWorker.outcome));
+      ok(cancelWorker.cancelCalls === 0,
+        "provider adapter must not be called for an already-terminal dispatch");
+
+      const disp = await pgExec(isolated, "SELECT status FROM remote_dispatches WHERE dispatch_id = $1", [d]);
+      const res = await pgExec(isolated, "SELECT COUNT(*)::int AS n FROM remote_execution_results WHERE dispatch_id = $1", [d]);
+
+      ok(disp.rows[0]?.status === "COMPLETED",
+        "COMPLETED must remain durable, got " + disp.rows[0]?.status);
+      ok(Number(res.rows[0]?.n ?? 0) === 1,
+        "exactly one result row should remain");
+
+      return "result first; cancellation rejected before provider call; COMPLETED and one result remain durable";
+    });
     // (isolated.close() moved to finally for exception safety)
   } finally {
     let cleanupFailed = false;
