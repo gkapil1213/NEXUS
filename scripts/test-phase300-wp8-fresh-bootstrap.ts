@@ -1,5 +1,7 @@
-﻿import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { PgClient } from "../src/core/pg-client";
+import { PgAsyncEngine } from "../src/core/pg-async-engine";
+import { ExecutionStore } from "../src/core/execution-store";
 import { bootstrapPgSchema } from "../src/core/pg-bootstrap";
 
 function assert(condition: boolean, message: string): void {
@@ -85,7 +87,7 @@ async function main(): Promise<void> {
       .map(([k, type]) => `${k}: expected ${type}, got ${actual.get(k)}`);
 
     check(
-      "Exactly 17 expected columns exist",
+      "Exactly 17 expected columns exist with expected types",
       columns.rows.length === 17 &&
         missing.length === 0 &&
         wrongTypes.length === 0,
@@ -186,8 +188,96 @@ async function main(): Promise<void> {
       workerIndex?.indexdef ?? "missing"
     );
 
+    // Check: primary key on result_id
+    const pk = await isolated.query<{ attname: string }>(`
+      SELECT a.attname
+      FROM pg_index i
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE i.indrelid = 'remote_execution_results'::regclass
+        AND i.indisprimary
+    `);
+    check(
+      "result_id is the PRIMARY KEY",
+      pk.rows.length === 1 && pk.rows[0].attname === "result_id",
+      `columns=${JSON.stringify(pk.rows)}`
+    );
+
+    // Check: actual async writer persists a result in the fresh DB
+    const wd = "wp8-writer-" + randomUUID();
+    const wj = "wp8-writer-job-" + randomUUID();
+    const wl = "wp8-writer-lease-" + randomUUID();
+    const ww = "worker-A";
+    const wnow = Date.now();
+
+    await isolated.query(
+      "INSERT INTO execution_jobs (id, idempotency_key, job_type, payload, status, retry_policy, timeout_ms, created_at, updated_at, last_attempt_at, next_attempt_at, current_lease_id, cancellation_requested, cancellation_acknowledged, priority) VALUES ($1, $2, 'remote.exec', '{}', 'RUNNING', NULL, NULL, $3, $3, NULL, NULL, NULL, 0, 0, 0)",
+      [wj, "idem-job-" + wj, wnow]
+    );
+    await isolated.query(
+      "INSERT INTO execution_leases (lease_id, job_id, worker_id, acquired_at, expires_at, renewed_at, released_at, status) VALUES ($1, $2, $3, $4, $5, NULL, NULL, 'ACTIVE')",
+      [wl, wj, ww, wnow, wnow + 3600_000]
+    );
+    await isolated.query(
+      "INSERT INTO remote_dispatches (dispatch_id, job_id, worker_id, attempt_id, lease_id, status, created_at, updated_at, idempotency_key) VALUES ($1, $2, $3, NULL, $4, 'DISPATCHED', $5, $5, $6)",
+      [wd, wj, ww, wl, wnow, "idem-" + wd]
+    );
+
+    const asyncEngine = new PgAsyncEngine(isolated);
+    const store = new (ExecutionStore as any)({} as any, asyncEngine);
+
+    const persistOut = await store.persistRemoteExecutionResultAndDispatchAsOwnerAsync(
+      {
+        resultId: "res-" + wd,
+        jobId: wj,
+        attemptId: undefined,
+        workerId: ww,
+        dispatchId: wd,
+        leaseId: wl,
+        success: false,
+        exitCode: 1,
+        stdoutRef: "out",
+        stderrRef: "",
+        evidence: { test: true },
+        createdAt: wnow,
+        stdoutSha256: "a".repeat(64),
+        stderrSha256: "b".repeat(64),
+        resultSha256: "c".repeat(64),
+        verificationStatus: "VERIFIED",
+        verifiedAt: wnow,
+      },
+      {
+        dispatchId: wd,
+        jobId: wj,
+        workerId: ww,
+        leaseId: wl,
+        attemptId: undefined,
+        idempotencyKey: "idem-" + wd,
+        status: "COMPLETED",
+        createdAt: 0,
+        updatedAt: Date.now(),
+        result: { success: false, exitCode: 1, stdout: "out", stderr: "" },
+      },
+      wl, ww
+    );
+
+    check(
+      "actual async writer persists in fresh DB",
+      persistOut.persisted === true,
+      `outcome=${JSON.stringify(persistOut)}`
+    );
+
+    const verifyRow = await isolated.query<{ success: boolean }>(
+      "SELECT success FROM remote_execution_results WHERE dispatch_id = $1",
+      [wd]
+    );
+    check(
+      "persisted row has success=false (BOOLEAN round-trip)",
+      verifyRow.rows.length === 1 && verifyRow.rows[0].success === false,
+      `rows=${JSON.stringify(verifyRow.rows)}`
+    );
+
     console.log("\n=== WP8 RESULT ===");
-    console.log(`PASS: ${7 - failures}`);
+    console.log(`PASS: ${12 - failures}`);
     console.log(`FAIL: ${failures}`);
     if (failures > 0) throw new Error("WP8 fresh-bootstrap verification failed.");
   } finally {
@@ -205,7 +295,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch(error => {
-  console.error("RESULT: FAIL", error instanceof Error ? error.message : String(error));
+main().catch((error) => {
+  console.error(
+    "RESULT: FAIL \u2014",
+    error instanceof Error ? error.message : String(error)
+  );
   process.exitCode = 1;
 });

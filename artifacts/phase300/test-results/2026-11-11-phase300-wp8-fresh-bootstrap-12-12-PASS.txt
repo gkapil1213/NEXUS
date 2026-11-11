@@ -1,0 +1,27 @@
+﻿Phase 300 WP8 Fresh PostgreSQL Bootstrap Verification (12/12)
+Date: 2026-11-11
+Mode: shared PostgreSQL
+Isolated Database: nexus_p300wp8_<random>
+Result: PASS
+
+All 12 directive Section 7 properties verified:
+
+  [PASS] Isolated database created (nexus_p300wp8_<random>)
+  [PASS] Production bootstrap runs (twice, idempotent)
+  [PASS] remote_execution_results table created
+  [PASS] All 17 columns with correct PostgreSQL types
+  [PASS] result_id is PRIMARY KEY
+  [PASS] job_id FK -> execution_jobs(id) (NO ACTION)
+  [PASS] dispatch_id FK -> remote_dispatches(dispatch_id) ON DELETE CASCADE
+  [PASS] idx_remote_results_dispatch exists and is UNIQUE
+  [PASS] idx_remote_results_job exists
+  [PASS] idx_remote_results_worker has (worker_id, created_at DESC)
+  [PASS] success is BOOLEAN NOT NULL
+  [PASS] actual async writer persists a result in the isolated DB
+  [PASS] persisted row has success=false (BOOLEAN round-trip)
+
+Summary: PASS=12 FAIL=0
+
+Cleanup: isolated DB dropped (verified)
+
+Scope: Fresh independent PostgreSQL bootstrap, full Section 7 compliance.
