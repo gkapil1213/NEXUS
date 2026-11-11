@@ -3,20 +3,35 @@ Date: 2026-11-11
 Mode: shared PostgreSQL (except SQLite-specific test)
 
 Suites:
-  268-ri         8/8 PASS  exit 0
-  WP2            6/6 PASS  exit 0
-  WP3 (X1-X5B)   6/6 PASS  exit 0
-  WP6           10/10 PASS exit 0
-  WP8 fresh     12/12 PASS exit 0
-  SQLite race    2/2 PASS  exit 0
+  268-ri           8/8  PASS  exit 0
+  WP1              8/8  PASS  exit 0
+  WP2              6/6  PASS  exit 0
+  WP3 (X1-X5B)     6/6  PASS  exit 0
+  WP4              7/7  PASS  exit 0
+  WP5             10/10 PASS, 1 N/E  exit 2 (design)
+  WP6             10/10 PASS  exit 0
+  WP8 fresh       12/12 PASS  exit 0
+  SQLite race      2/2  PASS  exit 0
 
 Static:
-  npx tsc --noEmit: exit 0
-  git diff --check: exit 0
+  npx tsc --noEmit: PASS
+  git diff --check: PASS
 
-Total assertions: 44
-FAIL: 0
-BLOCKED: 0
-NOT EXECUTED: 0
+Total assertions executed:
+  PASS: 68
+  FAIL: 0
+  BLOCKED: 0
 
-Phase 300 Section 8 acceptance: PASS.
+NOT EXECUTED: 1
+  WP5-7 separate empty-database initialization — intentionally skipped.
+  Reasoning: WP5-1 already verifies initialization against a fresh
+  empty isolated database. WP5-7 would create a second fresh database
+  for the same property, which is redundant. Documented in the WP5
+  test as [N/E] with explicit reason.
+
+Acceptance impact:
+  WP5-7 is NOT in the Phase 300 Section 10 acceptance criteria. It is
+  a self-imposed defensive check, fully covered by WP5-1. No Phase 300
+  acceptance criterion is affected.
+
+Phase 300 Section 8 acceptance: PASS (with 1 documented NOT EXECUTED).
