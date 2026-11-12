@@ -1,11 +1,11 @@
-﻿# WP3 — Result integrity and ownership
+# WP3 — Result integrity and ownership
 
-**Classification: PASS — 7/7 single-process + 4/4 cross-process = 11/11**
+**Classification: PASS — 8/8 single-process + 6/6 cross-process = 14/14**
 
 Two independent test suites verify `persistRemoteExecutionResultAndDispatchAsOwnerAsync`:
 
-- Single-process contract: `test-phase268-remote-result-integrity.ts` (7 cases).
-- Cross-process durability and idempotency: `test-phase300-wp3-cross-process.ts` (4 cases).
+- Single-process contract: `test-phase268-remote-result-integrity.ts` (8 cases).
+- Cross-process durability and idempotency: `test-phase300-wp3-cross-process.ts` (6 cases).
 
 ## What was implemented
 
@@ -62,12 +62,13 @@ at `9153d5c`.
 | 268-ri-E | Concurrent submissions (Promise.all, one process) have one winner | PASS |
 | 268-ri-F | Mismatched dispatch job identity rejected | PASS |
 | 268-ri-G | Mismatched result attempt identity rejected | PASS |
+| 268-ri-H | Native PostgreSQL BOOLEAN false persists correctly | PASS |
 
-Verbatim output: `test-results/2026-11-08-phase268-ri-7-7-PASS.txt`.
+Latest evidence: `test-results/2026-11-11-phase268-ri-8-8-PASS.txt`. Summary: 8 PASS, 0 FAIL, 0 BLOCKED.
 
-## Test evidence — Suite 2: cross-process (4/4)
+## Test evidence — Suite 2: cross-process (6/6)
 
-`scripts/test-phase300-wp3-cross-process.ts` — 4 cases against an isolated
+`scripts/test-phase300-wp3-cross-process.ts` — 6 cases against an isolated
 PostgreSQL database. Each case spawns one or two independent Node processes
 (via `child_process.spawn`), each with its own `PgClient` pool to the isolated
 DB.
@@ -78,16 +79,17 @@ DB.
 | WP3-X2 | Two processes submit identical result concurrently; one row; other sees duplicate | PASS |
 | WP3-X3 | Two processes submit conflicting results; one row; other rejected RESULT_CONFLICT | PASS |
 | WP3-X4 | Sequential identical submits across processes yield idempotent duplicate | PASS |
+| WP3-X5A | Late result cannot overwrite CANCELLED | PASS |
+| WP3-X5B | Cancellation cannot overwrite committed result | PASS |
 
-Verbatim output: `test-results/2026-11-08-phase300-wp3-cross-process-4-4-PASS.txt`.
+Latest evidence: `test-results/2026-11-11-phase300-wp3-cross-process-6-6-PASS.txt`. Summary: 6 PASS, 0 FAIL, 0 BLOCKED, 0 NOT EXECUTED.
 
 ## Combined coverage
 
-- 11 total test cases.
-- 7 single-process (the pre-existing contract).
-- 4 cross-process (section 10 durability and idempotency).
-- Existing 7/7 was not modified; it remains at commit `977ed86` as originally
-  verified. The new suite is an additive verification.
+- 14 passing checks across the two latest suites.
+- 8 single-process checks, including native PostgreSQL BOOLEAN persistence.
+- 6 cross-process checks, including both cancellation/result race orderings.
+- Older 7/7 and 4/4 reports are historical evidence and remain preserved.
 
 ## What is NOT verified
 

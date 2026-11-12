@@ -1,6 +1,6 @@
-﻿# WP6 — DispatchService cancellation and status
+# WP6 — DispatchService cancellation and status
 
-**Classification: PASS — 9/9 integration tests (PostgreSQL)**
+**Classification: PASS — 10/10 regression tests (PostgreSQL)**
 
 ## What was implemented
 
@@ -20,7 +20,7 @@
 
 ## Test evidence
 
-scripts/test-phase300-wp6-cancellation-status.ts — 9 cases against isolated PostgreSQL.
+scripts/test-phase300-wp6-cancellation-status.ts — 10 cases against isolated PostgreSQL.
 
 | # | Case | Result |
 |---|---|---|
@@ -33,10 +33,13 @@ scripts/test-phase300-wp6-cancellation-status.ts — 9 cases against isolated Po
 | WP6-7 | getStatus on durable COMPLETED returns it without provider call | PASS |
 | WP6-8 | Two concurrent cancelDetailed calls are idempotent | PASS |
 | WP6-9 | getStatus on missing dispatch throws not-found | PASS |
+| WP6-10 | Cancellation racing a terminal result does not clobber it | PASS |
 
-Summary: PASS: 9 / FAIL: 0 / BLOCKED: 0 / NOT EXECUTED: 0.
+Summary: PASS: 10 / FAIL: 0 / BLOCKED: 0 / NOT EXECUTED: 0.
 
-Verbatim output: test-results/2026-11-09-phase300-wp6-9-0-pass.txt.
+Latest evidence: `test-results/2026-11-12-phase300-wp6-cancellation-status-10-10-PASS.txt`. The isolated PostgreSQL test database cleanup was reported PASS.
+
+The November 9 9/9 report is historical and remains preserved.
 
 ## What is NOT verified
 
