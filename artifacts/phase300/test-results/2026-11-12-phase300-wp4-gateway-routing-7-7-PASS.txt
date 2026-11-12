@@ -1,0 +1,23 @@
+﻿NEXUS Phase 300 - WP4 Gateway Routing Regression
+Date: 2026-11-12 08:27:16 +05:30
+Command: npx tsx .\scripts\test-phase300-wp4-gateway-routing.ts
+Persistence mode: shared
+DATABASE_URL configured: True
+Exit code: 0
+Result: PASS
+
+=== ACTUAL TEST OUTPUT ===
+mode=shared databaseUrl=set
+[PASS] WP4-1 successful JOB_RESULT through real gateway persists durably in PG -- ACK + 1 row + COMPLETED
+[PASS] WP4-2 wrong worker in result payload is rejected without writing -- rejected: ownership_lost
+[PASS] WP4-3 matching duplicate returns ACK without a second row -- both ACK; exactly 1 row
+[PASS] WP4-4 conflicting duplicate rejected with RESULT_CONFLICT, original preserved -- rejected conflicting; original preserved
+[PASS] WP4-5 missing dispatch rejected with dispatch_ownership_violation -- rejected: dispatch_ownership_violation
+[PASS] WP4-6 gateway maps distinct rejection reasons to distinct error strings -- 3 distinct error paths mapped correctly
+[PASS] WP4-7 SQLite-only mode routes through sync fallback and still ACKs -- SQLite-only path works: ACK + row + COMPLETED
+
+===== Phase 300 WP4 summary =====
+PASS: 7
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
