@@ -1179,6 +1179,16 @@ export class CiPipelineEngine {
       return this.transitionRun(run, "BLOCKED", ctx, "static provider fixture cannot execute a real pipeline run (STATIC_PROVIDER_TEST only)");
     }
 
+    // Reject remote provider/run mismatches before bridge lookup or dispatch.
+    if (provider.kind === "remote" && provider.name !== run.provider) {
+      return this.transitionRun(
+        run,
+        "BLOCKED",
+        ctx,
+        "provider identity mismatch: supplied " + String(provider.name) +
+          " but run targets " + String(run.provider),
+      );
+    }
     // Phase 105 Pass 2: real external dispatch when a CICD bridge is wired.
     // Phase 301 Fix B: dispatch requires a wired bridge. Never use the
     // legacy RUNNING transition for a remote run without confirmed dispatch,

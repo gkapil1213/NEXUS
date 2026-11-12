@@ -36,7 +36,7 @@ async function test(id: string, name: string, fn: () => Promise<string>): Promis
 
 // Minimal CiServices stub: startRun only reads svc.cicd, svc.events, svc.audit
 // in its paths. The static and no-bridge branches never call the audit or engine.
-function makeEngine(withBridge: boolean): CiPipelineEngine {
+function makeEngine(withBridge: boolean, bridgeCalls?: { trigger: number }): CiPipelineEngine {
   const svc: any = {
     engine: {
       put: async (_store: string, _id: string, value: any) => value,
@@ -50,7 +50,7 @@ function makeEngine(withBridge: boolean): CiPipelineEngine {
     cicd: withBridge
       ? {
           registry: { get: () => ({ id: "github-actions" }), list: () => [{ id: "github-actions" }] },
-          manager: { trigger: async () => ({ externalRunId: "999" }), getStatus: async () => ({ status: "SUCCEEDED" }), cancel: async () => {} },
+          manager: { trigger: async () => { if (bridgeCalls) bridgeCalls.trigger++; return { externalRunId: "999" }; }, getStatus: async () => ({ status: "SUCCEEDED" }), cancel: async () => {} },
           providerId: "github-actions",
         }
       : undefined,
@@ -150,6 +150,48 @@ async function main(): Promise<void> {
     return "all 4 cases safe";
   });
 
+  await test("WP301-STARTRUN-7", "remote provider/run identity mismatch -> BLOCKED without dispatch", async () => {
+    const bridgeCalls = { trigger: 0 };
+
+    const githubRunWithGitlabProvider = await makeEngine(true, bridgeCalls).startRun(
+      makeRun("github"),
+      makeCtx(),
+      remoteGitlabProvider,
+    );
+
+    ok(
+      githubRunWithGitlabProvider.status === "BLOCKED",
+      "GitLab provider targeting GitHub run was not blocked: " + githubRunWithGitlabProvider.status,
+    );
+    ok(
+      !!githubRunWithGitlabProvider.blocked_reason &&
+        /provider identity mismatch/.test(githubRunWithGitlabProvider.blocked_reason),
+      "GitLab/GitHub mismatch reason missing: " + githubRunWithGitlabProvider.blocked_reason,
+    );
+
+    const gitlabRunWithGithubProvider = await makeEngine(true, bridgeCalls).startRun(
+      makeRun("gitlab"),
+      makeCtx(),
+      remoteGithubProvider,
+    );
+
+    ok(
+      gitlabRunWithGithubProvider.status === "BLOCKED",
+      "GitHub provider targeting GitLab run was not blocked: " + gitlabRunWithGithubProvider.status,
+    );
+    ok(
+      !!gitlabRunWithGithubProvider.blocked_reason &&
+        /provider identity mismatch/.test(gitlabRunWithGithubProvider.blocked_reason),
+      "GitHub/GitLab mismatch reason missing: " + gitlabRunWithGithubProvider.blocked_reason,
+    );
+
+    ok(
+      bridgeCalls.trigger === 0,
+      "Mismatched provider reached bridge trigger " + bridgeCalls.trigger + " time(s)",
+    );
+
+    return "both mismatch directions BLOCKED; bridge trigger calls = 0";
+  });
   await test("WP301-STARTRUN-6", "regression: no fallthrough to SUCCEEDED", async () => {
     const engine = makeEngine(false);
     const run = makeRun("github");
