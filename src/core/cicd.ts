@@ -1180,12 +1180,22 @@ export class CiPipelineEngine {
     }
 
     // Phase 105 Pass 2: real external dispatch when a CICD bridge is wired.
-    if (this.svc.cicd && run.provider === "github") {
-      return this.startRunExternal(run, ctx);
+    // Phase 301 Fix B: dispatch requires a wired bridge. Never use the
+    // legacy RUNNING transition for a remote run without confirmed dispatch,
+    // or the run stalls forever (pollRun returns unchanged when bridge absent).
+    if (provider.kind === "remote") {
+      if (!this.svc.cicd) {
+        return this.transitionRun(run, "BLOCKED", ctx, "no CICD bridge wired - external dispatch unavailable");
+      }
+      if (run.provider === "github") {
+        return this.startRunExternal(run, ctx);
+      }
+      // Remote provider other than github (e.g., gitlab): not implemented.
+      return this.transitionRun(run, "BLOCKED", ctx, "remote provider not implemented: " + String(run.provider));
     }
 
-    // Legacy remote path — unchanged pre-Pass 2 behavior.
-    return this.transitionRun(run, "RUNNING", ctx, null);
+    // Unknown provider kind: BLOCKED rather than silent RUNNING.
+    return this.transitionRun(run, "BLOCKED", ctx, "unknown provider kind: " + String((provider as { kind?: string }).kind));
   }
 
   /**

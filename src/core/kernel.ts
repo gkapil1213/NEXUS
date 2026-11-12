@@ -500,17 +500,23 @@ const memberships = new ProjectMembershipStore(rawDb);
       // bridge is undefined and the engine keeps its legacy (honest BLOCKED)
       // behavior for remote runs. Kernel boot must never fail because the
       // external CI capability is unavailable.
+      // Phase 301 Fix A: register the real GitHub Actions provider
+      // unconditionally. The provider delegates to the shared GitHubService
+      // instance and checks its connection state at operation time, so a
+      // token established after boot (via services.github.connect()) works
+      // without rebuilding the engine. When GitHub is not connected, the
+      // provider returns BLOCKED on every remote operation (see
+      // ensureConnected in github-actions-cicd-provider.ts). Kernel boot
+      // must never fail because the external CI capability is unavailable.
       let cicdBridge: CiCicdBridge | undefined;
       try {
-        if (github.state().connected) {
-          const cicdRegistry = new CICDProviderRegistry();
-          cicdRegistry.register(new GitHubActionsCICDProvider(github));
-          cicdBridge = {
-            registry: cicdRegistry,
-            manager: new CICDRunManager(cicdRegistry),
-            providerId: "github-actions",
-          };
-        }
+        const cicdRegistry = new CICDProviderRegistry();
+        cicdRegistry.register(new GitHubActionsCICDProvider(github));
+        cicdBridge = {
+          registry: cicdRegistry,
+          manager: new CICDRunManager(cicdRegistry),
+          providerId: "github-actions",
+        };
       } catch {
         cicdBridge = undefined;
       }
