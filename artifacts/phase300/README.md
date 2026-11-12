@@ -34,7 +34,7 @@ Acceptance criteria: reconstructed from surviving repository evidence; the origi
   - Full regression: 68 PASS, 0 FAIL, 0 BLOCKED, 1 NOT EXECUTED
     (WP5-7 intentionally skipped; WP5-1 covers fresh-empty-DB initialization)
 
-WP7's listener-closure integration limitation remains documented in
+WP7's boot-failure injection limitation remains documented in
 known-limitations.md.
 
 ## Verified evidence
