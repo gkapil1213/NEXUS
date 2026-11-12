@@ -1,0 +1,171 @@
+# Phase 300 Baseline - 2026-11-12T12:15:10.0502564+05:30
+Branch: phase-300-implementation  HEAD: 155fc9e
+NEXUS_PERSISTENCE_MODE=shared  DATABASE_URL=<set>
+
+===== scripts/test-phase300-sqlite-race.ts =====
+sqlite db: C:\Users\pc\AppData\Local\Temp\nexus_p300sqlite_a4af702d41b2.db
+migrations: applied
+[PASS] SQLITE-B1 late result cannot overwrite CANCELLED -- cancel first; late result rejected; CANCELLED durable; 0 rows
+[PASS] SQLITE-B2 cancel cannot overwrite COMPLETED -- result first; cancel rejected; COMPLETED durable; 1 row
+  [cleanup] removed C:\Users\pc\AppData\Local\Temp\nexus_p300sqlite_a4af702d41b2.db
+
+===== Phase 300 SQLite race summary =====
+PASS: 2
+FAIL: 0
+BLOCKED: 0
+exit=0
+
+===== scripts/test-phase300-wp1-dispatch-persistence.ts =====
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp1_4cbbe23f71bf
+[PASS] WP1-1 createRemoteDispatchIfAbsentAsync creates a new dispatch -- row inserted
+[PASS] WP1-2 getRemoteDispatchAsync returns the exact row -- read back exact row
+[PASS] WP1-3 getRemoteDispatchByExternalProviderIdAsync returns the same dispatch -- resolved by provider id
+[PASS] WP1-4 getRemoteDispatchByJobIdempotencyKeyAsync returns the same dispatch -- resolved by idempotency key
+[PASS] WP1-5 duplicate creation returns created=false and the original record -- created=false, original preserved
+[PASS] WP1-6 concurrent creation for one idempotency key yields one row and one winner -- winners=1, rows=1
+[PASS] WP1-7 conflicting idempotency_key with different dispatch_id returns the original -- conflict rejected, original preserved
+[PASS] WP1-8 independent store instance sees a dispatch created by another instance -- cross-instance read confirmed
+  [cleanup] dropped isolated database nexus_p300wp1_4cbbe23f71bf
+
+===== Phase 300 WP1 summary =====
+PASS: 8
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+exit=0
+
+===== scripts/test-phase300-wp2-atomic-claiming.ts =====
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp2_737aee9b6c4f
+[PASS] WP2-1 single worker claims a dispatch -- claimed wp2-1-e051c3d6-3583-4b7f-a8f9-dbd12287d53c
+[PASS] WP2-2 two in-process workers compete; exactly one wins -- one claim, one winner
+[PASS] WP2-3 empty queue returns undefined -- undefined on empty queue
+[PASS] WP2-4 multiple workers claim multiple dispatches, no duplicates -- 8 claims, 8 unique, no cross-worker overlap
+[PASS] WP2-5 two independent PROCESSES compete; every dispatch claimed exactly once -- N=20 A=10 B=10 unique=20
+[PASS] WP2-6 claim state durable across fresh store instances -- durable across instances; no re-claim
+  [cleanup] dropped isolated database nexus_p300wp2_737aee9b6c4f
+
+===== Phase 300 WP2 summary =====
+PASS: 6
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+exit=0
+
+===== scripts/test-phase300-wp3-cross-process.ts =====
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp3x_e4e53f4df2e3
+[PASS] WP3-X1 a result written by process A is visible to process B -- process A wrote, process B read, dispatch COMPLETED
+[PASS] WP3-X2 two processes submit identical result; one row; other sees duplicate -- winners=1 dupes=1 losers=0 rows=1
+[PASS] WP3-X3 two processes submit conflicting results; one row; other rejected -- 1 persisted, 1 rejected RESULT_CONFLICT, 1 row
+[PASS] WP3-X4 sequential identical submits across processes yield idempotent duplicate -- first persisted, second duplicate=true, 1 row
+[PASS] WP3-X5A late result cannot overwrite a completed cancellation -- cancellation first; provider called once; late result rejected; CANCELLED remains durable
+[PASS] WP3-X5B cancellation cannot overwrite an already persisted result -- result first; cancellation rejected before provider call; COMPLETED and one result remain durable
+  [cleanup] dropped isolated database nexus_p300wp3x_e4e53f4df2e3
+
+===== Phase 300 WP3 cross-process summary =====
+PASS: 6
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+exit=0
+
+===== scripts/test-phase300-wp4-gateway-routing.ts =====
+mode=shared databaseUrl=set
+[PASS] WP4-1 successful JOB_RESULT through real gateway persists durably in PG -- ACK + 1 row + COMPLETED
+[PASS] WP4-2 wrong worker in result payload is rejected without writing -- rejected: ownership_lost
+[PASS] WP4-3 matching duplicate returns ACK without a second row -- both ACK; exactly 1 row
+[PASS] WP4-4 conflicting duplicate rejected with RESULT_CONFLICT, original preserved -- rejected conflicting; original preserved
+[PASS] WP4-5 missing dispatch rejected with dispatch_ownership_violation -- rejected: dispatch_ownership_violation
+[PASS] WP4-6 gateway maps distinct rejection reasons to distinct error strings -- 3 distinct error paths mapped correctly
+[PASS] WP4-7 SQLite-only mode routes through sync fallback and still ACKs -- SQLite-only path works: ACK + row + COMPLETED
+
+===== Phase 300 WP4 summary =====
+PASS: 7
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+exit=0
+
+===== scripts/test-phase300-wp5-reconciliation.ts =====
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp5_1aaabeda7b74
+[PASS] WP5-1 first initializeAsync on empty DB succeeds -- init ok, no status calls
+[PASS] WP5-2 concurrent initializeAsync calls coalesce -- 3 concurrent init calls, dispatch queried 1 time(s)
+[PASS] WP5-3 provider status failure persists UNKNOWN without rejecting initialization -- adapter error caught; UNKNOWN persisted in PostgreSQL
+[PASS] WP5-4 initializeAsync is idempotent for repeat calls -- second initializeAsync is a no-op
+[PASS] WP5-5 reconcile updates non-terminal dispatch through adapter -- non-terminal dispatch updated to COMPLETED via adapter
+[PASS] WP5-6 COMPLETED FAILED and CANCELLED remain terminal -- COMPLETED, FAILED and CANCELLED preserved without adapter queries
+[N/E ] WP5-7 separate empty-database initialization -- WP5-1 already verifies initialization against a fresh empty isolated database; no duplicate database is created.
+[PASS] WP5-8 BLOCKED dispatch remains terminal and is not re-queried -- BLOCKED preserved; adapter was not queried
+[PASS] WP5-9 reconcile uses externalProviderId when present -- provider-id queried, dispatch reconciled to COMPLETED
+[PASS] WP5-10 concurrent BLOCKED state is not overwritten by stale provider response -- concurrent BLOCKED update survived stale provider COMPLETED response
+[PASS] WP5-11 initializeAsync retries after a transient persistence read failure -- first initialization rejected; second initialization recovered and persisted COMPLETED
+  [cleanup] dropped isolated database nexus_p300wp5_1aaabeda7b74
+
+===== Phase 300 WP5 summary =====
+PASS: 10
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 1
+exit=2
+
+===== scripts/test-phase300-wp5-sqlite-fallback.ts =====
+backend=SQLite in-memory
+hasAsyncBackend=false
+[PASS] WP5-SQLITE-1 SQLite-only backend selected -- hasAsyncBackend=false
+[PASS] WP5-SQLITE-2 nonterminal dispatch reconciles and persists -- DISPATCHED reconciled to COMPLETED and persisted in SQLite
+[PASS] WP5-SQLITE-3 BLOCKED remains terminal -- BLOCKED preserved; adapter was not queried
+[PASS] WP5-SQLITE-4 all terminal states remain unchanged -- COMPLETED, FAILED, CANCELLED and BLOCKED preserved without provider calls
+[PASS] WP5-SQLITE-5 provider status failure persists UNKNOWN -- adapter failure handled; UNKNOWN persisted in SQLite
+[PASS] WP5-SQLITE-6 repeated initialization is idempotent -- second initializeAsync call performed no additional reconciliation
+
+===== Phase 300 WP5 SQLite fallback summary =====
+PASS: 6
+FAIL: 0
+TOTAL: 6
+exit=0
+
+===== scripts/test-phase300-wp6-cancellation-status.ts =====
+mode=shared databaseUrl=set
+  [setup] created isolated database nexus_p300wp6_edac8836678d
+[PASS] WP6-1 successful cancellation persists CANCELLED -- CANCELLED persisted
+[PASS] WP6-2 already-CANCELLED returns true without provider call -- returned true; no provider call
+[PASS] WP6-3 cancel racing COMPLETED returns raced_to_terminal -- raced_to_terminal; COMPLETED preserved
+[PASS] WP6-4 cancel racing FAILED returns raced_to_terminal -- raced_to_terminal; FAILED preserved
+[PASS] WP6-5 provider cancel failure leaves durable state unchanged -- provider_unavailable; DISPATCHED preserved
+[PASS] WP6-6 getStatus returns durable DISPATCHED without calling provider -- durable DISPATCHED; no provider call
+[PASS] WP6-7 getStatus on durable COMPLETED returns it without provider call -- COMPLETED; no provider call
+[PASS] WP6-8 two concurrent cancelDetailed calls are idempotent -- one CANCELLED write; idempotent
+[PASS] WP6-10 cancel racing terminal result does not clobber -- raced_to_terminal; COMPLETED preserved
+[PASS] WP6-9 getStatus on missing dispatch throws not-found -- not-found throws
+  [cleanup] dropped isolated database nexus_p300wp6_edac8836678d
+
+===== Phase 300 WP6 summary =====
+PASS: 10
+FAIL: 0
+BLOCKED: 0
+NOT EXECUTED: 0
+exit=0
+
+===== scripts/test-phase300-wp8-fresh-bootstrap.ts =====
+[setup] Created isolated database nexus_p300wp8_0f3d59e76cf8
+[PASS] First production bootstrap completed.
+[PASS] Second production bootstrap completed.
+[PASS] Exactly 17 expected columns exist with expected types
+[PASS] job_id foreign key exists
+[PASS] job_id delete rule matches bootstrap (NO ACTION)
+[PASS] dispatch_id foreign key exists with CASCADE
+[PASS] idx_remote_results_job exists
+[PASS] idx_remote_results_dispatch exists and is UNIQUE
+[PASS] idx_remote_results_worker has worker_id, created_at DESC
+[PASS] result_id is the PRIMARY KEY
+[PASS] actual async writer persists in fresh DB
+[PASS] persisted row has success=false (BOOLEAN round-trip)
+
+=== WP8 RESULT ===
+PASS: 12
+FAIL: 0
+[cleanup] Dropped isolated database nexus_p300wp8_0f3d59e76cf8
+exit=0

@@ -128,7 +128,9 @@
         "test:phase293:provider-gate": "tsx scripts/test-phase293-provider-gate.ts",
         "test:phase293:rotation": "tsx scripts/test-phase293-rotation.ts",
         "test:phase293:failure-modes": "tsx scripts/test-phase293-failure-modes.ts",
-        "test:phase292:persistence": "tsx scripts/test-phase292-envelope-persistence.ts"
+        "test:phase292:persistence": "tsx scripts/test-phase292-envelope-persistence.ts",
+        "test:phase301:bridge": "tsx scripts/test-phase301-bridge-lifecycle.ts",
+        "test:phase301:startrun": "tsx scripts/test-phase301-startrun-honesty.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",

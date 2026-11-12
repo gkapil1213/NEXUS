@@ -1,0 +1,64 @@
+﻿
+  src\core\cicd.ts:581:    }
+  src\core\cicd.ts:582:    const content = lines.join("\n") + "\n";
+> src\core\cicd.ts:583:    return { provider: "github", filename: this.filename, content, digest: "" };
+  src\core\cicd.ts:584:  }
+  src\core\cicd.ts:585:}
+  src\core\cicd.ts:586:
+  src\core\cicd.ts:1038:}
+  src\core\cicd.ts:1039:
+> src\core\cicd.ts:1040:export interface CiServices {
+  src\core\cicd.ts:1041:  engine: NexusEngine;
+  src\core\cicd.ts:1042:  events: EventService;
+  src\core\cicd.ts:1043:  audit: AuditService;
+  src\core\cicd.ts:1175:   * moved to BLOCKED with the real reason — never to SUCCEEDED.
+  src\core\cicd.ts:1176:   */
+> src\core\cicd.ts:1177:  async startRun(run: CiPipelineRun, ctx: CiContext, provider: GitProvider): Promise<CiPipelineRun> {
+  src\core\cicd.ts:1178:    if (provider.kind === "static") {
+  src\core\cicd.ts:1179:      return this.transitionRun(run, "BLOCKED", ctx, "static provider fixture cannot execute a real pipeline run (STATIC_PROVIDER_TEST only)");
+  src\core\cicd.ts:1180:    }
+  src\core\cicd.ts:1358:
+  src\core\cicd.ts:1359:  /** Create (idempotently) a change request. Never auto-merged. */
+> src\core\cicd.ts:1360:  async createChangeRequest(ctx: CiContext, provider: GitProvider, repository: string, sourceBranch: string, targetBranch: string, commit: string, title: string, description: string): Promise<{ cr: 
+ChangeRequest; created: boolean }> {
+  src\core\cicd.ts:1361:    assertWritableBranch(sourceBranch);
+  src\core\cicd.ts:1362:    const [owner, repo] = repository.split("/");
+  src\core\cicd.ts:1363:
+  src\core\engineering.ts:1191:  try {
+  src\core\engineering.ts:1192:    const submitted = await cicd.engine.submitRun(ctx, "github", plan.repository, plan.ref);
+> src\core\engineering.ts:1193:    const started = await cicd.engine.startRun(submitted.run, ctx, cicd.github);
+  src\core\engineering.ts:1194:    ci = {
+  src\core\engineering.ts:1195:      runId: started.id,
+  src\core\engineering.ts:1196:      status: started.status,
+  src\core\tests.ts:138:  }
+  src\core\tests.ts:139:  // Build a pipeline plan with Docker honestly disabled (it is unavailable here).
+> src\core\tests.ts:140:  function buildPlanSafe(det: DetectionResult, provider: "github" | "gitlab") {
+  src\core\tests.ts:141:    return buildPlan(provider, det, false);
+  src\core\tests.ts:142:  }
+  src\core\tests.ts:143:  function ciCtx(actor: User, project_id: string, execution_id: string, attempt: number): CiContext {
+  src\core\tests.ts:1252:        const reader = memReader({ "package.json": JSON.stringify({ name: "n", scripts: { build: "tsc" } }) });
+  src\core\tests.ts:1253:        const plan = buildPlanSafe(await new ProjectDetector().detect(reader), "github");
+> src\core\tests.ts:1254:        const res = new PipelineValidator().validate({ provider: "github", filename: "x.yml", content: bad, digest: "" }, plan);
+  src\core\tests.ts:1255:        assert(res.verdict === "INVALID", "tab-indented YAML must be INVALID");
+  src\core\tests.ts:1256:        assert(res.findings.some((f) => f.rule === "yaml-syntax"), "yaml-syntax finding present");
+  src\core\tests.ts:1257:        return "malformed YAML rejected";
+  src\core\tests.ts:1308:        const reader = memReader({ "package.json": JSON.stringify({ name: "n", scripts: { build: "tsc" } }) });
+  src\core\tests.ts:1309:        const plan = buildPlanSafe(await new ProjectDetector().detect(reader), "github");
+> src\core\tests.ts:1310:        const cfg = { provider: "github" as const, filename: "x.yml", content: "name: x\njobs:\n  ci:\n" + leak, digest: "" };
+  src\core\tests.ts:1311:        const res = new PipelineValidator().validate(cfg, plan);
+  src\core\tests.ts:1312:        assert(res.verdict === "INVALID", "secret exposure must be INVALID");
+  src\core\tests.ts:1313:        return "secret exposure rejected";
+  src\core\tests.ts:1320:        const reader = memReader({ "package.json": JSON.stringify({ name: "n", scripts: { build: "tsc" } }) });
+  src\core\tests.ts:1321:        const plan = buildPlanSafe(await new ProjectDetector().detect(reader), "github");
+> src\core\tests.ts:1322:        const cfg = { provider: "github" as const, filename: "x.yml", content: "name: only-name\n", digest: "" };
+  src\core\tests.ts:1323:        const res = new PipelineValidator().validate(cfg, plan);
+  src\core\tests.ts:1324:        assert(res.findings.some((f) => f.rule === "github-structure"), "github-structure finding present");
+  src\core\tests.ts:1325:        return "provider structure enforced";
+  src\core\tests.ts:1479:        created.ciRuns.push(run.id);
+  src\core\tests.ts:1480:        const sp = new StaticGitProvider("github");
+> src\core\tests.ts:1481:        const after = await services.cicd.engine.startRun(run, ctx, sp);
+  src\core\tests.ts:1482:        assert(after.status === "BLOCKED", "static provider cannot execute a real run → BLOCKED");
+  src\core\tests.ts:1483:        assert(after.blocked_reason !== null, "real blocked reason recorded");
+  src\core\tests.ts:1484:        return "unavailable provider → BLOCKED";
+
+
