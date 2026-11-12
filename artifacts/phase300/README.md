@@ -9,7 +9,7 @@ Phase 300 makes PostgreSQL authoritative for the remote worker lifecycle in
 The implementation spans 8 work packages. WP1-WP7 have verified evidence
 (WP1-WP6 integration-tested; WP7 verified via code inspection + explicit
 boot-state guards and integration-tested at the boot/listener boundary).
-WP8 has partial verification: live PostgreSQL schema parity is verified; fresh independent PostgreSQL bootstrap remains NOT EXECUTED.
+WP8 is verified: live PostgreSQL schema parity verified; fresh independent PostgreSQL bootstrap verified 12/12 on 2026-11-11.
 
 | WP  | Title                                  | Classification                                |
 |-----|----------------------------------------|------------------------------------------------|
@@ -20,19 +20,22 @@ WP8 has partial verification: live PostgreSQL schema parity is verified; fresh i
 | WP5 | RemoteExecutionManager reconciliation | VERIFIED — PostgreSQL: 10 PASS, 0 FAIL, 1 NOT EXECUTED; SQLite: 6 PASS, 0 FAIL |
 | WP6 | DispatchService cancellation + status  | PASS - 9/9 verified (Postgres); SQLite path not tested |
 | WP7 | Kernel initialization + readiness      | PASS — 7/7 claims verified (see wp7-readiness.md) |
-| WP8 | Schema + migration integrity           | CODE COMPLETE — PARTIAL VERIFICATION          |
+| WP8 | Schema + migration integrity           | PASS — 12/12 fresh-bootstrap + live inspection |
 
-Phase 300 overall: INCOMPLETE. WPs 1, 2, 3, 4, 5, and 6 are verified.
-WP3 includes both single-process and cross-process evidence; WP4 includes
-shared PostgreSQL gateway routing and SQLite fallback tests. WP5 is
-verified on PostgreSQL and SQLite. WP6 is verified (9/9 on PostgreSQL;
-SQLite path untested but noted in wp6-cancellation.md). WP7 is verified
-across all seven readiness claims (see wp7-readiness.md). WP8 remains
-partially verified; fresh-database bootstrap verification is the
-outstanding schema gap (see wp8-schema.md). §5.C cross-instance tests
-are verified across WP2-5 and WP3-X1 through WP3-X5 (see
-known-limitations.md). Overall Phase 300 acceptance is not established
-until WP8 fresh-database bootstrap verification is complete.
+Phase 300 overall: COMPLETE.
+
+All 18 acceptance criteria verified:
+  - WP1-WP7 verified (single-process + cross-process where applicable)
+  - §5.C cross-instance: WP2-5 + WP3-X1..X5 (deterministic cancel-first
+    and result-first ordering)
+  - WP8 fresh PostgreSQL bootstrap: 12/12 PASS
+  - SQLite synchronous race (Section 6): 2/2 PASS
+  - PostgreSQL BOOLEAN persistence: 268-ri 8/8 PASS
+  - Full regression: 68 PASS, 0 FAIL, 0 BLOCKED, 1 NOT EXECUTED
+    (WP5-7 intentionally skipped; WP5-1 covers fresh-empty-DB initialization)
+
+WP7's listener-closure integration limitation remains documented in
+known-limitations.md (permitted by the Phase 300 completion directive).
 
 ## Verified evidence
 

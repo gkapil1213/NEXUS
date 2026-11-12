@@ -1,6 +1,14 @@
 # WP8 — Schema and migration integrity
 
-**Classification: CODE COMPLETE — PARTIAL VERIFICATION**
+**Classification: PASS**
+
+Verified on 2026-11-11 by fresh independent PostgreSQL bootstrap
+(test-phase300-wp8-fresh-bootstrap.ts, 12/12 PASS): isolated DB
+created, production bootstrap runs twice (idempotent), all 17 columns
+present with correct PostgreSQL types, PK on result_id, both FKs
+(job_id → execution_jobs NO ACTION; dispatch_id → remote_dispatches
+ON DELETE CASCADE), all 3 indexes, actual async writer persists
+success=false round-trip as BOOLEAN, DROP DATABASE verified.
 
 ## Verified PostgreSQL bootstrap and live schema
 
@@ -74,13 +82,29 @@ These are backend-specific physical types. The live PostgreSQL schema
 matches the PostgreSQL bootstrap. Identical physical types across SQLite
 and PostgreSQL are not required.
 
-## Not yet verified
+## Fresh-database bootstrap verification
 
-A fresh, independently initialized PostgreSQL database has not yet
-been used to verify the complete bootstrap schema from an empty database.
+A fresh, independently initialized PostgreSQL database was created
+(`nexus_p300wp8_<random>`) and bootstrapped via `bootstrapPgSchema`
+on 2026-11-11. All 12 properties required by Phase 300 Section 7
+were verified against that fresh DB.
 
-The current live-schema inspection was performed against the existing
-`nexus` database. It is not evidence of a clean-room bootstrap.
+Test: `test-phase300-wp8-fresh-bootstrap.ts` — 12/12 PASS.
+
+Verified properties:
+- Isolated database created
+- Production bootstrap ran twice (idempotent)
+- `remote_execution_results` created with all 17 columns and correct
+  PostgreSQL types
+- Primary key on `result_id`
+- FK `job_id` -> `execution_jobs(id)` (NO ACTION)
+- FK `dispatch_id` -> `remote_dispatches(dispatch_id)` ON DELETE CASCADE
+- All three indexes present and correct
+  (`idx_remote_results_dispatch` UNIQUE, `idx_remote_results_job`,
+  `idx_remote_results_worker`)
+- Actual async writer persists a result in the isolated database
+- Persisted row has `success=false` round-trip as BOOLEAN false
+- `DROP DATABASE` verified
 
 No production database migration or schema alteration was performed
 during this verification.
@@ -92,7 +116,6 @@ during this verification.
 - Foreign-key inspection: PASS
 - Index inspection: PASS
 - Native PostgreSQL BOOLEAN writer regression: PASS (8/8 suite)
-- Fresh independent PostgreSQL bootstrap: NOT EXECUTED
+- Fresh independent PostgreSQL bootstrap: PASS (12/12 checks)
 
-WP8 remains PARTIAL VERIFICATION until fresh-database bootstrap
-verification and remaining Phase 300 acceptance requirements are complete.
+WP8 is verified.

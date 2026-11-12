@@ -21,7 +21,18 @@ here rather than glossed over.
   inspection plus the `!services || status !== "ready"` guard in
   startGateway() (commit 1a90a0f); direct failure-path test would require
   a boot-failure injection seam not currently exposed.
-- WP8 (schema): PARTIAL. Live PostgreSQL inspection on 2026-11-10 confirmed all 17 column definitions, both foreign keys, and all three expected indexes match pg-bootstrap. The actual async writer passed native BOOLEAN false-persistence regression (Phase 268: 8/8). Fresh independent PostgreSQL bootstrap remains NOT EXECUTED.
+- WP8 (schema): PASS. Verified by two complementary tests.
+  (a) Live PostgreSQL inspection on 2026-11-10 confirmed all 17
+      column definitions, both foreign keys, and all three expected
+      indexes match pg-bootstrap. The async writer passed native
+      BOOLEAN false-persistence (Phase 268: 8/8).
+  (b) Fresh independent PostgreSQL bootstrap on 2026-11-11
+      (test-phase300-wp8-fresh-bootstrap.ts, 12/12 PASS):
+      isolated DB created, bootstrap idempotent, all 17 columns
+      with correct types, PK on result_id, both FKs (job_id
+      NO ACTION; dispatch_id ON DELETE CASCADE), all 3 indexes,
+      actual async writer persists success=false (BOOLEAN round-trip),
+      DROP DATABASE verified.
 
 ## Cross-instance behaviour
 
@@ -54,9 +65,13 @@ The live PostgreSQL `remote_execution_results` schema was inspected on
 2026-11-10. Its 17 column definitions, foreign keys, and three expected
 indexes match the current `pg-bootstrap.ts` definition.
 
-This inspection applies to the existing `nexus` database only. A fresh,
-independently initialized PostgreSQL database has not yet been tested.
-Therefore clean-room bootstrap parity remains NOT EXECUTED.
+A fresh, independently initialized PostgreSQL database was also
+bootstrap-tested on 2026-11-11 (test-phase300-wp8-fresh-bootstrap.ts,
+12/12 PASS). The clean-room bootstrap produces the expected schema
+and the actual async writer persists successfully against the fresh DB.
+
+Other tables remain unverified against a fresh bootstrap; this file
+documents Phase 300's scope only.
 
 ## Commit-message BOM
 
