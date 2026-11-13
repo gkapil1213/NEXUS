@@ -1,5 +1,5 @@
 /**
- * NEXUS Phase 1
+ * NEXUS Phase 1 — NexusKernel.
  *
  * The platform foundation: initializes persistence, events, audit, agents,
  * services and orchestration in a strict order, tracks boot steps for the
