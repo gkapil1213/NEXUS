@@ -4,7 +4,7 @@
  * The platform foundation: initializes persistence, events, audit, agents,
  * services and orchestration in a strict order, tracks boot steps for the
  * UI, and fails loudly (never partially-silently) when a subsystem cannot
- * start. Contains no business logic ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â that lives in services and agents.
+ * start. Contains no business logic — that lives in services and agents.
  */
 import { AuditService } from "./audit";
 import { AgentRegistry, InspectorAgent } from "./agents";
@@ -126,17 +126,17 @@ export interface KernelServices {
   sessions: SessionService;
   secrets: SecretProvider;
   github: GitHubService;
-  // Phase 2 Pass 1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â centralized authorization + identity lifecycle.
+  // Phase 2 Pass 1 — centralized authorization + identity lifecycle.
   authz: AuthorizationService;
   identity: IdentityService;
-  // Phase 2 Pass 2 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â secure agent execution & execution policy.
+  // Phase 2 Pass 2 — secure agent execution & execution policy.
   agentPolicy: AgentPolicyEngine;
   execPolicy: ExecutionPolicyEngine;
   agentExec: AgentExecutionService;
-  // Phase 2 Pass 3 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â workspace isolation & sandbox.
+  // Phase 2 Pass 3 — workspace isolation & sandbox.
   workspaces: WorkspaceService;
   sandbox: ExecutionSandbox;
-  // Phase 3 Pass 3 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â CI/CD pipeline + Git provider foundation.
+  // Phase 3 Pass 3 — CI/CD pipeline + Git provider foundation.
   cicd: {
     agent: PipelineAgent;
     validator: PipelineValidator;
@@ -144,7 +144,7 @@ export interface KernelServices {
     gitlab: GitLabProvider;
     engine: CiPipelineEngine;
   };
-  // Phase 3 Pass 5 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â runtime bridge (process execution + Docker/Trivy/Playwright).
+  // Phase 3 Pass 5 — runtime bridge (process execution + Docker/Trivy/Playwright).
   runtime: RuntimeBridge;
   // Canonical deployment orchestration: real Docker container + real
   // health/smoke verification + rollback against previous KNOWN_GOOD.
@@ -259,7 +259,7 @@ export class NexusKernel {
       if (configBlocked()) {
         throw Err.startup("CONFIG_INVALID", `configuration validation failed: ${CONFIG.issues.join("; ")}`);
       }
-      this.step("config", "ok", `${CONFIG.env} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· v${CONFIG.version}`);
+      this.step("config", "ok", `${CONFIG.env} · v${CONFIG.version}`);
 
       // Phase 183: shared-backend wiring. When NEXUS_PERSISTENCE_MODE=shared
       // is configured with a valid DATABASE_URL, connect to the shared
@@ -297,7 +297,7 @@ export class NexusKernel {
         this.step("persistence", "fail", "probe failed");
         throw Err.startup("PERSISTENCE_FAILED", "persistence engine failed its round-trip probe");
       }
-      this.step("persistence", "ok", `${engine.kind} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${latency}ms`);
+      this.step("persistence", "ok", `${engine.kind} · ${latency}ms`);
 
       // 3. events
       this.step("events", "running");
@@ -453,16 +453,16 @@ const memberships = new ProjectMembershipStore(rawDb);
       }
       this.step("orchestration", "ok", "deterministic path assembled");
 
-      // Phase 2 Pass 1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â centralized authorization + identity lifecycle.
+      // Phase 2 Pass 1 — centralized authorization + identity lifecycle.
       const authz = new AuthorizationService(audit);
       const identity = new IdentityService(engine, authz, audit);
 
-      // Phase 2 Pass 2 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â secure agent execution & execution policy.
+      // Phase 2 Pass 2 — secure agent execution & execution policy.
       const agentPolicy = new AgentPolicyEngine();
       const execPolicy = new ExecutionPolicyEngine(registry, authz, agentPolicy);
       const agentExec = new AgentExecutionService({ engine, registry, authz, agentPolicy, execPolicy, audit, events });
 
-      // Phase 2 Pass 3 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â workspace isolation & sandbox (logical boundary;
+      // Phase 2 Pass 3 — workspace isolation & sandbox (logical boundary;
       // BrowserSandbox.isolationReport() states the true isolation level).
       const filePolicy = new FileAccessPolicy();
       const workspaces = new WorkspaceService({
@@ -477,7 +477,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       const sandbox: ExecutionSandbox = new BrowserSandbox(workspaces);
       agentExec.attachSandbox(workspaces);
 
-      // Phase 3 Pass 3 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â CI/CD pipeline + Git provider foundation. The GitHub
+      // Phase 3 Pass 3 — CI/CD pipeline + Git provider foundation. The GitHub
       // provider wraps the same GitHubService instance (connection on demand);
       // remote operations stay honestly BLOCKED until a token is connected.
       const github = new GitHubService();
@@ -613,7 +613,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         (cicd as Record<string, unknown>).ownership = _phase135Ownership;
       }
 
-      // Phase 3 Pass 5 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â runtime bridge. Detects process-execution capability
+      // Phase 3 Pass 5 — runtime bridge. Detects process-execution capability
       // honestly: BLOCKED in the managed browser workspace, AVAILABLE only after
       // real probes when a host bridge is injected. Emits events + audit.
       this.step("runtime", "running");
@@ -715,9 +715,9 @@ const memberships = new ProjectMembershipStore(rawDb);
           dispatchSvc.attachEngineeringExecutor(engStageExec);
         }
       } catch { /* non-fatal; engineering stages report BLOCKED */ }
-      this.step("runtime", "ok", `${runtime.kind()} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
+      this.step("runtime", "ok", `${runtime.kind()} · docker=${runtime.status()?.docker ?? "n/a"} trivy=${runtime.status()?.trivy ?? "n/a"}`);
 
-      // Canonical deployment orchestration ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â uses the same RuntimeBridge
+      // Canonical deployment orchestration — uses the same RuntimeBridge
       // (docker + smoke) and the same NexusEngine (via DeploymentHistoryService).
       const deploymentHistory = new DeploymentHistoryService(engine);
       const deployments = new CanonicalDeploymentOrchestrator(
@@ -764,7 +764,7 @@ const memberships = new ProjectMembershipStore(rawDb);
       const releaseDecision = new ProductionReleaseDecisionService(securityApi, securityGate);
 
       // Phase 103: durable release intent + lease state lives in the same
-      // SQLite ExecutionStore used by the execution runtime. Optional ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+      // SQLite ExecutionStore used by the execution runtime. Optional —
       // when the sqlite engine is unavailable, the bridge falls back to the
       // legacy Phase 102 path (no durable intent, no crash recovery).
       const releaseIntents = this.executionStore
@@ -797,7 +797,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         intents: releaseIntents,
         // Phase 107: enables the bridge to prefer the authoritative registry
         // digest recorded by REGISTRY_PUBLISH (IMAGE_DIGEST artifact) over the
-        // caller-supplied imageDigest. Optional dep ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â falls through when absent.
+        // caller-supplied imageDigest. Optional dep — falls through when absent.
         engine,
       });
       const deploymentObserver = new DockerDeploymentObserver({ history: deploymentHistory, docker: runtime.docker });
@@ -1017,10 +1017,10 @@ const memberships = new ProjectMembershipStore(rawDb);
       const running = this.steps.find((s) => s.status === "running");
       if (running) this.step(running.id, "fail", this.failure.message);
 
-      // Phase 193 Ã‚Â§7: boot is a transaction-like lifecycle. Release any
+      // Phase 193 §7: boot is a transaction-like lifecycle. Release any
       // resources already acquired so a subsequent boot does not inherit
       // leaked state. Reuses the same idempotent stop methods shutdown()
-      // uses. Never throws Ã¢â‚¬â€ the original boot failure is the root cause.
+      // uses. Never throws — the original boot failure is the root cause.
       await this.cleanupOnFailedBoot();
 
       throw this.failure;
@@ -1273,7 +1273,7 @@ const memberships = new ProjectMembershipStore(rawDb);
   private cicdOwnership?: CiReconciliationOwnershipService;
 
   /**
-   * Phase 193 Ã‚Â§7: best-effort cleanup after a failed boot. Reverse order of
+   * Phase 193 §7: best-effort cleanup after a failed boot. Reverse order of
    * acquisition. Never throws; the original boot failure is the root cause.
    */
   /**
@@ -1444,15 +1444,15 @@ const memberships = new ProjectMembershipStore(rawDb);
       latency_ms: null,
     });
 
-    // GitHub is an optional integration ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â unconnected is a valid, honest state.
+    // GitHub is an optional integration — unconnected is a valid, honest state.
     const gh = this.services.github.state();
     const rate = gh.rate;
     subsystems.push({
       name: "github",
       status: gh.connected ? "healthy" : "degraded",
       detail: gh.connected
-        ? `connected as @${gh.identity?.login}${rate ? ` ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· rate ${rate.remaining}/${rate.limit}` : ""}`
-        : "not connected ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â optional integration (token held in memory only)",
+        ? `connected as @${gh.identity?.login}${rate ? ` · rate ${rate.remaining}/${rate.limit}` : ""}`
+        : "not connected — optional integration (token held in memory only)",
       latency_ms: null,
     });
 
@@ -1501,7 +1501,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
         metadata: { role: "OWNER" }, // no credential material
       });
       const session = await services.sessions.issue(user.id);
-      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦", result: "allow" });
+      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "…", result: "allow" });
       return { user: toPublicUser(user), session };
     },
 
@@ -1529,11 +1529,11 @@ export function createAuthApi(services: KernelServices): AuthApi {
         });
         throw Err.auth(
           user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
-          `account is ${user.status} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â authentication refused`,
+          `account is ${user.status} — authentication refused`,
         );
       }
       const session = await services.sessions.issue(user.id);
-      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦", result: "allow" });
+      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "…", result: "allow" });
       return { user: toPublicUser(user), session };
     },
 
@@ -1542,7 +1542,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
       await services.sessions.revoke(token);
       if (session) {
         const user = await services.engine.get<User>("users", session.user_id);
-        await services.audit.record({ actor: user?.email ?? "unknown", action: "auth.logout", resource_type: "session", resource_id: token.slice(0, 8) + "ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦", result: "info" });
+        await services.audit.record({ actor: user?.email ?? "unknown", action: "auth.logout", resource_type: "session", resource_id: token.slice(0, 8) + "…", result: "info" });
       }
     },
 
@@ -1553,7 +1553,7 @@ export function createAuthApi(services: KernelServices): AuthApi {
       if (user.status !== "active") {
         throw Err.auth(
           user.status === "disabled" ? "ACCOUNT_DISABLED" : "ACCOUNT_SUSPENDED",
-          `account is ${user.status} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â authentication refused`,
+          `account is ${user.status} — authentication refused`,
         );
       }
       return { user: toPublicUser(user), session };
