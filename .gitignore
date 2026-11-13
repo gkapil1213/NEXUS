@@ -139,3 +139,5 @@ scripts/diag-*.txt
 cosign.key.legacy-*
 cosign.pub.legacy-*
 empty-signing-config.json
+
+repair-preview.*
