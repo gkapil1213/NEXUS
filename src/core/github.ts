@@ -385,6 +385,36 @@ export class GitHubService {
     }));
   }
 
+  /** GET /repos/{owner}/{repo}/contents/{path}?ref={ref}.
+   *  Returns decoded UTF-8 content + blob sha, or null on 404.
+   *  Throws on auth/network so callers can distinguish missing from forbidden. */
+  async getFile(
+    owner: string,
+    repo: string,
+    path: string,
+    ref?: string,
+  ): Promise<{ content: string; sha: string } | null> {
+    const token = this.requireToken();
+    const encOwner = encodeURIComponent(owner);
+    const encRepo = encodeURIComponent(repo);
+    const encPath = path.split("/").map(encodeURIComponent).join("/");
+    const qs = ref ? "?ref=" + encodeURIComponent(ref) : "";
+    try {
+      const { data, rate } = await api<{ content: string; encoding: string; sha: string }>(
+        `/repos/${encOwner}/${encRepo}/contents/${encPath}${qs}`,
+        { token },
+      );
+      this.rate = rate ?? this.rate;
+      const content = data.encoding === "base64"
+        ? Buffer.from(data.content, "base64").toString("utf-8")
+        : data.content;
+      return { content, sha: data.sha };
+    } catch (e) {
+      if ((e as { code?: string }).code === "GITHUB_NOT_FOUND") return null;
+      throw e;
+    }
+  }
+
   /**
    * Real commit via the Git Data API: blob → tree → commit → ref update.
    * Creates the branch when it does not exist yet. Returns genuine SHAs.

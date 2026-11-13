@@ -20,6 +20,7 @@
  */
 
 import type { KernelServices } from "./kernel";
+import { isProtectedBranch, inspectWorkflowDispatch } from "./cicd";
 import { ProjectDetector, SecurityScanner, SBOMService, buildPlanFrom, validateBuildPlan, PipelineEngine } from "./devops";
 import { createExecutor, getHostBridge, TokenBoundExecutor, DockerAdapter, TrivyAdapter } from "./runtime";
 import type { HostBridge, ProcessExecutor } from "./runtime";
@@ -1160,16 +1161,75 @@ export function bindDurableEngineeringJob(
     throw err;
   }
 }
+async function commitWorkflowBeforeDispatch(
+  svc: KernelServices,
+  cicd: NonNullable<KernelServices["cicd"]>,
+  ctx: PipelineContext,
+  plan: EngineeringPlan,
+  actor: Actor,
+): Promise<
+  | { ok: true; workflowFile: string; commitSha: string }
+  | { ok: false; reason: string }
+> {
+  const repo = plan.repository;
+  const ref = plan.ref;
+  if (!repo || !ref) return { ok: false, reason: "no repository/ref configured on plan" };
+  const parts = repo.split("/");
+  const owner = parts[0];
+  const repoName = parts[1];
+  if (!owner || !repoName) return { ok: false, reason: "repository must be owner/repo" };
+  let repoInfo: { default_branch: string };
+  try { repoInfo = await cicd.github.getRepository(owner, repoName); }
+  catch (e) { return { ok: false, reason: "repository not visible to this token: " + ((e as Error).message ?? String(e)) }; }
+  if (isProtectedBranch(ref)) return { ok: false, reason: "plan.ref '" + ref + "' is a protected branch - use an isolated nexus/devops/* branch" };
+  if (ref === repoInfo.default_branch) return { ok: false, reason: "plan.ref '" + ref + "' is the repository default branch - use an isolated nexus/devops/* branch" };
+  const reader = workspaceReader(svc, actor, plan.workspaceId);
+  const agentResult = await cicd.agent.run(actor, ctx.execution_id, ctx.project_id, reader, "github", ctx.correlation_id);
+  if (agentResult.validation.verdict !== "VALID") return { ok: false, reason: "generated pipeline failed validation: " + agentResult.validation.verdict };
+  let push: { sha: string };
+  try {
+    push = await cicd.github.createCommit(
+      owner, repoName, ref,
+      [{ path: agentResult.config.filename, content: agentResult.config.content }],
+      "ci(nexus): generate pipeline workflow for execution " + ctx.execution_id,
+    );
+  } catch (e) { return { ok: false, reason: "commit failed: " + ((e as Error).message ?? String(e)) }; }
+  try {
+    const back = await cicd.github.getCommit(owner, repoName, push.sha);
+    if (!back || back.sha !== push.sha) return { ok: false, reason: "commit read-back mismatch: " + (back?.sha ?? "null") + " vs " + push.sha };
+  } catch (e) { return { ok: false, reason: "commit read-back failed: " + ((e as Error).message ?? String(e)) }; }
+  let featureFile: { content: string; sha: string } | null;
+  try { featureFile = await svc.github.getFile(owner, repoName, agentResult.config.filename, ref); }
+  catch (e) { return { ok: false, reason: "feature-branch read-back failed: " + ((e as Error).message ?? String(e)) }; }
+  if (!featureFile) return { ok: false, reason: "feature-branch workflow file not readable after commit" };
+  if (featureFile.content !== agentResult.config.content) return { ok: false, reason: "feature-branch workflow content mismatch: expected " + agentResult.config.content.length + " bytes, got " + featureFile.content.length };
+  let defaultFile: { content: string; sha: string } | null;
+  try { defaultFile = await svc.github.getFile(owner, repoName, agentResult.config.filename); }
+  catch (e) { return { ok: false, reason: "default-branch read-back failed: " + ((e as Error).message ?? String(e)) }; }
+  if (!defaultFile) return { ok: false, reason: "workflow file not present on default branch '" + repoInfo.default_branch + "'; workflow_dispatch requires it there" };
+  const wd = inspectWorkflowDispatch(defaultFile.content);
+  if (!wd.present) return { ok: false, reason: "default-branch workflow does not declare workflow_dispatch trigger" };
+  for (const required of ["execution_id", "attempt"]) {
+    if (!wd.inputs.includes(required)) return { ok: false, reason: "default-branch workflow_dispatch is missing required input '" + required + "'" };
+  }
+  try {
+    await cicd.engine.recordGitOp(ctx, "github", "create_commit", repo, { status: "SUCCEEDED", ref, sha: push.sha });
+  } catch { /* non-fatal */ }
+  return { ok: true, workflowFile: agentResult.config.filename, commitSha: push.sha };
+}
+
 /**
  * Phase 131b: CI/CD handoff decision. Pure with respect to plan/verdict.
  * Returns the CI result and the (possibly downgraded) verdict. Never fabricates
  * a dispatch: BLOCKED when the engine is absent or the plan has no git target.
  */
 export async function handoffToCI(
+  svc: KernelServices,
   cicd: KernelServices["cicd"] | undefined,
   ctx: PipelineContext,
   plan: EngineeringPlan,
   verdict: EngVerdict,
+  actor: Actor,
 ): Promise<{ ci: {
   runId: string;
   status: string;
@@ -1189,7 +1249,16 @@ export async function handoffToCI(
     return { ci, verdict: "BLOCKED" };
   }
   try {
-    const submitted = await cicd.engine.submitRun(ctx, "github", plan.repository, plan.ref);
+    const prepared = await commitWorkflowBeforeDispatch(svc, cicd, ctx, plan, actor);
+    if (!prepared.ok) {
+      ci = { runId: "", status: "BLOCKED", externalRunId: null, blockedReason: prepared.reason };
+      return { ci, verdict: "BLOCKED" };
+    }
+    plan.commitSha = prepared.commitSha;
+    const submitted = await cicd.engine.submitRun(ctx, "github", plan.repository, plan.ref, {
+      workflow_file: prepared.workflowFile,
+      commit_sha: prepared.commitSha,
+    });
     const started = await cicd.engine.startRun(submitted.run, ctx, cicd.github);
     ci = {
       runId: started.id,
@@ -1484,7 +1553,7 @@ export async function executePlan(svc: KernelServices, actor: Actor, plan: Engin
   // Phase 131b: CI/CD handoff. Only after every stage genuinely PASSED and
   // only when the intent asked for deploy. Honest BLOCKED when the CI engine
   // is absent or the plan has no git target. Never fabricates a dispatch.
-  const _handoff = await handoffToCI(svc.cicd, ctx, plan, verdict);
+  const _handoff = await handoffToCI(svc, svc.cicd, ctx, plan, verdict, actor);
   const ci = _handoff.ci;
   verdict = _handoff.verdict;
 

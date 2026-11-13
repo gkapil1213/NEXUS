@@ -184,6 +184,24 @@ export function parseYaml(source: string): unknown {
   return value;
 }
 
+/** Inspect parsed workflow YAML for workflow_dispatch + declared inputs. */
+export function inspectWorkflowDispatch(yamlContent: string): { present: boolean; inputs: string[] } {
+  let doc: unknown;
+  try { doc = parseYaml(yamlContent); } catch { return { present: false, inputs: [] }; }
+  if (!doc || typeof doc !== "object") return { present: false, inputs: [] };
+  const on = (doc as Record<string, unknown>)["on"];
+  if (!on) return { present: false, inputs: [] };
+  if (typeof on === "string") return on === "workflow_dispatch" ? { present: true, inputs: [] } : { present: false, inputs: [] };
+  if (Array.isArray(on)) return on.includes("workflow_dispatch") ? { present: true, inputs: [] } : { present: false, inputs: [] };
+  if (typeof on !== "object") return { present: false, inputs: [] };
+  const wd = (on as Record<string, unknown>)["workflow_dispatch"];
+  if (wd === undefined || wd === null || wd === false) return { present: false, inputs: [] };
+  if (typeof wd !== "object") return { present: true, inputs: [] };
+  const inputs = (wd as Record<string, unknown>).inputs;
+  if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) return { present: true, inputs: [] };
+  return { present: true, inputs: Object.keys(inputs as Record<string, unknown>) };
+}
+
 function parseBlock(lines: YLine[], start: number, indent: number): [unknown, number] {
   if (start >= lines.length) return [null, start];
   const first = lines[start];
@@ -1125,7 +1143,13 @@ export class CiPipelineEngine {
   }
 
   /** Create (idempotently) a CI pipeline run for (execution, attempt). */
-  async submitRun(ctx: CiContext, provider: CiProvider, repository: string, ref: string): Promise<{ run: CiPipelineRun; created: boolean }> {
+  async submitRun(
+    ctx: CiContext,
+    provider: CiProvider,
+    repository: string,
+    ref: string,
+    lineage?: { workflow_file: string; commit_sha: string },
+  ): Promise<{ run: CiPipelineRun; created: boolean }> {
     const existing = await this.svc.engine.byIndex<CiPipelineRun>("ci_pipeline_runs", "byExecution", ctx.execution_id);
     const match = existing.find((r) => r.attempt === ctx.attempt);
     if (match) return { run: match, created: false };
@@ -1145,6 +1169,9 @@ export class CiPipelineEngine {
       updated_at: now,
       error: null,
       blocked_reason: null,
+      // Phase 131b (fix): pre-commit lineage is set on the run before it is
+      // persisted, so startRun -> startRunExternal sees workflow_file + commit_sha.
+      ...(lineage ? { workflow_file: lineage.workflow_file, commit_sha: lineage.commit_sha } : {}),
     };
     await this.svc.engine.put("ci_pipeline_runs", run.id, run);
     await this.emit("pipeline.submitted", ctx, { provider, repository, ref, run_id: run.id });
