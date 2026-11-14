@@ -216,14 +216,30 @@ export class CicdReconciliationService {
    * Phase 135: atomic fenced UPDATE. Returns { fenced:true } when the SQL CAS
    * proves we are no longer the current owner. Never writes when fenced.
    */
+  /**
+   * Phase 135: atomic fenced UPDATE. Returns { fenced:true } when the SQL CAS
+   * proves we are no longer the current owner. Never writes when fenced.
+   *
+   * Phase 135 hardening: fail-closed when an ownership gate is configured.
+   * - No ownership service supplied          -> legacy unfenced UPDATE (test harnesses).
+   * - Ownership supplied + valid fence       -> fenced UPDATE (SQL CAS).
+   * - Ownership supplied + NO valid fence    -> NO WRITE; returns { fenced: true }.
+   * The caller treats this identically to a CAS miss (ownership-lost).
+   */
   private runFencedUpdate(
     baseSql: string,
     baseParams: unknown[],
   ): { fenced: boolean; changes: number } {
-    const fence = this.ownership?.currentFence?.() ?? null;
-    if (!fence) {
+    // Case 1: no ownership service configured -> legacy unfenced path.
+    if (!this.ownership) {
       const r = this.db.prepare(baseSql).run(...baseParams) as { changes: number };
       return { fenced: false, changes: r.changes };
+    }
+    // Case 2: ownership configured -> require a valid fence.
+    const fence = this.ownership.currentFence?.() ?? null;
+    if (!fence) {
+      // Fail closed: do not execute an unfenced authoritative UPDATE.
+      return { fenced: true, changes: 0 };
     }
     const sql = baseSql + FENCE_CLAUSE;
     const r = this.db.prepare(sql).run(

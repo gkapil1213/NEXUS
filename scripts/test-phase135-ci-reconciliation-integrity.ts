@@ -354,12 +354,160 @@ async function artifactFenceTest(): Promise<void> {
   eq("T10", countBindings(db), 0, "no binding row created by stale A");
 }
 
+/* ---------------------------- fail-closed regressions --------------------- */
+async function failClosedRegressionTests(): Promise<void> {
+  console.log("");
+  console.log("Phase 135 — fail-closed ownership regressions");
+
+  const provider = {
+    listArtifacts: async () => [listArtifact(777, "nexus-image-digest.json")],
+    downloadArtifact: async () =>
+      makeSingleEntryZip(
+        "nexus-image-digest.json",
+        Buffer.from(validArtifactJson(), "utf8"),
+      ),
+  } as unknown as GitHubActionsCICDProvider;
+
+  // FC01: no ownership service retains the Phase 132 legacy update path.
+  {
+    const db = newDb();
+    seedReconciliationRow(db, "cirun_t01", "exec_t01");
+    const rec = recorder();
+    const arts = fakeArtifacts();
+    const artifactReconciler = new CiArtifactReconciliationService(
+      db, arts.service, provider,
+    );
+    const service = new CicdReconciliationService(
+      db,
+      immediateCiEngine("RUNNING"),
+      fakeEngineStore(baseRun()),
+      artifactReconciler,
+      rec.sink,
+      rec.audit,
+    );
+
+    const result = await service.reconcileOnce("cirun_t01");
+    eq("FC01a", result.fenced, undefined, "legacy update is not fenced");
+    eq("FC01b", Number(getRow(db, "cirun_t01")?.attempts), 1, "legacy update increments attempts");
+    db.close();
+  }
+
+  // FC02: a configured ownership service with no fence must not write.
+  {
+    const db = newDb();
+    seedReconciliationRow(db, "cirun_t01", "exec_t01");
+    const rec = recorder();
+    const arts = fakeArtifacts();
+    const artifactReconciler = new CiArtifactReconciliationService(
+      db, arts.service, provider,
+    );
+    const noFenceOwnership = {
+      ensureOwned: async () => ({ owned: false }),
+      currentFence: () => null,
+    };
+    const service = new CicdReconciliationService(
+      db,
+      immediateCiEngine("RUNNING"),
+      fakeEngineStore(baseRun()),
+      artifactReconciler,
+      rec.sink,
+      rec.audit,
+      noFenceOwnership as never,
+    );
+
+    const result = await service.reconcileOnce("cirun_t01");
+    eq("FC02a", result.fenced, true, "missing fence returns a fenced result");
+    eq("FC02b", Number(getRow(db, "cirun_t01")?.attempts), 0, "missing fence leaves attempts unchanged");
+    db.close();
+  }
+
+  // FC03: a real current owner can still perform the fenced update.
+  {
+    const db = newDb();
+    seedReconciliationRow(db, "cirun_t01", "exec_t01");
+    const rec = recorder();
+    const ownership = new CiReconciliationOwnershipService(
+      db, "worker-fc03", rec.sink, rec.audit,
+    );
+    const acquired = await ownership.ensureOwned();
+    ok("FC03a", acquired.owned, "valid owner acquired the durable lease");
+
+    const arts = fakeArtifacts();
+    const artifactReconciler = new CiArtifactReconciliationService(
+      db, arts.service, provider,
+    );
+    const service = new CicdReconciliationService(
+      db,
+      immediateCiEngine("RUNNING"),
+      fakeEngineStore(baseRun()),
+      artifactReconciler,
+      rec.sink,
+      rec.audit,
+      ownership,
+    );
+
+    const result = await service.reconcileOnce("cirun_t01");
+    eq("FC03b", result.fenced, undefined, "valid fence permits the update");
+    eq("FC03c", Number(getRow(db, "cirun_t01")?.attempts), 1, "valid fenced update increments attempts");
+    db.close();
+  }
+
+  const input: ReconcileInput = {
+    runId: "cirun_t01",
+    executionId: "exec_t01",
+    projectId: "proj_t01",
+    providerId: "github-actions",
+    externalRunId: "gh_run_1001",
+    repository: "acme/nexus-app",
+    commitSha: "0123456789abcdef0123456789abcdef01234567",
+  };
+
+  // FC04: configured gate without isOwnedNowSync must fail closed
+  // before ArtifactService.register is called.
+  {
+    const db = newDb();
+    const arts = fakeArtifacts();
+    const missingSyncGate = {
+      currentFence: () => null,
+    };
+    const service = new CiArtifactReconciliationService(
+      db, arts.service, provider, missingSyncGate,
+    );
+
+    const outcome = await service.reconcile(input);
+    eq("FC04a", outcome.state, "SKIPPED_NO_OWNERSHIP", "missing sync check fails closed");
+    eq("FC04b", arts.records.length, 0, "artifact registration was not called");
+    eq("FC04c", countBindings(db), 0, "no binding was written");
+    db.close();
+  }
+
+  // FC05: a passing sync check with no fence may register an artifact,
+  // but must not create a binding or report REGISTERED.
+  {
+    const db = newDb();
+    const arts = fakeArtifacts();
+    const noFenceButSyncOwned = {
+      currentFence: () => null,
+      isOwnedNowSync: () => true,
+    };
+    const service = new CiArtifactReconciliationService(
+      db, arts.service, provider, noFenceButSyncOwned,
+    );
+
+    const outcome = await service.reconcile(input);
+    eq("FC05a", outcome.state, "SKIPPED_NO_OWNERSHIP", "missing binding fence is rejected");
+    eq("FC05b", arts.records.length, 1, "registration happened before the binding fence check");
+    eq("FC05c", countBindings(db), 0, "no authoritative binding was written");
+    db.close();
+  }
+}
 /* ---------------------------- runner -------------------------------------- */
 async function main(): Promise<void> {
   console.log("Phase 135 — durable CI reconciliation integrity tests");
   try {
     await primaryRaceTest();
     await artifactFenceTest();
+    await failClosedRegressionTests();
   } catch (e) {
     console.error("unexpected exception: " + (e as Error).message);
     console.error((e as Error).stack);

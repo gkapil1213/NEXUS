@@ -115,10 +115,10 @@ export class CiArtifactReconciliationService {
 
   private isOwnedNow(): boolean {
     if (!this.ownership) return true;
-    if (this.ownership.isOwnedNowSync) return this.ownership.isOwnedNowSync();
-    // No sync check exposed — treat the gate as advisory only. Production
-    // always supplies CiReconciliationOwnershipService which implements it.
-    return true;
+    // Phase 135 hardening: if ownership is configured but no synchronous
+    // check is exposed, fail closed rather than assuming ownership.
+    if (!this.ownership.isOwnedNowSync) return false;
+    return this.ownership.isOwnedNowSync();
   }
 
   private currentFence(): FencingContext | null {
@@ -242,6 +242,13 @@ export class CiArtifactReconciliationService {
     const now = Date.now();
     const fence = this.currentFence();
 
+    // Phase 135 hardening: when ownership is configured but no valid fence
+    // exists, the binding INSERT must NOT execute. Return SKIPPED_NO_OWNERSHIP
+    // so the caller does not mark REGISTERED.
+    if (this.ownership && !fence) {
+      return { state: "SKIPPED_NO_OWNERSHIP", reason: "ownership-lost-before-binding-insert" };
+    }
+
     let changes = 0;
     try {
       if (fence) {
@@ -262,6 +269,7 @@ export class CiArtifactReconciliationService {
         ) as { changes: number };
         changes = r.changes;
       } else {
+        // No ownership service at all (Phase 132 test harness) - legacy path.
         const r = this.db.prepare(
           "INSERT INTO ci_image_digest_bindings (" +
           "binding_id, execution_id, project_id, run_id, provider_id, " +
@@ -282,14 +290,12 @@ export class CiArtifactReconciliationService {
       }
       return { state: "REGISTERED", artifact: a, nexusArtifactId: race.nexus_artifact_id, bindingId: race.binding_id, githubArtifactId: String(chosen.id) };
     }
-
     if (fence && changes === 0) {
       // Fenced at binding time. The IMAGE_DIGEST artifact was registered but
       // no authoritative binding was written. This is a non-authoritative
       // orphan; a future authoritative owner will re-run this path.
       return { state: "SKIPPED_NO_OWNERSHIP", reason: "ownership-lost-at-binding-insert" };
     }
-
     return {
       state: "REGISTERED",
       artifact: a,
