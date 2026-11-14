@@ -27,7 +27,9 @@ export interface GitHubActionsClient {
     workflow: string;
     ref: string;
     inputs?: Record<string, string>;
-  }): Promise<void>;
+    /** Phase 302: request workflow_run_id (and URLs) in the response body. */
+    return_run_details?: boolean;
+  }): Promise<{ workflow_run_id?: number; html_url?: string; run_url?: string } | void>;
   listWorkflowRuns(opts: {
     owner: string;
     repo: string;
@@ -133,14 +135,22 @@ export class GitHubActionsCICDProvider implements CICDProvider {
     this.ensureConnected();
 
     const dispatchEpochMs = Date.now();
-    await this.github.dispatchWorkflow({
+    const dispatchResult = await this.github.dispatchWorkflow({
       owner: r.owner,
       repo: r.repo,
       workflow: r.workflow,
       ref: r.ref,
       inputs: r.inputs ?? {},
+      return_run_details: true,
     });
 
+    // Phase 302: if GitHub returned run details inline, trust them (no polling).
+    if (dispatchResult && typeof dispatchResult.workflow_run_id === "number") {
+      return { externalRunId: String(dispatchResult.workflow_run_id) };
+    }
+
+    // 204 No Content (older GHES, or return_run_details unsupported):
+    // fall back to the deterministic poller.
     const externalRunId = await this.resolveNewRun(r, dispatchEpochMs);
     if (!externalRunId) {
       throw new Error(
