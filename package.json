@@ -131,7 +131,8 @@
         "test:phase292:persistence": "tsx scripts/test-phase292-envelope-persistence.ts",
         "test:phase301:bridge": "tsx scripts/test-phase301-bridge-lifecycle.ts",
         "test:phase301:startrun": "tsx scripts/test-phase301-startrun-honesty.ts",
-        "test:phase302": "tsx scripts/test-phase302-dispatch-run-details.ts"
+        "test:phase302": "tsx scripts/test-phase302-dispatch-run-details.ts",
+        "test:phase303": "tsx scripts/test-phase303-kernel-boot-failure.ts"
     },
     "dependencies": {
         "@dnd-kit/core": "^6.1.0",

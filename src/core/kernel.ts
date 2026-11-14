@@ -191,6 +191,24 @@ const BOOT_ORDER = [
   ["drift-observer", "wire durable drift observation"],
 ] as const;
 
+/**
+ * @internal Phase 303 test hook. Called inside _boot() after this.services
+ * is wired and before the boot-transaction can reach status = "ready".
+ * A throw here simulates mid-boot failure and exercises the NOT_BOOTED
+ * guard in startGateway(). Never set from production code.
+ */
+export interface KernelBootHooks {
+  /** Called after this.services is set, before audit.record(). Throw to fail mid-boot. */
+  afterServicesWired?: () => void;
+}
+
+let __testBootHooks: KernelBootHooks | null = null;
+
+/** @internal Phase 303 test hook. Set or clear (null) the active boot hooks. */
+export function __testSetBootHooks(h: KernelBootHooks | null): void {
+  __testBootHooks = h;
+}
+
 export class NexusKernel {
   /** Phase 219: engineering ArtifactStore, exposed for tests and diagnostics. */
   artifactStore: ArtifactStore | null = null;
@@ -1000,6 +1018,11 @@ const memberships = new ProjectMembershipStore(rawDb);
         recoveryControl,
       };
 
+      // Phase 303: test-only mid-boot failure injection. No-op unless a test
+      // has called __testSetBootHooks(). Placed here so the fail path exercises
+      // the exact window Phase 300 WP7 claim 3 was concerned with:
+      // services wired + status not yet "ready".
+      if (__testBootHooks?.afterServicesWired) __testBootHooks.afterServicesWired();
 
       await audit.record({
         actor: "system",
