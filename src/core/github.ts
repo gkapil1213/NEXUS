@@ -511,24 +511,32 @@ export class GitHubService {
 
   /* ---------- Phase 105: GitHub Actions API (real REST, no shell, no gh CLI) ---------- */
 
-  /** POST /repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches */
+  /** Phase 302: GitHub Actions workflow_dispatch.
+   *  With return_run_details=true, modern GitHub returns 200 + run details.
+   *  Without it (or on older GHUS_return_run_details), returns 204 No Content.
+   *  Caller must handle both shapes. */
   async dispatchWorkflow(opts: {
     owner: string;
     repo: string;
     workflow: string;
     ref: string;
     inputs?: Record<string, string>;
-  }): Promise<void> {
+    /** Phase 302: request workflow_run_id in the response body. */
+    return_run_details?: boolean;
+  }): Promise< { workflow_run_id?: number; html_url?: string; run_url?: string } | void> {
     const token = this.requireToken();
     const encOwner = encodeURIComponent(opts.owner);
     const encRepo = encodeURIComponent(opts.repo);
     const encWorkflow = encodeURIComponent(opts.workflow);
-    await api<unknown>(`/repos/${encOwner}/${encRepo}/actions/workflows/${encWorkflow}/dispatches`, {
-      token,
-      method: "POST",
-      body: { ref: opts.ref, inputs: opts.inputs ?? {} },
-    });
+    const body: Record<string, unknown> = { ref: opts.ref, inputs: opts.inputs ?? {} };
+    if (opts.return_run_details) body.return_run_details = true;
+    const res = await api<{ workflow_run_id?: number; html_url?: string; run_url?: string } | null>(
+      `/repos/${encOwner}/${encRepo}/actions/workflows/${encWorkflow}/dispatches`,
+      { token, method: "POST", body },
+    );
+    return res.data ?? undefined;
   }
+
 
   /** GET /repos/{owner}/{repo}/actions/workflows/{workflow}/runs */
   async listWorkflowRuns(opts: {
