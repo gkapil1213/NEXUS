@@ -11,6 +11,11 @@ if (!process.env.NEXUS_DB_PATH) {
   process.env.NEXUS_PERSISTENCE_ENGINE = "sqlite";
 }
 
+// Test-only HMAC configuration. Set before importing CONFIG/NexusKernel.
+process.env.NEXUS_ENVELOPE_HMAC_PROVIDER ??= "env";
+process.env.NEXUS_ENVELOPE_HMAC_KID ??= "test-k1";
+process.env.NEXUS_ENVELOPE_HMAC_KEY_HEX ??= "ab".repeat(32);
+
 // Dynamic import so CONFIG reads the env vars set above.
 const { runPhase1Suite } = await import("../src/core/tests.ts");
 
