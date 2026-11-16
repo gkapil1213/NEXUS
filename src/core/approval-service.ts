@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, readFileSync } from "node:fs";
 import path from "node:path";
 import { nid } from "./db";
 
@@ -21,9 +21,9 @@ export class ApprovalService {
     this.loadState();
   }
 
-  private async loadState() {
+  private loadState() {
     try {
-      const data = await fs.readFile(this.statePath, "utf-8");
+      const data = readFileSync(this.statePath, "utf-8");
       this.approvals = JSON.parse(data);
     } catch {}
   }
