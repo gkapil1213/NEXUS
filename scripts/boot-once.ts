@@ -1,4 +1,4 @@
-﻿import { NexusKernel } from './src/core/kernel';
+import { NexusKernel } from '../src/core/kernel';
 
 async function main() {
   const k = new NexusKernel();
