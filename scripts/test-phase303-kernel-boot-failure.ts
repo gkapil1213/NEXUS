@@ -102,7 +102,7 @@ async function main() {
       "WP7-T6 gateway listener is actually bound to an ephemeral port"
     );
   } finally {
-    await kernel.stopGateway();
+    await kernel.shutdown({ finalRecoveryPass: false });
   }
   console.log(`\nPhase 303 WP7 boot-failure: ${pass} PASS, ${fail} FAIL`);
   if (fail > 0) throw new Error(`Phase 303 FAILED with ${fail} failing checks`);
