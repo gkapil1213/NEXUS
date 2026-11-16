@@ -1,6 +1,6 @@
 # Phase 304 - Final Audit Reconciliation
 
-Generated: 2026-11-16 11:53:41
+Generated: 2026-11-16 11:55:13
 
 This closing report consolidates the four Phase 304 sub-phases.
 
@@ -77,8 +77,8 @@ Change: import path corrected from one-dot-slash to two-dot-slash.
 
 ## 6. Outstanding BLOCKED Child-Process Checks
 
-Six spawn/exec references are BLOCKED from static verification.
-Six literal child-process references were classified BLOCKED by static verification. Runtime availability and behavior were not established.
+The dependency report classifies six child-process checks as BLOCKED.
+Static inspection did not establish runtime availability or behavior for those commands.
 
 - npx (Node package executor)
 - node (Node runtime)
@@ -149,9 +149,9 @@ is required for the BLOCKED child-process items.
 
 - 1,273 dependency checks PASS
 - 0 FAIL after boot-once.ts correction
-- No byte-identical duplicate tests
+- No byte-identical duplicate test files were found by the Phase 304c byte-comparison check; semantic duplication was not assessed
 - Protected-state filename references are static matches only; they do not prove runtime reads or writes
-- Safe runner allow-list excludes all PROTECTED_RISK scripts
+- Safe-runner filenames were compared with PROTECTED_RISK inventory filenames; zero overlaps were found
 
 ### Blocked (6)
 
