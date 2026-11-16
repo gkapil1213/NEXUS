@@ -1,11 +1,11 @@
 # Phase 304 - Final Audit Reconciliation
 
-Generated: 2026-11-16 10:53:04
+Generated: 2026-11-16 11:53:41
 
 This closing report consolidates the four Phase 304 sub-phases.
 
-**All Phase 304 phases were READ-ONLY.** No script was executed. No file was modified or deleted.
-No protected state file was accessed.
+**Scope note:** Phase 304 included static inspection and safe regression execution. Three allow-listed tests passed; one optional test was NOT EXECUTED.
+This reconciliation generator inspects protected-state file metadata only. It does not read or modify protected-state contents.
 
 ## 1. Executive Audit Summary
 
@@ -73,39 +73,33 @@ Change: import path corrected from one-dot-slash to two-dot-slash.
 - After: import from dot-dot-slash-src-slash-core-slash-kernel
 - Resolved target: src/core/kernel.ts exists
 - Named export: NexusKernel verified present
-- Verification: tsc resolves the import; no remaining failure
+- Verification: target path and named export were checked separately. Root tsconfig excludes scripts/, so tsc -p . does not validate this file.
 
 ## 6. Outstanding BLOCKED Child-Process Checks
 
 Six spawn/exec references are BLOCKED from static verification.
-They invoke external binaries whose presence cannot be verified without execution:
+Six literal child-process references were classified BLOCKED by static verification. Runtime availability and behavior were not established.
 
 - npx (Node package executor)
 - node (Node runtime)
 - docker (container runtime)
 - git (version control)
 
-**Limitation:** Static analysis cannot confirm these binaries are present or functional.
+**Limitation:** Static reference inspection does not establish whether these commands are available or what they would do at runtime.
 An execution-based verification phase would be required to resolve these.
 
 ## 7. Protected-State Safeguards
 
-**All Phase 304 operations were read-only.** The following files were NOT modified:
+The reconciliation generator used Test-Path and Get-Item to inspect metadata. It did not read protected-state file contents.
 
-| File | LastWriteTime | Modified during Phase 304 |
-|---|---|---|
-| release-state.json | 2026-11-14 19:30:49 | YES |
-| approval-state.json | 2026-11-14 19:30:49 | YES |
-| rollback-state.json | 2026-11-14 19:30:49 | YES |
-| release-manifest.json | 2026-11-14 19:33:58 | YES |
+| File | Length (bytes) | LastWriteTime |
+|---|---:|---|
+| release-state.json | 4 | 2026-11-14 19:30:49 |
+| approval-state.json | 4 | 2026-11-14 19:30:49 |
+| rollback-state.json | 4 | 2026-11-14 19:30:49 |
+| release-manifest.json | 1605 | 2026-11-14 19:33:58 |
 
-**Confirmed absent from Phase 304 execution:**
-
-- No test-phase, run-phase, or run-regression script was executed
-- No release-state, approval-state, rollback-state, or release-manifest was read or written
-- No git mutations during analysis
-- No network calls
-- No docker commands
+No conclusion about modification during the entire Phase 304 period is inferred from LastWriteTime alone.
 
 ## 8. Safe Regression Allow-List
 
@@ -127,7 +121,11 @@ The Phase 304 safe runner (scripts/run-safe-regression.ts) allows exactly four t
 - test-tamper-detection.ts (Docker registry, signing)
 - test-fail-safe.ts (release/approval services)
 
-Verified: no PROTECTED_RISK file appears in the allow-list.
+Filename-level reconciliation: four configured entries; zero filename overlaps with the 18 PROTECTED_RISK inventory entries. This is not a runtime safety proof.
+
+**Observed safe-runner result:** PASS=3, FAIL=0, BLOCKED=0, NOT EXECUTED=1. The optional bridge lifecycle test was NOT EXECUTED.
+
+The runner exit code of 2 reflects the NOT EXECUTED result; it is not an all-tests-passed result.
 
 ## 9. Known Limitations of Regex-Based Static Analysis
 
@@ -152,7 +150,7 @@ is required for the BLOCKED child-process items.
 - 1,273 dependency checks PASS
 - 0 FAIL after boot-once.ts correction
 - No byte-identical duplicate tests
-- No protected-state access from reviewed files
+- Protected-state filename references are static matches only; they do not prove runtime reads or writes
 - Safe runner allow-list excludes all PROTECTED_RISK scripts
 
 ### Blocked (6)
@@ -162,15 +160,15 @@ npx, node, docker, git. Requires execution to resolve.
 
 ### Not Executed
 
-Zero. All 1,279 checks were attempted.
+The dependency summary records 0 NOT EXECUTED and 6 BLOCKED. These are static verification classifications, not proof that all runtime checks were performed.
 
 ### Requiring Human Review
 
 - 42 UNKNOWN files (purpose unclear from static analysis)
-- 112 DORMANT_TEST files (not wired into any package script)
+- 112 DORMANT_TEST files (heuristic classification; human review required)
 - 217 PHASE_RUNNER files (one-off phase scripts, disposition pending)
-- 10 BACKUP files (removal candidates, not approved)
-- 8 DEBUG_SCRATCH files (removal candidates, not approved)
+- 10 BACKUP files (retention review; no deletion approved)
+- 8 DEBUG_SCRATCH files (retention review; no deletion approved)
 - 18 PROTECTED_RISK files (never auto-execute, never delete without per-file approval)
 
 ---
@@ -180,5 +178,5 @@ Zero. All 1,279 checks were attempted.
 - scripts-inventory.md (Phase 304a, 564 files)
 - phase304b-evidence-review.md (Phase 304b, 172 files)
 - phase304c-dependency-verification.md (Phase 304c, 1279 checks)
-- PHASE304-FINAL-AUDIT.md (this report)
+- phase304d-final-audit-reconciliation.md (this report)
 

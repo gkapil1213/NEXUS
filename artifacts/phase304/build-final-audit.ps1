@@ -1,5 +1,6 @@
 # Phase 304d: Final Audit Reconciliation. ASCII-only, no backticks in content.
 $ErrorActionPreference = "Stop"
+$utf8 = [System.Text.UTF8Encoding]::new($false)
 
 $repoRoot = "C:\Users\pc\NEXUS"
 $artifacts = Join-Path $repoRoot "artifacts\phase304"
@@ -19,34 +20,112 @@ foreach ($m in [regex]::Matches($inventory, '\|\s*(ACTIVE_TEST|DORMANT_TEST|CHIL
 $totalClassified = 0
 foreach ($c in $classCounts.Values) { $totalClassified += $c }
 
-# Extract dependency summary
-$depSummary = @{}
-foreach ($m in [regex]::Matches($dependency, '\|\s*(PASS|FAIL|BLOCKED|NOT EXECUTED)\s*\|\s*(\d+)\s*\|')) {
-  if (-not $depSummary.ContainsKey($m.Groups[1].Value)) { $depSummary[$m.Groups[1].Value] = [int]$m.Groups[2].Value }
-}
-$depTotal = $depSummary["PASS"] + $depSummary["FAIL"] + $depSummary["BLOCKED"] + $depSummary["NOT EXECUTED"]
+# Extract dependency summary from the Summary section only
+$summaryMatch = [regex]::Match(
+  $dependency,
+  '(?ms)^## Summary\s*\r?\n(?<body>.*?)(?=^## |\z)'
+)
 
-# Evidence count
+if (-not $summaryMatch.Success) {
+  throw "Dependency Summary section not found."
+}
+
+$depSummary = @{}
+
+foreach ($m in [regex]::Matches(
+  $summaryMatch.Groups["body"].Value,
+  '(?m)^\|\s*(PASS|FAIL|BLOCKED|NOT EXECUTED)\s*\|\s*(\d+)\s*\|'
+)) {
+  $depSummary[$m.Groups[1].Value] = [int]$m.Groups[2].Value
+}
+
+foreach ($status in @("PASS","FAIL","BLOCKED","NOT EXECUTED")) {
+  if (-not $depSummary.ContainsKey($status)) {
+    throw "Missing dependency status: $status"
+  }
+}
+
+$depTotal = 0
+foreach ($status in @("PASS","FAIL","BLOCKED","NOT EXECUTED")) {
+  $depTotal += $depSummary[$status]
+}
+
+# Evidence reconciliation
 $evidenceCount = ([regex]::Matches($evidence, '(?m)^### ')).Count
 
-# Reconciliation checks (precomputed)
+$evidenceCategoryTotal =
+  [int]$classCounts["UNKNOWN"] +
+  [int]$classCounts["DORMANT_TEST"] +
+  [int]$classCounts["BACKUP"] +
+  [int]$classCounts["DEBUG_SCRATCH"]
+
+# Inspect safe-runner source and inventory classifications
+$runnerPath = Join-Path $repoRoot "scripts\run-safe-regression.ts"
+$runnerSource = Get-Content $runnerPath -Raw
+
+$allowList = @(
+  [regex]::Matches(
+    $runnerSource,
+    '(?m)^\s*\{\s*file:\s*"([^"]+)"'
+  ) | ForEach-Object { $_.Groups[1].Value }
+)
+
+$protectedRiskPaths = @(
+  [regex]::Matches(
+    $inventory,
+    '(?m)^\|\s*`([^`]+)`\s*\|\s*PROTECTED_RISK\s*\|'
+  ) | ForEach-Object { $_.Groups[1].Value }
+)
+
+$protectedRiskNames = @(
+  $protectedRiskPaths | ForEach-Object { Split-Path $_ -Leaf }
+)
+
+$allowListOverlap = @(
+  $allowList | Where-Object { $protectedRiskNames -contains $_ }
+)
+
+# Five evidence-based reconciliation checks
 $recon1 = ($totalClassified -eq 564)
-$recon2 = ($evidenceCount -eq 172)
+
+$recon2 = (
+  $evidenceCount -eq 172 -and
+  $evidenceCount -eq $evidenceCategoryTotal
+)
+
 $recon3 = ($depTotal -eq 1279)
 $recon4 = ($depSummary["FAIL"] -eq 0)
-$recon5 = $true  # safe-runner allow-list verified earlier in phase304c
 
-# State file status
-$stateFiles = @("release-state.json", "approval-state.json", "rollback-state.json", "release-manifest.json")
+$recon5 = (
+  $allowList.Count -eq 4 -and
+  $protectedRiskPaths.Count -eq 18 -and
+  $allowListOverlap.Count -eq 0
+)
+
+if (-not ($recon1 -and $recon2 -and $recon3 -and $recon4 -and $recon5)) {
+  throw "Reconciliation failed. Report generation blocked."
+}
+
+# Protected-state metadata only. Never read protected JSON contents.
+$stateFiles = @(
+  "release-state.json",
+  "approval-state.json",
+  "rollback-state.json",
+  "release-manifest.json"
+)
+
 $stateStatus = @()
+
 foreach ($sf in $stateFiles) {
   $full = Join-Path $repoRoot $sf
-  if (Test-Path $full) {
-    $item = Get-Item $full
+
+  if (Test-Path -LiteralPath $full -PathType Leaf) {
+    $item = Get-Item -LiteralPath $full
+
     $stateStatus += [PSCustomObject]@{
       File = $sf
+      Length = $item.Length
       LastWriteTime = $item.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
-      ModifiedDuringPhase304 = ($item.LastWriteTime -gt (Get-Date "2026-11-14"))
     }
   }
 }
@@ -61,8 +140,8 @@ $null = $sb.AppendLine("Generated: $now")
 $null = $sb.AppendLine("")
 $null = $sb.AppendLine("This closing report consolidates the four Phase 304 sub-phases.")
 $null = $sb.AppendLine("")
-$null = $sb.AppendLine("**All Phase 304 phases were READ-ONLY.** No script was executed. No file was modified or deleted.")
-$null = $sb.AppendLine("No protected state file was accessed.")
+$null = $sb.AppendLine("**Scope note:** Phase 304 included static inspection and safe regression execution. Three allow-listed tests passed; one optional test was NOT EXECUTED.")
+$null = $sb.AppendLine("This reconciliation generator inspects protected-state file metadata only. It does not read or modify protected-state contents.")
 $null = $sb.AppendLine("")
 
 $null = $sb.AppendLine("## 1. Executive Audit Summary")
@@ -130,41 +209,34 @@ $null = $sb.AppendLine("- Before: import from dot-slash-src-slash-core-slash-ker
 $null = $sb.AppendLine("- After: import from dot-dot-slash-src-slash-core-slash-kernel")
 $null = $sb.AppendLine("- Resolved target: src/core/kernel.ts exists")
 $null = $sb.AppendLine("- Named export: NexusKernel verified present")
-$null = $sb.AppendLine("- Verification: tsc resolves the import; no remaining failure")
+$null = $sb.AppendLine("- Verification: target path and named export were checked separately. Root tsconfig excludes scripts/, so tsc -p . does not validate this file.")
 $null = $sb.AppendLine("")
 
 $null = $sb.AppendLine("## 6. Outstanding BLOCKED Child-Process Checks")
 $null = $sb.AppendLine("")
 $null = $sb.AppendLine("Six spawn/exec references are BLOCKED from static verification.")
-$null = $sb.AppendLine("They invoke external binaries whose presence cannot be verified without execution:")
+$null = $sb.AppendLine("Six literal child-process references were classified BLOCKED by static verification. Runtime availability and behavior were not established.")
 $null = $sb.AppendLine("")
 $null = $sb.AppendLine("- npx (Node package executor)")
 $null = $sb.AppendLine("- node (Node runtime)")
 $null = $sb.AppendLine("- docker (container runtime)")
 $null = $sb.AppendLine("- git (version control)")
 $null = $sb.AppendLine("")
-$null = $sb.AppendLine("**Limitation:** Static analysis cannot confirm these binaries are present or functional.")
+$null = $sb.AppendLine("**Limitation:** Static reference inspection does not establish whether these commands are available or what they would do at runtime.")
 $null = $sb.AppendLine("An execution-based verification phase would be required to resolve these.")
 $null = $sb.AppendLine("")
 
 $null = $sb.AppendLine("## 7. Protected-State Safeguards")
 $null = $sb.AppendLine("")
-$null = $sb.AppendLine("**All Phase 304 operations were read-only.** The following files were NOT modified:")
+$null = $sb.AppendLine("The reconciliation generator used Test-Path and Get-Item to inspect metadata. It did not read protected-state file contents.")
 $null = $sb.AppendLine("")
-$null = $sb.AppendLine("| File | LastWriteTime | Modified during Phase 304 |")
-$null = $sb.AppendLine("|---|---|---|")
+$null = $sb.AppendLine("| File | Length (bytes) | LastWriteTime |")
+$null = $sb.AppendLine("|---|---:|---|")
 foreach ($s in $stateStatus) {
-  $modText = if ($s.ModifiedDuringPhase304) { "YES" } else { "NO" }
-  $null = $sb.AppendLine("| $($s.File) | $($s.LastWriteTime) | $modText |")
+  $null = $sb.AppendLine("| $($s.File) | $($s.Length) | $($s.LastWriteTime) |")
 }
 $null = $sb.AppendLine("")
-$null = $sb.AppendLine("**Confirmed absent from Phase 304 execution:**")
-$null = $sb.AppendLine("")
-$null = $sb.AppendLine("- No test-phase, run-phase, or run-regression script was executed")
-$null = $sb.AppendLine("- No release-state, approval-state, rollback-state, or release-manifest was read or written")
-$null = $sb.AppendLine("- No git mutations during analysis")
-$null = $sb.AppendLine("- No network calls")
-$null = $sb.AppendLine("- No docker commands")
+$null = $sb.AppendLine("No conclusion about modification during the entire Phase 304 period is inferred from LastWriteTime alone.")
 $null = $sb.AppendLine("")
 
 $null = $sb.AppendLine("## 8. Safe Regression Allow-List")
@@ -187,9 +259,13 @@ $null = $sb.AppendLine("- test-rollback-safety.ts (writes rollback-state.json)")
 $null = $sb.AppendLine("- test-tamper-detection.ts (Docker registry, signing)")
 $null = $sb.AppendLine("- test-fail-safe.ts (release/approval services)")
 $null = $sb.AppendLine("")
-$null = $sb.AppendLine("Verified: no PROTECTED_RISK file appears in the allow-list.")
+$null = $sb.AppendLine("Filename-level reconciliation: four configured entries; zero filename overlaps with the 18 PROTECTED_RISK inventory entries. This is not a runtime safety proof.")
 $null = $sb.AppendLine("")
 
+$null = $sb.AppendLine("**Observed safe-runner result:** PASS=3, FAIL=0, BLOCKED=0, NOT EXECUTED=1. The optional bridge lifecycle test was NOT EXECUTED.")
+$null = $sb.AppendLine("")
+$null = $sb.AppendLine("The runner exit code of 2 reflects the NOT EXECUTED result; it is not an all-tests-passed result.")
+$null = $sb.AppendLine("")
 $null = $sb.AppendLine("## 9. Known Limitations of Regex-Based Static Analysis")
 $null = $sb.AppendLine("")
 $null = $sb.AppendLine("The Phase 304 audit used regex-based pattern matching. It cannot:")
@@ -214,7 +290,7 @@ $null = $sb.AppendLine("")
 $null = $sb.AppendLine("- 1,273 dependency checks PASS")
 $null = $sb.AppendLine("- 0 FAIL after boot-once.ts correction")
 $null = $sb.AppendLine("- No byte-identical duplicate tests")
-$null = $sb.AppendLine("- No protected-state access from reviewed files")
+$null = $sb.AppendLine("- Protected-state filename references are static matches only; they do not prove runtime reads or writes")
 $null = $sb.AppendLine("- Safe runner allow-list excludes all PROTECTED_RISK scripts")
 $null = $sb.AppendLine("")
 $null = $sb.AppendLine("### Blocked (6)")
@@ -224,15 +300,15 @@ $null = $sb.AppendLine("npx, node, docker, git. Requires execution to resolve.")
 $null = $sb.AppendLine("")
 $null = $sb.AppendLine("### Not Executed")
 $null = $sb.AppendLine("")
-$null = $sb.AppendLine("Zero. All 1,279 checks were attempted.")
+$null = $sb.AppendLine("The dependency summary records 0 NOT EXECUTED and 6 BLOCKED. These are static verification classifications, not proof that all runtime checks were performed.")
 $null = $sb.AppendLine("")
 $null = $sb.AppendLine("### Requiring Human Review")
 $null = $sb.AppendLine("")
 $null = $sb.AppendLine("- 42 UNKNOWN files (purpose unclear from static analysis)")
-$null = $sb.AppendLine("- 112 DORMANT_TEST files (not wired into any package script)")
+$null = $sb.AppendLine("- 112 DORMANT_TEST files (heuristic classification; human review required)")
 $null = $sb.AppendLine("- 217 PHASE_RUNNER files (one-off phase scripts, disposition pending)")
-$null = $sb.AppendLine("- 10 BACKUP files (removal candidates, not approved)")
-$null = $sb.AppendLine("- 8 DEBUG_SCRATCH files (removal candidates, not approved)")
+$null = $sb.AppendLine("- 10 BACKUP files (retention review; no deletion approved)")
+$null = $sb.AppendLine("- 8 DEBUG_SCRATCH files (retention review; no deletion approved)")
 $null = $sb.AppendLine("- 18 PROTECTED_RISK files (never auto-execute, never delete without per-file approval)")
 $null = $sb.AppendLine("")
 $null = $sb.AppendLine("---")
@@ -242,7 +318,7 @@ $null = $sb.AppendLine("")
 $null = $sb.AppendLine("- scripts-inventory.md (Phase 304a, 564 files)")
 $null = $sb.AppendLine("- phase304b-evidence-review.md (Phase 304b, 172 files)")
 $null = $sb.AppendLine("- phase304c-dependency-verification.md (Phase 304c, 1279 checks)")
-$null = $sb.AppendLine("- PHASE304-FINAL-AUDIT.md (this report)")
+$null = $sb.AppendLine("- phase304d-final-audit-reconciliation.md (this report)")
 $null = $sb.AppendLine("")
 
 [IO.File]::WriteAllText($outPath, $sb.ToString(), $utf8)
@@ -251,4 +327,4 @@ Write-Host "  size: $((Get-Item $outPath).Length) bytes"
 Write-Host "  total classified: $totalClassified"
 Write-Host "  evidence entries: $evidenceCount"
 Write-Host "  dependency checks: $depTotal"
-Write-Host "  reconciliation: recon1=$recon1 recon2=$recon2 recon3=$recon3 recon4=$recon4"
+Write-Host "  reconciliation: recon1=$recon1 recon2=$recon2 recon3=$recon3 recon4=$recon4 recon5=$recon5"
