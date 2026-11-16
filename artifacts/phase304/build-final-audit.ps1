@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = "C:\Users\pc\NEXUS"
 $artifacts = Join-Path $repoRoot "artifacts\phase304"
-$outPath = Join-Path $artifacts "PHASE304-FINAL-AUDIT.md"
+$outPath = Join-Path $artifacts "phase304d-final-audit-reconciliation.md"
 
 Write-Host "Phase 304d: loading all Phase 304 artifacts..."
 
