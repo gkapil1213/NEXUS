@@ -2,12 +2,12 @@ import { CONFIG } from "./config";
 import { Err } from "./errors";
 
 /**
- * NEXUS Phase 1 ï¿½ persistence engine.
+ * NEXUS Phase 1 - persistence engine.
  *
  * Real, durable persistence via IndexedDB (schema-versioned). In non-browser
  * contexts (Node test harnesses) a clearly-labelled in-memory engine is used
  * instead; the engine kind is exposed so health/verification can report
- * exactly which runtime is backing the platform ï¿½ never pretending an
+ * exactly which runtime is backing the platform - never pretending an
  * unverified persistence mode is the durable one.
  *
  * Safety properties:
@@ -20,7 +20,7 @@ import { Err } from "./errors";
  */
 
 /**
- * Schema v8 (Phase 4 Pass 1): ADDITIVE migration ï¿½ adds security_executions,
+ * Schema v8 (Phase 4 Pass 1): ADDITIVE migration - adds security_executions,
  * security_evidence, security_findings, security_decisions,
  * security_risk_assessments and finding_audit_log stores for the Security
  * Control Plane. IndexedDB preserves every existing object store and record
@@ -61,7 +61,7 @@ export const NEXUS_STORES = [
   "security_decisions",
   "security_risk_assessments",
   "finding_audit_log",
-  // Phase 4 Pass 7 â€“ Continuous Security Operations
+  // Phase 4 Pass 7 - Continuous Security Operations
   "security_finding_observations",
   "security_risk_snapshots",
   "security_scanner_health",
@@ -92,7 +92,7 @@ export interface AsyncSQLStatement {
  *
  * ADDITIVE. Existing code continues to use NexusEngine (SQLite). New code
  * that must work against both SQLite and PostgreSQL uses AsyncNexusEngine.
- * Over Phase 183b–183f, ExecutionStore's synchronous prepare/exec/transaction
+ * Over Phase 183b-183f, ExecutionStore's synchronous prepare/exec/transaction
  * call sites migrate to this contract one bounded slice at a time. When the
  * migration completes, NexusEngine remains for legacy/browser code and
  * AsyncNexusEngine becomes the shared-persistence contract.
@@ -128,20 +128,23 @@ export interface SQLStatement {
   all(...params: unknown[]): unknown[];
 }
 
-/** A prepared SQL statement compatible with better-sqlite3 Statement. */
-export interface SQLStatement {
-  run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint };
-  get(...params: unknown[]): unknown;
-  all(...params: unknown[]): unknown[];
-}
-
 /* ------------------------------ identifiers ------------------------------- */
 
 export function nid(prefix: string): string {
+  if (typeof crypto === "undefined") {
+    throw new Error("nid(): WebCrypto is unavailable; refusing to generate a non-cryptographic id");
+  }
   const uuid =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
+    typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
-      : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
+      : (() => {
+          const b = new Uint8Array(16);
+          crypto.getRandomValues(b);
+          b[6] = (b[6] & 0x0f) | 0x40;
+          b[8] = (b[8] & 0x3f) | 0x80;
+          const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+          return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+        })();
   return `${prefix}_${uuid}`;
 }
 
@@ -154,7 +157,7 @@ export const INDEXES: Record<string, [string, string][]> = {
   audit: [["byResource", "resource_id"]],
   evidence: [["byExecution", "execution_id"]],
   artifacts: [["byExecution", "execution_id"]],
-  // Phase 4 Pass 1 ï¿½ Security Control Plane indexes
+  // Phase 4 Pass 1 - Security Control Plane indexes
   security_executions: [
     ["byProject", "project_id"],
     ["byExecution", "execution_id"],
@@ -446,14 +449,18 @@ export function openEngine(): Promise<NexusEngine> {
     // Allow environment variables to override persistence config (used by child processes)
     const envEngine = process.env.NEXUS_PERSISTENCE_ENGINE;
     const envDbPath = process.env.NEXUS_DB_PATH;
-    if (envEngine === "sqlite") {
-      CONFIG.persistence.engine = "sqlite";
+    if (envEngine !== undefined) {
+      const validKinds = ["memory", "idb", "sqlite"] as const;
+      if (!(validKinds as readonly string[]).includes(envEngine)) {
+        throw new Error(
+          `NEXUS_PERSISTENCE_ENGINE="${envEngine}" is not valid for CONFIG.persistence; expected one of: ${validKinds.join(", ")}`,
+        );
+      }
+      CONFIG.persistence.engine = envEngine as (typeof validKinds)[number];
       if (envDbPath) CONFIG.persistence.dbName = envDbPath;
-    } else if (envEngine === "memory") {
-      CONFIG.persistence.engine = "memory";
     }
     const kind = CONFIG.persistence.engine;
-        if (kind === "sqlite") {
+    if (kind === "sqlite") {
       if (typeof process !== "undefined" && !!process.versions?.node) {
         const spec = "./sqlite-engine";
         const { SQLiteEngine } = await import(/* @vite-ignore */ spec);
@@ -504,6 +511,9 @@ export async function digestOf(input: string): Promise<string> {
 }
 
 export function randomTokenHex(bytes = 32): string {
+  if (typeof crypto === "undefined" || typeof crypto.getRandomValues !== "function") {
+    throw new Error("randomTokenHex(): WebCrypto getRandomValues is unavailable");
+  }
   const buf = new Uint8Array(bytes);
   crypto.getRandomValues(buf);
   return Array.from(buf)
@@ -524,6 +534,12 @@ export async function hashSecret(secret: string, salt: string, iterations: numbe
     .join("");
 }
 
+/**
+ * Constant-time comparison for equal-length secrets (e.g., hex digests).
+ * NOTE: length is compared first, which leaks length; callers comparing
+ * user-supplied secrets of variable length should hash both sides to a
+ * fixed-size digest before calling this.
+ */
 export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
