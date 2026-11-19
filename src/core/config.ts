@@ -1,5 +1,5 @@
 /**
- * NEXUS configuration — all runtime settings and validation.
+ * NEXUS configuration - all runtime settings and validation.
  */
 export type EngineKind = "memory" | "idb" | "sqlite";
 export type NexusEnv = "DEVELOPMENT" | "STAGING" | "PRODUCTION";

@@ -73,7 +73,7 @@ export const NEXUS_STORES = [
  
 export type StoreName = (typeof NEXUS_STORES)[number];
 
-export type EngineKind = "indexeddb" | "memory" | "sqlite" | "postgres";
+export type EngineKind = "idb" | "memory" | "sqlite" | "postgres";
 
 /**
  * Phase 183b: async sibling of SQLStatement for PostgreSQL-compatible
@@ -166,7 +166,8 @@ export const INDEXES: Record<string, [string, string][]> = {
   security_evidence: [
     ["byExecution", "execution_id"],
     ["byArtifact", "artifact_digest"],
-  ],  security_finding_observations: [
+  ],
+  security_finding_observations: [
     ["byFinding", "finding_id"],
     ["byExecution", "execution_id"],
   ],
@@ -232,7 +233,7 @@ export const INDEXES: Record<string, [string, string][]> = {
 };
 
 class IdbEngine implements NexusEngine {
-  readonly kind = "indexeddb" as const;
+  readonly kind = "idb" as const;
   private db: IDBDatabase;
   private constructor(db: IDBDatabase) {
     this.db = db;
