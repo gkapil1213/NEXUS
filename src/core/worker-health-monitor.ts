@@ -1,4 +1,4 @@
-﻿import { WorkerHealthSnapshot, WorkerHealthState, WorkerHealthStore } from "./worker-health";
+import { WorkerHealthSnapshot, WorkerHealthState, WorkerHealthStore } from "./worker-health";
 
 export interface HealthThresholds {
   staleAfterMs: number;
