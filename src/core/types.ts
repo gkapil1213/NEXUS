@@ -69,6 +69,7 @@ export const PERMISSIONS = [
   "evidence:create",
   "config:read",
   "system:health",
+  "system:diagnostics",
   "system:configure",
   "github:connect",
   "evidence:read",
@@ -487,6 +488,27 @@ export interface HealthReport {
   subsystems: SubsystemHealth[];
   version: string;
   engine: string;
+  timestamp: number;
+}
+/* ------------------------- Operational health ---------------------------- */
+
+export type OperationalComponentStatus =
+  | "healthy"
+  | "degraded"
+  | "unavailable"
+  | "blocked"
+  | "unknown";
+
+export interface OperationalComponentHealth {
+  name: string;
+  status: OperationalComponentStatus;
+  detail: string;
+  latency_ms: number | null;
+}
+
+export interface OperationalHealthSnapshot {
+  status: OperationalComponentStatus;
+  components: OperationalComponentHealth[];
   timestamp: number;
 }
 

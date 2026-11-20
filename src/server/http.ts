@@ -16,6 +16,8 @@ import { Err } from "../core/errors";
 import { sendError } from "./errors";
 import { requireSession } from "./auth-middleware";
 import { createRecoveryRouter } from "../api/recovery/routes";
+import { createAuthRouter } from "../api/auth/routes";
+import { createProjectsRouter, createExecutionsRouter } from "../api/projects/routes";
 import type { KernelServices } from "../core/kernel";
 import type { IdempotencyBackend } from "./idempotency";
 import { RateLimiter, type RateLimitOptions, type RateLimitBucket } from "./rate-limit";
@@ -243,8 +245,51 @@ export function createHttpApp(deps: HttpAppDeps): Application {
     });
   });
 
+  // --- Authentication API ---
+  // Public: status, bootstrap, login. Protected internally: session, logout.
+  // Reuse the existing server services and the single shared rate limiter.
+  app.use(
+    "/api/auth",
+    createAuthRouter({
+      services: deps.services,
+      limiter,
+    }),
+  );
+
   // --- 9. Protected routes: authenticate, then rate limit, then route ---
   const sessionMw = requireSession(deps.services);
+
+  // Projects and executions use the existing session middleware and
+  // shared limiter. Service methods enforce project-scoped authorization.
+  const protectedApiMw = (req: any, res: any, next: (err?: unknown) => void) => {
+    sessionMw(req, res, (err?: unknown) => {
+      if (err) {
+        const ip = String(req.ip ?? req.socket?.remoteAddress ?? "unknown");
+        const rl = limiter.check(ip, "auth-fail");
+        if (!rl.allowed) {
+          res.setHeader("Retry-After", String(rl.retryAfterSec));
+          return sendError(res, req.requestId,
+            Err.denied("RATE_LIMITED", "too many authentication failures"));
+        }
+        return next(err);
+      }
+
+      const principal = String(req.actor?.id ?? "unknown");
+      const bucket: RateLimitBucket = req.method === "GET" ? "read" : "control";
+      const rl = limiter.check(principal, bucket);
+      if (!rl.allowed) {
+        res.setHeader("Retry-After", String(rl.retryAfterSec));
+        return sendError(res, req.requestId,
+          Err.denied("RATE_LIMITED", "request rate exceeded for " + bucket));
+      }
+      next();
+    });
+  };
+
+  app.use("/api/projects", protectedApiMw);
+  app.use("/api/executions", protectedApiMw);
+  app.use("/api/projects", createProjectsRouter(deps.services));
+  app.use("/api/executions", createExecutionsRouter(deps.services));
   app.use("/api/recovery", (req: any, res, next) => {
     sessionMw(req, res, (err?: unknown) => {
       if (err) {
@@ -272,6 +317,46 @@ export function createHttpApp(deps: HttpAppDeps): Application {
   });
 
   app.use("/api/recovery", createRecoveryRouter(deps));
+  app.use("/api/diagnostics", (req: any, res, next) => {
+    sessionMw(req, res, (err?: unknown) => {
+      if (err) {
+        const ip = String(req.ip ?? req.socket?.remoteAddress ?? "unknown");
+        const rl = limiter.check(ip, "auth-fail");
+        if (!rl.allowed) {
+          res.setHeader("Retry-After", String(rl.retryAfterSec));
+          return sendError(res, req.requestId,
+            Err.denied("RATE_LIMITED", "too many authentication failures"));
+        }
+        return next(err);
+      }
+
+      const principal = String(req.actor?.id ?? "unknown");
+      const rl = limiter.check(principal, "read");
+      if (!rl.allowed) {
+        res.setHeader("Retry-After", String(rl.retryAfterSec));
+        return sendError(res, req.requestId,
+          Err.denied("RATE_LIMITED", "request rate exceeded for read"));
+      }
+      next();
+    });
+  });
+
+  app.get("/api/diagnostics/health", async (req: any, res) => {
+    try {
+      await deps.services.authz.authorize(
+        req.actor,
+        "system:diagnostics",
+        { type: "system", id: "operational-diagnostics" },
+      );
+
+      res.json({
+        requestId: req.requestId,
+        data: deps.services.operationalHealth(),
+      });
+    } catch (error) {
+      sendError(res, req.requestId, error);
+    }
+  });
 
   // --- 10. 404 (unmatched route) ---
   app.use((req: any, res) => {

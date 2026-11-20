@@ -6,10 +6,10 @@
  * UI, and fails loudly (never partially-silently) when a subsystem cannot
  * start. Contains no business logic — that lives in services and agents.
  */
-import { AuditService } from "./audit";
+import { AuditService, redactText, redactMetadata } from "./audit";
 import { AgentRegistry, InspectorAgent } from "./agents";
 import { CONFIG, configBlocked, safeConfigView } from "./config";
-import { openEngine, probeEngine, nid, type NexusEngine } from "./db";
+import { openEngine, probeEngine, nid, randomTokenHex, type NexusEngine } from "./db";
 import { resolvePersistenceMode } from "./persistence-mode";
 import { resolveBackendConfig } from "./backend-config";
 import { PgClient, setPgClient, getPgClient } from "./pg-client";
@@ -63,6 +63,7 @@ import { SkippedEnvironmentRemoteAdapter } from "./skipped-environment-adapter";
 import { SkippedEnvironmentExecutionAdapter } from "./skipped-environment-execution-adapter";
 import type { ExecutionAdapterRequest } from "./execution-adapter";
 import { AgentPolicyEngine, ExecutionPolicyEngine, AgentExecutionService } from "./execution-policy";
+import type { AuditRecord, ExecutionSandbox, BootStep, HealthReport, OperationalHealthSnapshot, OperationalComponentHealth, OperationalComponentStatus, PublicUser, Session, SubsystemHealth, User } from "./types";
 import { ProjectDetector } from "./devops";
 import {
   PipelineAgent,
@@ -109,7 +110,6 @@ import { EngineeringRunEventDrainer, type DrainReport } from "./engineering-run-
 import { RecoveryOperationsService } from "./recovery-operations";
 import { RecoveryControlService } from "./recovery-control-service";
 import { DriftObservationSupervisor, type DriftObservationSupervisorStatus, type DriftObservationScope } from "./drift-observation-supervisor";
-import type { ExecutionSandbox, BootStep, HealthReport, PublicUser, Session, SubsystemHealth, User } from "./types";
 
 export interface KernelServices {
   engine: NexusEngine;
@@ -176,6 +176,7 @@ export interface KernelServices {
   // durable executionStore. Undefined whenever executionStore is, since it
   // reads through the same connection.
   auditProvenance: ExecutionAuditProvenanceService | undefined;
+  operationalHealth: () => OperationalHealthSnapshot;
 }
 
 const BOOT_ORDER = [
@@ -1014,6 +1015,7 @@ const memberships = new ProjectMembershipStore(rawDb);
         executionStore: this.executionStore,
         releaseIntents,
         auditProvenance,
+        operationalHealth: () => this.operationalHealth(),
         recoveryOperations,
         recoveryControl,
       };
@@ -1428,6 +1430,132 @@ const memberships = new ProjectMembershipStore(rawDb);
     this.cicdScheduler = undefined;
   }
 
+
+  /**
+   * Phase 306: safe operational snapshot from existing in-memory lifecycle state.
+   * This is diagnostic-only: it does not start, stop, or probe background services.
+   */
+  operationalHealth(): OperationalHealthSnapshot {
+    const components: OperationalComponentHealth[] = [];
+
+    const add = (
+      name: string,
+      status: OperationalComponentStatus,
+      detail: string,
+    ): void => {
+      components.push({ name, status, detail, latency_ms: null });
+    };
+
+    // Core kernel lifecycle.
+    if (this.status === "ready") {
+      add("kernel", "healthy", "Kernel is ready");
+    } else if (this.status === "failed") {
+      add("kernel", "blocked", "Kernel boot failed");
+    } else {
+      add("kernel", "degraded", "Kernel is still booting");
+    }
+
+    // Gateway is opt-in.
+    if (!CONFIG.gateway.enabled) {
+      add("gateway", "unknown", "Optional gateway is disabled");
+    } else if (!this.workerGateway) {
+      add("gateway", "unavailable", "Gateway is enabled but not wired");
+    } else if (this.gatewayStarted) {
+      add("gateway", "healthy", "Gateway is running");
+    } else {
+      add("gateway", "degraded", "Gateway is enabled but not running");
+    }
+
+    // Execution reconciliation is managed by the kernel timer.
+    if (this.executionReconcileTimer) {
+      add(
+        "execution-reconciliation",
+        this.executionReconcileLastError ? "degraded" : "healthy",
+        this.executionReconcileLastError
+          ? "Most recent reconciliation tick reported an error"
+          : this.executionReconcileInFlight
+            ? "Reconciliation tick is in progress"
+            : "Reconciliation timer is active",
+      );
+    } else {
+      add("execution-reconciliation", "unknown", "Reconciliation timer is not active");
+    }
+
+    // Transactional outbox is available only when wired.
+    if (!this.engineeringOutboxDrainer) {
+      add("engineering-outbox", "unknown", "Outbox drainer is not configured");
+    } else if (this.outboxShuttingDown) {
+      add("engineering-outbox", "unavailable", "Outbox is shutting down");
+    } else {
+      add(
+        "engineering-outbox",
+        "unknown",
+        this.outboxDrainsInFlight.size > 0
+          ? `${this.outboxDrainsInFlight.size} drain operation(s) in progress; drain success is not verified`
+          : "Outbox drainer is configured; drain success is not verified",
+      );
+    }
+
+    // Distributed scheduler is explicitly started by server-mode callers.
+    const scheduler = this.getDistributedSchedulerStatus();
+    if (!scheduler.wired) {
+      add("distributed-scheduler", "unknown", "Distributed scheduler is not wired");
+    } else if (scheduler.lastError) {
+      add("distributed-scheduler", "degraded", "Most recent scheduler tick reported an error");
+    } else if (scheduler.running) {
+      add("distributed-scheduler", "healthy", "Distributed scheduler is running");
+    } else {
+      add("distributed-scheduler", "unknown", "Distributed scheduler is not running");
+    }
+
+    // Recovery supervisor is opt-in.
+    if (!CONFIG.recovery.enabled) {
+      add("recovery-supervisor", "unknown", "Optional recovery supervisor is disabled");
+    } else {
+      const recovery = this.getRecoverySupervisorStatus();
+      if (!recovery) {
+        add("recovery-supervisor", "unavailable", "Recovery supervisor is enabled but unavailable");
+      } else if (recovery.state === "FAILED") {
+        add("recovery-supervisor", "blocked", "Recovery supervisor has failed");
+      } else if (recovery.state === "RUNNING") {
+        add("recovery-supervisor", "healthy", "Recovery supervisor is running");
+      } else {
+        add("recovery-supervisor", "degraded", "Recovery supervisor is not running");
+      }
+    }
+
+    // Drift observer is opt-in.
+    if (!CONFIG.driftObserver.enabled) {
+      add("drift-observer", "unknown", "Optional drift observer is disabled");
+    } else {
+      const drift = this.getDriftObserverStatus();
+      if (!drift) {
+        add("drift-observer", "unavailable", "Drift observer is enabled but unavailable");
+      } else if (drift.lastError) {
+        add("drift-observer", "degraded", "Most recent drift-observer tick reported an error");
+      } else if (drift.running) {
+        add("drift-observer", "healthy", "Drift observer is running");
+      } else {
+        add("drift-observer", "degraded", "Drift observer is not running");
+      }
+    }
+
+    const status: OperationalComponentStatus =
+      components.some((component) => component.status === "blocked")
+        ? "blocked"
+        : components.some((component) => component.status === "degraded")
+          ? "degraded"
+          : components.some((component) => component.status === "unavailable")
+            ? "unavailable"
+            : components.some((component) => component.status === "unknown")
+              ? "unknown"
+              : components.length > 0 &&
+                  components.every((component) => component.status === "healthy")
+                ? "healthy"
+                : "unknown";
+
+    return { status, components, timestamp: Date.now() };
+  }
   /** Real health: probes each subsystem; never reports healthy when a probe fails. */
   async health(): Promise<HealthReport> {
     const subsystems: SubsystemHealth[] = [];
@@ -1510,24 +1638,101 @@ export function createAuthApi(services: KernelServices): AuthApi {
     },
 
     async bootstrapFirstUser(email, name, password) {
-      if (await this.hasUsers()) {
-        throw Err.conflict("ALREADY_INITIALIZED", "platform identity already initialized");
-      }
-      const user = await createUserRecord({ email, name, password, role: "OWNER" });
-      await services.engine.put("users", user.id, user);
-      await services.audit.record({
-        actor: user.email,
-        action: "platform.bootstrap",
-        resource_type: "user",
-        resource_id: user.id,
-        result: "allow",
-        metadata: { role: "OWNER" }, // no credential material
-      });
-      const session = await services.sessions.issue(user.id);
-      await services.audit.record({ actor: user.email, action: "auth.login", resource_type: "session", resource_id: session.token.slice(0, 8) + "…", result: "allow" });
-      return { user: toPublicUser(user), session };
-    },
+      // Atomic bootstrap is supported only by the server SQLite engine.
+      // Other persistence backends fail closed.
+      const sqliteModulePath = "./sqlite-engine";
+      const { SQLiteEngine } = await import(/* @vite-ignore */ sqliteModulePath);
 
+      if (!(services.engine instanceof SQLiteEngine)) {
+        throw Err.persistence(
+          "ATOMIC_BOOTSTRAP_UNSUPPORTED",
+          "first-user bootstrap requires the SQLite persistence engine",
+        );
+      }
+
+      const sqliteEngine = services.engine;
+
+      // Preserve existing validation and password hashing.
+      // This asynchronous work occurs before the SQLite transaction.
+      const user = await createUserRecord({
+        email,
+        name,
+        password,
+        role: "OWNER",
+      });
+
+      const now = Date.now();
+
+      const session: Session = {
+        token: randomTokenHex(32),
+        user_id: user.id,
+        created_at: now,
+        expires_at: now + CONFIG.sessionTtlMs,
+        revoked: false,
+      };
+
+      // Preserve AuditService record structure and redaction.
+      const makeAuditRecord = (
+        action: string,
+        resourceType: string,
+        resourceId: string,
+        metadata: Record<string, unknown> = {},
+      ): AuditRecord => ({
+        id: nid("aud"),
+        timestamp: Date.now(),
+        actor: redactText(user.email),
+        action: redactText(action),
+        resource_type: redactText(resourceType),
+        resource_id: redactText(resourceId),
+        result: "allow",
+        metadata: (redactMetadata(metadata) as Record<string, unknown>) ?? {},
+      });
+
+      const bootstrapAudit = makeAuditRecord(
+        "platform.bootstrap",
+        "user",
+        user.id,
+        { role: "OWNER" },
+      );
+
+      const loginAudit = makeAuditRecord(
+        "auth.login",
+        "session",
+        session.token.slice(0, 8) + "…",
+      );
+
+      // The existence check and all four writes are inside one
+      // synchronous SQLite IMMEDIATE transaction.
+      if (typeof sqliteEngine.transactionImmediate !== "function") {
+        throw Err.startup("ATOMIC_BOOTSTRAP_UNAVAILABLE", "engine does not support immediate transactions");
+      }
+      return sqliteEngine.transactionImmediate(() => {
+        const existingUser = sqliteEngine.prepare(
+          "SELECT 1 AS present FROM nexus_records WHERE store = ? LIMIT 1",
+        ).get("users");
+
+        if (existingUser) {
+          throw Err.conflict(
+            "ALREADY_INITIALIZED",
+            "platform identity already initialized",
+          );
+        }
+
+        const insert = sqliteEngine.prepare(
+          "INSERT INTO nexus_records (store, key, value) VALUES (?, ?, ?)",
+        );
+
+        insert.run("users", user.id, JSON.stringify(user));
+        insert.run("sessions", session.token, JSON.stringify(session));
+        insert.run("audit", bootstrapAudit.id, JSON.stringify(bootstrapAudit));
+        insert.run("audit", loginAudit.id, JSON.stringify(loginAudit));
+
+        return {
+          user: toPublicUser(user),
+          session,
+        };
+      });
+    },
     async login(email, password) {
       const user = await findUserByEmail(email);
       if (!user || !(await verifyPassword(user, password))) {

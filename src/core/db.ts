@@ -119,6 +119,13 @@ export interface NexusEngine {
   prepare(sql: string): SQLStatement;
   exec(sql: string): void;
   transaction<T>(fn: () => T): T;
+
+  /**
+   * Optional synchronous transaction using SQLite's IMMEDIATE lock.
+   * Only implemented by SQLiteEngine; absent on IndexedDB and memory engines.
+   * Callers must narrow before use (e.g. `typeof engine.transactionImmediate === "function"`).
+   */
+  transactionImmediate?<T>(fn: () => T): T;
 }
 
 /** A prepared SQL statement compatible with better-sqlite3 Statement. */

@@ -28,6 +28,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "approval:request", "approval:decide",
     "event:read", "audit:read", "evidence:read", "evidence:create",
     "config:read", "system:health", "system:configure",
+    "system:diagnostics",
     "github:connect", "github:read", "github:push",
     // Phase 3 Pass 3 — CI/CD + Git provider foundation.
     "pipeline:create", "pipeline:read", "pipeline:execute",
@@ -44,6 +45,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "approval:request", "approval:decide",
     "event:read", "audit:read", "evidence:read", "evidence:create",
     "config:read", "system:health",
+    "system:diagnostics",
     "github:connect", "github:read", "github:push",
     // Phase 3 Pass 3 — CI/CD + Git provider foundation.
     "pipeline:create", "pipeline:read", "pipeline:execute",
@@ -60,6 +62,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "approval:request",
     "event:read", "audit:read", "evidence:read", "evidence:create",
     "config:read", "system:health",
+    "system:diagnostics",
     "github:read",
     // Phase 3 Pass 3 — operate + read CI pipelines, no write/config.
     "pipeline:read", "pipeline:execute", "git:read",

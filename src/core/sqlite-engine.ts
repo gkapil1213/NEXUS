@@ -46,7 +46,18 @@ export class SQLiteEngine implements NexusEngine {
   return tx();
   
 }
-
+  /**
+   * Run a synchronous transaction using SQLite's IMMEDIATE lock.
+   * Acquires the write reservation before executing the callback so
+   * concurrent first-user bootstrap attempts cannot both pass the
+   * initialization check.
+   *
+   * The callback must remain synchronous. Do not await inside it.
+   */
+  transactionImmediate<T>(fn: () => T): T {
+    const tx = this.db.transaction(fn);
+    return tx.immediate();
+  }
   getDatabase(): Database.Database {
     return this.db;
   }
