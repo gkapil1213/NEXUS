@@ -29,6 +29,30 @@ export async function bootstrapPgSchema(pg: PgClient): Promise<void> {
         ON nexus_idempotency_keys (created_at)
     `);
 
+    // Phase 307: atomic request ownership and response completion.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS nexus_idempotency_claims (
+        idempotency_key TEXT PRIMARY KEY,
+        principal_id TEXT NOT NULL,
+        method TEXT NOT NULL,
+        path TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        state TEXT NOT NULL CHECK (state IN ('IN_PROGRESS', 'COMPLETED')),
+        response_status INTEGER,
+        response_body TEXT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        CHECK (
+          (state = 'IN_PROGRESS' AND response_status IS NULL AND response_body IS NULL)
+          OR
+          (state = 'COMPLETED' AND response_status BETWEEN 200 AND 299 AND response_body IS NOT NULL)
+        )
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_nexus_idem_claims_created
+        ON nexus_idempotency_claims (created_at)
+    `);
     // Phase 183b: authoritative execution job state.
     // Translated from src/db/migrations/020_phase13_execution.sql.
     // INTEGER timestamps -> BIGINT (epoch ms exceeds 32-bit range).
